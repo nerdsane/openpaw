@@ -40,6 +40,10 @@ const OPENAI_CODEX_ACCESS_TOKEN: &str = "openai_codex_access_token";
 const OPENAI_CODEX_REFRESH_TOKEN: &str = "openai_codex_refresh_token";
 const OPENAI_CODEX_EXPIRES_AT_MS: &str = "openai_codex_expires_at_ms";
 const OPENAI_CODEX_ACCOUNT_ID: &str = "openai_codex_account_id";
+const RAILWAY_GRAPHQL_URL: &str = "https://backboard.railway.com/graphql/v2";
+const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
+const DATADOG_RUNTIME_AGENT_IMAGE: &str = "datadog/agent:7";
+const DATADOG_RUNTIME_AGENT_HOST: &str = "datadog-runtime-agent.railway.internal";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -309,6 +313,10 @@ pub fn router(state: SetupApiState) -> Router {
         .route("/paw/transports/slack/disconnect", post(disconnect_slack))
         .route("/paw/infra/railway/status", get(get_railway_status))
         .route("/paw/infra/railway/set-var", post(set_railway_var))
+        .route(
+            "/paw/infra/railway/datadog-runtime-agent/ensure",
+            post(ensure_datadog_runtime_agent),
+        )
         .route("/paw/infra/railway/redeploy", post(railway_redeploy))
         .route("/paw/version", get(get_version))
         .route("/paw/infra/updates", get(check_for_updates))
@@ -1584,6 +1592,379 @@ async fn set_railway_var(
             Json(serde_json::json!({ "error": format!("Railway API request failed: {e}") })),
         )
             .into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct EnsureDatadogRuntimeAgentResponse {
+    ensured: bool,
+    service_id: String,
+    service_name: &'static str,
+    created: bool,
+    app_variables_set: usize,
+    runtime_agent_variables_set: usize,
+    runtime_agent_redeploy_triggered: bool,
+    app_redeploy_triggered: bool,
+    datadog_profile: &'static str,
+}
+
+async fn ensure_datadog_runtime_agent(State(state): State<SetupApiState>) -> impl IntoResponse {
+    let vault = match state.platform.server.secrets_vault.as_ref() {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Vault not initialized" })),
+            )
+                .into_response();
+        }
+    };
+
+    let railway_token = vault.get_secret(&state.tenant, "railway_token");
+    let project_id = vault.get_secret(&state.tenant, "railway_project_id");
+    let environment_id = vault.get_secret(&state.tenant, "railway_environment_id");
+    let app_service_id = vault.get_secret(&state.tenant, "railway_service_id");
+    let dd_api_key = vault
+        .get_secret(&state.tenant, "dd_api_key")
+        .or_else(|| vault.get_secret("default", "dd_api_key"));
+    let dd_site = vault
+        .get_secret(&state.tenant, "dd_site")
+        .or_else(|| vault.get_secret("default", "dd_site"))
+        .unwrap_or_else(|| "datadoghq.com".to_string());
+
+    let (Some(token), Some(project), Some(env), Some(app_svc), Some(dd_key)) = (
+        railway_token,
+        project_id,
+        environment_id,
+        app_service_id,
+        dd_api_key,
+    ) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Railway Datadog Runtime Agent ensure requires railway_token, railway_project_id, railway_environment_id, railway_service_id, and dd_api_key."
+            })),
+        )
+            .into_response();
+    };
+
+    let client = reqwest::Client::new();
+    let result = async {
+        let existing_service = railway_find_service_by_name(
+            &client,
+            &token,
+            &project,
+            DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+        )
+        .await?;
+        let (runtime_service_id, created) = match existing_service {
+            Some(service_id) => (service_id, false),
+            None => {
+                let service_id = railway_create_datadog_runtime_agent_service(
+                    &client, &token, &project, &env, &dd_key, &dd_site,
+                )
+                .await?;
+                (service_id, true)
+            }
+        };
+
+        railway_update_service_source_image(
+            &client,
+            &token,
+            &env,
+            &runtime_service_id,
+            DATADOG_RUNTIME_AGENT_IMAGE,
+        )
+        .await?;
+
+        let runtime_agent_vars = datadog_runtime_agent_railway_vars(&dd_key, &dd_site);
+        for (name, value) in &runtime_agent_vars {
+            railway_upsert_variable(
+                &client,
+                &token,
+                &project,
+                &env,
+                &runtime_service_id,
+                name,
+                value,
+            )
+            .await?;
+        }
+
+        let app_vars = datadog_enhanced_app_railway_vars(&dd_key, &dd_site, &state.build_sha);
+        for (name, value) in &app_vars {
+            railway_upsert_variable(&client, &token, &project, &env, &app_svc, name, value).await?;
+        }
+
+        persist_infra_secret(
+            vault,
+            &state.storage,
+            &state.tenant,
+            "railway_datadog_runtime_agent_service_id",
+            &runtime_service_id,
+        )
+        .await;
+
+        railway_redeploy_service(&client, &token, &env, &runtime_service_id).await?;
+        railway_redeploy_service(&client, &token, &env, &app_svc).await?;
+
+        Ok::<EnsureDatadogRuntimeAgentResponse, anyhow::Error>(EnsureDatadogRuntimeAgentResponse {
+            ensured: true,
+            service_id: runtime_service_id,
+            service_name: DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+            created,
+            app_variables_set: app_vars.len(),
+            runtime_agent_variables_set: runtime_agent_vars.len(),
+            runtime_agent_redeploy_triggered: true,
+            app_redeploy_triggered: true,
+            datadog_profile: "datadog-enhanced-railway",
+        })
+    }
+    .await;
+
+    match result {
+        Ok(response) => (StatusCode::OK, Json(serde_json::json!(response))).into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+fn datadog_runtime_agent_railway_vars(
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("DD_API_KEY", dd_api_key.to_string()),
+        ("DD_SITE", dd_site.to_string()),
+        ("DD_ENV", "prod".to_string()),
+        ("DD_SERVICE", "temperpaw".to_string()),
+        ("DD_HOSTNAME", "temperpaw-runtime-agent".to_string()),
+        (
+            "DD_TAGS",
+            "team:temperpaw,service:temperpaw,railway_profile:datadog-enhanced".to_string(),
+        ),
+        ("DD_APM_ENABLED", "true".to_string()),
+        ("DD_APM_NON_LOCAL_TRAFFIC", "true".to_string()),
+        (
+            "DD_APM_FEATURES",
+            "enable_operation_and_resource_name_logic_v2".to_string(),
+        ),
+        ("DD_LOGS_ENABLED", "true".to_string()),
+        ("DD_OTLP_CONFIG_LOGS_ENABLED", "true".to_string()),
+        (
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT",
+            "0.0.0.0:4318".to_string(),
+        ),
+        (
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT",
+            "0.0.0.0:4317".to_string(),
+        ),
+        ("DD_PROCESS_AGENT_ENABLED", "true".to_string()),
+    ]
+}
+
+fn datadog_enhanced_app_railway_vars(
+    dd_api_key: &str,
+    dd_site: &str,
+    build_sha: &str,
+) -> Vec<(&'static str, String)> {
+    let version = if build_sha.trim().is_empty() {
+        "unknown".to_string()
+    } else {
+        build_sha.to_string()
+    };
+
+    vec![
+        ("DD_API_KEY", dd_api_key.to_string()),
+        ("DD_SITE", dd_site.to_string()),
+        ("DD_SERVICE", "temperpaw".to_string()),
+        ("DD_ENV", "prod".to_string()),
+        ("DD_VERSION", version),
+        ("DD_TAGS", "team:temperpaw".to_string()),
+        ("TEMPER_PROFILING_ENABLED", "true".to_string()),
+        ("TEMPER_PROFILING_AUTO_UPLOAD", "true".to_string()),
+        (
+            "TEMPER_DATADOG_RAILWAY_PROFILE",
+            "datadog-enhanced-railway".to_string(),
+        ),
+        ("DD_LLMOBS_API_ENABLED", "true".to_string()),
+        (
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            format!("http://{DATADOG_RUNTIME_AGENT_HOST}:4318"),
+        ),
+        ("DD_AGENT_HOST", DATADOG_RUNTIME_AGENT_HOST.to_string()),
+        ("DD_TRACE_AGENT_PORT", "8126".to_string()),
+        (
+            "DD_TRACE_AGENT_URL",
+            format!("http://{DATADOG_RUNTIME_AGENT_HOST}:8126"),
+        ),
+    ]
+}
+
+async fn railway_find_service_by_name(
+    client: &reqwest::Client,
+    token: &str,
+    project_id: &str,
+    name: &str,
+) -> Result<Option<String>> {
+    let query = serde_json::json!({
+        "query": "query($projectId: String!) { project(id: $projectId) { services { edges { node { id name } } } } }",
+        "variables": { "projectId": project_id },
+    });
+    let data = railway_graphql(client, token, query).await?;
+    let services = data
+        .pointer("/project/services/edges")
+        .and_then(|edges| edges.as_array())
+        .ok_or_else(|| anyhow!("Railway project service list was missing from API response"))?;
+
+    Ok(services.iter().find_map(|edge| {
+        let node = edge.get("node")?;
+        let service_name = node.get("name")?.as_str()?;
+        if service_name == name {
+            node.get("id")?.as_str().map(str::to_string)
+        } else {
+            None
+        }
+    }))
+}
+
+async fn railway_create_datadog_runtime_agent_service(
+    client: &reqwest::Client,
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Result<String> {
+    let variables = datadog_runtime_agent_railway_vars(dd_api_key, dd_site)
+        .into_iter()
+        .map(|(name, value)| (name.to_string(), serde_json::Value::String(value)))
+        .collect::<serde_json::Map<_, _>>();
+    let query = serde_json::json!({
+        "query": "mutation($projectId: String!, $environmentId: String!, $name: String!, $source: ServiceSourceInput, $variables: EnvironmentVariables) { serviceCreate(input: { projectId: $projectId, environmentId: $environmentId, name: $name, source: $source, variables: $variables }) { id name } }",
+        "variables": {
+            "projectId": project_id,
+            "environmentId": environment_id,
+            "name": DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+            "source": { "image": DATADOG_RUNTIME_AGENT_IMAGE },
+            "variables": variables,
+        },
+    });
+    let data = railway_graphql(client, token, query).await?;
+    data.pointer("/serviceCreate/id")
+        .and_then(|id| id.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("Railway serviceCreate response did not include a service id"))
+}
+
+async fn railway_update_service_source_image(
+    client: &reqwest::Client,
+    token: &str,
+    environment_id: &str,
+    service_id: &str,
+    image: &str,
+) -> Result<()> {
+    let query = serde_json::json!({
+        "query": "mutation($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }",
+        "variables": {
+            "serviceId": service_id,
+            "environmentId": environment_id,
+            "input": {
+                "source": { "image": image },
+                "restartPolicyType": "ALWAYS",
+                "numReplicas": 1,
+            },
+        },
+    });
+    let _ = railway_graphql(client, token, query).await?;
+    Ok(())
+}
+
+async fn railway_upsert_variable(
+    client: &reqwest::Client,
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    service_id: &str,
+    name: &str,
+    value: &str,
+) -> Result<()> {
+    let query = serde_json::json!({
+        "query": "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+        "variables": {
+            "input": {
+                "projectId": project_id,
+                "environmentId": environment_id,
+                "serviceId": service_id,
+                "name": name,
+                "value": value,
+            }
+        }
+    });
+    let _ = railway_graphql(client, token, query).await?;
+    Ok(())
+}
+
+async fn railway_redeploy_service(
+    client: &reqwest::Client,
+    token: &str,
+    environment_id: &str,
+    service_id: &str,
+) -> Result<()> {
+    let query = serde_json::json!({
+        "query": "mutation($serviceId: String!, $environmentId: String!) { serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId) }",
+        "variables": {
+            "serviceId": service_id,
+            "environmentId": environment_id,
+        }
+    });
+    let _ = railway_graphql(client, token, query).await?;
+    Ok(())
+}
+
+async fn railway_graphql(
+    client: &reqwest::Client,
+    token: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let response = client
+        .post(RAILWAY_GRAPHQL_URL)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .context("Railway GraphQL request failed")?;
+    let status = response.status();
+    let body: serde_json::Value = response.json().await.unwrap_or_default();
+    if status.is_success() && body.get("errors").is_none() {
+        Ok(body.get("data").cloned().unwrap_or_default())
+    } else {
+        let message = body["errors"]
+            .as_array()
+            .and_then(|errors| errors.first())
+            .and_then(|error| error["message"].as_str())
+            .unwrap_or("Railway API error");
+        Err(anyhow!(message.to_string()))
+    }
+}
+
+async fn persist_infra_secret(
+    vault: &Arc<temper_server::secrets::SecretsVault>,
+    storage: &PawStorage,
+    tenant: &str,
+    key: &str,
+    value: &str,
+) {
+    let _ = vault.cache_secret(tenant, key, value.to_string());
+    let _ = vault.cache_platform_secret(key, value.to_string());
+    if let Ok((ciphertext, nonce)) = vault.encrypt(value.as_bytes()) {
+        let _ = storage
+            .upsert_secret(tenant, key, &ciphertext, &nonce)
+            .await;
     }
 }
 

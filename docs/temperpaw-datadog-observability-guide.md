@@ -82,6 +82,14 @@ Railway production has two supported observability profiles:
 - `portable-otel` keeps the existing `otel-collector` route as the fallback for
   non-Datadog and recovery deployments.
 
+For an already-deployed Railway instance, call
+`POST /paw/infra/railway/datadog-runtime-agent/ensure`. The endpoint uses the
+stored Railway deployment token internally, creates or reuses the
+`datadog-runtime-agent` service from `datadog/agent:7`, sets the Runtime Agent
+and TemperPaw Datadog-enhanced variables, persists
+`railway_datadog_runtime_agent_service_id`, and redeploys the Agent and app
+without returning the Railway token or Datadog API key.
+
 Product status is green or proven blocked, not guessed:
 
 | Product | Railway status |

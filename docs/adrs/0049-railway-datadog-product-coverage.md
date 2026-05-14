@@ -53,6 +53,13 @@ process Agent, unified service tags, and Datadog trace intake. The existing
 `otel-collector` remains deployed as the `portable-otel` fallback path and as
 the explicit non-Datadog mode.
 
+For already-running Railway deployments, TemperPaw exposes a governed setup API
+action at `/paw/infra/railway/datadog-runtime-agent/ensure`. It uses the stored
+Railway deployment token server-side to create or reuse the Runtime Agent
+service, apply the required Agent and app variables, persist the Runtime Agent
+service id, and redeploy both services without returning infrastructure secrets
+to callers.
+
 ## Product Classification
 
 | Product | Classification | Railway proof bar |

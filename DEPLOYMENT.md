@@ -24,7 +24,14 @@ TemperPaw is a **single-user, self-hosted** platform. Each deployment serves one
          |                              |
          |  otel-collector (sidecar)    |
          |    port 4318 (internal)      |
-         |    -> Datadog (if DD_API_KEY)|
+         |    portable-otel fallback    |
+         |                              |
+         |  datadog-runtime-agent       |
+         |    4318 OTLP, 8126 APM       |
+         |    Datadog-enhanced profile  |
+         |                              |
+         |  datadog-postgres-agent      |
+         |    DBM only                  |
          +------------------------------+
                    |           |
                    v           v
@@ -62,12 +69,29 @@ This command:
 2. Authenticates with each service (interactive browser flows)
 3. Creates a Turso database named `temperpaw-<username>`
 4. Creates an R2 bucket named `temperpaw-fs-<username>`
-5. Creates a Railway project named `temperpaw-<username>` with two services
+5. Creates a Railway project named `temperpaw-<username>` with the app,
+   collector fallback, and Datadog services when Datadog credentials are present
 6. Seeds all environment variables (DB credentials, blob keys, LLM keys, OTEL config)
-7. Deploys the OTEL collector sidecar
+7. Deploys the OTEL collector fallback and Datadog Runtime Agent/DBM services
+   when configured
 8. Deploys the pre-built Docker image from GHCR
 9. Assigns a public domain and polls `/readyz` until the new deployment is ready
 10. Prints the dashboard URL
+
+Existing Railway deployments can enable the Datadog Runtime Agent path without
+copying infrastructure secrets out of the app by calling:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $TEMPER_API_KEY" \
+  -H "Content-Type: application/json" \
+  https://openpaw-production.up.railway.app/paw/infra/railway/datadog-runtime-agent/ensure
+```
+
+That governed endpoint creates or reuses `datadog-runtime-agent` from
+`datadog/agent:7`, sets Agent and app Datadog variables, stores the Runtime
+Agent service id, and redeploys the Agent plus the app. It does not return the
+Railway token or Datadog API key.
 
 ### LLM credential auto-detection
 

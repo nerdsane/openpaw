@@ -1503,6 +1503,44 @@ fn railway_runtime_agent_service_id_is_persisted_for_dashboard_status() {
 }
 
 #[test]
+fn setup_api_can_ensure_railway_datadog_runtime_agent_without_exposing_tokens() {
+    let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
+
+    for required in [
+        "/paw/infra/railway/datadog-runtime-agent/ensure",
+        "ensure_datadog_runtime_agent",
+        "serviceCreate",
+        "ServiceSourceInput",
+        "datadog/agent:7",
+        "datadog-runtime-agent",
+        "railway_datadog_runtime_agent_service_id",
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT",
+        "DD_APM_NON_LOCAL_TRAFFIC",
+        "DD_LOGS_ENABLED",
+        "DD_PROCESS_AGENT_ENABLED",
+        "TEMPER_DATADOG_RAILWAY_PROFILE",
+        "datadog-enhanced-railway",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "DD_TRACE_AGENT_URL",
+        "DD_LLMOBS_API_ENABLED",
+    ] {
+        assert!(
+            setup_api.contains(required),
+            "Railway setup API must be able to ensure Runtime Agent contract `{required}`"
+        );
+    }
+
+    assert!(
+        setup_api.contains("\"DD_API_KEY\"") && setup_api.contains("\"dd_api_key\""),
+        "ensure endpoint must read Datadog credentials from the vault and set Agent vars internally"
+    );
+    assert!(
+        !setup_api.contains("railway_token\" })"),
+        "ensure endpoint responses must not serialize the Railway token"
+    );
+}
+
+#[test]
 fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
     let provider_caller = std::fs::read_to_string(
         repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"),
