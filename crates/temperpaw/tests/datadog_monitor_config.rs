@@ -22,6 +22,35 @@ fn monitors_by_name(monitors: &[Value]) -> HashMap<&str, &Value> {
         .collect()
 }
 
+fn collect_strings<'a>(value: &'a Value, strings: &mut Vec<&'a str>) {
+    match value {
+        Value::String(value) => strings.push(value),
+        Value::Array(values) => {
+            for value in values {
+                collect_strings(value, strings);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values() {
+                collect_strings(value, strings);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn dashboard_group<'a>(dashboard: &'a Value, title: &str) -> &'a Value {
+    dashboard["widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|widget| {
+            widget["definition"]["type"].as_str() == Some("group")
+                && widget["definition"]["title"].as_str() == Some(title)
+        })
+        .unwrap_or_else(|| panic!("{title} dashboard group should exist"))
+}
+
 #[test]
 fn temperpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_metrics() {
     let monitors = load_monitors();
@@ -228,7 +257,106 @@ fn platform_dashboard_widgets_do_not_blank_on_known_datadog_query_drift() {
         );
     }
     assert!(
-        dashboard_json.contains("Handler liveness metrics are reserved until temper#147 emits"),
-        "reserved handler-liveness coverage should be explicit instead of blank metric widgets"
+        !dashboard_json.contains("Handler liveness metrics are reserved until temper#147 emits"),
+        "reserved handler-liveness coverage should not render as a comment-only dashboard section"
     );
+}
+
+#[test]
+fn platform_dashboard_avoids_unsupported_percentile_queries() {
+    let dashboard = load_dashboard();
+    let mut strings = Vec::new();
+    collect_strings(&dashboard, &mut strings);
+
+    for value in strings {
+        assert!(
+            !value.contains("p50:")
+                && !value.contains("p75:")
+                && !value.contains("p90:")
+                && !value.contains("p95:")
+                && !value.contains("p99:"),
+            "Datadog percentiles are not enabled for Temper runtime metrics; use avg/max/count instead: {value}"
+        );
+    }
+}
+
+#[test]
+fn platform_dashboard_groups_are_not_comment_only_sections() {
+    let dashboard = load_dashboard();
+    let widgets = dashboard["widgets"].as_array().unwrap();
+    let note_only_groups = widgets
+        .iter()
+        .filter_map(|widget| {
+            let definition = &widget["definition"];
+            if definition["type"].as_str()? != "group" {
+                return None;
+            }
+            let child_widgets = definition["widgets"].as_array()?;
+            let non_note_widgets = child_widgets
+                .iter()
+                .filter(|child| child["definition"]["type"].as_str() != Some("note"))
+                .count();
+            (non_note_widgets == 0).then(|| definition["title"].as_str().unwrap_or("<untitled>"))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        note_only_groups.is_empty(),
+        "dashboard groups should contain real data widgets, not only notes: {note_only_groups:?}"
+    );
+    assert!(
+        widgets.iter().all(|widget| {
+            widget["definition"]["title"]
+                .as_str()
+                .is_none_or(|title| !title.starts_with("Handler Liveness"))
+        }),
+        "reserved handler-liveness telemetry should be omitted until live metrics exist"
+    );
+}
+
+#[test]
+fn log_oriented_dashboard_sections_have_list_widgets() {
+    let dashboard = load_dashboard();
+
+    for (title, expected_query) in [
+        (
+            "Channel Transports",
+            "service:temperpaw @observability_event:temperpaw.transport",
+        ),
+        (
+            "Webhook Triggers",
+            "service:temperpaw @observability_event:temperpaw.webhook",
+        ),
+        (
+            "Governance Approvals",
+            "service:temperpaw @observability_event:temperpaw.approval",
+        ),
+    ] {
+        let group = dashboard_group(&dashboard, title);
+        let list_queries = group["definition"]["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|widget| widget["definition"]["type"].as_str() == Some("list_stream"))
+            .flat_map(|widget| {
+                widget["definition"]["requests"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+            })
+            .filter_map(|request| {
+                let query = &request["query"];
+                (query["data_source"].as_str() == Some("logs_stream"))
+                    .then(|| query["query_string"].as_str())
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            list_queries
+                .iter()
+                .any(|query| query.contains(expected_query)),
+            "{title} should include a Datadog logs list widget scoped to {expected_query}, got {list_queries:?}"
+        );
+    }
 }

@@ -209,9 +209,39 @@
         "layout_type": "ordered",
         "widgets": [
           {
+            "id": 8996021320627199,
             "definition": {
-              "type": "note",
-              "content": "Use Log Explorer for Slack/Discord ingress, reply delivery, slash commands, and approvals: `service:temperpaw @observability_event:temperpaw.transport @transport.name:slack @transport.operation:receive_message`, `@transport.name:discord`, `@transport.outcome:error`, `@transport.channel_id:<channel id>`, and `@transport.message_id:<message id>`. Transport logs intentionally expose message length and IDs, not message bodies."
+              "title": "Recent Transport Logs",
+              "title_align": "left",
+              "title_size": "16",
+              "type": "list_stream",
+              "requests": [
+                {
+                  "response_format": "event_list",
+                  "columns": [
+                    {
+                      "field": "timestamp",
+                      "width": "compact"
+                    },
+                    {
+                      "field": "status",
+                      "width": "compact"
+                    },
+                    {
+                      "field": "content",
+                      "width": "auto"
+                    }
+                  ],
+                  "query": {
+                    "data_source": "logs_stream",
+                    "indexes": [
+                      "*"
+                    ],
+                    "query_string": "service:temperpaw @observability_event:temperpaw.transport (@transport.name:slack OR @transport.name:discord OR @transport.operation:receive_message OR @transport.outcome:error)",
+                    "storage": "indexes"
+                  }
+                }
+              ]
             }
           }
         ]
@@ -224,9 +254,39 @@
         "layout_type": "ordered",
         "widgets": [
           {
+            "id": 2594649222620435,
             "definition": {
-              "type": "note",
-              "content": "Use Log Explorer for trigger ingress before downstream routing: `service:temperpaw @observability_event:temperpaw.webhook @webhook.route_key:<route key>`, `@webhook.event_id:<event id>`, `@webhook.operation:receive`, `@webhook.operation:dispatch_received`, and `@webhook.outcome:error`. Webhook trigger logs expose payload length and routing ids, not raw payload bodies."
+              "title": "Recent Webhook Trigger Logs",
+              "title_align": "left",
+              "title_size": "16",
+              "type": "list_stream",
+              "requests": [
+                {
+                  "response_format": "event_list",
+                  "columns": [
+                    {
+                      "field": "timestamp",
+                      "width": "compact"
+                    },
+                    {
+                      "field": "status",
+                      "width": "compact"
+                    },
+                    {
+                      "field": "content",
+                      "width": "auto"
+                    }
+                  ],
+                  "query": {
+                    "data_source": "logs_stream",
+                    "indexes": [
+                      "*"
+                    ],
+                    "query_string": "service:temperpaw @observability_event:temperpaw.webhook (@webhook.route_key:* OR @webhook.event_id:* OR @webhook.operation:receive OR @webhook.operation:dispatch_received OR @webhook.outcome:error)",
+                    "storage": "indexes"
+                  }
+                }
+              ]
             }
           }
         ]
@@ -959,37 +1019,16 @@
           },
           {
             "definition": {
-              "title": "Session Context Tokens p95 / p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Session Context Tokens avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_session_context_tokens{service:temperpaw}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_session_context_tokens{service:temperpaw}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_session_context_tokens{service:temperpaw} by {provider}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_session_context_tokens{service:temperpaw} by {provider}.rollup(max, 60)"
                 }
               ]
             }
@@ -1017,20 +1056,16 @@
           },
           {
             "definition": {
-              "title": "Ask Attempts Distribution",
+              "title": "Ask Attempts avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p50:temper_dispatch_ask_attempts{service:temperpaw}",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_dispatch_ask_attempts{service:temperpaw}.rollup(avg, 60)"
                 },
                 {
-                  "q": "p95:temper_dispatch_ask_attempts{service:temperpaw}",
-                  "display_type": "line"
-                },
-                {
-                  "q": "p99:temper_dispatch_ask_attempts{service:temperpaw}",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "max:temper_dispatch_ask_attempts{service:temperpaw}.rollup(max, 60)"
                 }
               ]
             }
@@ -1072,46 +1107,16 @@
           },
           {
             "definition": {
-              "title": "Dispatch Attempts Percentiles",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Dispatch Attempts by Entity avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p50",
-                      "query": "p50:temper_dispatch_ask_attempts{service:temperpaw}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_dispatch_ask_attempts{service:temperpaw}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_dispatch_ask_attempts{service:temperpaw}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p50",
-                      "alias": "p50"
-                    },
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_dispatch_ask_attempts{service:temperpaw} by {entity_type}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_dispatch_ask_attempts{service:temperpaw} by {entity_type}.rollup(max, 60)"
                 }
               ]
             }
@@ -1166,12 +1171,12 @@
           },
           {
             "definition": {
-              "title": "Time-in-State p95",
+              "title": "Time-in-State avg",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p95:temper_state_time_in_state_seconds{service:temperpaw} by {entity_type,state}",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_state_time_in_state_seconds{service:temperpaw} by {entity_type,state}.rollup(avg, 60)"
                 }
               ]
             }
@@ -1369,12 +1374,12 @@
           },
           {
             "definition": {
-              "title": "Wait Time p95",
+              "title": "Wait Time avg",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p95:temper_admission_wait_time_ms{service:temperpaw} by {entity_type,action}",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_admission_wait_time_ms{service:temperpaw} by {entity_type,action}.rollup(avg, 60)"
                 }
               ]
             }
@@ -1447,12 +1452,12 @@
           },
           {
             "definition": {
-              "title": "Actor Reply Latency p95",
+              "title": "Actor Reply Latency avg",
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p95:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type}",
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type}.rollup(avg, 60)"
                 }
               ]
             }
@@ -1501,147 +1506,64 @@
         "widgets": [
           {
             "definition": {
-              "title": "Actor Registry Lock Wait — Cold Start p95/p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Actor Registry Lock Wait - Cold Start avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:true} by {entity_type}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:true} by {entity_type}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:true} by {entity_type}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:true} by {entity_type}.rollup(max, 60)"
                 }
               ]
             }
           },
           {
             "definition": {
-              "title": "Actor Registry Lock Wait — Hot Path p95/p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Actor Registry Lock Wait - Hot Path avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:false} by {entity_type}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:false} by {entity_type}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:false} by {entity_type}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:false} by {entity_type}.rollup(max, 60)"
                 }
               ]
             }
           },
           {
             "definition": {
-              "title": "Actor Cold-Start Duration p50/p95/p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Actor Cold-Start Duration avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p50",
-                      "query": "p50:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p50",
-                      "alias": "p50"
-                    },
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}.rollup(max, 60)"
                 }
               ]
             }
           },
           {
             "definition": {
-              "title": "Inside-Actor Ask Reply Latency p95",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Inside-Actor Ask Reply Latency avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type,action}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p95"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type,action}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type,action}.rollup(max, 60)"
                 }
               ]
             }
@@ -1675,96 +1597,34 @@
           },
           {
             "definition": {
-              "title": "Event-Store Append Wait p95 / p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Event-Store Append Wait avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_event_store_append_wait_ms{service:temperpaw} by {backend}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_event_store_append_wait_ms{service:temperpaw} by {backend}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_event_store_append_wait_ms{service:temperpaw} by {backend}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_event_store_append_wait_ms{service:temperpaw} by {backend}.rollup(max, 60)"
                 }
               ]
             }
           },
           {
             "definition": {
-              "title": "Cedar Evaluation Duration p95 / p99",
-              "title_size": "16",
-              "title_align": "left",
-              "show_legend": true,
+              "title": "Cedar Evaluation Duration avg / max",
               "type": "timeseries",
               "requests": [
                 {
-                  "response_format": "timeseries",
-                  "queries": [
-                    {
-                      "data_source": "metrics",
-                      "name": "p95",
-                      "query": "p95:temper_cedar_evaluation_duration{service:temperpaw} by {decision}"
-                    },
-                    {
-                      "data_source": "metrics",
-                      "name": "p99",
-                      "query": "p99:temper_cedar_evaluation_duration{service:temperpaw} by {decision}"
-                    }
-                  ],
-                  "formulas": [
-                    {
-                      "formula": "p95",
-                      "alias": "p95"
-                    },
-                    {
-                      "formula": "p99",
-                      "alias": "p99"
-                    }
-                  ],
-                  "display_type": "line"
+                  "display_type": "line",
+                  "q": "avg:temper_cedar_evaluation_duration{service:temperpaw} by {decision}.rollup(avg, 60)"
+                },
+                {
+                  "display_type": "line",
+                  "q": "max:temper_cedar_evaluation_duration{service:temperpaw} by {decision}.rollup(max, 60)"
                 }
               ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "definition": {
-        "title": "Handler Liveness (W3 / temper#147 — reserved)",
-        "type": "group",
-        "layout_type": "ordered",
-        "widgets": [
-          {
-            "definition": {
-              "type": "note",
-              "content": "**Handler Liveness.** Handler liveness metrics are reserved until temper#147 emits the W3 telemetry contract. The blank placeholder widgets were removed so this dashboard only shows live or intentionally zero-filled telemetry.",
-              "background_color": "gray",
-              "font_size": "12",
-              "text_align": "left",
-              "vertical_align": "top",
-              "show_tick": false
             }
           }
         ]
@@ -1777,9 +1637,39 @@
         "layout_type": "ordered",
         "widgets": [
           {
+            "id": 4763441640836004,
             "definition": {
-              "type": "note",
-              "content": "Use Log Explorer for approval waits and notification failures: `service:temperpaw @observability_event:temperpaw.approval @decision_id:<decision id>`, `@session_id:<session id>`, `@approval.operation:notify_human`, `@approval.operation:register_callback`, `@approval.outcome:error`, and `@approval.delivery:skipped`. Approval logs expose routing ids and outcomes, not human notification bodies."
+              "title": "Recent Approval Logs",
+              "title_align": "left",
+              "title_size": "16",
+              "type": "list_stream",
+              "requests": [
+                {
+                  "response_format": "event_list",
+                  "columns": [
+                    {
+                      "field": "timestamp",
+                      "width": "compact"
+                    },
+                    {
+                      "field": "status",
+                      "width": "compact"
+                    },
+                    {
+                      "field": "content",
+                      "width": "auto"
+                    }
+                  ],
+                  "query": {
+                    "data_source": "logs_stream",
+                    "indexes": [
+                      "*"
+                    ],
+                    "query_string": "service:temperpaw @observability_event:temperpaw.approval (@decision_id:* OR @session_id:* OR @approval.operation:notify_human OR @approval.operation:register_callback OR @approval.outcome:error OR @approval.delivery:skipped)",
+                    "storage": "indexes"
+                  }
+                }
+              ]
             }
           }
         ]

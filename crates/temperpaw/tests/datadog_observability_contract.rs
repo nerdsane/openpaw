@@ -848,7 +848,7 @@ fn datadog_covers_governance_approval_observability() {
         "Governance Approvals",
         "temperpaw.approval",
         "approval.operation",
-        "@decision_id:<decision id>",
+        "@decision_id:*",
     ] {
         assert!(
             dashboard.contains(required),
