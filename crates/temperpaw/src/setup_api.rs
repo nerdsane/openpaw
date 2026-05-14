@@ -1814,7 +1814,7 @@ async fn railway_find_service_by_name(
         "query": "query($projectId: String!) { project(id: $projectId) { services { edges { node { id name } } } } }",
         "variables": { "projectId": project_id },
     });
-    let data = railway_graphql(client, token, query).await?;
+    let data = railway_graphql_data(client, token, query, "Runtime Agent service lookup").await?;
     let services = data
         .pointer("/project/services/edges")
         .and_then(|edges| edges.as_array())
@@ -1853,7 +1853,7 @@ async fn railway_create_datadog_runtime_agent_service(
             "variables": variables,
         },
     });
-    let data = railway_graphql(client, token, query).await?;
+    let data = railway_graphql_data(client, token, query, "Runtime Agent serviceCreate").await?;
     data.pointer("/serviceCreate/id")
         .and_then(|id| id.as_str())
         .map(str::to_string)
@@ -1879,7 +1879,8 @@ async fn railway_update_service_source_image(
             },
         },
     });
-    let _ = railway_graphql(client, token, query).await?;
+    let _ =
+        railway_graphql_data(client, token, query, "Runtime Agent serviceInstanceUpdate").await?;
     Ok(())
 }
 
@@ -1904,7 +1905,7 @@ async fn railway_upsert_variable(
             }
         }
     });
-    let _ = railway_graphql(client, token, query).await?;
+    let _ = railway_graphql_data(client, token, query, "Runtime Agent variableUpsert").await?;
     Ok(())
 }
 
@@ -1914,42 +1915,42 @@ async fn railway_redeploy_service(
     environment_id: &str,
     service_id: &str,
 ) -> Result<()> {
-    let query = serde_json::json!({
-        "query": "mutation($serviceId: String!, $environmentId: String!) { serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId) }",
-        "variables": {
-            "serviceId": service_id,
-            "environmentId": environment_id,
+    let query = match railway_latest_deployment_id(client, RAILWAY_GRAPHQL_URL, token, service_id)
+        .await
+    {
+        Ok(deployment_id) => serde_json::json!({
+            "query": "mutation($deploymentId: String!) { deploymentRedeploy(id: $deploymentId) { id status } }",
+            "variables": { "deploymentId": deployment_id },
+        }),
+        Err(lookup_error) => {
+            tracing::warn!(
+                %service_id,
+                %lookup_error,
+                "Railway service has no latest deployment; triggering a fresh deploy"
+            );
+            serde_json::json!({
+                "query": "mutation($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }",
+                "variables": {
+                    "serviceId": service_id,
+                    "environmentId": environment_id,
+                }
+            })
         }
-    });
-    let _ = railway_graphql(client, token, query).await?;
+    };
+    let _ = railway_graphql_data(client, token, query, "Runtime Agent redeploy").await?;
     Ok(())
 }
 
-async fn railway_graphql(
+async fn railway_graphql_data(
     client: &reqwest::Client,
     token: &str,
     body: serde_json::Value,
+    operation: &str,
 ) -> Result<serde_json::Value> {
-    let response = client
-        .post(RAILWAY_GRAPHQL_URL)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
+    let body = railway_graphql(client, RAILWAY_GRAPHQL_URL, token, body, operation)
         .await
-        .context("Railway GraphQL request failed")?;
-    let status = response.status();
-    let body: serde_json::Value = response.json().await.unwrap_or_default();
-    if status.is_success() && body.get("errors").is_none() {
-        Ok(body.get("data").cloned().unwrap_or_default())
-    } else {
-        let message = body["errors"]
-            .as_array()
-            .and_then(|errors| errors.first())
-            .and_then(|error| error["message"].as_str())
-            .unwrap_or("Railway API error");
-        Err(anyhow!(message.to_string()))
-    }
+        .map_err(anyhow::Error::msg)?;
+    Ok(body.get("data").cloned().unwrap_or_default())
 }
 
 async fn persist_infra_secret(
