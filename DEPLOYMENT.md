@@ -85,7 +85,7 @@ copying infrastructure secrets out of the app by calling:
 curl -fsS -X POST \
   -H "Authorization: Bearer $TEMPER_API_KEY" \
   -H "Content-Type: application/json" \
-  https://openpaw-production.up.railway.app/paw/infra/railway/datadog-runtime-agent/ensure
+  https://<your-temperpaw-domain>/paw/infra/railway/datadog-runtime-agent/ensure
 ```
 
 That governed endpoint creates or reuses `datadog-runtime-agent` from
