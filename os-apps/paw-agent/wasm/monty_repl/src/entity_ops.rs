@@ -473,54 +473,11 @@ pub fn write_with_sandbox(
     let upload = resolve_sandbox_upload(ctx, sandbox_url, upload)?;
     let mime_type = upload.mime_type.clone();
 
-    // 1. Resolve the target workspace. Prefer an explicit workspace override,
-    // then the session's attached workspace_id, then the legacy "default"
-    // workspace name.
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &input.opts, true)?;
-
-    // 2. Parse path to get dir_path for MkDir.
-    let dir_path = match input.path.rsplit_once('/') {
-        Some(("", _)) => "/",
-        Some((d, _)) => d,
-        None => "/",
-    };
-
     let eid = ctx_entity_id(ctx);
+    let file = ensure_pawfs_file(ctx, api_url, tenant, eid, &ws_id, &input.path, &mime_type)?;
 
-    // 3. MkDir — create directory hierarchy (FUSE: mkdir -p).
-    http_post(
-        ctx,
-        api_url,
-        tenant,
-        eid,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.MkDir?await_integration=true"),
-        &json!({"path": dir_path}),
-    )?;
-
-    // 4. CreateFile — create file entity at path (FUSE: creat).
-    let resp = http_post(
-        ctx,
-        api_url,
-        tenant,
-        eid,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.CreateFile?await_integration=true"),
-        &json!({"path": input.path, "mime_type": mime_type}),
-    )?;
-
-    // Extract file_id from workspace state fields.
-    let file_id = resp
-        .get("fields")
-        .and_then(|f| f.get("last_file_id"))
-        .or_else(|| resp.get("last_file_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if file_id.is_empty() {
-        return Err("temper.write(): CreateFile succeeded but no file_id returned".into());
-    }
-
-    // 5. PUT $value — upload content (FUSE: write).
-    let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+    let url = format!("{api_url}/tdata/Files('{}')/$value", file.id);
     let headers = vec![
         ("X-Tenant-Id".to_string(), tenant.to_string()),
         ("Content-Type".to_string(), mime_type.to_string()),
@@ -548,8 +505,8 @@ pub fn write_with_sandbox(
     }
 
     Ok(json!({
-        "file_id": file_id,
-        "path": input.path,
+        "file_id": file.id,
+        "path": file.path,
         "workspace_id": ws_id,
     }))
 }
@@ -799,46 +756,12 @@ pub fn read(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resul
         return Ok(render_read_output(content, &opts));
     }
 
-    // 1. Resolve the target workspace. Prefer an explicit workspace override,
-    // then the session's attached workspace_id, then the legacy "default"
-    // workspace name.
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
+    let file = find_pawfs_file(ctx, api_url, tenant, &ws_id, &path)?
+        .ok_or_else(|| format!("temper.read(): file not found at '{path}'"))?;
+    let content = read_pawfs_file_value(ctx, api_url, &file.id, "temper.read()")?;
 
-    let eid = ctx_entity_id(ctx);
-
-    // 2. ResolvePath — resolve path to file_id (FUSE: stat).
-    let resp = http_post(
-        ctx,
-        api_url,
-        tenant,
-        eid,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"),
-        &json!({"path": path}),
-    )?;
-
-    let file_id = resp
-        .get("fields")
-        .and_then(|f| f.get("last_file_id"))
-        .or_else(|| resp.get("last_file_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if file_id.is_empty() {
-        return Err(format!("temper.read(): file not found at '{path}'"));
-    }
-
-    // 3. GET $value — read content (FUSE: read).
-    let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
-    let headers = vec![("Accept".to_string(), "application/octet-stream".to_string())];
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status >= 400 {
-        return Err(format!(
-            "temper.read(): content read failed (HTTP {})",
-            resp.status
-        ));
-    }
-
-    Ok(render_read_output(resp.body, &opts))
+    Ok(render_read_output(content, &opts))
 }
 
 // ---------------------------------------------------------------------------
@@ -849,26 +772,8 @@ pub fn ls(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<
     let path = pos_str(args, 0, "path", "ls")?;
     let opts = obj_arg_or_empty(args, 1);
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
-    let eid = ctx_entity_id(ctx);
-
-    let resp = http_post(
-        ctx,
-        api_url,
-        tenant,
-        eid,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.ListDir?await_integration=true"),
-        &json!({"path": path}),
-    )?;
-
-    let listing = resp
-        .get("fields")
-        .and_then(|f| f.get("last_listing"))
-        .or_else(|| resp.get("last_listing"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("[]");
-
-    let parsed: Value = serde_json::from_str(listing).unwrap_or(json!([]));
-    Ok(parsed)
+    let listing = list_pawfs_directory(ctx, api_url, tenant, &ws_id, &path)?;
+    Ok(listing.into_json())
 }
 
 // ---------------------------------------------------------------------------
@@ -911,28 +816,12 @@ pub fn rename(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Res
     let opts = obj_arg_or_empty(args, 2);
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
     let eid = ctx_entity_id(ctx);
-
-    let resp = http_post(
-        ctx,
-        api_url,
-        tenant,
-        eid,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.Rename?await_integration=true"),
-        &json!({"path": old_path, "new_path": new_path}),
-    )?;
-
-    let file_id = resp
-        .get("fields")
-        .and_then(|f| f.get("last_file_id"))
-        .or_else(|| resp.get("last_file_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let file = rename_pawfs_file(ctx, api_url, tenant, eid, &ws_id, &old_path, &new_path)?;
 
     Ok(json!({
-        "file_id": file_id,
+        "file_id": file.id,
         "old_path": old_path,
-        "new_path": new_path,
+        "new_path": file.path,
     }))
 }
 
@@ -1149,7 +1038,6 @@ pub fn grep(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resul
     let path = pos_str(args, 1, "path", "grep")?;
     let opts = obj_arg_or_empty(args, 2);
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
-    let eid = ctx_entity_id(ctx);
     let case_insensitive = opts
         .get("case_insensitive")
         .and_then(|v| v.as_bool())
@@ -1166,7 +1054,7 @@ pub fn grep(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Resul
     };
 
     // Try resolving as a single file first
-    let file_paths = resolve_grep_targets(ctx, api_url, tenant, eid, &ws_id, &path)?;
+    let file_paths = resolve_grep_targets(ctx, api_url, tenant, &ws_id, &path)?;
 
     let mut matches: Vec<Value> = Vec::new();
 
@@ -1210,30 +1098,12 @@ fn resolve_grep_targets(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
-    principal_id: &str,
     ws_id: &str,
     path: &str,
 ) -> Result<Vec<String>, String> {
     // Try to resolve as a file first
-    let resp = http_post(
-        ctx,
-        api_url,
-        tenant,
-        principal_id,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.ResolvePath?await_integration=true"),
-        &json!({"path": path}),
-    );
-
-    if let Ok(ref r) = resp {
-        let file_id = r
-            .get("fields")
-            .and_then(|f| f.get("last_file_id"))
-            .or_else(|| r.get("last_file_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if !file_id.is_empty() {
-            return Ok(vec![path.to_string()]);
-        }
+    if let Some(file) = find_pawfs_file(ctx, api_url, tenant, ws_id, path)? {
+        return Ok(vec![file.path]);
     }
 
     // It's a directory — list recursively
@@ -1242,7 +1112,6 @@ fn resolve_grep_targets(
         ctx,
         api_url,
         tenant,
-        principal_id,
         ws_id,
         path,
         0,
@@ -1271,14 +1140,12 @@ pub fn glob_files(
         .to_string();
     let opts = obj_arg_or_empty(args, 2);
     let ws_id = resolve_workspace_id(ctx, api_url, tenant, &opts, false)?;
-    let eid = ctx_entity_id(ctx);
 
     let mut all_files = Vec::new();
     list_dir_recursive(
         ctx,
         api_url,
         tenant,
-        eid,
         &ws_id,
         &path,
         0,
@@ -1303,7 +1170,6 @@ fn list_dir_recursive(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
-    principal_id: &str,
     ws_id: &str,
     dir_path: &str,
     depth: usize,
@@ -1315,52 +1181,30 @@ fn list_dir_recursive(
         return Ok(());
     }
 
-    let resp = http_post(
-        ctx,
-        api_url,
-        tenant,
-        principal_id,
-        &format!("/tdata/Workspaces('{ws_id}')/Temper.ListDir?await_integration=true"),
-        &json!({"path": dir_path}),
-    )?;
+    let listing = list_pawfs_directory(ctx, api_url, tenant, ws_id, dir_path)?;
 
-    let listing_str = resp
-        .get("fields")
-        .and_then(|f| f.get("last_listing"))
-        .or_else(|| resp.get("last_listing"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("[]");
-
-    let listing: Vec<Value> = serde_json::from_str(listing_str).unwrap_or_default();
-
-    for entry in &listing {
+    for file in &listing.files {
         if out.len() >= max_files {
             break;
         }
-        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let kind = entry.get("type").and_then(|v| v.as_str()).unwrap_or("file");
-        let full_path = if dir_path == "/" {
-            format!("/{name}")
-        } else {
-            format!("{dir_path}/{name}")
-        };
+        out.push(file.path.clone());
+    }
 
-        if kind == "directory" || kind == "dir" {
-            list_dir_recursive(
-                ctx,
-                api_url,
-                tenant,
-                principal_id,
-                ws_id,
-                &full_path,
-                depth + 1,
-                max_depth,
-                out,
-                max_files,
-            )?;
-        } else {
-            out.push(full_path);
+    for directory in &listing.directories {
+        if out.len() >= max_files {
+            break;
         }
+        list_dir_recursive(
+            ctx,
+            api_url,
+            tenant,
+            ws_id,
+            &directory.path,
+            depth + 1,
+            max_depth,
+            out,
+            max_files,
+        )?;
     }
 
     Ok(())
@@ -2059,6 +1903,30 @@ fn http_post(
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
 }
 
+fn http_patch(
+    ctx: &Context,
+    api_url: &str,
+    _tenant: &str,
+    _principal_id: &str,
+    path: &str,
+    body: &Value,
+) -> Result<Value, String> {
+    let url = format!("{api_url}{path}");
+    let headers = internal_headers();
+    let resp = ctx.http_call("PATCH", &url, &headers, &body.to_string())?;
+    if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
+    if resp.status >= 400 {
+        return Err(format!("HTTP PATCH {path}: {} {}", resp.status, resp.body));
+    }
+    if resp.body.is_empty() {
+        return Ok(json!({"ok": true}));
+    }
+    serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse response from {path}: {e}"))
+}
+
 fn pos_str(args: &[Value], idx: usize, name: &str, method: &str) -> Result<String, String> {
     args.get(idx)
         .and_then(|v| v.as_str())
@@ -2140,6 +2008,548 @@ fn try_read_global_scoped_path(
         ));
     }
     Ok(Some(resp.body))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PawFsDirectory {
+    id: String,
+    name: String,
+    path: String,
+    parent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PawFsFile {
+    id: String,
+    name: String,
+    path: String,
+    directory_id: String,
+    mime_type: String,
+    size_bytes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PawFsListing {
+    path: String,
+    directories: Vec<PawFsDirectory>,
+    files: Vec<PawFsFile>,
+}
+
+impl PawFsListing {
+    fn into_json(self) -> Value {
+        json!({
+            "path": self.path,
+            "directories": self.directories.into_iter().map(|directory| {
+                json!({
+                    "id": directory.id,
+                    "name": directory.name,
+                    "path": directory.path,
+                    "type": "directory",
+                })
+            }).collect::<Vec<_>>(),
+            "files": self.files.into_iter().map(|file| {
+                json!({
+                    "id": file.id,
+                    "name": file.name,
+                    "path": file.path,
+                    "type": "file",
+                    "mime_type": file.mime_type,
+                    "size_bytes": file.size_bytes,
+                })
+            }).collect::<Vec<_>>(),
+        })
+    }
+}
+
+fn pawfs_normalize_path(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("path must not be empty".to_string());
+    }
+
+    let with_slash = if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{trimmed}")
+    };
+
+    let mut result = String::with_capacity(with_slash.len());
+    let mut prev_slash = false;
+    for ch in with_slash.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                result.push('/');
+            }
+            prev_slash = true;
+        } else {
+            result.push(ch);
+            prev_slash = false;
+        }
+    }
+
+    if result.len() > 1 && result.ends_with('/') {
+        result.pop();
+    }
+
+    Ok(result)
+}
+
+fn pawfs_parse_file_path(path: &str) -> Result<(&str, &str), String> {
+    match path.rsplit_once('/') {
+        Some(("", filename)) if !filename.is_empty() => Ok(("/", filename)),
+        Some((dir, filename)) if !filename.is_empty() => Ok((dir, filename)),
+        _ => Err(format!("invalid file path (no filename): {path}")),
+    }
+}
+
+fn pawfs_path_segments(path: &str) -> Vec<&str> {
+    path.split('/').filter(|segment| !segment.is_empty()).collect()
+}
+
+fn pawfs_filter_path_and_workspace(path: &str, ws_id: &str) -> String {
+    format!(
+        "Path eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'",
+        escape_odata_string(path),
+        escape_odata_string(ws_id)
+    )
+}
+
+fn pawfs_filter_parent_and_workspace(parent_id: &str, ws_id: &str) -> String {
+    format!(
+        "ParentId eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'",
+        escape_odata_string(parent_id),
+        escape_odata_string(ws_id)
+    )
+}
+
+fn pawfs_first_entity(resp: &Value) -> Option<&Value> {
+    resp.get("value").and_then(Value::as_array)?.first()
+}
+
+fn pawfs_entity_id(value: &Value) -> Option<&str> {
+    entity_field_str_any(value, &["entity_id", "Id", "id"])
+}
+
+fn entity_field_i64_any(value: &Value, keys: &[&str]) -> Option<i64> {
+    for key in keys {
+        if let Some(found) = value.get(*key).and_then(Value::as_i64) {
+            return Some(found);
+        }
+        if let Some(found) = value
+            .get("fields")
+            .and_then(|fields| fields.get(*key))
+            .and_then(Value::as_i64)
+        {
+            return Some(found);
+        }
+        if let Some(found) = value
+            .get(*key)
+            .and_then(Value::as_str)
+            .and_then(|raw| raw.parse::<i64>().ok())
+        {
+            return Some(found);
+        }
+        if let Some(found) = value
+            .get("fields")
+            .and_then(|fields| fields.get(*key))
+            .and_then(Value::as_str)
+            .and_then(|raw| raw.parse::<i64>().ok())
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn pawfs_directory_from_value(value: &Value) -> Option<PawFsDirectory> {
+    let id = pawfs_entity_id(value)?.to_string();
+    let path = entity_field_str_any(value, &["Path", "path"])
+        .unwrap_or("/")
+        .to_string();
+    let name = entity_field_str_any(value, &["Name", "name"])
+        .unwrap_or_else(|| {
+            if path == "/" {
+                "/"
+            } else {
+                path.rsplit('/').next().unwrap_or("")
+            }
+        })
+        .to_string();
+    let parent_id = entity_field_str_any(value, &["ParentId", "parent_id"]).map(str::to_string);
+    Some(PawFsDirectory {
+        id,
+        name,
+        path,
+        parent_id,
+    })
+}
+
+fn pawfs_file_from_value(value: &Value) -> Option<PawFsFile> {
+    let id = pawfs_entity_id(value)?.to_string();
+    let path = entity_field_str_any(value, &["Path", "path"])?.to_string();
+    let name = entity_field_str_any(value, &["Name", "name"])
+        .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(""))
+        .to_string();
+    let directory_id = entity_field_str_any(value, &["DirectoryId", "directory_id"])
+        .unwrap_or("")
+        .to_string();
+    let mime_type = entity_field_str_any(value, &["MimeType", "mime_type"])
+        .unwrap_or("")
+        .to_string();
+    let size_bytes = entity_field_i64_any(value, &["SizeBytes", "size_bytes"]).unwrap_or(0);
+    Some(PawFsFile {
+        id,
+        name,
+        path,
+        directory_id,
+        mime_type,
+        size_bytes,
+    })
+}
+
+fn find_pawfs_directory(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    ws_id: &str,
+    raw_path: &str,
+) -> Result<Option<PawFsDirectory>, String> {
+    let path = pawfs_normalize_path(raw_path)?;
+    let filter = urlenc(&pawfs_filter_path_and_workspace(&path, ws_id));
+    let eid = ctx_entity_id(ctx);
+    let resp = http_get(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Directories?$filter={filter}"),
+    )?;
+    Ok(pawfs_first_entity(&resp).and_then(pawfs_directory_from_value))
+}
+
+fn find_pawfs_file(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    ws_id: &str,
+    raw_path: &str,
+) -> Result<Option<PawFsFile>, String> {
+    let path = pawfs_normalize_path(raw_path)?;
+    let filter = urlenc(&pawfs_filter_path_and_workspace(&path, ws_id));
+    let eid = ctx_entity_id(ctx);
+    let resp = http_get(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Files?$filter={filter}"),
+    )?;
+    Ok(pawfs_first_entity(&resp).and_then(pawfs_file_from_value))
+}
+
+fn create_pawfs_directory(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    ws_id: &str,
+    path: &str,
+    name: &str,
+    parent_id: Option<&str>,
+) -> Result<PawFsDirectory, String> {
+    let mut body = json!({
+        "Name": name,
+        "Path": path,
+        "WorkspaceId": ws_id,
+    });
+    if let Some(parent_id) = parent_id {
+        body["ParentId"] = json!(parent_id);
+    }
+
+    let resp = http_post(ctx, api_url, tenant, principal_id, "/tdata/Directories", &body)?;
+    let id = pawfs_entity_id(&resp)
+        .ok_or_else(|| "temper.pawfs(): Directory created but no Id returned".to_string())?
+        .to_string();
+    Ok(PawFsDirectory {
+        id,
+        name: name.to_string(),
+        path: path.to_string(),
+        parent_id: parent_id.map(str::to_string),
+    })
+}
+
+fn ensure_pawfs_directory(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    ws_id: &str,
+    raw_path: &str,
+) -> Result<PawFsDirectory, String> {
+    let normalized = pawfs_normalize_path(raw_path)?;
+    if let Some(directory) = find_pawfs_directory(ctx, api_url, tenant, ws_id, &normalized)? {
+        return Ok(directory);
+    }
+
+    let mut parent = match find_pawfs_directory(ctx, api_url, tenant, ws_id, "/")? {
+        Some(directory) => directory,
+        None => create_pawfs_directory(ctx, api_url, tenant, principal_id, ws_id, "/", "/", None)?,
+    };
+
+    if normalized == "/" {
+        return Ok(parent);
+    }
+
+    let mut current_path = String::new();
+    for segment in pawfs_path_segments(&normalized) {
+        current_path.push('/');
+        current_path.push_str(segment);
+
+        if let Some(directory) = find_pawfs_directory(ctx, api_url, tenant, ws_id, &current_path)? {
+            parent = directory;
+            continue;
+        }
+
+        let directory = create_pawfs_directory(
+            ctx,
+            api_url,
+            tenant,
+            principal_id,
+            ws_id,
+            &current_path,
+            segment,
+            Some(&parent.id),
+        )?;
+        if let Err(error) = http_post(
+            ctx,
+            api_url,
+            tenant,
+            principal_id,
+            &format!("/tdata/Directories('{}')/Temper.AddChild", parent.id),
+            &json!({}),
+        ) {
+            ctx.log(
+                "warn",
+                &format!("temper.pawfs(): AddChild failed on directory {}: {error}", parent.id),
+            );
+        }
+        parent = directory;
+    }
+
+    Ok(parent)
+}
+
+fn ensure_pawfs_file(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    ws_id: &str,
+    raw_path: &str,
+    mime_type: &str,
+) -> Result<PawFsFile, String> {
+    let normalized = pawfs_normalize_path(raw_path)?;
+    if let Some(file) = find_pawfs_file(ctx, api_url, tenant, ws_id, &normalized)? {
+        return Ok(file);
+    }
+
+    let (dir_path, filename) = pawfs_parse_file_path(&normalized)?;
+    let directory = ensure_pawfs_directory(ctx, api_url, tenant, principal_id, ws_id, dir_path)?;
+    let body = json!({
+        "Name": filename,
+        "Path": normalized,
+        "DirectoryId": directory.id.clone(),
+        "WorkspaceId": ws_id,
+        "MimeType": mime_type,
+    });
+    let resp = http_post(ctx, api_url, tenant, principal_id, "/tdata/Files", &body)?;
+    let id = pawfs_entity_id(&resp)
+        .ok_or_else(|| "temper.write(): File created but no Id returned".to_string())?
+        .to_string();
+
+    if let Err(error) = http_post(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        &format!("/tdata/Directories('{}')/Temper.AddChild", directory.id),
+        &json!({}),
+    ) {
+        ctx.log(
+            "warn",
+            &format!(
+                "temper.write(): AddChild failed on directory {}: {error}",
+                directory.id
+            ),
+        );
+    }
+
+    Ok(PawFsFile {
+        id,
+        name: filename.to_string(),
+        path: normalized,
+        directory_id: directory.id,
+        mime_type: mime_type.to_string(),
+        size_bytes: 0,
+    })
+}
+
+fn read_pawfs_file_value(
+    ctx: &Context,
+    api_url: &str,
+    file_id: &str,
+    method: &str,
+) -> Result<String, String> {
+    let url = format!("{api_url}/tdata/Files('{file_id}')/$value");
+    let headers = vec![("Accept".to_string(), "application/octet-stream".to_string())];
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status >= 400 {
+        return Err(format!(
+            "{method}: content read failed (HTTP {})",
+            resp.status
+        ));
+    }
+    Ok(resp.body)
+}
+
+fn list_pawfs_directory(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    ws_id: &str,
+    raw_path: &str,
+) -> Result<PawFsListing, String> {
+    let normalized = pawfs_normalize_path(raw_path)?;
+    let directory = find_pawfs_directory(ctx, api_url, tenant, ws_id, &normalized)?
+        .ok_or_else(|| format!("temper.ls(): directory not found at '{normalized}'"))?;
+    let eid = ctx_entity_id(ctx);
+    let child_filter = urlenc(&pawfs_filter_parent_and_workspace(&directory.id, ws_id));
+
+    let dirs_resp = http_get(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Directories?$filter={child_filter}"),
+    )?;
+    let mut directories = dirs_resp
+        .get("value")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(pawfs_directory_from_value)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    directories.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let file_filter = urlenc(&format!(
+        "DirectoryId eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'",
+        escape_odata_string(&directory.id),
+        escape_odata_string(ws_id)
+    ));
+    let files_resp = http_get(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/Files?$filter={file_filter}"),
+    )?;
+    let mut files = files_resp
+        .get("value")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(pawfs_file_from_value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+
+    Ok(PawFsListing {
+        path: normalized,
+        directories,
+        files,
+    })
+}
+
+fn rename_pawfs_file(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    ws_id: &str,
+    old_path: &str,
+    new_path: &str,
+) -> Result<PawFsFile, String> {
+    let file = find_pawfs_file(ctx, api_url, tenant, ws_id, old_path)?
+        .ok_or_else(|| format!("temper.rename(): file not found at '{old_path}'"))?;
+    let normalized_new_path = pawfs_normalize_path(new_path)?;
+    if let Some(existing) = find_pawfs_file(ctx, api_url, tenant, ws_id, &normalized_new_path)?
+        && existing.id != file.id
+    {
+        return Err(format!(
+            "temper.rename(): target already exists at '{normalized_new_path}'"
+        ));
+    }
+
+    let (new_dir_path, new_filename) = pawfs_parse_file_path(&normalized_new_path)?;
+    let new_directory =
+        ensure_pawfs_directory(ctx, api_url, tenant, principal_id, ws_id, new_dir_path)?;
+    let body = json!({
+        "Name": new_filename,
+        "Path": normalized_new_path,
+        "DirectoryId": new_directory.id.clone(),
+    });
+    http_patch(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        &format!("/tdata/Files('{}')", file.id),
+        &body,
+    )?;
+
+    if !file.directory_id.is_empty() && file.directory_id != new_directory.id {
+        if let Err(error) = http_post(
+            ctx,
+            api_url,
+            tenant,
+            principal_id,
+            &format!("/tdata/Directories('{}')/Temper.RemoveChild", file.directory_id),
+            &json!({}),
+        ) {
+            ctx.log(
+                "warn",
+                &format!(
+                    "temper.rename(): RemoveChild failed on directory {}: {error}",
+                    file.directory_id
+                ),
+            );
+        }
+        if let Err(error) = http_post(
+            ctx,
+            api_url,
+            tenant,
+            principal_id,
+            &format!("/tdata/Directories('{}')/Temper.AddChild", new_directory.id),
+            &json!({}),
+        ) {
+            ctx.log(
+                "warn",
+                &format!(
+                    "temper.rename(): AddChild failed on directory {}: {error}",
+                    new_directory.id
+                ),
+            );
+        }
+    }
+
+    Ok(PawFsFile {
+        id: file.id,
+        name: new_filename.to_string(),
+        path: normalized_new_path,
+        directory_id: new_directory.id,
+        mime_type: file.mime_type,
+        size_bytes: file.size_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -2230,6 +2640,45 @@ mod tests {
             global_scoped_file_filter("/system/knowledge/we're-here.md"),
             "path eq '/system/knowledge/we''re-here.md' and Status ne 'Archived'"
         );
+    }
+
+    #[test]
+    fn pawfs_normalize_path_matches_workspace_fs_rules() {
+        assert_eq!(pawfs_normalize_path("notes/readme.md").unwrap(), "/notes/readme.md");
+        assert_eq!(pawfs_normalize_path("//notes///readme.md/").unwrap(), "/notes/readme.md");
+        assert_eq!(pawfs_normalize_path("/").unwrap(), "/");
+        assert!(pawfs_normalize_path("   ").is_err());
+    }
+
+    #[test]
+    fn pawfs_parse_file_path_splits_directory_and_filename() {
+        assert_eq!(
+            pawfs_parse_file_path("/notes/readme.md").unwrap(),
+            ("/notes", "readme.md")
+        );
+        assert_eq!(pawfs_parse_file_path("/README.md").unwrap(), ("/", "README.md"));
+        assert!(pawfs_parse_file_path("/notes/").is_err());
+        assert!(pawfs_parse_file_path("/").is_err());
+    }
+
+    #[test]
+    fn pawfs_filter_escapes_odata_string_literals() {
+        assert_eq!(
+            pawfs_filter_path_and_workspace("/notes/we're-here.md", "ws'1"),
+            "Path eq '/notes/we''re-here.md' and WorkspaceId eq 'ws''1' and Status ne 'Archived'"
+        );
+    }
+
+    #[test]
+    fn pawfs_agent_tools_do_not_call_workspace_filesystem_actions() {
+        let source = include_str!("entity_ops.rs");
+        for action in ["MkDir", "CreateFile", "ResolvePath", "ListDir", "Rename"] {
+            let needle = format!("{}{}", "Temper.", action);
+            assert!(
+                !source.contains(&needle),
+                "Monty PawFS tools must not call Workspace-bound {needle}"
+            );
+        }
     }
 
     #[test]

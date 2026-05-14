@@ -4,6 +4,9 @@
 **Date:** 2026-04-15
 **Related:** ADR-0008 (Monty REPL agent tools), ADR-0020 (File-backed document content)
 
+**Superseded for agent I/O by ADR-0049.** Workspace-bound filesystem actions
+remain only for legacy FUSE compatibility.
+
 ## Context
 
 Paw agents interact with TemperFS through two primitives: `temper.read(path)` and `temper.write(path, content)`. These map to FUSE `open+read` and `creat+write` respectively, going through the `paw-fs` Workspace entity's state machine actions (`CreateFile`, `ResolvePath`, `MkDir`).

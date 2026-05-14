@@ -71,7 +71,10 @@ effect = [
 hint = "Fired by $value PUT handler after WASM upload succeeds. Updates content metadata and advances to Ready. Not callable from Locked."
 
 # ADR-0046: inline triggers are the single source of truth for the
-# File -> FileVersion / Workspace cascade after StreamUpdated commits.
+# File -> FileVersion cascade after StreamUpdated commits.
+# ADR-0049: Workspace usage/file-count accounting is legacy and non-authoritative.
+# Agent PawFS writes must not emit Workspace events on the hot file I/O path;
+# quota admission will be redesigned separately.
 
 [[action.triggers]]
 name = "file_stream_updated_creates_version"
@@ -103,20 +106,6 @@ target_action = "Supersede"
 [action.triggers.resolve_target]
 type = "field"
 field = "last_version_id"
-
-[[action.triggers]]
-name = "file_stream_updated_increments_workspace_usage"
-kind = "entity"
-principal = "file-service"
-target_entity = "Workspace"
-target_action = "IncrementUsage"
-
-[action.triggers.params_from]
-size_bytes = "size_bytes"
-
-[action.triggers.resolve_target]
-type = "field"
-field = "workspace_id"
 
 [[action]]
 name = "RecordVersion"
