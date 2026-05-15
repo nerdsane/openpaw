@@ -59,7 +59,7 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "01288d7bbbbf30f68d5353d3e8982aad5be49ee0";
+    let expected_rev = "14321277ae5310e537b238034b1ce4a8e0d613f0";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
@@ -104,7 +104,7 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
 #[test]
 fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "01288d7bbbbf30f68d5353d3e8982aad5be49ee0";
+    let expected_rev = "14321277ae5310e537b238034b1ce4a8e0d613f0";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -167,7 +167,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
 #[test]
 fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "01288d7bbbbf30f68d5353d3e8982aad5be49ee0";
+    let expected_rev = "14321277ae5310e537b238034b1ce4a8e0d613f0";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
@@ -1006,15 +1006,19 @@ fn otel_collector_routes_llmobs_without_dropping_apm_coverage() {
         "transform/dbm",
         "set(attributes[\"span.type\"], \"sql\") where attributes[\"db.system\"] != nil and attributes[\"span.type\"] == nil",
         "attributes[\"gen_ai.operation.name\"] == nil and attributes[\"gen_ai.system\"] == nil",
-        "attributes[\"gen_ai.operation.name\"] != nil or attributes[\"gen_ai.system\"] != nil",
         "exporters: [clickhouse, otlphttp/llmobs]",
         "exporters: [clickhouse, datadog]",
+        "processors: [resourcedetection, resource, transform/dbm, batch]",
     ] {
         assert!(
             collector.contains(required),
             "collector must preserve LLMObs/APM routing clause `{required}`"
         );
     }
+    assert!(
+        !collector.contains("filter/traces_apm"),
+        "APM trace pipeline must retain gen_ai spans so guest/provider/tool spans remain stitched"
+    );
 }
 
 #[test]
@@ -1040,13 +1044,17 @@ fn railway_otel_collectors_preserve_llmobs_routing() {
             "transform/dbm",
             "set(attributes[\"span.type\"], \"sql\") where attributes[\"db.system\"] != nil and attributes[\"span.type\"] == nil",
             "attributes[\"gen_ai.operation.name\"] == nil and attributes[\"gen_ai.system\"] == nil",
-            "attributes[\"gen_ai.operation.name\"] != nil or attributes[\"gen_ai.system\"] != nil",
+            "processors: [resourcedetection, resource, transform/dbm, batch]",
         ] {
             assert!(
                 source.contains(required),
                 "{name} must preserve LLMObs/APM routing clause `{required}`"
             );
         }
+        assert!(
+            !source.contains("filter/traces_apm"),
+            "{name} must not filter gen_ai spans out of APM traces"
+        );
     }
 }
 
@@ -1620,7 +1628,7 @@ fn setup_api_can_run_a_temporary_continuous_profiler_canary() {
 }
 
 #[test]
-fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
+fn temperpaw_guest_observability_api_exposes_session_tool_and_llmobs_semconv() {
     let provider_caller = std::fs::read_to_string(
         repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"),
     )
@@ -1641,48 +1649,75 @@ fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
     .expect("session_orchestrator source should be readable");
 
     for required in [
+        "start_agent_session_span",
+        "finish_agent_session_span",
+        "agent_session_span_attributes",
+        "ctx.start_span(\"temperpaw.agent.session\"",
         "agent_session_span_hint_headers",
         "temperpaw.agent.session",
-        "X-Temper-Span-Attr-gen_ai.operation.name",
+        "\"gen_ai.operation.name\"",
         "\"invoke_agent\"",
-        "X-Temper-Span-Attr-session_id",
-        "X-Temper-Span-Attr-managed_session_id",
-        "X-Temper-Span-Attr-inner_session_id",
-        "X-Temper-Span-Attr-parent_session_id",
-        "X-Temper-Span-Attr-agent_id",
-        "X-Temper-Span-Attr-environment_id",
-        "X-Temper-Span-Attr-entity_type",
-        "X-Temper-Span-Attr-action_name",
+        "\"session_id\"",
+        "\"managed_session_id\"",
+        "\"inner_session_id\"",
+        "\"parent_session_id\"",
+        "\"agent_id\"",
+        "\"environment_id\"",
+        "\"entity_type\"",
+        "\"action_name\"",
     ] {
         assert!(
             managed_common.contains(required),
-            "managed agent session span hints must include `{required}`"
+            "managed agent guest session spans must include `{required}`"
         );
     }
 
     for required in [
-        "agent_session_span_hint_headers",
+        "start_agent_session_span",
+        "finish_agent_session_span",
         "TemperPaw.Configure",
         "TemperPaw.Steer",
     ] {
         assert!(
             session_orchestrator.contains(required),
-            "session_orchestrator must apply managed session span hints around `{required}`"
+            "session_orchestrator must apply managed session guest spans around `{required}`"
         );
     }
 
     for required in [
-        "X-Temper-Span-Attr-gen_ai.operation.name",
+        "start_llm_guest_span",
+        "ctx.start_span_with_kind(\"tool.llm_call\"",
+        "finish_llm_guest_span_success",
+        "finish_llm_guest_span_error",
+        "\"gen_ai.operation.name\"",
         "\"chat\"",
-        "X-Temper-Span-Attr-gen_ai.provider.name",
-        "X-Temper-Span-Attr-gen_ai.conversation.id",
-        "X-Temper-Span-Attr-session_id",
-        "X-Temper-Span-Attr-tool.name",
-        "X-Temper-Span-Capture-Response-gen_ai.completion",
+        "\"gen_ai.provider.name\"",
+        "\"gen_ai.conversation.id\"",
+        "\"session_id\"",
+        "\"tool.name\"",
+        "\"gen_ai.completion\"",
+        "\"gen_ai.usage.input_tokens\"",
+        "\"gen_ai.usage.output_tokens\"",
     ] {
         assert!(
             provider_caller.contains(required),
-            "provider LLM span hints must include `{required}`"
+            "provider LLM guest spans must include `{required}`"
+        );
+    }
+
+    for required in [
+        "start_tool_guest_span",
+        "finish_tool_guest_span",
+        "ctx.start_span(&format!(\"tool.{tool_name}\")",
+        "span.add_event(\"tool.result\"",
+        "\"tool.operation\"",
+        "\"execute\"",
+        "\"tool.name\"",
+        "\"tool.call_id\"",
+    ] {
+        assert!(
+            monty_repl.contains(required),
+            "monty_repl tool guest spans must include `{required}`"
         );
     }
 
@@ -1694,7 +1729,7 @@ fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
     ] {
         assert!(
             monty_dispatch.contains(required),
-            "tool-call span hints must include `{required}`"
+            "legacy tool-call span hints must remain available via `{required}`"
         );
     }
 
@@ -1708,4 +1743,71 @@ fn temperpaw_span_hints_expose_session_tool_and_llmobs_semconv() {
             "monty_repl must forward tool events to Temper's LLMObs tool-span ingestion path via `{required}`"
         );
     }
+}
+
+#[test]
+fn wasm_guest_observability_live_proof_is_temper_native_and_datadog_backed() {
+    let proof_script =
+        std::fs::read_to_string(repo_root().join("scripts/prove_wasm_guest_observability.py"))
+            .expect("live proof script should be readable");
+    let probe_source = std::fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/guest_observability_probe/src/lib.rs"),
+    )
+    .expect("guest observability proof module should be readable");
+    let probe_manifest = std::fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/guest_observability_probe/Cargo.toml"),
+    )
+    .expect("guest observability proof manifest should be readable");
+
+    for required in [
+        "WasmObservabilityProof",
+        "RunProbe",
+        "RunMigratedToolPath",
+        "HandleToolResults",
+        "guest_observability_probe",
+        "monty_repl",
+        "Property Name=\"temper_api_url\"",
+        "Property Name=\"tools_enabled\"",
+        "Property Name=\"last_progress_at\"",
+        "/api/tenants/{self.tenant}/policies/create",
+        "Action::\"submit_specs\"",
+        "resource is WasmObservabilityProof",
+        "context.module == \"guest_observability_probe\"",
+        "/api/specs/load-inline",
+        "/api/wasm/modules/",
+        "/api/v2/spans/events/search",
+        "/api/v2/logs/events/search",
+        "temperpaw.wasm_guest_observability.proof",
+        ".proofs",
+    ] {
+        assert!(
+            proof_script.contains(required),
+            "live proof script must include Temper-native Datadog evidence step `{required}`"
+        );
+    }
+
+    for required in [
+        "ctx.start_span(",
+        "root.add_event(",
+        "root.set_attributes(",
+        "root.end_ok(",
+        "ctx.log_structured(",
+        "ctx.emit_metric(",
+        "ctx.emit_progress(",
+        "ctx.http_call(",
+        "set_success_result(",
+        "RunMigratedToolPath",
+        "temper.specs()",
+    ] {
+        assert!(
+            probe_source.contains(required),
+            "proof WASM must exercise host observability API and hand off to migrated Monty path via `{required}`"
+        );
+    }
+
+    assert!(
+        probe_manifest.contains("temper-wasm-sdk")
+            && probe_manifest.contains("14321277ae5310e537b238034b1ce4a8e0d613f0"),
+        "proof WASM must build against the same guest observability SDK rev as production modules"
+    );
 }

@@ -74,6 +74,86 @@ pub fn agent_session_span_hint_headers(
     hinted
 }
 
+pub fn agent_session_span_attributes(
+    managed_session_id: &str,
+    inner_session_id: &str,
+    managed_agent_id: &str,
+    environment_id: &str,
+    parent_session_id: &str,
+    action_name: &str,
+) -> Value {
+    json!({
+        "gen_ai.operation.name": "invoke_agent",
+        "gen_ai.conversation.id": managed_session_id,
+        "session_id": managed_session_id,
+        "managed_session_id": managed_session_id,
+        "inner_session_id": inner_session_id,
+        "parent_session_id": parent_session_id,
+        "agent_id": managed_agent_id,
+        "managed_agent_id": managed_agent_id,
+        "environment_id": environment_id,
+        "entity_type": "ManagedSession",
+        "entity_id": managed_session_id,
+        "action_name": action_name,
+    })
+}
+
+pub fn start_agent_session_span(
+    ctx: &Context,
+    managed_session_id: &str,
+    inner_session_id: &str,
+    managed_agent_id: &str,
+    environment_id: &str,
+    parent_session_id: &str,
+    action_name: &str,
+) -> Option<WasmSpan> {
+    let attrs = agent_session_span_attributes(
+        managed_session_id,
+        inner_session_id,
+        managed_agent_id,
+        environment_id,
+        parent_session_id,
+        action_name,
+    );
+    match ctx.start_span("temperpaw.agent.session", &attrs) {
+        Ok(span) => Some(span),
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "managed-agents: failed to start agent-session guest span action={action_name}: {err}"
+                ),
+            );
+            None
+        }
+    }
+}
+
+pub fn finish_agent_session_span(span: &mut Option<WasmSpan>, result: &Result<Value, String>) {
+    if let Some(span) = span.take() {
+        match result {
+            Ok(value) => {
+                let attrs = json!({
+                    "agent.session.dispatch.success": true,
+                    "agent.session.dispatch.result": value.to_string(),
+                });
+                let _ = span.add_event("agent.session.dispatch", &attrs);
+                let _ = span.set_attributes(&attrs);
+                let _ = span.end_ok(&json!({}));
+            }
+            Err(error) => {
+                let attrs = json!({
+                    "agent.session.dispatch.success": false,
+                    "error.message": error,
+                });
+                let _ = span.add_event("agent.session.dispatch", &attrs);
+                let _ = span.set_attributes(&attrs);
+                let _ = span.end_error("managed_session_dispatch_error", error, &json!({}));
+            }
+        }
+    }
+}
+
 pub fn managed_session_event_context(
     fields: &Value,
     managed_session_id: &str,

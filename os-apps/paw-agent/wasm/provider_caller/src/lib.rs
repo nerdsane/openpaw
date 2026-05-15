@@ -1344,6 +1344,7 @@ fn format_gen_ai_prompt_attr(system_prompt: &str, messages: &[Value]) -> String 
     format!("{}…[truncated]", &raw[..cut])
 }
 
+#[allow(dead_code)]
 fn append_llm_span_hint_headers(
     headers: &mut Vec<(String, String)>,
     provider: &str,
@@ -1416,6 +1417,106 @@ fn append_llm_span_hint_headers(
         "X-Temper-Span-Capture-Response-gen_ai.completion".to_string(),
         completion_pointer.to_string(),
     ));
+}
+
+fn llm_guest_span_attributes(
+    provider: &str,
+    model: &str,
+    temperature: f64,
+    max_tokens: u32,
+    system_prompt: &str,
+    messages: &[Value],
+    session_id: &str,
+) -> Value {
+    let mut attrs = json!({
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": provider,
+        "gen_ai.system": provider,
+        "gen_ai.request.model": model,
+        "gen_ai.response.model": model,
+        "gen_ai.request.temperature": temperature,
+        "gen_ai.request.max_tokens": max_tokens,
+        "tool.name": "provider_caller",
+        "gen_ai.system_instructions": build_gen_ai_system_instructions(system_prompt),
+        "gen_ai.input.messages": build_gen_ai_input_messages(messages),
+        "gen_ai.prompt": format_gen_ai_prompt_attr(system_prompt, messages),
+    });
+    if !session_id.trim().is_empty() {
+        attrs["gen_ai.conversation.id"] = json!(session_id);
+        attrs["session_id"] = json!(session_id);
+    }
+    attrs
+}
+
+fn start_llm_guest_span(
+    ctx: &Context,
+    provider: &str,
+    model: &str,
+    temperature: f64,
+    max_tokens: u32,
+    system_prompt: &str,
+    messages: &[Value],
+    session_id: &str,
+) -> Option<WasmSpan> {
+    let attrs = llm_guest_span_attributes(
+        provider,
+        model,
+        temperature,
+        max_tokens,
+        system_prompt,
+        messages,
+        session_id,
+    );
+    match ctx.start_span_with_kind("tool.llm_call", Some("client"), &attrs) {
+        Ok(span) => Some(span),
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!("provider_caller: failed to start LLM guest span: {err}"),
+            );
+            None
+        }
+    }
+}
+
+fn finish_llm_guest_span_success(
+    span: &mut Option<WasmSpan>,
+    provider: &str,
+    model: &str,
+    stop_reason: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    response_bytes: usize,
+    completion: &Value,
+) {
+    if let Some(span) = span.take() {
+        let attrs = json!({
+            "gen_ai.provider.name": provider,
+            "gen_ai.response.model": model,
+            "gen_ai.response.finish_reasons": stop_reason,
+            "gen_ai.usage.input_tokens": input_tokens,
+            "gen_ai.usage.output_tokens": output_tokens,
+            "gen_ai.usage.cache_read_input_tokens": cache_read_input_tokens,
+            "gen_ai.usage.cache_creation_input_tokens": cache_creation_input_tokens,
+            "http.response.body.size": response_bytes,
+            "gen_ai.completion": stringify_content(completion),
+        });
+        let _ = span.add_event("llm.response", &attrs);
+        let _ = span.set_attributes(&attrs);
+        let _ = span.end_ok(&json!({}));
+    }
+}
+
+fn finish_llm_guest_span_error(
+    span: &mut Option<WasmSpan>,
+    error_type: &str,
+    error_message: &str,
+) {
+    if let Some(span) = span.take() {
+        let _ = span.end_error(error_type, error_message, &json!({}));
+    }
 }
 
 /// Format a post-response usage log line using OpenTelemetry
@@ -1540,7 +1641,7 @@ fn call_anthropic(
     );
 
     // Build auth headers — OAuth tokens use Bearer + beta header
-    let mut headers = if is_oauth {
+    let headers = if is_oauth {
         vec![
             ("authorization".to_string(), format!("Bearer {api_key}")),
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
@@ -1565,8 +1666,8 @@ fn call_anthropic(
             ("accept".to_string(), "text/event-stream".to_string()),
         ]
     };
-    append_llm_span_hint_headers(
-        &mut headers,
+    let mut llm_span = start_llm_guest_span(
+        ctx,
         "anthropic",
         model,
         temperature,
@@ -1574,7 +1675,6 @@ fn call_anthropic(
         &effective_system,
         &effective_messages,
         &ctx.entity_id,
-        "/content/0/text",
     );
 
     // Retry on transient API errors only until the stream emits visible output.
@@ -1648,9 +1748,15 @@ fn call_anthropic(
                             );
                             continue;
                         }
-                        return Err(format!(
+                        let error = format!(
                             "Anthropic stream failed after visible output or final attempt: {last_err}"
-                        ));
+                        );
+                        finish_llm_guest_span_error(
+                            &mut llm_span,
+                            "stream_parse_error",
+                            &error,
+                        );
+                        return Err(error);
                     }
                 }
             }
@@ -1674,11 +1780,13 @@ fn call_anthropic(
                 }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 if live_progress.saw_semantic_output() {
-                    return Err(format!(
+                    let error = format!(
                         "Anthropic stream returned transient HTTP {} after visible output: {}",
                         r.status,
                         &r.body[..r.body.len().min(500)]
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                    return Err(error);
                 }
                 continue;
             }
@@ -1703,10 +1811,12 @@ fn call_anthropic(
                 }
                 last_err = format!("HTTP 400 (transient): {}", &r.body[..r.body.len().min(200)]);
                 if live_progress.saw_semantic_output() {
-                    return Err(format!(
+                    let error = format!(
                         "Anthropic stream returned transient HTTP 400 after visible output: {}",
                         &r.body[..r.body.len().min(500)]
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                    return Err(error);
                 }
                 continue;
             }
@@ -1733,11 +1843,13 @@ fn call_anthropic(
                         "non_retriable_http_error",
                     ),
                 );
-                return Err(format!(
+                let error = format!(
                     "Anthropic API returned {}: {}",
                     r.status,
                     &r.body[..r.body.len().min(500)]
-                ));
+                );
+                finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                return Err(error);
             }
             Err(e) => {
                 let elapsed = Context::get_time_millis() - attempt_start_ms;
@@ -1756,9 +1868,11 @@ fn call_anthropic(
                 last_err = e.to_string();
                 let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
                 if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
-                    return Err(format!(
+                    let error = format!(
                         "Anthropic stream failed after visible output or final attempt: {last_err}"
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "stream_error", &error);
+                    return Err(error);
                 }
                 continue;
             }
@@ -1778,7 +1892,9 @@ fn call_anthropic(
                     "exhausted_retries",
                 ),
             );
-            return Err(format!("Anthropic API failed after 5 attempts: {last_err}"));
+            let error = format!("Anthropic API failed after 5 attempts: {last_err}");
+            finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
+            return Err(error);
         }
     };
     ctx.log(
@@ -1802,6 +1918,19 @@ fn call_anthropic(
             parsed.cache_read_input_tokens,
             parsed.cache_creation_input_tokens,
         ),
+    );
+
+    finish_llm_guest_span_success(
+        &mut llm_span,
+        "anthropic",
+        model,
+        &parsed.stop_reason,
+        parsed.input_tokens,
+        parsed.output_tokens,
+        parsed.cache_read_input_tokens,
+        parsed.cache_creation_input_tokens,
+        parsed.response_bytes,
+        &parsed.content,
     );
 
     Ok(parsed.into_llm_response(body_str.len()))
@@ -1859,8 +1988,8 @@ fn call_openrouter(
     if !app_name.trim().is_empty() {
         headers.push(("X-Title".to_string(), app_name.trim().to_string()));
     }
-    append_llm_span_hint_headers(
-        &mut headers,
+    let mut llm_span = start_llm_guest_span(
+        ctx,
         "openrouter",
         model,
         temperature,
@@ -1868,7 +1997,6 @@ fn call_openrouter(
         system_prompt,
         &or_messages,
         &ctx.entity_id,
-        "/choices/0/message/content",
     );
 
     ctx.log(
@@ -1949,9 +2077,15 @@ fn call_openrouter(
                             );
                             continue;
                         }
-                        return Err(format!(
+                        let error = format!(
                             "OpenRouter stream failed after visible output or final attempt: {last_err}"
-                        ));
+                        );
+                        finish_llm_guest_span_error(
+                            &mut llm_span,
+                            "stream_parse_error",
+                            &error,
+                        );
+                        return Err(error);
                     }
                 }
             }
@@ -1975,11 +2109,13 @@ fn call_openrouter(
                 }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 if live_progress.saw_semantic_output() {
-                    return Err(format!(
+                    let error = format!(
                         "OpenRouter stream returned transient HTTP {} after visible output: {}",
                         r.status,
                         &r.body[..r.body.len().min(500)]
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                    return Err(error);
                 }
                 continue;
             }
@@ -2006,11 +2142,13 @@ fn call_openrouter(
                         "non_retriable_http_error",
                     ),
                 );
-                return Err(format!(
+                let error = format!(
                     "OpenRouter API returned {}: {}",
                     r.status,
                     &r.body[..r.body.len().min(500)]
-                ));
+                );
+                finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                return Err(error);
             }
             Err(e) => {
                 let elapsed = Context::get_time_millis() - attempt_start_ms;
@@ -2029,9 +2167,11 @@ fn call_openrouter(
                 last_err = e.to_string();
                 let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
                 if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
-                    return Err(format!(
+                    let error = format!(
                         "OpenRouter stream failed after visible output or final attempt: {last_err}"
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "stream_error", &error);
+                    return Err(error);
                 }
                 continue;
             }
@@ -2051,9 +2191,9 @@ fn call_openrouter(
                     "exhausted_retries",
                 ),
             );
-            return Err(format!(
-                "OpenRouter API failed after 5 attempts: {last_err}"
-            ));
+            let error = format!("OpenRouter API failed after 5 attempts: {last_err}");
+            finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
+            return Err(error);
         }
     };
     ctx.log(
@@ -2077,6 +2217,19 @@ fn call_openrouter(
             0,
             0,
         ),
+    );
+
+    finish_llm_guest_span_success(
+        &mut llm_span,
+        "openrouter",
+        model,
+        &parsed.stop_reason,
+        parsed.input_tokens,
+        parsed.output_tokens,
+        0,
+        0,
+        parsed.response_bytes,
+        &parsed.content,
     );
 
     Ok(parsed.into_llm_response(body_str.len()))
@@ -2334,8 +2487,8 @@ fn call_openai(
     {
         headers.push(("accept".to_string(), "text/event-stream".to_string()));
     }
-    append_llm_span_hint_headers(
-        &mut headers,
+    let mut llm_span = start_llm_guest_span(
+        ctx,
         provider,
         model,
         temperature,
@@ -2343,7 +2496,6 @@ fn call_openai(
         system_prompt,
         messages,
         &ctx.entity_id,
-        "/output/0/content/0/text",
     );
 
     // Log input types for debugging conversation format issues
@@ -2409,19 +2561,27 @@ fn call_openai(
                             );
                             continue;
                         }
-                        return Err(format!(
+                        let error = format!(
                             "OpenAI Codex stream failed after visible output or final attempt: {last_err}"
-                        ));
+                        );
+                        finish_llm_guest_span_error(
+                            &mut llm_span,
+                            "stream_parse_error",
+                            &error,
+                        );
+                        return Err(error);
                     }
                 }
             }
             Ok(r) if r.status == 429 => {
                 last_err = format!("OpenAI Codex API rate limited (429)");
                 if live_progress.saw_semantic_output() {
-                    return Err(format!(
+                    let error = format!(
                         "OpenAI Codex stream was rate limited after visible output: {}",
                         &r.body[..r.body.len().min(300)]
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "rate_limited", &error);
+                    return Err(error);
                 }
                 continue;
             }
@@ -2434,7 +2594,9 @@ fn call_openai(
                         "warn",
                         "session_turn: OpenAI Codex token expired; dispatching auth refresh gate",
                     );
-                    return Err(provider_auth_expired_error(&r.body));
+                    let error = provider_auth_expired_error(&r.body);
+                    finish_llm_guest_span_error(&mut llm_span, "provider_auth_expired", &error);
+                    return Err(error);
                 }
                 ctx.log(
                     "error",
@@ -2443,7 +2605,9 @@ fn call_openai(
                         r.status
                     ),
                 );
-                return Err(format!("OpenAI Codex API returned {}: {snippet}", r.status));
+                let error = format!("OpenAI Codex API returned {}: {snippet}", r.status);
+                finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                return Err(error);
             }
             Err(e) => {
                 last_err = e.to_string();
@@ -2457,17 +2621,25 @@ fn call_openai(
                 );
                 let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
                 if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
-                    return Err(format!(
+                    let error = format!(
                         "OpenAI Codex stream failed after visible output or final attempt: {last_err}"
-                    ));
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "stream_error", &error);
+                    return Err(error);
                 }
                 continue;
             }
         }
     }
 
-    let parsed = parsed_stream
-        .ok_or_else(|| format_openai_codex_exhausted_error(LLM_MAX_ATTEMPTS, &last_err))?;
+    let parsed = match parsed_stream {
+        Some(parsed) => parsed,
+        None => {
+            let error = format_openai_codex_exhausted_error(LLM_MAX_ATTEMPTS, &last_err);
+            finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
+            return Err(error);
+        }
+    };
     let content_blocks = parsed.content.as_array().map(Vec::len).unwrap_or(0);
 
     ctx.log(
@@ -2476,6 +2648,19 @@ fn call_openai(
             "session_turn: OpenAI Codex response: blocks={}, stop={}, in={}, out={}",
             content_blocks, parsed.stop_reason, parsed.input_tokens, parsed.output_tokens
         ),
+    );
+
+    finish_llm_guest_span_success(
+        &mut llm_span,
+        provider,
+        model,
+        &parsed.stop_reason,
+        parsed.input_tokens,
+        parsed.output_tokens,
+        0,
+        0,
+        parsed.response_bytes,
+        &parsed.content,
     );
 
     Ok(parsed.into_llm_response(body_str.len()))

@@ -83,6 +83,7 @@ impl Drop for ToolScope {
 /// temper-wasm) so the resulting `wasm.host.http_call` span is renamed
 /// `tool.<tool_name>` with queryable `tool.name` / `tool.call_id`
 /// attributes.
+#[allow(dead_code)]
 fn tool_span_hint_headers() -> Vec<(String, String)> {
     let tool_name = CURRENT_TOOL_NAME.with(|cell| cell.borrow().clone());
     let tool_call_id = CURRENT_TOOL_CALL_ID.with(|cell| cell.borrow().clone());
@@ -2801,12 +2802,11 @@ fn encode_odata_filter_literal(value: &str) -> String {
 
 /// Minimal headers for internal Temper API calls.
 /// Auth headers are injected by the WASM host — see ADR-0043.
-/// Span-hint headers for the current tool dispatch are appended when
-/// `ToolScope` is active (ADR-0037).
+/// Tool observability is now provided by the structured guest span API;
+/// span-hint headers remain available through `internal_headers_for_tool`
+/// for compatibility paths that cannot yet own a guest span per request.
 fn internal_headers() -> Vec<(String, String)> {
-    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(tool_span_hint_headers());
-    headers
+    vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
 pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {

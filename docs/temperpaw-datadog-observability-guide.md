@@ -16,6 +16,8 @@ Current production runtime:
 - Temper mainline revision pinned by the PR-ready source after the Temper
   squash merge:
   `01288d7bbbbf30f68d5353d3e8982aad5be49ee0`
+- Temper revision pinned by the PR-ready source for WASM guest observability:
+  `9f094a48f35f79a8a2d1195082f54b99f377e8b3`
 - Note: the live proof SHA above is the pre-squash Temper branch commit. The
   mainline SHA is the merged equivalent used by current source so future
   builds depend on `main`, not an orphaned PR branch.

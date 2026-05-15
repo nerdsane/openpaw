@@ -1361,8 +1361,9 @@ fn prompt_datadog_config(
 /// Otherwise, uses a debug exporter (traces logged to stdout).
 /// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
 /// OTEL collector YAML emitted when the service has `DD_API_KEY` set.
-/// GenAI spans are routed to Datadog LLM Observability, while ordinary APM
-/// traces, metrics, and logs go through Datadog's standard exporter.
+/// GenAI spans are copied to Datadog LLM Observability and also kept in the
+/// ordinary APM trace so guest LLM/tool spans stay stitched to host-boundary
+/// spans in trace search.
 ///
 /// Includes `resourcedetection` + `resource` processors per ADR-0037:
 /// without them, Railway containers emit spans with a 12-hex container id
@@ -1406,11 +1407,6 @@ processors:
     traces:
       span:
         - 'attributes["gen_ai.operation.name"] == nil and attributes["gen_ai.system"] == nil'
-  filter/traces_apm:
-    error_mode: ignore
-    traces:
-      span:
-        - 'attributes["gen_ai.operation.name"] != nil or attributes["gen_ai.system"] != nil'
   batch:
     send_batch_size: 1000
     timeout: 5s
@@ -1434,7 +1430,7 @@ service:
       exporters: [otlphttp/llmobs]
     traces/apm:
       receivers: [otlp]
-      processors: [resourcedetection, resource, transform/dbm, filter/traces_apm, batch]
+      processors: [resourcedetection, resource, transform/dbm, batch]
       exporters: [datadog]
     metrics:
       receivers: [otlp]
@@ -2570,9 +2566,7 @@ active = true
             cfg.contains("processors: [resourcedetection, resource, filter/traces_llmobs, batch]")
         );
         assert!(cfg.contains("traces/apm:"));
-        assert!(cfg.contains(
-            "processors: [resourcedetection, resource, transform/dbm, filter/traces_apm, batch]"
-        ));
+        assert!(cfg.contains("processors: [resourcedetection, resource, transform/dbm, batch]"));
         let common_expected = "processors: [resourcedetection, resource, batch]";
         let common_pipeline_count = cfg.matches(common_expected).count();
         assert_eq!(
