@@ -28,6 +28,8 @@ References:
 
 - Datadog Agent OTLP ingest: https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/
 - Datadog OpenTelemetry ingestion options: https://docs.datadoghq.com/opentelemetry/ingestion_sampling/
+- Datadog backend Error Tracking for logs: https://docs.datadoghq.com/logs/error_tracking/backend/
+- Datadog Error Tracking for backend service spans: https://docs.datadoghq.com/tracing/error_tracking/
 - Datadog USM setup: https://docs.datadoghq.com/universal_service_monitoring/setup/
 - Datadog native profiler: https://docs.datadoghq.com/profiler/enabling/ddprof/
 
@@ -68,6 +70,15 @@ continuous `ddprof` host capabilities from inside the Railway container. `POST
 `TEMPER_DDPROF_ENABLED` and `DD_PROFILING_ENABLED` on the TemperPaw service and
 redeploys it, so continuous profiling can be canary-proven and then disabled
 again.
+
+For Error Tracking proof, `POST
+/paw/infra/datadog/error-tracking-synthetic` emits a
+`DatadogSyntheticBackendError` as both an errored OpenTelemetry span named
+`datadog.error_tracking.synthetic` and a backend error log. The event includes
+Datadog span fields `error.type`, `error.message`, and `error.stack`, plus log
+fields `error.kind`, `error.message`, `error.stack`, and the OTel
+`exception.*` mirror fields so the live proof can distinguish "Error Tracking
+is supported" from "there was a plain error log but no Error Tracking issue."
 
 ## Product Classification
 

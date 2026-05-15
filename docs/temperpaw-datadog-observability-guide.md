@@ -119,6 +119,17 @@ The proof contract is: on-demand profiling remains supported even if continuous 
 Railway. USM is not considered misconfigured when Railway cannot expose the host
 kernel access Datadog system-probe requires.
 
+To prove backend Error Tracking, call authenticated `POST
+/paw/infra/datadog/error-tracking-synthetic` with a JSON body such as
+`{"proof_id":"dd-error-proof-<timestamp>"}`. The endpoint emits
+`DatadogSyntheticBackendError` as an errored OpenTelemetry span named
+`datadog.error_tracking.synthetic` and as a backend error log. The payload carries
+`error.type`, `error.kind`, `error.message`, `error.stack`,
+`exception.type`, `exception.message`, and `exception.stacktrace`. Verify it in
+the Error Tracking Explorer by searching `service:temperpaw env:prod
+DatadogSyntheticBackendError` or by the proof id, then link the issue in the
+proof report.
+
 Run `GET /paw/infra/railway/datadog-capability-check` or
 `./scripts/datadog_railway_capability_check.sh` inside the Railway TemperPaw
 container or the temporary continuous-profiler canary before marking USM or

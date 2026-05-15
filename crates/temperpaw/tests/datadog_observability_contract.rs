@@ -1628,6 +1628,45 @@ fn setup_api_can_run_a_temporary_continuous_profiler_canary() {
 }
 
 #[test]
+fn setup_api_can_emit_datadog_error_tracking_synthetic_issue() {
+    let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
+    let guide = load_text("docs/temperpaw-datadog-observability-guide.md");
+    let adr = load_text("docs/adrs/0049-railway-datadog-product-coverage.md");
+
+    for required in [
+        "/paw/infra/datadog/error-tracking-synthetic",
+        "emit_datadog_error_tracking_synthetic",
+        "DatadogSyntheticBackendError",
+        "\"datadog.error_tracking.synthetic\"",
+        "\"error.type\"",
+        "\"error.kind\"",
+        "\"error.message\"",
+        "\"error.stack\"",
+        "\"exception.type\"",
+        "\"exception.message\"",
+        "\"exception.stacktrace\"",
+        "StatusCode::ACCEPTED",
+    ] {
+        assert!(
+            setup_api.contains(required),
+            "setup API must expose synthetic Error Tracking proof contract `{required}`"
+        );
+    }
+
+    assert!(
+        guide.contains("/paw/infra/datadog/error-tracking-synthetic")
+            && guide.contains("error.stack")
+            && guide.contains("Error Tracking Explorer"),
+        "operator guide must document how to generate and verify the synthetic backend Error Tracking issue"
+    );
+    assert!(
+        adr.contains("/paw/infra/datadog/error-tracking-synthetic")
+            && adr.contains("DatadogSyntheticBackendError"),
+        "Railway Datadog ADR must record the synthetic Error Tracking proof surface"
+    );
+}
+
+#[test]
 fn temperpaw_guest_observability_api_exposes_session_tool_and_llmobs_semconv() {
     let provider_caller = std::fs::read_to_string(
         repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"),
