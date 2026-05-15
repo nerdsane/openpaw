@@ -73,6 +73,42 @@ def is_temperpaw_owned_monitor(monitor: dict, desired_names: set[str]) -> bool:
     )
 
 
+def monitor_preference_score(monitor: dict, desired_names: set[str]) -> tuple[int, int, int]:
+    """Prefer current TemperPaw monitors when legacy copies share a name."""
+    tags = set(monitor.get("tags") or [])
+    return (
+        int(TEAM_TAG in tags),
+        int(monitor.get("name") in desired_names),
+        int(not legacy_openpaw_monitor(monitor)),
+    )
+
+
+def index_existing_monitors(
+    existing_monitors: list[dict],
+    desired_names: set[str],
+) -> tuple[dict[str, dict], list[dict]]:
+    existing_by_name: dict[str, dict] = {}
+    duplicates: list[dict] = []
+
+    for monitor in existing_monitors:
+        name = monitor["name"]
+        current = existing_by_name.get(name)
+        if current is None:
+            existing_by_name[name] = monitor
+            continue
+
+        if monitor_preference_score(monitor, desired_names) > monitor_preference_score(
+            current,
+            desired_names,
+        ):
+            duplicates.append(current)
+            existing_by_name[name] = monitor
+        else:
+            duplicates.append(monitor)
+
+    return existing_by_name, duplicates
+
+
 def raise_for_status(resp: requests.Response, action: str):
     if resp.ok:
         return
@@ -178,7 +214,10 @@ def main():
     existing_monitors = [
         m for m in resp.json() if is_temperpaw_owned_monitor(m, desired_names)
     ]
-    existing_by_name = {m["name"]: m for m in existing_monitors}
+    existing_by_name, duplicate_existing_monitors = index_existing_monitors(
+        existing_monitors,
+        desired_names,
+    )
 
     for monitor in monitors:
         name = monitor["name"]
@@ -237,11 +276,16 @@ def main():
             print(f"Created: {name} (id={monitor_id})")
 
     if args.reconcile:
-        orphans = [
+        orphans = {
+            (m["name"], m["id"])
+            for m in duplicate_existing_monitors
+        }
+        orphans.update(
             (m["name"], m["id"])
             for m in existing_monitors
             if m.get("name") not in desired_names
-        ]
+        )
+        orphans = sorted(orphans)
         if not orphans:
             print("No orphan monitors to reconcile.")
             return
