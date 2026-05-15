@@ -112,7 +112,7 @@ fn datadog_runtime_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<Strin
         "DD_ENV=prod".to_string(),
         "DD_SERVICE=temperpaw".to_string(),
         "DD_HOSTNAME=temperpaw-runtime-agent".to_string(),
-        "DD_TAGS=team:temperpaw,service:temperpaw,railway_profile:datadog-enhanced".to_string(),
+        "DD_TAGS=team:temperpaw service:temperpaw railway_profile:datadog-enhanced".to_string(),
         "DD_APM_ENABLED=true".to_string(),
         "DD_APM_NON_LOCAL_TRAFFIC=true".to_string(),
         "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2".to_string(),
@@ -130,7 +130,7 @@ fn datadog_postgres_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<Stri
         format!("DD_SITE={dd_site}"),
         "DD_ENV=prod".to_string(),
         "DD_HOSTNAME=temperpaw-postgres-dbm".to_string(),
-        "DD_TAGS=team:temperpaw,service:temperpaw".to_string(),
+        "DD_TAGS=team:temperpaw service:temperpaw".to_string(),
         "DD_APM_ENABLED=true".to_string(),
         "DD_APM_NON_LOCAL_TRAFFIC=true".to_string(),
         "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2".to_string(),
@@ -2370,7 +2370,7 @@ mod tests {
             "DD_ENV=prod",
             "DD_SERVICE=temperpaw",
             "DD_HOSTNAME=temperpaw-runtime-agent",
-            "DD_TAGS=team:temperpaw,service:temperpaw,railway_profile:datadog-enhanced",
+            "DD_TAGS=team:temperpaw service:temperpaw railway_profile:datadog-enhanced",
             "DD_APM_ENABLED=true",
             "DD_APM_NON_LOCAL_TRAFFIC=true",
             "DD_LOGS_ENABLED=true",
@@ -2383,6 +2383,14 @@ mod tests {
                 "missing runtime agent var {expected:?} in {variables:?}"
             );
         }
+        let dd_tags = variables
+            .iter()
+            .find_map(|var| var.strip_prefix("DD_TAGS="))
+            .expect("runtime agent DD_TAGS must be set");
+        assert!(
+            !dd_tags.contains(','),
+            "Datadog Agent env list values are whitespace-separated, not comma-separated: {dd_tags}"
+        );
     }
 
     #[test]
@@ -2429,7 +2437,7 @@ mod tests {
             "DD_API_KEY=api-key",
             "DD_SITE=datadoghq.com",
             "DD_ENV=prod",
-            "DD_TAGS=team:temperpaw,service:temperpaw",
+            "DD_TAGS=team:temperpaw service:temperpaw",
             "DD_APM_ENABLED=true",
             "DD_APM_NON_LOCAL_TRAFFIC=true",
             "PGHOST=${{Postgres.PGHOST}}",
@@ -2443,6 +2451,14 @@ mod tests {
                 "missing {expected:?} in {variables:?}"
             );
         }
+        let dd_tags = variables
+            .iter()
+            .find_map(|var| var.strip_prefix("DD_TAGS="))
+            .expect("postgres agent DD_TAGS must be set");
+        assert!(
+            !dd_tags.contains(','),
+            "Datadog Agent env list values are whitespace-separated, not comma-separated: {dd_tags}"
+        );
     }
 
     #[test]
