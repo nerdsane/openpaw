@@ -41,7 +41,7 @@ def datadog_request(method, url, headers, **kwargs):
     resp = None
     for attempt in range(6):
         resp = requests.request(method, url, headers=headers, timeout=30, **kwargs)
-        if resp.status_code != 429:
+        if resp.status_code != 429 and resp.status_code < 500:
             break
         retry_after = resp.headers.get("Retry-After")
         if retry_after and retry_after.isdigit():

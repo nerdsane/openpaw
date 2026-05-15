@@ -79,6 +79,29 @@
     }
   },
   {
+    "name": "[TemperPaw] APM Error Rate Spike",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:trace.http.server.request.errors{service:temperpaw,env:prod}.as_count() / sum:trace.http.server.request.hits{service:temperpaw,env:prod}.as_count() > 0.1",
+    "message": "APM error rate for service:temperpaw env:prod exceeded 10% over 15 minutes. Open APM error traces and compare against the 5xx monitor plus service logs.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "service:temperpaw",
+      "env:prod",
+      "signal:apm",
+      "severity:high",
+      "product:apm"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 0.1,
+        "warning": 0.05
+      },
+      "notify_no_data": false,
+      "on_missing_data": "default",
+      "renotify_interval": 60
+    }
+  },
+  {
     "name": "[TemperPaw] APM HTTP Duration p95 Regression",
     "type": "metric alert",
     "query": "avg(last_15m):p95:trace.http.server.request{service:temperpaw,!resource_name:get_/observe/events/stream,!resource_name:get_/tdata/_events} > 2",
