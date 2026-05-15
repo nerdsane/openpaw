@@ -72,6 +72,17 @@ def is_temperpaw_owned_monitor(monitor: dict, desired_names: set[str]) -> bool:
     )
 
 
+def raise_for_status(resp: requests.Response, action: str):
+    if resp.ok:
+        return
+    body = resp.text.strip()
+    detail = f": {body}" if body else ""
+    raise requests.HTTPError(
+        f"{action} failed with {resp.status_code} {resp.reason}{detail}",
+        response=resp,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -107,7 +118,7 @@ def main():
     }
 
     resp = requests.get(f"{base_url}/monitor", headers=headers)
-    resp.raise_for_status()
+    raise_for_status(resp, "List monitors")
     existing_monitors = [
         m for m in resp.json() if is_temperpaw_owned_monitor(m, desired_names)
     ]
@@ -129,13 +140,13 @@ def main():
                     f"{base_url}/monitor/{monitor_id}",
                     headers=headers,
                 )
-                resp.raise_for_status()
+                raise_for_status(resp, f"Delete monitor {name} ({monitor_id})")
                 resp = requests.post(
                     f"{base_url}/monitor",
                     headers=headers,
                     json=monitor,
                 )
-                resp.raise_for_status()
+                raise_for_status(resp, f"Create monitor {name}")
                 monitor_id = resp.json().get("id", "unknown")
                 print(
                     f"Recreated: {name} "
@@ -150,7 +161,7 @@ def main():
                 headers=headers,
                 json=monitor,
             )
-            resp.raise_for_status()
+            raise_for_status(resp, f"Update monitor {name} ({monitor_id})")
             print(f"Updated: {name} (id={monitor_id})")
         else:
             if args.dry_run:
@@ -161,7 +172,7 @@ def main():
                 headers=headers,
                 json=monitor,
             )
-            resp.raise_for_status()
+            raise_for_status(resp, f"Create monitor {name}")
             monitor_id = resp.json().get("id", "unknown")
             print(f"Created: {name} (id={monitor_id})")
 
@@ -183,7 +194,7 @@ def main():
                 f"{base_url}/monitor/{monitor_id}",
                 headers=headers,
             )
-            resp.raise_for_status()
+            raise_for_status(resp, f"Delete orphan monitor {name} ({monitor_id})")
             print(f"  Deleted: {name} (id={monitor_id})")
 
 
