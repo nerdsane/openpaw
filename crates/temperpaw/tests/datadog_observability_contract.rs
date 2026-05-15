@@ -1563,6 +1563,31 @@ fn setup_api_can_ensure_railway_datadog_runtime_agent_without_exposing_tokens() 
 }
 
 #[test]
+fn railway_runtime_agent_variable_upserts_are_batched_before_redeploy() {
+    let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
+    let helper_start = setup_api
+        .find("async fn railway_upsert_variable")
+        .expect("Railway variable helper should exist");
+    let helper_end = setup_api[helper_start..]
+        .find("async fn railway_redeploy_service")
+        .map(|offset| helper_start + offset)
+        .expect("Railway redeploy helper should follow variable helper");
+    let helper = &setup_api[helper_start..helper_end];
+
+    assert!(
+        helper.contains("\"skipDeploys\": true"),
+        "Railway variable upserts must set skipDeploys=true; the Runtime Agent ensure endpoint redeploys the Agent and app explicitly after all vars are written, and live Railway canaries rate-limit per-var deployments"
+    );
+    assert!(
+        setup_api
+            .matches("railway_redeploy_service(&client, &token, &env")
+            .count()
+            >= 2,
+        "Runtime Agent setup must keep exactly-batched explicit redeploys after Agent/app variable writes"
+    );
+}
+
+#[test]
 fn setup_api_can_run_a_temporary_continuous_profiler_canary() {
     let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
     let guide = load_text("docs/temperpaw-datadog-observability-guide.md");

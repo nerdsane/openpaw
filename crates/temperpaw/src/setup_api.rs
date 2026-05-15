@@ -2148,6 +2148,7 @@ async fn railway_upsert_variable(
                 "serviceId": service_id,
                 "name": name,
                 "value": value,
+                "skipDeploys": true,
             }
         }
     });
