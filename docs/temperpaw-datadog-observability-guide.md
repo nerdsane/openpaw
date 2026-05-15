@@ -583,7 +583,8 @@ Live metric proof from the current proof window included:
 
 - `temper_wasm_host_http_requests_total{service:temperpaw}` activity
 - `temper_cedar_evaluations_total{service:temperpaw}` activity
-- `datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}` activity
+- `postgresql.queries.count{service:temperpaw,database_instance:temperpaw-postgres}` activity
+- fresh DBM explain plans for `service:temperpaw` / `temperpaw-postgres`
 - `datadog.profiling.rust.profiles_uploaded{service:temperpaw,env:prod,version:86bd073dc89efc6e559cbdf9787ce9e0b92228fe}` activity
 
 Monitor proof:
@@ -599,19 +600,22 @@ Important monitors include:
 - `[TemperPaw] Agent Session Trace Correlation Missing`
 - `[TemperPaw] LLM Error Rate Spike`
 - `[TemperPaw] Postgres DBM Query Latency Regression`
-- `[TemperPaw] Postgres DBM Activity Missing`
+- `[TemperPaw] Postgres DBM Query Metrics Missing`
 - `[TemperPaw] TemperFS Metadata Operation Errors`
 - `[TemperPaw] Sandbox Host HTTP Error Spike`
 - `[Temper] Required WASM Load Failures`
 - `[Temper] Profiler Upload Failures`
 
-The DBM activity monitor uses a fractional-safe threshold:
+The DBM integration-alive monitor gates on query-count telemetry rather than
+sparse `datadog.dbm.activity_rows` samples:
 
 ```text
-sum(last_30m):sum:datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}.as_count() < 0.1
+sum(last_30m):default_zero(sum:postgresql.queries.count{service:temperpaw,database_instance:temperpaw-postgres}.as_count()) < 1
 ```
 
-This avoids false alerts from sparse sampled DBM activity rows below one.
+Use DBM activity rows, DBM samples, and explain plans diagnostically for
+correlation and query-shape work; they can be sparse even when the Postgres DBM
+integration, query count metrics, and explain plans are live.
 
 ## Agent Query Surface
 

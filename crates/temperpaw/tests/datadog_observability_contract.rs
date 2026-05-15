@@ -370,12 +370,12 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
         "[TemperPaw] LLM Error Rate Spike",
         "[TemperPaw] LLM Latency Regression",
         "[TemperPaw] Postgres DBM Query Latency Regression",
-        "[TemperPaw] Postgres DBM Activity Missing",
+        "[TemperPaw] Postgres DBM Query Metrics Missing",
         "[Temper] Profiler Upload Failures",
         "trace-analytics alert",
         "@observability_event:temperpaw.agent.session -trace_id:*",
         "@module_name:provider_caller",
-        "datadog.dbm.activity_rows",
+        "postgresql.queries.count",
         "type:sql",
         "@db.system:postgresql",
         "@peer.service:temperpaw-postgres",
@@ -415,29 +415,35 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
         "Profiler uploads are on-demand in Railway; monitor upload failures and proof uploads, not continuous background upload absence"
     );
 
-    let dbm_activity_monitor = monitor_defs
+    let dbm_integration_monitor = monitor_defs
         .as_array()
         .expect("monitors must be an array")
         .iter()
         .find(|monitor| {
-            monitor["name"].as_str() == Some("[TemperPaw] Postgres DBM Activity Missing")
+            monitor["name"].as_str() == Some("[TemperPaw] Postgres DBM Query Metrics Missing")
         })
-        .expect("Postgres DBM activity monitor must exist");
+        .expect("Postgres DBM query-metrics monitor must exist");
     assert_eq!(
-        dbm_activity_monitor["type"].as_str(),
+        dbm_integration_monitor["type"].as_str(),
         Some("metric alert"),
-        "Postgres DBM health monitor must use DBM metrics for alerting; APM SQL child-span correlation remains in the runbook/query text for diagnostics"
+        "Postgres DBM health monitor must use DBM integration metrics for alerting; APM SQL child-span correlation remains in the runbook/query text for diagnostics"
     );
     assert!(
-        dbm_activity_monitor["query"]
+        dbm_integration_monitor["query"]
             .as_str()
-            .is_some_and(|query| query.contains("< 0.1")),
-        "Postgres DBM activity rows can be fractional after Datadog rollup; the missing-activity threshold must be below one row so sparse-but-valid DBM samples do not false-alert"
+            .is_some_and(|query| query.contains("postgresql.queries.count")
+                && query.contains("default_zero")
+                && query.contains("< 1")),
+        "Postgres DBM availability must gate on the query-count metric instead of sparse activity rows"
     );
     assert_eq!(
-        dbm_activity_monitor["options"]["thresholds"]["critical"].as_f64(),
-        Some(0.1),
-        "Postgres DBM activity monitor critical threshold must match the fractional missing-activity query"
+        dbm_integration_monitor["options"]["thresholds"]["critical"].as_f64(),
+        Some(1.0),
+        "Postgres DBM query-metrics monitor critical threshold must match the missing-integration query"
+    );
+    assert!(
+        !monitors.contains("sum(last_30m):sum:datadog.dbm.activity_rows"),
+        "Sparse DBM activity rows must not be the primary DBM availability gate"
     );
 
     let dbm_latency_monitor = monitor_defs

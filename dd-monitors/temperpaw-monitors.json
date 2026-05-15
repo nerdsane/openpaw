@@ -871,10 +871,10 @@
     }
   },
   {
-    "name": "[TemperPaw] Postgres DBM Activity Missing",
+    "name": "[TemperPaw] Postgres DBM Query Metrics Missing",
     "type": "metric alert",
-    "query": "sum(last_30m):sum:datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}.as_count() < 0.1",
-    "message": "No Postgres DBM activity rows were observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. Datadog can report sparse DBM samples as fractional rollup values, so any value at or above 0.1 is treated as live DBM activity. Verify the Railway datadog-postgres-agent service, Postgres integration config, and DBM credentials. To inspect DBM/APM correlation after DBM activity returns, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
+    "query": "sum(last_30m):default_zero(sum:postgresql.queries.count{service:temperpaw,database_instance:temperpaw-postgres}.as_count()) < 1",
+    "message": "No Postgres DBM query-count metric was observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. This is the DBM integration-alive gate: if it fires, verify the Railway datadog-postgres-agent service, Postgres integration config, DBM credentials, and database_instance tags. DBM activity rows and samples can be sparse even while query metrics and explain plans are live, so use them diagnostically rather than as the primary availability gate. To inspect DBM/APM correlation, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -883,9 +883,10 @@
     ],
     "options": {
       "thresholds": {
-        "critical": 0.1
+        "critical": 1
       },
       "notify_no_data": false,
+      "on_missing_data": "default",
       "renotify_interval": 60
     }
   },
