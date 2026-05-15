@@ -6,7 +6,7 @@
     {
       "definition": {
         "type": "note",
-        "content": "**Runtime dashboard source of truth.** Panels use emitted Temper runtime metrics for OpenPaw service health. Retired trace-metric migration overlays are intentionally absent because they are not live/deployable for `service:openpaw`.",
+        "content": "**Runtime dashboard source of truth.** Panels use emitted Temper runtime metrics for OpenPaw service health. Retired trace-metric migration overlays are intentionally absent because they are not live/deployable for `service:temperpaw`.",
         "background_color": "blue",
         "font_size": "12",
         "text_align": "left",
@@ -66,7 +66,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_up{service:openpaw}",
+                  "q": "avg:temper_up{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -77,7 +77,7 @@
     },
     {
       "definition": {
-        "title": "APM Traces (service:openpaw)",
+        "title": "APM Traces (service:temperpaw)",
         "type": "group",
         "layout_type": "ordered",
         "widgets": [
@@ -87,7 +87,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "top(sum:temper_cedar_evaluations_total{service:openpaw} by {decision}.as_count(), 10, 'sum', 'desc')",
+                  "q": "top(sum:temper_cedar_evaluations_total{service:temperpaw} by {decision}.as_count(), 10, 'sum', 'desc')",
                   "conditional_formats": [],
                   "style": {}
                 }
@@ -124,7 +124,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_active_actors{service:openpaw}",
+                  "q": "avg:temper_active_actors{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -136,7 +136,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_indexed_entities{service:openpaw,tenant:*}",
+                  "q": "sum:temper_indexed_entities{service:temperpaw,tenant:*}",
                   "display_type": "line"
                 }
               ]
@@ -148,7 +148,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_projected_entities{service:openpaw,tenant:*}",
+                  "q": "sum:temper_projected_entities{service:temperpaw,tenant:*}",
                   "display_type": "line"
                 }
               ]
@@ -160,7 +160,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_projection_coverage_ratio{service:openpaw}",
+                  "q": "avg:temper_projection_coverage_ratio{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -172,7 +172,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_active_actors{service:openpaw}",
+                  "q": "avg:temper_active_actors{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -184,7 +184,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:process_resident_memory_bytes{service:openpaw}",
+                  "q": "avg:process_resident_memory_bytes{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -196,7 +196,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_indexed_entities{service:openpaw,tenant:*} by {host}",
+                  "q": "sum:temper_indexed_entities{service:temperpaw,tenant:*} by {host}",
                   "display_type": "line"
                 }
               ]
@@ -208,7 +208,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_active_actors{service:openpaw} by {host}",
+                  "q": "avg:temper_active_actors{service:temperpaw} by {host}",
                   "display_type": "line"
                 }
               ]
@@ -220,7 +220,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:process_resident_memory_bytes{service:openpaw} by {host}",
+                  "q": "avg:process_resident_memory_bytes{service:temperpaw} by {host}",
                   "display_type": "line"
                 }
               ]
@@ -241,7 +241,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:openpaw}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_projection_backfill_snapshot_misses_total{service:temperpaw}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -253,7 +253,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_startup_live_restore_entities_total{service:openpaw} by {tenant}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_startup_live_restore_entities_total{service:temperpaw} by {tenant}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -265,7 +265,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(avg:temper_startup_phase_duration_ms{service:openpaw} by {phase}.rollup(avg, 60))",
+                  "q": "default_zero(avg:temper_startup_phase_duration_ms{service:temperpaw} by {phase}.rollup(avg, 60))",
                   "display_type": "line"
                 }
               ]
@@ -277,7 +277,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(avg:temper_startup_time_to_healthy_ms{service:openpaw}.rollup(avg, 60))",
+                  "q": "default_zero(avg:temper_startup_time_to_healthy_ms{service:temperpaw}.rollup(avg, 60))",
                   "display_type": "line"
                 }
               ]
@@ -289,7 +289,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_wasm_module_load_failures_total{service:openpaw} by {stage}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_wasm_module_load_failures_total{service:temperpaw} by {stage}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -301,7 +301,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_os_app_reconcile_total{service:openpaw} by {app,result}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_os_app_reconcile_total{service:temperpaw} by {app,result}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -313,7 +313,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(avg:temper_os_app_reconcile_duration_ms{service:openpaw} by {app,result}.rollup(avg, 60))",
+                  "q": "default_zero(avg:temper_os_app_reconcile_duration_ms{service:temperpaw} by {app,result}.rollup(avg, 60))",
                   "display_type": "line"
                 }
               ]
@@ -325,7 +325,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_event_replay_duration{service:openpaw} by {tenant,entity_type}.rollup(avg, 60)",
+                  "q": "avg:temper_event_replay_duration{service:temperpaw} by {tenant,entity_type}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -337,7 +337,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_turso_query_duration{service:openpaw} by {operation}.rollup(avg, 60)",
+                  "q": "avg:temper_turso_query_duration{service:temperpaw} by {operation}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -349,7 +349,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_query_projection_update_duration_ms{service:openpaw} by {operation,result}.rollup(avg, 60)",
+                  "q": "avg:temper_query_projection_update_duration_ms{service:temperpaw} by {operation,result}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -361,8 +361,184 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_query_projection_update_error_total{service:openpaw} by {operation}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_query_projection_update_error_total{service:temperpaw} by {operation}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Query Projection Queue Wait p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_query_projection_update_queue_wait_ms{service:temperpaw} by {entity_type,operation,source}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_query_projection_update_queue_wait_ms{service:temperpaw} by {entity_type,operation,source}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Query Projection E2E Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_query_projection_update_end_to_end_duration_ms{service:temperpaw} by {entity_type,operation,source,result}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_query_projection_update_end_to_end_duration_ms{service:temperpaw} by {entity_type,operation,source,result}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Query Projection Applied Sequence",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "max:temper_query_projection_applied_sequence_nr{service:temperpaw} by {entity_type,operation,source}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Query Projection Backfill Coverage",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_query_projection_backfill_entities_total{service:temperpaw} by {entity_type,source,result}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Query Projection Backfill Replay Events",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_query_projection_backfill_replay_events{service:temperpaw} by {entity_type,result}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_query_projection_backfill_replay_events{service:temperpaw} by {entity_type,result}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Shadow Checks",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_query_projection_shadow_check_total{service:temperpaw} by {entity_type,result,drift_kind,sequence_direction}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Shadow Sequence Gap",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_query_projection_shadow_sequence_gap{service:temperpaw} by {entity_type,result,drift_kind,sequence_direction}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_query_projection_shadow_sequence_gap{service:temperpaw} by {entity_type,result,drift_kind,sequence_direction}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Replay Parity Checks",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_query_projection_replay_parity_check_total{service:temperpaw} by {entity_type,result,drift_kind,sequence_direction}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Replay Parity Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_query_projection_replay_parity_duration_ms{service:temperpaw} by {entity_type,result,drift_kind}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_query_projection_replay_parity_duration_ms{service:temperpaw} by {entity_type,result,drift_kind}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Projection Replay Parity Sequence Gap",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_query_projection_replay_parity_sequence_gap{service:temperpaw} by {entity_type,result,drift_kind,sequence_direction}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_query_projection_replay_parity_sequence_gap{service:temperpaw} by {entity_type,result,drift_kind,sequence_direction}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Postgres Pool Acquire p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_postgres_pool_acquire_duration_ms{service:temperpaw} by {operation,outcome}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_postgres_pool_acquire_duration_ms{service:temperpaw} by {operation,outcome}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Postgres Transaction Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_postgres_transaction_duration_ms{service:temperpaw} by {operation,outcome}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_postgres_transaction_duration_ms{service:temperpaw} by {operation,outcome}",
+                  "display_type": "line"
                 }
               ]
             }
@@ -382,7 +558,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_cedar_evaluations_total{service:openpaw}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_cedar_evaluations_total{service:temperpaw}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -394,7 +570,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_wasm_invocations_total{service:openpaw} by {trigger_action,success}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_wasm_invocations_total{service:temperpaw} by {trigger_action,success}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -406,7 +582,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_wasm_invocation_duration_ms{service:openpaw} by {trigger_action}.rollup(avg, 60)",
+                  "q": "avg:temper_wasm_invocation_duration_ms{service:temperpaw} by {trigger_action}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Invoke Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_wasm_invocation_duration_ms{service:temperpaw} by {trigger_action}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_wasm_invocation_duration_ms{service:temperpaw} by {trigger_action}",
                   "display_type": "line"
                 }
               ]
@@ -418,7 +610,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_wasm_host_http_requests_total{service:openpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_wasm_host_http_requests_total{service:temperpaw} by {call_kind,status_code_class}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -430,7 +622,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_wasm_host_http_duration_ms{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
+                  "q": "avg:temper_wasm_host_http_duration_ms{service:temperpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "WASM Host HTTP Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_wasm_host_http_duration_ms{service:temperpaw} by {call_kind,status_code_class}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_wasm_host_http_duration_ms{service:temperpaw} by {call_kind,status_code_class}",
                   "display_type": "line"
                 }
               ]
@@ -442,7 +650,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_wasm_host_http_request_bytes{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
+                  "q": "avg:temper_wasm_host_http_request_bytes{service:temperpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -454,7 +662,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_wasm_host_http_response_bytes{service:openpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
+                  "q": "avg:temper_wasm_host_http_response_bytes{service:temperpaw} by {call_kind,status_code_class}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -474,7 +682,7 @@
                     {
                       "data_source": "metrics",
                       "name": "fallbacks",
-                      "query": "sum:temper_wasm_integration_default_timeout_used_total{service:openpaw} by {tenant,entity_type,module}.as_count()"
+                      "query": "sum:temper_wasm_integration_default_timeout_used_total{service:temperpaw} by {tenant,entity_type,module}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -492,6 +700,148 @@
     },
     {
       "definition": {
+        "title": "AuthZ Phase Breakdown (ADR-0084)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Cedar Evaluation Duration p95 / p99 (ms)",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95_ms",
+                      "query": "p95:temper_cedar_evaluation_duration_ms{service:temperpaw} by {decision}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99_ms",
+                      "query": "p99:temper_cedar_evaluation_duration_ms{service:temperpaw} by {decision}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95_ms",
+                      "alias": "p95_ms"
+                    },
+                    {
+                      "formula": "p99_ms",
+                      "alias": "p99_ms"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Cedar Evaluation Duration avg / max (ms fallback)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_cedar_evaluation_duration_ms{service:temperpaw} by {decision}.rollup(avg, 60)",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:temper_cedar_evaluation_duration_ms{service:temperpaw} by {decision}.rollup(max, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Cedar Phase Duration p95 / p99 (ms)",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95_phase_ms",
+                      "query": "p95:temper_cedar_evaluation_phase_duration_ms{service:temperpaw} by {phase,outcome}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p99_phase_ms",
+                      "query": "p99:temper_cedar_evaluation_phase_duration_ms{service:temperpaw} by {phase,outcome}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95_phase_ms",
+                      "alias": "p95_phase_ms"
+                    },
+                    {
+                      "formula": "p99_phase_ms",
+                      "alias": "p99_phase_ms"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Cedar Phase Duration avg / max (ms fallback)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_cedar_evaluation_phase_duration_ms{service:temperpaw} by {phase,outcome}.rollup(avg, 60)",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:temper_cedar_evaluation_phase_duration_ms{service:temperpaw} by {phase,outcome}.rollup(max, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Cedar Request Attribute Count",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_cedar_request_attribute_count{service:temperpaw} by {source}.rollup(avg, 60)",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:temper_cedar_request_attribute_count{service:temperpaw} by {source}.rollup(max, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "note",
+              "content": "ADR-0084 decomposes AuthZ latency before optimization. Enable Datadog percentile aggregations for temper_cedar_evaluation_duration, temper_cedar_evaluation_duration_ms, and temper_cedar_evaluation_phase_duration_ms before treating p95/p99 widgets or monitors as live gates. The avg/max fallback panels remain useful until that metric configuration lands.",
+              "background_color": "yellow",
+              "font_size": "12",
+              "text_align": "left",
+              "vertical_align": "top",
+              "show_tick": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
         "title": "Blob & Monty",
         "type": "group",
         "layout_type": "ordered",
@@ -502,7 +852,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_blob_io_wait_duration_ms{service:openpaw} by {operation}.rollup(avg, 60)",
+                  "q": "avg:temper_blob_io_wait_duration_ms{service:temperpaw} by {operation}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Blob I/O Wait p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_blob_io_wait_duration_ms{service:temperpaw} by {operation}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_blob_io_wait_duration_ms{service:temperpaw} by {operation}",
                   "display_type": "line"
                 }
               ]
@@ -514,7 +880,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_blob_local_fast_path_requests_total{service:openpaw} by {method}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_blob_local_fast_path_requests_total{service:temperpaw} by {method}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -526,7 +892,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_blob_transport_wait_duration_ms{service:openpaw} by {backend,http_method}.rollup(avg, 60)",
+                  "q": "avg:temper_blob_transport_wait_duration_ms{service:temperpaw} by {backend,http_method}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Remote Blob Transport Wait p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_blob_transport_wait_duration_ms{service:temperpaw} by {backend,http_method}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_blob_transport_wait_duration_ms{service:temperpaw} by {backend,http_method}",
                   "display_type": "line"
                 }
               ]
@@ -538,7 +920,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_blob_transport_requests_total{service:openpaw} by {backend,http_method}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_blob_transport_requests_total{service:temperpaw} by {backend,http_method}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -550,7 +932,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_wasm_invocations_total{service:openpaw,trigger_action:processtoolcalls,needs_wasi:true,success:true}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_wasm_invocations_total{service:temperpaw,trigger_action:processtoolcalls,needs_wasi:true,success:true}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -562,7 +944,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "max:temper_monty_repl_observed_active_invocations{service:openpaw}.rollup(max, 60)",
+                  "q": "max:temper_monty_repl_observed_active_invocations{service:temperpaw}.rollup(max, 60)",
                   "display_type": "line"
                 }
               ]
@@ -574,7 +956,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_monty_repl_wait_duration_ms{service:openpaw} by {max_concurrency}.rollup(avg, 60)",
+                  "q": "avg:temper_monty_repl_wait_duration_ms{service:temperpaw} by {max_concurrency}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Monty REPL Wait p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_monty_repl_wait_duration_ms{service:temperpaw} by {max_concurrency}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_monty_repl_wait_duration_ms{service:temperpaw} by {max_concurrency}",
                   "display_type": "line"
                 }
               ]
@@ -586,7 +984,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_monty_repl_acquisitions_total{service:openpaw} by {max_concurrency}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_monty_repl_acquisitions_total{service:temperpaw} by {max_concurrency}.as_count().rollup(sum, 60))",
                   "display_type": "line"
                 }
               ]
@@ -607,7 +1005,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_context_tokens{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "q": "avg:temper_session_context_tokens{service:temperpaw} by {provider}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -619,7 +1017,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_context_bytes{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "q": "avg:temper_session_context_bytes{service:temperpaw} by {provider}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -631,7 +1029,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_context_prepare_duration_ms{service:openpaw}.rollup(avg, 60)",
+                  "q": "avg:temper_session_context_prepare_duration_ms{service:temperpaw}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Context Prepare Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_session_context_prepare_duration_ms{service:temperpaw}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_session_context_prepare_duration_ms{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -643,7 +1057,23 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_phase_duration_ms{service:openpaw} by {phase,result}.rollup(avg, 60)",
+                  "q": "avg:temper_session_phase_duration_ms{service:temperpaw} by {phase,result}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Session Phase Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_session_phase_duration_ms{service:temperpaw} by {phase,result}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_session_phase_duration_ms{service:temperpaw} by {phase,result}",
                   "display_type": "line"
                 }
               ]
@@ -655,7 +1085,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_session_phase_budget_exceeded_total{service:openpaw} by {phase,last_step}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_session_phase_budget_exceeded_total{service:temperpaw} by {phase,last_step}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -667,7 +1097,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_context_entries_loaded{service:openpaw}.rollup(avg, 60)",
+                  "q": "avg:temper_session_context_entries_loaded{service:temperpaw}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -679,7 +1109,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_context_content_files_loaded{service:openpaw}.rollup(avg, 60)",
+                  "q": "avg:temper_session_context_content_files_loaded{service:temperpaw}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -691,7 +1121,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_provider_request_bytes{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "q": "avg:temper_session_provider_request_bytes{service:temperpaw} by {provider}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -703,7 +1133,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_session_provider_response_bytes{service:openpaw} by {provider}.rollup(avg, 60)",
+                  "q": "avg:temper_session_provider_response_bytes{service:temperpaw} by {provider}.rollup(avg, 60)",
                   "display_type": "line"
                 }
               ]
@@ -715,7 +1145,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "default_zero(sum:temper_session_memory_limit_exceeded_total{service:openpaw}.as_count().rollup(sum, 60))",
+                  "q": "default_zero(sum:temper_session_memory_limit_exceeded_total{service:temperpaw}.as_count().rollup(sum, 60))",
                   "display_type": "bars"
                 }
               ]
@@ -735,7 +1165,7 @@
                     {
                       "data_source": "metrics",
                       "name": "externalized",
-                      "query": "sum:temper_session_large_content_externalized_total{service:openpaw} by {entity_type}.as_count()"
+                      "query": "sum:temper_session_large_content_externalized_total{service:temperpaw} by {entity_type}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -762,12 +1192,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_session_context_tokens{service:openpaw}"
+                      "query": "p95:temper_session_context_tokens{service:temperpaw}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_session_context_tokens{service:openpaw}"
+                      "query": "p99:temper_session_context_tokens{service:temperpaw}"
                     }
                   ],
                   "formulas": [
@@ -800,7 +1230,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_dispatch_ask_outcome_total{service:openpaw} by {outcome}.as_count()",
+                  "q": "sum:temper_dispatch_ask_outcome_total{service:temperpaw} by {outcome}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -812,15 +1242,15 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p50:temper_dispatch_ask_attempts{service:openpaw}",
+                  "q": "p50:temper_dispatch_ask_attempts{service:temperpaw}",
                   "display_type": "line"
                 },
                 {
-                  "q": "p95:temper_dispatch_ask_attempts{service:openpaw}",
+                  "q": "p95:temper_dispatch_ask_attempts{service:temperpaw}",
                   "display_type": "line"
                 },
                 {
-                  "q": "p99:temper_dispatch_ask_attempts{service:openpaw}",
+                  "q": "p99:temper_dispatch_ask_attempts{service:temperpaw}",
                   "display_type": "line"
                 }
               ]
@@ -832,7 +1262,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "top(sum:temper_dispatch_ask_outcome_total{service:openpaw,outcome:transient_retried_ok} by {entity_type,action}.as_count(), 10, 'sum', 'desc')"
+                  "q": "top(sum:temper_dispatch_ask_outcome_total{service:temperpaw,outcome:transient_retried_ok} by {entity_type,action}.as_count(), 10, 'sum', 'desc')"
                 }
               ]
             }
@@ -843,7 +1273,11 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_dispatch_ask_latency_ms{service:openpaw} by {entity_type}",
+                  "q": "p95:temper_dispatch_ask_latency_ms{service:temperpaw} by {entity_type}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_dispatch_ask_latency_ms{service:temperpaw} by {entity_type}",
                   "display_type": "line"
                 }
               ]
@@ -855,7 +1289,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_dispatch_ask_error_total{service:openpaw} by {error_kind}.as_count()",
+                  "q": "sum:temper_dispatch_ask_error_total{service:temperpaw} by {error_kind}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -875,17 +1309,17 @@
                     {
                       "data_source": "metrics",
                       "name": "p50",
-                      "query": "p50:temper_dispatch_ask_attempts{service:openpaw}"
+                      "query": "p50:temper_dispatch_ask_attempts{service:temperpaw}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_dispatch_ask_attempts{service:openpaw}"
+                      "query": "p95:temper_dispatch_ask_attempts{service:temperpaw}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_dispatch_ask_attempts{service:openpaw}"
+                      "query": "p99:temper_dispatch_ask_attempts{service:temperpaw}"
                     }
                   ],
                   "formulas": [
@@ -921,7 +1355,7 @@
                     {
                       "data_source": "metrics",
                       "name": "errors",
-                      "query": "sum:temper_dispatch_ask_error_total{service:openpaw} by {tenant,error_kind}.as_count()"
+                      "query": "sum:temper_dispatch_ask_error_total{service:temperpaw} by {tenant,error_kind}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -949,7 +1383,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_state_timeout_fired_total{service:openpaw} by {entity_type,state}.as_count()",
+                  "q": "sum:temper_state_timeout_fired_total{service:temperpaw} by {entity_type,state}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -961,7 +1395,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p95:temper_state_time_in_state_seconds{service:openpaw} by {entity_type,state}",
+                  "q": "p95:temper_state_time_in_state_seconds{service:temperpaw} by {entity_type,state}",
                   "display_type": "line"
                 }
               ]
@@ -973,7 +1407,7 @@
               "type": "query_value",
               "requests": [
                 {
-                  "q": "sum:temper_state_timeout_reset_total{service:openpaw}.as_count() / (sum:temper_state_timeout_reset_total{service:openpaw}.as_count() + sum:temper_state_timeout_fired_total{service:openpaw}.as_count())"
+                  "q": "sum:temper_state_timeout_reset_total{service:temperpaw}.as_count() / (sum:temper_state_timeout_reset_total{service:temperpaw}.as_count() + sum:temper_state_timeout_fired_total{service:temperpaw}.as_count())"
                 }
               ],
               "precision": 3
@@ -985,7 +1419,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "avg:temper_scheduler_pending_timers{service:openpaw} by {entity_type}"
+                  "q": "avg:temper_scheduler_pending_timers{service:temperpaw} by {entity_type}"
                 }
               ]
             }
@@ -996,7 +1430,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_scheduler_overdue_on_replay_total{service:openpaw} by {entity_type}.as_count()",
+                  "q": "sum:temper_scheduler_overdue_on_replay_total{service:temperpaw} by {entity_type}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -1008,7 +1442,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "sum:temper_spec_liveness_violations_total{service:openpaw} by {entity_type,state}.as_count()"
+                  "q": "sum:temper_spec_liveness_violations_total{service:temperpaw} by {entity_type,state}.as_count()"
                 }
               ]
             }
@@ -1027,7 +1461,7 @@
                     {
                       "data_source": "metrics",
                       "name": "cancels",
-                      "query": "sum:temper_state_timeout_cancelled_total{service:openpaw} by {entity_type,state}.as_count()"
+                      "query": "sum:temper_state_timeout_cancelled_total{service:temperpaw} by {entity_type,state}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -1054,7 +1488,7 @@
                     {
                       "data_source": "metrics",
                       "name": "resets",
-                      "query": "sum:temper_state_timeout_reset_total{service:openpaw} by {entity_type,state}.as_count()"
+                      "query": "sum:temper_state_timeout_reset_total{service:temperpaw} by {entity_type,state}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -1073,7 +1507,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_integration_silent_exit_total{service:openpaw} by {entity_type,action,state}.as_count()",
+                  "q": "sum:temper_integration_silent_exit_total{service:temperpaw} by {entity_type,action,state}.as_count()",
                   "display_type": "bars",
                   "style": {
                     "palette": "warm"
@@ -1088,7 +1522,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_state_timeout_armed_on_hydration_total{service:openpaw} by {entity_type,state,elapsed_bucket}.as_count()",
+                  "q": "sum:temper_state_timeout_armed_on_hydration_total{service:temperpaw} by {entity_type,state,elapsed_bucket}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -1100,7 +1534,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_turso_write_retries_total{service:openpaw} by {operation,attempt,outcome}.as_count()",
+                  "q": "sum:temper_turso_write_retries_total{service:temperpaw} by {operation,attempt,outcome}.as_count()",
                   "display_type": "line"
                 }
               ]
@@ -1121,7 +1555,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_admission_active_permits{service:openpaw} by {entity_type,action}",
+                  "q": "avg:temper_admission_active_permits{service:temperpaw} by {entity_type,action}",
                   "display_type": "line"
                 }
               ]
@@ -1133,7 +1567,7 @@
               "type": "heatmap",
               "requests": [
                 {
-                  "q": "avg:temper_admission_queue_depth{service:openpaw} by {tenant,entity_type}"
+                  "q": "avg:temper_admission_queue_depth{service:temperpaw} by {tenant,entity_type}"
                 }
               ]
             }
@@ -1144,15 +1578,15 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_admission_granted_total{service:openpaw}.as_count()",
+                  "q": "sum:temper_admission_granted_total{service:temperpaw}.as_count()",
                   "display_type": "bars"
                 },
                 {
-                  "q": "sum:temper_admission_queued_total{service:openpaw}.as_count()",
+                  "q": "sum:temper_admission_queued_total{service:temperpaw}.as_count()",
                   "display_type": "bars"
                 },
                 {
-                  "q": "sum:temper_admission_deferred_total{service:openpaw}.as_count()",
+                  "q": "sum:temper_admission_deferred_total{service:temperpaw}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -1164,7 +1598,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p95:temper_admission_wait_time_ms{service:openpaw} by {entity_type,action}",
+                  "q": "p95:temper_admission_wait_time_ms{service:temperpaw} by {entity_type,action}",
                   "display_type": "line"
                 }
               ]
@@ -1176,7 +1610,7 @@
               "type": "distribution",
               "requests": [
                 {
-                  "q": "avg:temper_admission_permit_hold_time_ms{service:openpaw}"
+                  "q": "avg:temper_admission_permit_hold_time_ms{service:temperpaw}"
                 }
               ]
             }
@@ -1187,7 +1621,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "top(sum:temper_admission_deferred_total{service:openpaw} by {tenant}.as_count(), 10, 'sum', 'desc')"
+                  "q": "top(sum:temper_admission_deferred_total{service:temperpaw} by {tenant}.as_count(), 10, 'sum', 'desc')"
                 }
               ]
             }
@@ -1207,7 +1641,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_actor_mailbox_utilization{service:openpaw} by {entity_type}",
+                  "q": "avg:temper_actor_mailbox_utilization{service:temperpaw} by {entity_type}",
                   "display_type": "line"
                 }
               ]
@@ -1219,7 +1653,7 @@
               "type": "toplist",
               "requests": [
                 {
-                  "q": "top(avg:temper_actor_mailbox_depth{service:openpaw} by {entity_type,actor_id_hash}, 20, 'mean', 'desc')"
+                  "q": "top(avg:temper_actor_mailbox_depth{service:temperpaw} by {entity_type,actor_id_hash}, 20, 'mean', 'desc')"
                 }
               ]
             }
@@ -1230,7 +1664,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_actor_mailbox_full_drop_total{service:openpaw} by {entity_type}.as_count()",
+                  "q": "sum:temper_actor_mailbox_full_drop_total{service:temperpaw} by {entity_type}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -1242,7 +1676,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "p95:temper_actor_ask_reply_latency_ms{service:openpaw} by {entity_type}",
+                  "q": "p95:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type}",
                   "display_type": "line"
                 }
               ]
@@ -1263,7 +1697,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "sum:temper_curation_job_outcome_total{service:openpaw,app:katagami-curation} by {job_type,outcome}.as_count()",
+                  "q": "sum:temper_curation_job_outcome_total{service:temperpaw,app:katagami-curation} by {job_type,outcome}.as_count()",
                   "display_type": "bars"
                 }
               ]
@@ -1275,7 +1709,7 @@
               "type": "timeseries",
               "requests": [
                 {
-                  "q": "avg:temper_admission_queue_depth{service:openpaw,entity_type:Session}",
+                  "q": "avg:temper_admission_queue_depth{service:temperpaw,entity_type:Session}",
                   "display_type": "line"
                 }
               ]
@@ -1304,12 +1738,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type}"
+                      "query": "p95:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:true} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:true} by {entity_type}"
+                      "query": "p99:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:true} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1341,12 +1775,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:false} by {entity_type}"
+                      "query": "p95:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:false} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_actor_registry_lock_wait_ms{service:openpaw,cold_start:false} by {entity_type}"
+                      "query": "p99:temper_actor_registry_lock_wait_ms{service:temperpaw,cold_start:false} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1378,17 +1812,17 @@
                     {
                       "data_source": "metrics",
                       "name": "p50",
-                      "query": "p50:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
+                      "query": "p50:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
+                      "query": "p95:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_actor_cold_start_duration_ms{service:openpaw} by {entity_type}"
+                      "query": "p99:temper_actor_cold_start_duration_ms{service:temperpaw} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1424,7 +1858,7 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_actor_ask_reply_latency_ms{service:openpaw} by {entity_type,action}"
+                      "query": "p95:temper_actor_ask_reply_latency_ms{service:temperpaw} by {entity_type,action}"
                     }
                   ],
                   "formulas": [
@@ -1451,7 +1885,7 @@
                     {
                       "data_source": "metrics",
                       "name": "latency",
-                      "query": "avg:temper_dispatch_ask_latency_ms{service:openpaw} by {entity_type,action}"
+                      "query": "p95:temper_dispatch_ask_latency_ms{service:temperpaw} by {entity_type,action}"
                     }
                   ],
                   "formulas": [
@@ -1478,12 +1912,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_event_store_append_wait_ms{service:openpaw} by {backend}"
+                      "query": "p95:temper_event_store_append_wait_ms{service:temperpaw} by {backend}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_event_store_append_wait_ms{service:openpaw} by {backend}"
+                      "query": "p99:temper_event_store_append_wait_ms{service:temperpaw} by {backend}"
                     }
                   ],
                   "formulas": [
@@ -1503,7 +1937,7 @@
           },
           {
             "definition": {
-              "title": "Cedar Evaluation Duration p95 / p99",
+              "title": "Cedar Evaluation Duration p95 / p99 (ms)",
               "title_size": "16",
               "title_align": "left",
               "show_legend": true,
@@ -1515,12 +1949,12 @@
                     {
                       "data_source": "metrics",
                       "name": "p95",
-                      "query": "p95:temper_cedar_evaluation_duration{service:openpaw} by {decision}"
+                      "query": "p95:temper_cedar_evaluation_duration_ms{service:temperpaw} by {decision}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_cedar_evaluation_duration{service:openpaw} by {decision}"
+                      "query": "p99:temper_cedar_evaluation_duration_ms{service:temperpaw} by {decision}"
                     }
                   ],
                   "formulas": [
@@ -1561,7 +1995,7 @@
                     {
                       "data_source": "metrics",
                       "name": "rem",
-                      "query": "avg:temper_handler_deadline_remaining_ms{service:openpaw} by {entity_type,action}"
+                      "query": "avg:temper_handler_deadline_remaining_ms{service:temperpaw} by {entity_type,action}"
                     }
                   ],
                   "formulas": [
@@ -1587,7 +2021,7 @@
                     {
                       "data_source": "metrics",
                       "name": "breaches",
-                      "query": "sum:temper_handler_deadline_exceeded_total{service:openpaw} by {dying_span}.as_count()",
+                      "query": "sum:temper_handler_deadline_exceeded_total{service:temperpaw} by {dying_span}.as_count()",
                       "aggregator": "sum"
                     }
                   ],
@@ -1618,7 +2052,7 @@
                     {
                       "data_source": "metrics",
                       "name": "breaches",
-                      "query": "sum:temper_handler_deadline_exceeded_total{service:openpaw} by {entity_type,action}.as_count()"
+                      "query": "sum:temper_handler_deadline_exceeded_total{service:temperpaw} by {entity_type,action}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -1645,7 +2079,7 @@
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_wasm_epoch_tick_interval_ms{service:openpaw}"
+                      "query": "p99:temper_wasm_epoch_tick_interval_ms{service:temperpaw}"
                     }
                   ],
                   "formulas": [
@@ -1672,7 +2106,7 @@
                     {
                       "data_source": "metrics",
                       "name": "p99",
-                      "query": "p99:temper_handler_kill_latency_ms{service:openpaw} by {entity_type}"
+                      "query": "p99:temper_handler_kill_latency_ms{service:temperpaw} by {entity_type}"
                     }
                   ],
                   "formulas": [
@@ -1683,6 +2117,134 @@
                   "display_type": "line"
                 }
               ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Trace Budget (ADR-0083)",
+        "type": "group",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "Temper Trace Sampler Decisions",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "decisions",
+                      "query": "sum:temper_trace_sampler_decisions_total{service:temperpaw} by {rule,decision}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "decisions"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Reduced Trace Drops by Rule",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "drops",
+                      "query": "sum:temper_trace_sampler_decisions_total{service:temperpaw,decision:reduced_drop} by {rule}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "drops"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Configured Trace Sampling Rules",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "rules",
+                      "query": "max:temper_trace_sampler_configured_rules{service:temperpaw} by {rule_kind}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "rules"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Reduced Trace Keep Rates",
+              "title_size": "16",
+              "title_align": "left",
+              "show_legend": true,
+              "type": "timeseries",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "rate",
+                      "query": "max:temper_trace_sampler_reduced_sample_rate_pct{service:temperpaw} by {rule}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "rate"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "note",
+              "content": "Trace budget policy keeps canonical request roots and reduces noisy helper spans. `wasm_auxiliary` defaults to 5% and `dispatch_background` defaults to 25%. Raise `TEMPER_TRACE_WASM_AUX_SAMPLE_PCT` or `TEMPER_TRACE_DISPATCH_BACKGROUND_SAMPLE_PCT` temporarily during incidents when child-span detail matters more than trace volume.",
+              "background_color": "blue",
+              "font_size": "14",
+              "text_align": "left",
+              "vertical_align": "top",
+              "show_tick": false
             }
           }
         ]
@@ -1708,7 +2270,7 @@
                     {
                       "data_source": "metrics",
                       "name": "uploads",
-                      "query": "sum:datadog.profiling.rust.profiles_uploaded{service:openpaw} by {profile_type}.as_rate()"
+                      "query": "sum:datadog.profiling.rust.profiles_uploaded{service:temperpaw} by {profile_type}.as_rate()"
                     }
                   ],
                   "formulas": [
@@ -1735,7 +2297,7 @@
                     {
                       "data_source": "metrics",
                       "name": "errors",
-                      "query": "sum:datadog.profiling.rust.upload_errors{service:openpaw} by {stage}.as_count()"
+                      "query": "sum:datadog.profiling.rust.upload_errors{service:temperpaw} by {stage}.as_count()"
                     }
                   ],
                   "formulas": [
