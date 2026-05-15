@@ -15,6 +15,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use opentelemetry::trace::{Span as _, SpanKind, Status, Tracer as _};
+use opentelemetry::{KeyValue, global};
 use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
 use temper_runtime::tenant::TenantId;
@@ -325,6 +327,10 @@ pub fn router(state: SetupApiState) -> Router {
         .route(
             "/paw/infra/railway/datadog-continuous-profiler-canary",
             post(set_datadog_continuous_profiler_canary),
+        )
+        .route(
+            "/paw/infra/datadog/error-tracking-synthetic",
+            post(emit_datadog_error_tracking_synthetic),
         )
         .route("/paw/infra/railway/redeploy", post(railway_redeploy))
         .route("/paw/version", get(get_version))
@@ -1976,6 +1982,129 @@ async fn set_datadog_continuous_profiler_canary(
         )
             .into_response(),
     }
+}
+
+#[derive(Deserialize, Default)]
+struct EmitDatadogErrorTrackingSyntheticRequest {
+    proof_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct EmitDatadogErrorTrackingSyntheticResponse {
+    emitted: bool,
+    proof_id: String,
+    service: String,
+    env: String,
+    version: String,
+    error_type: &'static str,
+    error_message: String,
+    required_fields: Vec<&'static str>,
+}
+
+const DATADOG_ERROR_TRACKING_REQUIRED_FIELDS: [&str; 7] = [
+    "error.type",
+    "error.kind",
+    "error.message",
+    "error.stack",
+    "exception.type",
+    "exception.message",
+    "exception.stacktrace",
+];
+
+async fn emit_datadog_error_tracking_synthetic(
+    State(state): State<SetupApiState>,
+    Json(req): Json<EmitDatadogErrorTrackingSyntheticRequest>,
+) -> impl IntoResponse {
+    let proof_id = req
+        .proof_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| {
+            let epoch_seconds = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default();
+            format!("dd-error-tracking-{epoch_seconds}")
+        });
+    let service = env::var("DD_SERVICE").unwrap_or_else(|_| "temperpaw".to_string());
+    let env_name = env::var("DD_ENV").unwrap_or_else(|_| "prod".to_string());
+    let version = env::var("DD_VERSION").unwrap_or_else(|_| state.build_sha.clone());
+    let error_type = "DatadogSyntheticBackendError";
+    let error_message =
+        format!("Synthetic Datadog Error Tracking backend issue for proof {proof_id}");
+    let error_stack = format!(
+        "{error_type}: {error_message}\n  at emit_datadog_error_tracking_synthetic (crates/temperpaw/src/setup_api.rs:1)\n  at railway_datadog_product_coverage_proof (docs/adrs/0049-railway-datadog-product-coverage.md:1)"
+    );
+
+    let tracer = global::tracer("temperpaw.setup_api");
+    let mut span = tracer
+        .span_builder("datadog.error_tracking.synthetic")
+        .with_kind(SpanKind::Internal)
+        .with_status(Status::error(error_message.clone()))
+        .with_attributes(vec![
+            KeyValue::new("service.name", service.clone()),
+            KeyValue::new("deployment.environment.name", env_name.clone()),
+            KeyValue::new("env", env_name.clone()),
+            KeyValue::new("service.version", version.clone()),
+            KeyValue::new("version", version.clone()),
+            KeyValue::new("proof_id", proof_id.clone()),
+            KeyValue::new("datadog.error_tracking.synthetic", true),
+            KeyValue::new("error.type", error_type),
+            KeyValue::new("error.kind", error_type),
+            KeyValue::new("error.message", error_message.clone()),
+            KeyValue::new("error.stack", error_stack.clone()),
+            KeyValue::new("exception.type", error_type),
+            KeyValue::new("exception.message", error_message.clone()),
+            KeyValue::new("exception.stacktrace", error_stack.clone()),
+        ])
+        .start(&tracer);
+    span.add_event(
+        "exception",
+        vec![
+            KeyValue::new("exception.type", error_type),
+            KeyValue::new("exception.message", error_message.clone()),
+            KeyValue::new("exception.stacktrace", error_stack.clone()),
+            KeyValue::new("error.type", error_type),
+            KeyValue::new("error.message", error_message.clone()),
+            KeyValue::new("error.stack", error_stack.clone()),
+        ],
+    );
+    span.end();
+
+    tracing::error!(
+        target: "temperpaw.datadog.error_tracking",
+        source = "custom",
+        ddsource = "rust",
+        service.name = %service,
+        env = %env_name,
+        version = %version,
+        proof_id = %proof_id,
+        datadog.error_tracking.synthetic = true,
+        error.r#type = %error_type,
+        error.kind = %error_type,
+        error.message = %error_message,
+        error.stack = %error_stack,
+        exception.r#type = %error_type,
+        exception.message = %error_message,
+        exception.stacktrace = %error_stack,
+        "DatadogSyntheticBackendError: synthetic backend error emitted for Datadog Error Tracking proof"
+    );
+
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!(
+            EmitDatadogErrorTrackingSyntheticResponse {
+                emitted: true,
+                proof_id,
+                service,
+                env: env_name,
+                version,
+                error_type,
+                error_message,
+                required_fields: DATADOG_ERROR_TRACKING_REQUIRED_FIELDS.to_vec(),
+            }
+        )),
+    )
 }
 
 fn datadog_runtime_agent_railway_vars(
