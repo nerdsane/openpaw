@@ -33,11 +33,6 @@ processors:
     traces:
       span:
         - 'attributes["gen_ai.operation.name"] == nil and attributes["gen_ai.system"] == nil'
-  filter/traces_apm:
-    error_mode: ignore
-    traces:
-      span:
-        - 'attributes["gen_ai.operation.name"] != nil or attributes["gen_ai.system"] != nil'
   batch:
     send_batch_size: 1000
     timeout: 5s
@@ -61,7 +56,7 @@ service:
       exporters: [otlphttp/llmobs]
     traces/apm:
       receivers: [otlp]
-      processors: [resourcedetection, resource, transform/dbm, filter/traces_apm, batch]
+      processors: [resourcedetection, resource, transform/dbm, batch]
       exporters: [datadog]
     metrics:
       receivers: [otlp]

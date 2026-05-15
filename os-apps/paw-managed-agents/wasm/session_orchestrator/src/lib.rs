@@ -2,11 +2,11 @@
 mod common;
 
 use common::{
-    agent_session_span_hint_headers, create_entity, create_session_event, entity_id,
-    escape_odata_string, field_i64, field_string, get_entity, is_terminal_status,
-    log_managed_session_event, managed_agent_provider, managed_environment_sandbox_params,
-    managed_session_event_context, managed_tools_enabled, next_session_event_sequence, pending_user_prompt,
-    post_absolute_action, post_action, status_of, system_json_headers, with_session_event_context,
+    create_entity, create_session_event, entity_id, escape_odata_string, field_i64, field_string,
+    finish_agent_session_span, get_entity, is_terminal_status, log_managed_session_event,
+    managed_agent_provider, managed_environment_sandbox_params, managed_session_event_context,
+    managed_tools_enabled, next_session_event_sequence, pending_user_prompt, post_absolute_action,
+    post_action, start_agent_session_span, status_of, system_json_headers, with_session_event_context,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::resolve_temper_api_url;
@@ -152,18 +152,19 @@ fn start_or_resume(
             &existing_inner_session_id,
         ) {
             if !is_terminal_status(&status_of(&existing_inner)) {
-                let session_headers = agent_session_span_hint_headers(
-                    headers,
+                let action_name = "ManagedAgents.ResumeSession";
+                let mut session_span = start_agent_session_span(
+                    ctx,
                     session_id,
                     &existing_inner_session_id,
                     &managed_agent_id,
                     &environment_id,
                     &parent_session_id,
-                    "ManagedAgents.ResumeSession",
+                    action_name,
                 );
-                let _ = post_absolute_action(
+                let steer_result = post_absolute_action(
                     ctx,
-                    &session_headers,
+                    headers,
                     &format!(
                         "{base_url}/tdata/Sessions('{existing_inner_session_id}')/TemperPaw.Steer"
                     ),
@@ -172,7 +173,9 @@ fn start_or_resume(
                             .unwrap_or_else(|_| "[]".to_string())
                     }),
                     "steer inner session",
-                )?;
+                );
+                finish_agent_session_span(&mut session_span, &steer_result);
+                let _ = steer_result?;
                 record_running_event(
                     ctx,
                     fields,
@@ -273,26 +276,29 @@ fn start_or_resume(
         configure_body["workspace_id"] = json!(workspace_id);
     }
 
-    let session_headers = agent_session_span_hint_headers(
-        headers,
+    let action_name = if is_resume {
+        "ManagedAgents.ResumeSession"
+    } else {
+        "ManagedAgents.StartSession"
+    };
+    let mut session_span = start_agent_session_span(
+        ctx,
         session_id,
         &inner_session_id,
         &managed_agent_id,
         &environment_id,
         &parent_session_id,
-        if is_resume {
-            "ManagedAgents.ResumeSession"
-        } else {
-            "ManagedAgents.StartSession"
-        },
+        action_name,
     );
-    let _ = post_absolute_action(
+    let configure_result = post_absolute_action(
         ctx,
-        &session_headers,
+        headers,
         &format!("{base_url}/tdata/Sessions('{inner_session_id}')/TemperPaw.Configure"),
         &configure_body,
         "configure inner session",
-    )?;
+    );
+    finish_agent_session_span(&mut session_span, &configure_result);
+    let _ = configure_result?;
 
     record_running_event(
         ctx,
