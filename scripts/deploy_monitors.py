@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -33,6 +34,23 @@ def load_env():
                 continue
             key, _, value = line.partition("=")
             os.environ.setdefault(key.strip(), value.strip())
+
+
+def datadog_request(method, url, headers, **kwargs):
+    """Call Datadog with simple 429 retry/backoff."""
+    resp = None
+    for attempt in range(6):
+        resp = requests.request(method, url, headers=headers, timeout=30, **kwargs)
+        if resp.status_code != 429:
+            break
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after and retry_after.isdigit():
+            sleep_seconds = int(retry_after)
+        else:
+            sleep_seconds = min(2**attempt, 30)
+        time.sleep(sleep_seconds)
+    assert resp is not None
+    return resp
 
 
 def main():
@@ -69,7 +87,25 @@ def main():
         "Content-Type": "application/json",
     }
 
-    resp = requests.get(
+    validation_errors = []
+    for monitor in monitors:
+        resp = datadog_request(
+            "POST",
+            f"{base_url}/monitor/validate",
+            headers=headers,
+            json=monitor,
+        )
+        if resp.status_code >= 400:
+            validation_errors.append(
+                f"{monitor.get('name', '<unnamed>')}: {resp.status_code} {resp.text}"
+            )
+
+    if validation_errors:
+        joined = "\n\n".join(validation_errors)
+        sys.exit(f"Datadog monitor validation failed:\n\n{joined}")
+
+    resp = datadog_request(
+        "GET",
         f"{base_url}/monitor",
         headers=headers,
         params={"monitor_tags": "team:openpaw"},
@@ -84,7 +120,8 @@ def main():
             if args.dry_run:
                 print(f"[dry-run] Would update: {name} (id={monitor_id})")
                 continue
-            resp = requests.put(
+            resp = datadog_request(
+                "PUT",
                 f"{base_url}/monitor/{monitor_id}",
                 headers=headers,
                 json=monitor,
@@ -95,7 +132,8 @@ def main():
             if args.dry_run:
                 print(f"[dry-run] Would create: {name}")
                 continue
-            resp = requests.post(
+            resp = datadog_request(
+                "POST",
                 f"{base_url}/monitor",
                 headers=headers,
                 json=monitor,
@@ -118,10 +156,11 @@ def main():
             if args.dry_run:
                 print(f"  [dry-run] Would delete: {name} (id={monitor_id})")
                 continue
-            resp = requests.delete(
-                f"{base_url}/monitor/{monitor_id}",
-                headers=headers,
-            )
+                resp = datadog_request(
+                    "DELETE",
+                    f"{base_url}/monitor/{monitor_id}",
+                    headers=headers,
+                )
             resp.raise_for_status()
             print(f"  Deleted: {name} (id={monitor_id})")
 

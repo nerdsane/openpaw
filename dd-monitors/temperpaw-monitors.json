@@ -14,7 +14,7 @@
         "warning": 0.05
       },
       "notify_no_data": false,
-      "on_missing_data": "resolve",
+      "on_missing_data": "default",
       "renotify_interval": 60
     }
   },
@@ -31,6 +31,68 @@
       "thresholds": {
         "critical": 5000,
         "warning": 2000
+      },
+      "notify_no_data": false,
+      "on_missing_data": "resolve",
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[TemperPaw] APM Request Rate Missing",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:trace.http.server.request.hits{service:temperpaw}.as_count()) < 1",
+    "message": "No APM HTTP request traffic for service:temperpaw in 15 minutes. This is the standard Datadog service-coverage rate monitor; use the Temper No Traffic monitor and Railway /readyz for corroboration.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "service:temperpaw",
+      "signal:apm",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "on_missing_data": "default",
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[TemperPaw] APM HTTP 5xx Spike",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:trace.http.server.request.hits.by_http_status{service:temperpaw,http.status_class:5xx}.as_count()) > 5",
+    "message": "APM HTTP 5xx responses for service:temperpaw exceeded 5 in 15 minutes. Inspect APM resources and logs before treating custom runtime counters as the only error source.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "service:temperpaw",
+      "signal:apm",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5,
+        "warning": 1
+      },
+      "notify_no_data": false,
+      "on_missing_data": "default",
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[TemperPaw] APM HTTP Duration p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:trace.http.server.request{service:temperpaw,!resource_name:get_/observe/events/stream,!resource_name:get_/tdata/_events} > 2",
+    "message": "APM HTTP p95 duration excluding long-lived stream endpoints exceeded 2 seconds. Use this as the standard service latency gate; use Temper dispatch/blob/session/projection monitors to find the cause.\n\n@slack-openpaw-alerts",
+    "tags": [
+      "team:openpaw",
+      "service:temperpaw",
+      "signal:apm",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 2,
+        "warning": 1
       },
       "notify_no_data": false,
       "on_missing_data": "resolve",
