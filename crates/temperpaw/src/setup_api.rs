@@ -1990,7 +1990,7 @@ fn datadog_runtime_agent_railway_vars(
         ("DD_HOSTNAME", "temperpaw-runtime-agent".to_string()),
         (
             "DD_TAGS",
-            "team:temperpaw,service:temperpaw,railway_profile:datadog-enhanced".to_string(),
+            "team:temperpaw service:temperpaw railway_profile:datadog-enhanced".to_string(),
         ),
         ("DD_APM_ENABLED", "true".to_string()),
         ("DD_APM_NON_LOCAL_TRAFFIC", "true".to_string()),
@@ -3053,7 +3053,8 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_secret_keys, discord_connect_params_for_secret_update, discord_readyz_response,
+        allowed_secret_keys, datadog_enhanced_app_railway_vars, datadog_runtime_agent_railway_vars,
+        discord_connect_params_for_secret_update, discord_readyz_response,
         discord_start_error_is_retryable, is_discord_ping, persist_discord_public_key,
         personalized_soul_flag_value, secrets_schema, transport_status_report,
         verify_discord_signature,
@@ -3255,6 +3256,35 @@ mod tests {
                 .iter()
                 .any(|secret| secret.key == "modal_bridge_url"),
             "modal_bridge_url should be provisioned by deploy, not shown in the dashboard schema"
+        );
+    }
+
+    #[test]
+    fn datadog_agent_env_tags_use_datadog_whitespace_separator() {
+        let runtime_agent_vars = datadog_runtime_agent_railway_vars("api-key", "datadoghq.com");
+        let runtime_agent_tags = runtime_agent_vars
+            .iter()
+            .find_map(|(name, value)| (*name == "DD_TAGS").then_some(value.as_str()))
+            .expect("runtime agent DD_TAGS must be set");
+
+        assert_eq!(
+            runtime_agent_tags,
+            "team:temperpaw service:temperpaw railway_profile:datadog-enhanced"
+        );
+        assert!(
+            !runtime_agent_tags.contains(','),
+            "Datadog Agent DD_TAGS uses whitespace-separated list values"
+        );
+
+        let app_vars = datadog_enhanced_app_railway_vars("api-key", "datadoghq.com", "build-sha");
+        let app_tags = app_vars
+            .iter()
+            .find_map(|(name, value)| (*name == "DD_TAGS").then_some(value.as_str()))
+            .expect("app DD_TAGS must be set");
+        assert_eq!(app_tags, "team:temperpaw");
+        assert!(
+            !app_tags.contains(','),
+            "TemperPaw app DD_TAGS must also remain whitespace-safe"
         );
     }
 
