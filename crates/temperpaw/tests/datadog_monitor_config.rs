@@ -80,15 +80,27 @@ fn temperpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_
         assert_eq!(monitor["options"]["notify_no_data"].as_bool(), Some(false));
     }
 
-    for name in [
-        "[TemperPaw] Error Rate Spike",
-        "[TemperPaw] Request Latency Spike (P95)",
-    ] {
-        assert_eq!(
-            by_name[name]["options"]["on_missing_data"].as_str(),
-            Some("resolve"),
-            "{name} should resolve when no traffic makes the rate/latency sample inapplicable"
-        );
+    assert_eq!(
+        by_name["[TemperPaw] Error Rate Spike"]["options"]["on_missing_data"].as_str(),
+        Some("default"),
+        "default_zero metric monitors must use Datadog's compatible missing-data default"
+    );
+    assert_eq!(
+        by_name["[TemperPaw] Request Latency Spike (P95)"]["options"]["on_missing_data"].as_str(),
+        Some("resolve"),
+        "non-zero-filled latency samples should resolve when traffic is absent"
+    );
+
+    for monitor in &monitors {
+        let query = monitor["query"].as_str().unwrap_or_default();
+        if monitor["type"].as_str() == Some("metric alert") && query.contains("default_zero") {
+            assert_ne!(
+                monitor["options"]["on_missing_data"].as_str(),
+                Some("resolve"),
+                "{} uses default_zero and must not set Datadog-incompatible on_missing_data=resolve",
+                monitor["name"].as_str().unwrap_or("<unnamed>")
+            );
+        }
     }
 
     let all_queries = monitors

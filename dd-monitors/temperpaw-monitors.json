@@ -14,7 +14,7 @@
         "warning": 0.05
       },
       "notify_no_data": false,
-      "on_missing_data": "resolve",
+      "on_missing_data": "default",
       "renotify_interval": 60
     }
   },
@@ -905,7 +905,7 @@
         "critical": 0
       },
       "notify_no_data": false,
-      "on_missing_data": "resolve",
+      "on_missing_data": "default",
       "renotify_interval": 60
     }
   },
