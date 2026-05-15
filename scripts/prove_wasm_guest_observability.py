@@ -574,6 +574,7 @@ def extract_strings(value: Any, keys: set[str]) -> list[str]:
 def wait_for_datadog(
     *,
     run_id: str,
+    dd_env: str,
     start: dt.datetime,
     api_base: str,
     api_key: str,
@@ -581,9 +582,9 @@ def wait_for_datadog(
     timeout_seconds: int,
 ) -> dict[str, Any]:
     proof_entity_id = f"proof-{run_id}"
-    span_query = f"env:dev-wasm-observability @entity_id:{proof_entity_id}"
-    log_query = f"env:dev-wasm-observability @entity_id:{proof_entity_id}"
-    metric_query = "sum:temperpaw.wasm_guest_observability.proof{*}.as_count()"
+    span_query = f"env:{dd_env} @entity_id:{proof_entity_id}"
+    log_query = f"env:{dd_env} @entity_id:{proof_entity_id}"
+    metric_query = f"sum:temperpaw.wasm_guest_observability.proof{{env:{dd_env}}}.as_count()"
     deadline = time.time() + timeout_seconds
     last: dict[str, Any] = {}
     while time.time() < deadline:
@@ -772,6 +773,10 @@ def main() -> int:
     parser.add_argument("--tenant", default=TENANT)
     parser.add_argument("--run-id", default=f"wasmobs-{utc_now().strftime('%Y%m%d%H%M%S')}")
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument(
+        "--datadog-env",
+        default=os.environ.get("DD_ENV", "dev-wasm-observability"),
+    )
     parser.add_argument("--datadog-timeout-seconds", type=int, default=420)
     args = parser.parse_args()
 
@@ -837,6 +842,7 @@ def main() -> int:
     print("Querying Datadog for trace/log/metric evidence...")
     dd = wait_for_datadog(
         run_id=args.run_id,
+        dd_env=args.datadog_env,
         start=proof_start,
         api_base=datadog_api_base(site),
         api_key=api_key,
