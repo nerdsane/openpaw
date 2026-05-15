@@ -6,6 +6,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{env, fs};
 
 use anyhow::{Context, Result, anyhow};
 use axum::body::{Body, Bytes};
@@ -14,6 +15,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use opentelemetry::trace::{Span as _, SpanKind, Status, Tracer as _};
+use opentelemetry::{KeyValue, global};
 use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
 use temper_runtime::tenant::TenantId;
@@ -40,6 +43,10 @@ const OPENAI_CODEX_ACCESS_TOKEN: &str = "openai_codex_access_token";
 const OPENAI_CODEX_REFRESH_TOKEN: &str = "openai_codex_refresh_token";
 const OPENAI_CODEX_EXPIRES_AT_MS: &str = "openai_codex_expires_at_ms";
 const OPENAI_CODEX_ACCOUNT_ID: &str = "openai_codex_account_id";
+const RAILWAY_GRAPHQL_URL: &str = "https://backboard.railway.com/graphql/v2";
+const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
+const DATADOG_RUNTIME_AGENT_IMAGE: &str = "datadog/agent:7";
+const DATADOG_RUNTIME_AGENT_HOST: &str = "datadog-runtime-agent.railway.internal";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -88,6 +95,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "railway_project_id",
         "railway_environment_id",
         "railway_otel_service_id",
+        "railway_datadog_runtime_agent_service_id",
         "railway_service_id",
     ]
     .into_iter()
@@ -125,7 +133,7 @@ fn secrets_schema() -> Vec<SecretSchema> {
             category: "llm",
             label: "OpenAI Codex Access Token",
             required: false,
-            description: "OpenPaw-managed ChatGPT/Codex subscription OAuth access token",
+            description: "TemperPaw-managed ChatGPT/Codex subscription OAuth access token",
         },
         SecretSchema {
             key: "openrouter_api_key",
@@ -308,6 +316,22 @@ pub fn router(state: SetupApiState) -> Router {
         .route("/paw/transports/slack/disconnect", post(disconnect_slack))
         .route("/paw/infra/railway/status", get(get_railway_status))
         .route("/paw/infra/railway/set-var", post(set_railway_var))
+        .route(
+            "/paw/infra/railway/datadog-runtime-agent/ensure",
+            post(ensure_datadog_runtime_agent),
+        )
+        .route(
+            "/paw/infra/railway/datadog-capability-check",
+            get(get_datadog_railway_capability_check),
+        )
+        .route(
+            "/paw/infra/railway/datadog-continuous-profiler-canary",
+            post(set_datadog_continuous_profiler_canary),
+        )
+        .route(
+            "/paw/infra/datadog/error-tracking-synthetic",
+            post(emit_datadog_error_tracking_synthetic),
+        )
         .route("/paw/infra/railway/redeploy", post(railway_redeploy))
         .route("/paw/version", get(get_version))
         .route("/paw/infra/updates", get(check_for_updates))
@@ -1422,6 +1446,7 @@ struct RailwayStatus {
     environment_id: Option<String>,
     service_id: Option<String>,
     otel_service_id: Option<String>,
+    datadog_runtime_agent_service_id: Option<String>,
 }
 
 async fn get_railway_status(State(state): State<SetupApiState>) -> Json<RailwayStatus> {
@@ -1434,6 +1459,8 @@ async fn get_railway_status(State(state): State<SetupApiState>) -> Json<RailwayS
     let service_id = vault.and_then(|v| v.get_secret(&state.tenant, "railway_service_id"));
     let otel_service_id =
         vault.and_then(|v| v.get_secret(&state.tenant, "railway_otel_service_id"));
+    let datadog_runtime_agent_service_id =
+        vault.and_then(|v| v.get_secret(&state.tenant, "railway_datadog_runtime_agent_service_id"));
     let configured = has_token && project_id.is_some() && environment_id.is_some();
     let can_update = configured && service_id.is_some();
     Json(RailwayStatus {
@@ -1443,6 +1470,7 @@ async fn get_railway_status(State(state): State<SetupApiState>) -> Json<RailwayS
         environment_id,
         service_id,
         otel_service_id,
+        datadog_runtime_agent_service_id,
     })
 }
 
@@ -1458,6 +1486,8 @@ fn allowed_railway_vars() -> Vec<(&'static str, &'static str)> {
     vec![
         ("otel-collector", "DD_API_KEY"),
         ("otel-collector", "DD_SITE"),
+        ("datadog-runtime-agent", "DD_API_KEY"),
+        ("datadog-runtime-agent", "DD_SITE"),
     ]
 }
 
@@ -1506,10 +1536,12 @@ async fn set_railway_var(
     };
 
     // Resolve service ID — for otel-collector, read from vault
-    let service_id = if req.service == "otel-collector" {
-        vault.get_secret(&state.tenant, "railway_otel_service_id")
-    } else {
-        None
+    let service_id = match req.service.as_str() {
+        "otel-collector" => vault.get_secret(&state.tenant, "railway_otel_service_id"),
+        "datadog-runtime-agent" => {
+            vault.get_secret(&state.tenant, "railway_datadog_runtime_agent_service_id")
+        }
+        _ => None,
     };
 
     let Some(service_id) = service_id else {
@@ -1575,6 +1607,741 @@ async fn set_railway_var(
             Json(serde_json::json!({ "error": format!("Railway API request failed: {e}") })),
         )
             .into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct EnsureDatadogRuntimeAgentResponse {
+    ensured: bool,
+    service_id: String,
+    service_name: &'static str,
+    created: bool,
+    app_variables_set: usize,
+    runtime_agent_variables_set: usize,
+    runtime_agent_redeploy_triggered: bool,
+    app_redeploy_triggered: bool,
+    datadog_profile: &'static str,
+}
+
+async fn ensure_datadog_runtime_agent(State(state): State<SetupApiState>) -> impl IntoResponse {
+    let vault = match state.platform.server.secrets_vault.as_ref() {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Vault not initialized" })),
+            )
+                .into_response();
+        }
+    };
+
+    let railway_token = vault.get_secret(&state.tenant, "railway_token");
+    let project_id = vault.get_secret(&state.tenant, "railway_project_id");
+    let environment_id = vault.get_secret(&state.tenant, "railway_environment_id");
+    let app_service_id = vault.get_secret(&state.tenant, "railway_service_id");
+    let dd_api_key = vault
+        .get_secret(&state.tenant, "dd_api_key")
+        .or_else(|| vault.get_secret("default", "dd_api_key"));
+    let dd_site = vault
+        .get_secret(&state.tenant, "dd_site")
+        .or_else(|| vault.get_secret("default", "dd_site"))
+        .unwrap_or_else(|| "datadoghq.com".to_string());
+
+    let (Some(token), Some(project), Some(env), Some(app_svc), Some(dd_key)) = (
+        railway_token,
+        project_id,
+        environment_id,
+        app_service_id,
+        dd_api_key,
+    ) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Railway Datadog Runtime Agent ensure requires railway_token, railway_project_id, railway_environment_id, railway_service_id, and dd_api_key."
+            })),
+        )
+            .into_response();
+    };
+
+    let client = reqwest::Client::new();
+    let result = async {
+        let existing_service = railway_find_service_by_name(
+            &client,
+            &token,
+            &project,
+            DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+        )
+        .await?;
+        let (runtime_service_id, created) = match existing_service {
+            Some(service_id) => (service_id, false),
+            None => {
+                let service_id = railway_create_datadog_runtime_agent_service(
+                    &client, &token, &project, &env, &dd_key, &dd_site,
+                )
+                .await?;
+                (service_id, true)
+            }
+        };
+
+        railway_update_service_source_image(
+            &client,
+            &token,
+            &env,
+            &runtime_service_id,
+            DATADOG_RUNTIME_AGENT_IMAGE,
+        )
+        .await?;
+
+        let runtime_agent_vars = datadog_runtime_agent_railway_vars(&dd_key, &dd_site);
+        for (name, value) in &runtime_agent_vars {
+            railway_upsert_variable(
+                &client,
+                &token,
+                &project,
+                &env,
+                &runtime_service_id,
+                name,
+                value,
+            )
+            .await?;
+        }
+
+        let app_vars = datadog_enhanced_app_railway_vars(&dd_key, &dd_site, &state.build_sha);
+        for (name, value) in &app_vars {
+            railway_upsert_variable(&client, &token, &project, &env, &app_svc, name, value).await?;
+        }
+
+        persist_infra_secret(
+            vault,
+            &state.storage,
+            &state.tenant,
+            "railway_datadog_runtime_agent_service_id",
+            &runtime_service_id,
+        )
+        .await;
+
+        railway_redeploy_service(&client, &token, &env, &runtime_service_id).await?;
+        railway_redeploy_service(&client, &token, &env, &app_svc).await?;
+
+        Ok::<EnsureDatadogRuntimeAgentResponse, anyhow::Error>(EnsureDatadogRuntimeAgentResponse {
+            ensured: true,
+            service_id: runtime_service_id,
+            service_name: DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+            created,
+            app_variables_set: app_vars.len(),
+            runtime_agent_variables_set: runtime_agent_vars.len(),
+            runtime_agent_redeploy_triggered: true,
+            app_redeploy_triggered: true,
+            datadog_profile: "datadog-enhanced-railway",
+        })
+    }
+    .await;
+
+    match result {
+        Ok(response) => (StatusCode::OK, Json(serde_json::json!(response))).into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct DatadogRailwayCapabilityReport {
+    usm_status: &'static str,
+    continuous_profiler_status: &'static str,
+    system_probe: DatadogSystemProbeCapabilityReport,
+    continuous_profiler: DatadogContinuousProfilerCapabilityReport,
+}
+
+#[derive(Serialize)]
+struct DatadogSystemProbeCapabilityReport {
+    #[serde(rename = "DD_SYSTEM_PROBE_SERVICE_MONITORING_ENABLED")]
+    dd_system_probe_service_monitoring_enabled: String,
+    #[serde(rename = "CAP_SYS_ADMIN")]
+    cap_sys_admin: bool,
+    #[serde(rename = "CAP_SYS_RESOURCE")]
+    cap_sys_resource: bool,
+    #[serde(rename = "CAP_SYS_PTRACE")]
+    cap_sys_ptrace: bool,
+    #[serde(rename = "CAP_NET_ADMIN")]
+    cap_net_admin: bool,
+    #[serde(rename = "CAP_NET_RAW")]
+    cap_net_raw: bool,
+    #[serde(rename = "CAP_IPC_LOCK")]
+    cap_ipc_lock: bool,
+    #[serde(rename = "CAP_CHOWN")]
+    cap_chown: bool,
+    host_proc: bool,
+    host_cgroup: bool,
+    debugfs: bool,
+    lib_modules: bool,
+}
+
+#[derive(Serialize)]
+struct DatadogContinuousProfilerCapabilityReport {
+    #[serde(rename = "TEMPER_DDPROF_ENABLED")]
+    temper_ddprof_enabled: String,
+    ddprof_present: bool,
+    perf_event_paranoid: String,
+    #[serde(rename = "CAP_PERFMON")]
+    cap_perfmon: bool,
+}
+
+async fn get_datadog_railway_capability_check() -> Json<DatadogRailwayCapabilityReport> {
+    Json(datadog_railway_capability_report())
+}
+
+fn datadog_railway_capability_report() -> DatadogRailwayCapabilityReport {
+    let system_probe_enabled = env::var("DD_SYSTEM_PROBE_SERVICE_MONITORING_ENABLED")
+        .unwrap_or_else(|_| "false".to_string());
+    let cap_sys_admin = effective_capability_bit(21);
+    let cap_sys_resource = effective_capability_bit(24);
+    let cap_sys_ptrace = effective_capability_bit(19);
+    let cap_net_admin = effective_capability_bit(12);
+    let cap_net_raw = effective_capability_bit(13);
+    let cap_ipc_lock = effective_capability_bit(14);
+    let cap_chown = effective_capability_bit(0);
+    let cap_perfmon = effective_capability_bit(38);
+    let host_proc = std::path::Path::new("/host/proc").exists();
+    let host_cgroup = std::path::Path::new("/host/sys/fs/cgroup").exists();
+    let debugfs = std::path::Path::new("/sys/kernel/debug").exists();
+    let lib_modules = std::path::Path::new("/lib/modules").exists();
+
+    let system_probe_host_ready = cap_sys_admin
+        && cap_sys_resource
+        && cap_sys_ptrace
+        && cap_net_admin
+        && cap_net_raw
+        && cap_ipc_lock
+        && cap_chown
+        && host_proc
+        && host_cgroup
+        && debugfs
+        && lib_modules;
+    let usm_status = if system_probe_host_ready && system_probe_enabled == "true" {
+        "supported"
+    } else if system_probe_host_ready {
+        "best-effort-system-probe-not-enabled"
+    } else {
+        "blocked-on-Railway-system-probe"
+    };
+
+    let temper_ddprof_enabled =
+        env::var("TEMPER_DDPROF_ENABLED").unwrap_or_else(|_| "false".to_string());
+    let ddprof_present = command_exists_on_path("ddprof");
+    let perf_event_paranoid = fs::read_to_string("/proc/sys/kernel/perf_event_paranoid")
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let continuous_profiler_status = if temper_ddprof_enabled == "true" {
+        if ddprof_present && perf_allows_unprivileged_profiling(&perf_event_paranoid, cap_perfmon) {
+            "supported"
+        } else {
+            "blocked-on-Railway-perf-permissions"
+        }
+    } else {
+        "best-effort-canary-not-enabled"
+    };
+
+    DatadogRailwayCapabilityReport {
+        usm_status,
+        continuous_profiler_status,
+        system_probe: DatadogSystemProbeCapabilityReport {
+            dd_system_probe_service_monitoring_enabled: system_probe_enabled,
+            cap_sys_admin,
+            cap_sys_resource,
+            cap_sys_ptrace,
+            cap_net_admin,
+            cap_net_raw,
+            cap_ipc_lock,
+            cap_chown,
+            host_proc,
+            host_cgroup,
+            debugfs,
+            lib_modules,
+        },
+        continuous_profiler: DatadogContinuousProfilerCapabilityReport {
+            temper_ddprof_enabled,
+            ddprof_present,
+            perf_event_paranoid,
+            cap_perfmon,
+        },
+    }
+}
+
+fn effective_capability_bit(bit: u32) -> bool {
+    let Some(cap_eff) = fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status.lines().find_map(|line| {
+                line.strip_prefix("CapEff:")
+                    .map(str::trim)
+                    .and_then(|hex| u128::from_str_radix(hex, 16).ok())
+            })
+        })
+    else {
+        return false;
+    };
+
+    (cap_eff & (1u128 << bit)) != 0
+}
+
+fn command_exists_on_path(command: &str) -> bool {
+    env::var_os("PATH")
+        .map(|paths| {
+            env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join(command);
+                candidate.is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn perf_allows_unprivileged_profiling(perf_event_paranoid: &str, cap_perfmon: bool) -> bool {
+    match perf_event_paranoid.parse::<i64>() {
+        Ok(value) => value <= 2 || cap_perfmon,
+        Err(_) => false,
+    }
+}
+
+#[derive(Deserialize)]
+struct SetDatadogContinuousProfilerCanaryRequest {
+    enabled: bool,
+}
+
+#[derive(Serialize)]
+struct SetDatadogContinuousProfilerCanaryResponse {
+    enabled: bool,
+    service_id: String,
+    variables_set: usize,
+    app_redeploy_triggered: bool,
+}
+
+async fn set_datadog_continuous_profiler_canary(
+    State(state): State<SetupApiState>,
+    Json(req): Json<SetDatadogContinuousProfilerCanaryRequest>,
+) -> impl IntoResponse {
+    let vault = match state.platform.server.secrets_vault.as_ref() {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Vault not initialized" })),
+            )
+                .into_response();
+        }
+    };
+
+    let railway_token = vault.get_secret(&state.tenant, "railway_token");
+    let project_id = vault.get_secret(&state.tenant, "railway_project_id");
+    let environment_id = vault.get_secret(&state.tenant, "railway_environment_id");
+    let app_service_id = vault.get_secret(&state.tenant, "railway_service_id");
+
+    let (Some(token), Some(project), Some(env), Some(app_svc)) =
+        (railway_token, project_id, environment_id, app_service_id)
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Railway continuous profiler canary requires railway_token, railway_project_id, railway_environment_id, and railway_service_id."
+            })),
+        )
+            .into_response();
+    };
+
+    let value = if req.enabled { "true" } else { "false" }.to_string();
+    let variables = vec![
+        ("TEMPER_DDPROF_ENABLED", value.clone()),
+        ("DD_PROFILING_ENABLED", value),
+    ];
+
+    let client = reqwest::Client::new();
+    let result = async {
+        for (name, value) in &variables {
+            railway_upsert_variable(&client, &token, &project, &env, &app_svc, name, value).await?;
+        }
+        railway_redeploy_service(&client, &token, &env, &app_svc).await?;
+
+        Ok::<SetDatadogContinuousProfilerCanaryResponse, anyhow::Error>(
+            SetDatadogContinuousProfilerCanaryResponse {
+                enabled: req.enabled,
+                service_id: app_svc,
+                variables_set: variables.len(),
+                app_redeploy_triggered: true,
+            },
+        )
+    }
+    .await;
+
+    match result {
+        Ok(response) => (StatusCode::OK, Json(serde_json::json!(response))).into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct EmitDatadogErrorTrackingSyntheticRequest {
+    proof_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct EmitDatadogErrorTrackingSyntheticResponse {
+    emitted: bool,
+    proof_id: String,
+    service: String,
+    env: String,
+    version: String,
+    error_type: &'static str,
+    error_message: String,
+    required_fields: Vec<&'static str>,
+}
+
+const DATADOG_ERROR_TRACKING_REQUIRED_FIELDS: [&str; 7] = [
+    "error.type",
+    "error.kind",
+    "error.message",
+    "error.stack",
+    "exception.type",
+    "exception.message",
+    "exception.stacktrace",
+];
+
+async fn emit_datadog_error_tracking_synthetic(
+    State(state): State<SetupApiState>,
+    Json(req): Json<EmitDatadogErrorTrackingSyntheticRequest>,
+) -> impl IntoResponse {
+    let proof_id = req
+        .proof_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| {
+            let epoch_seconds = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default();
+            format!("dd-error-tracking-{epoch_seconds}")
+        });
+    let service = env::var("DD_SERVICE").unwrap_or_else(|_| "temperpaw".to_string());
+    let env_name = env::var("DD_ENV").unwrap_or_else(|_| "prod".to_string());
+    let version = env::var("DD_VERSION").unwrap_or_else(|_| state.build_sha.clone());
+    let error_type = "DatadogSyntheticBackendError";
+    let error_message =
+        format!("Synthetic Datadog Error Tracking backend issue for proof {proof_id}");
+    let error_stack = format!(
+        "{error_type}: {error_message}\n  at emit_datadog_error_tracking_synthetic (crates/temperpaw/src/setup_api.rs:1)\n  at railway_datadog_product_coverage_proof (docs/adrs/0049-railway-datadog-product-coverage.md:1)"
+    );
+
+    let tracer = global::tracer("temperpaw.setup_api");
+    let mut span = tracer
+        .span_builder("datadog.error_tracking.synthetic")
+        .with_kind(SpanKind::Internal)
+        .with_status(Status::error(error_message.clone()))
+        .with_attributes(vec![
+            KeyValue::new("service.name", service.clone()),
+            KeyValue::new("deployment.environment.name", env_name.clone()),
+            KeyValue::new("env", env_name.clone()),
+            KeyValue::new("service.version", version.clone()),
+            KeyValue::new("version", version.clone()),
+            KeyValue::new("proof_id", proof_id.clone()),
+            KeyValue::new("datadog.error_tracking.synthetic", true),
+            KeyValue::new("error.type", error_type),
+            KeyValue::new("error.kind", error_type),
+            KeyValue::new("error.message", error_message.clone()),
+            KeyValue::new("error.stack", error_stack.clone()),
+            KeyValue::new("exception.type", error_type),
+            KeyValue::new("exception.message", error_message.clone()),
+            KeyValue::new("exception.stacktrace", error_stack.clone()),
+        ])
+        .start(&tracer);
+    span.add_event(
+        "exception",
+        vec![
+            KeyValue::new("exception.type", error_type),
+            KeyValue::new("exception.message", error_message.clone()),
+            KeyValue::new("exception.stacktrace", error_stack.clone()),
+            KeyValue::new("error.type", error_type),
+            KeyValue::new("error.message", error_message.clone()),
+            KeyValue::new("error.stack", error_stack.clone()),
+        ],
+    );
+    span.end();
+
+    tracing::error!(
+        target: "temperpaw.datadog.error_tracking",
+        source = "custom",
+        ddsource = "rust",
+        service.name = %service,
+        env = %env_name,
+        version = %version,
+        proof_id = %proof_id,
+        datadog.error_tracking.synthetic = true,
+        error.r#type = %error_type,
+        error.kind = %error_type,
+        error.message = %error_message,
+        error.stack = %error_stack,
+        exception.r#type = %error_type,
+        exception.message = %error_message,
+        exception.stacktrace = %error_stack,
+        "DatadogSyntheticBackendError: synthetic backend error emitted for Datadog Error Tracking proof"
+    );
+
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!(
+            EmitDatadogErrorTrackingSyntheticResponse {
+                emitted: true,
+                proof_id,
+                service,
+                env: env_name,
+                version,
+                error_type,
+                error_message,
+                required_fields: DATADOG_ERROR_TRACKING_REQUIRED_FIELDS.to_vec(),
+            }
+        )),
+    )
+}
+
+fn datadog_runtime_agent_railway_vars(
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("DD_API_KEY", dd_api_key.to_string()),
+        ("DD_SITE", dd_site.to_string()),
+        ("DD_ENV", "prod".to_string()),
+        ("DD_SERVICE", "temperpaw".to_string()),
+        ("DD_HOSTNAME", "temperpaw-runtime-agent".to_string()),
+        (
+            "DD_TAGS",
+            "team:temperpaw service:temperpaw railway_profile:datadog-enhanced".to_string(),
+        ),
+        ("DD_APM_ENABLED", "true".to_string()),
+        ("DD_APM_NON_LOCAL_TRAFFIC", "true".to_string()),
+        (
+            "DD_APM_FEATURES",
+            "enable_operation_and_resource_name_logic_v2".to_string(),
+        ),
+        ("DD_LOGS_ENABLED", "true".to_string()),
+        ("DD_OTLP_CONFIG_LOGS_ENABLED", "true".to_string()),
+        (
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT",
+            "0.0.0.0:4318".to_string(),
+        ),
+        (
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT",
+            "0.0.0.0:4317".to_string(),
+        ),
+        ("DD_PROCESS_AGENT_ENABLED", "true".to_string()),
+    ]
+}
+
+fn datadog_enhanced_app_railway_vars(
+    dd_api_key: &str,
+    dd_site: &str,
+    build_sha: &str,
+) -> Vec<(&'static str, String)> {
+    let version = if build_sha.trim().is_empty() {
+        "unknown".to_string()
+    } else {
+        build_sha.to_string()
+    };
+
+    vec![
+        ("DD_API_KEY", dd_api_key.to_string()),
+        ("DD_SITE", dd_site.to_string()),
+        ("DD_SERVICE", "temperpaw".to_string()),
+        ("DD_ENV", "prod".to_string()),
+        ("DD_VERSION", version),
+        ("DD_TAGS", "team:temperpaw".to_string()),
+        ("TEMPER_PROFILING_ENABLED", "true".to_string()),
+        ("TEMPER_PROFILING_AUTO_UPLOAD", "true".to_string()),
+        (
+            "TEMPER_DATADOG_RAILWAY_PROFILE",
+            "datadog-enhanced-railway".to_string(),
+        ),
+        ("DD_LLMOBS_API_ENABLED", "true".to_string()),
+        (
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            format!("http://{DATADOG_RUNTIME_AGENT_HOST}:4318"),
+        ),
+        ("DD_AGENT_HOST", DATADOG_RUNTIME_AGENT_HOST.to_string()),
+        ("DD_TRACE_AGENT_PORT", "8126".to_string()),
+        (
+            "DD_TRACE_AGENT_URL",
+            format!("http://{DATADOG_RUNTIME_AGENT_HOST}:8126"),
+        ),
+    ]
+}
+
+async fn railway_find_service_by_name(
+    client: &reqwest::Client,
+    token: &str,
+    project_id: &str,
+    name: &str,
+) -> Result<Option<String>> {
+    let query = serde_json::json!({
+        "query": "query($projectId: String!) { project(id: $projectId) { services { edges { node { id name } } } } }",
+        "variables": { "projectId": project_id },
+    });
+    let data = railway_graphql_data(client, token, query, "Runtime Agent service lookup").await?;
+    let services = data
+        .pointer("/project/services/edges")
+        .and_then(|edges| edges.as_array())
+        .ok_or_else(|| anyhow!("Railway project service list was missing from API response"))?;
+
+    Ok(services.iter().find_map(|edge| {
+        let node = edge.get("node")?;
+        let service_name = node.get("name")?.as_str()?;
+        if service_name == name {
+            node.get("id")?.as_str().map(str::to_string)
+        } else {
+            None
+        }
+    }))
+}
+
+async fn railway_create_datadog_runtime_agent_service(
+    client: &reqwest::Client,
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Result<String> {
+    let variables = datadog_runtime_agent_railway_vars(dd_api_key, dd_site)
+        .into_iter()
+        .map(|(name, value)| (name.to_string(), serde_json::Value::String(value)))
+        .collect::<serde_json::Map<_, _>>();
+    let query = serde_json::json!({
+        "query": "mutation($projectId: String!, $environmentId: String!, $name: String!, $source: ServiceSourceInput, $variables: EnvironmentVariables) { serviceCreate(input: { projectId: $projectId, environmentId: $environmentId, name: $name, source: $source, variables: $variables }) { id name } }",
+        "variables": {
+            "projectId": project_id,
+            "environmentId": environment_id,
+            "name": DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+            "source": { "image": DATADOG_RUNTIME_AGENT_IMAGE },
+            "variables": variables,
+        },
+    });
+    let data = railway_graphql_data(client, token, query, "Runtime Agent serviceCreate").await?;
+    data.pointer("/serviceCreate/id")
+        .and_then(|id| id.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("Railway serviceCreate response did not include a service id"))
+}
+
+async fn railway_update_service_source_image(
+    client: &reqwest::Client,
+    token: &str,
+    environment_id: &str,
+    service_id: &str,
+    image: &str,
+) -> Result<()> {
+    let query = serde_json::json!({
+        "query": "mutation($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }",
+        "variables": {
+            "serviceId": service_id,
+            "environmentId": environment_id,
+            "input": {
+                "source": { "image": image },
+                "restartPolicyType": "ALWAYS",
+                "numReplicas": 1,
+            },
+        },
+    });
+    let _ =
+        railway_graphql_data(client, token, query, "Runtime Agent serviceInstanceUpdate").await?;
+    Ok(())
+}
+
+async fn railway_upsert_variable(
+    client: &reqwest::Client,
+    token: &str,
+    project_id: &str,
+    environment_id: &str,
+    service_id: &str,
+    name: &str,
+    value: &str,
+) -> Result<()> {
+    let query = serde_json::json!({
+        "query": "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+        "variables": {
+            "input": {
+                "projectId": project_id,
+                "environmentId": environment_id,
+                "serviceId": service_id,
+                "name": name,
+                "value": value,
+                "skipDeploys": true,
+            }
+        }
+    });
+    let _ = railway_graphql_data(client, token, query, "Runtime Agent variableUpsert").await?;
+    Ok(())
+}
+
+async fn railway_redeploy_service(
+    client: &reqwest::Client,
+    token: &str,
+    environment_id: &str,
+    service_id: &str,
+) -> Result<()> {
+    let query = match railway_latest_deployment_id(client, RAILWAY_GRAPHQL_URL, token, service_id)
+        .await
+    {
+        Ok(deployment_id) => serde_json::json!({
+            "query": "mutation($deploymentId: String!) { deploymentRedeploy(id: $deploymentId) { id status } }",
+            "variables": { "deploymentId": deployment_id },
+        }),
+        Err(lookup_error) => {
+            tracing::warn!(
+                %service_id,
+                %lookup_error,
+                "Railway service has no latest deployment; triggering a fresh deploy"
+            );
+            serde_json::json!({
+                "query": "mutation($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }",
+                "variables": {
+                    "serviceId": service_id,
+                    "environmentId": environment_id,
+                }
+            })
+        }
+    };
+    let _ = railway_graphql_data(client, token, query, "Runtime Agent redeploy").await?;
+    Ok(())
+}
+
+async fn railway_graphql_data(
+    client: &reqwest::Client,
+    token: &str,
+    body: serde_json::Value,
+    operation: &str,
+) -> Result<serde_json::Value> {
+    let body = railway_graphql(client, RAILWAY_GRAPHQL_URL, token, body, operation)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    Ok(body.get("data").cloned().unwrap_or_default())
+}
+
+async fn persist_infra_secret(
+    vault: &Arc<temper_server::secrets::SecretsVault>,
+    storage: &PawStorage,
+    tenant: &str,
+    key: &str,
+    value: &str,
+) {
+    let _ = vault.cache_secret(tenant, key, value.to_string());
+    let _ = vault.cache_platform_secret(key, value.to_string());
+    if let Ok((ciphertext, nonce)) = vault.encrypt(value.as_bytes()) {
+        let _ = storage
+            .upsert_secret(tenant, key, &ciphertext, &nonce)
+            .await;
     }
 }
 
@@ -1799,87 +2566,129 @@ async fn railway_redeploy(
                     "serviceId": svc,
                     "name": "IMAGE_TAG",
                     "value": tag,
+                    "skipDeploys": true,
                 }
             }
         });
 
-        match client
-            .post(railway_url)
-            .header("Authorization", format!("Bearer {token}"))
-            .header("Content-Type", "application/json")
-            .json(&var_query)
-            .send()
-            .await
+        if let Err(error) =
+            railway_graphql(&client, railway_url, &token, var_query, "set IMAGE_TAG").await
         {
-            Ok(resp) => {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                if body.get("errors").is_some() {
-                    let error_msg = body["errors"]
-                        .as_array()
-                        .and_then(|e| e.first())
-                        .and_then(|e| e["message"].as_str())
-                        .unwrap_or("Failed to set IMAGE_TAG");
-                    return (
-                        StatusCode::BAD_GATEWAY,
-                        Json(serde_json::json!({ "error": error_msg })),
-                    )
-                        .into_response();
-                }
-            }
-            Err(e) => {
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "error": format!("Failed to set IMAGE_TAG: {e}") })),
-                )
-                    .into_response();
-            }
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
         }
     }
 
-    // Trigger the redeploy
-    let redeploy_query = format!(
-        "mutation {{ serviceInstanceRedeploy(serviceId: \"{svc}\", environmentId: \"{env}\") }}"
-    );
-
-    match client
-        .post(railway_url)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "query": redeploy_query }))
-        .send()
-        .await
+    let deployment_id = match railway_latest_deployment_id(&client, railway_url, &token, &svc).await
     {
-        Ok(resp) => {
-            let status = resp.status();
-            let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            if status.is_success() && body.get("errors").is_none() {
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "triggered": true,
-                        "image_tag": req.image_tag.as_deref().unwrap_or("current"),
-                    })),
-                )
-                    .into_response()
-            } else {
-                let error_msg = body["errors"]
-                    .as_array()
-                    .and_then(|e| e.first())
-                    .and_then(|e| e["message"].as_str())
-                    .unwrap_or("Railway API error");
-                (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "error": error_msg })),
-                )
-                    .into_response()
-            }
+        Ok(id) => id,
+        Err(error) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
         }
-        Err(e) => (
+    };
+
+    let redeploy_query = serde_json::json!({
+        "query": "mutation($deploymentId: String!) { deploymentRedeploy(id: $deploymentId) { id status } }",
+        "variables": { "deploymentId": deployment_id },
+    });
+
+    match railway_graphql(&client, railway_url, &token, redeploy_query, "redeploy").await {
+        Ok(body) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "triggered": true,
+                "image_tag": req.image_tag.as_deref().unwrap_or("current"),
+                "deployment_id": deployment_id,
+                "redeploy": body.get("data").and_then(|data| data.get("deploymentRedeploy")).cloned(),
+            })),
+        )
+            .into_response(),
+        Err(error) => (
             StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({ "error": format!("Railway API request failed: {e}") })),
+            Json(serde_json::json!({ "error": error })),
         )
             .into_response(),
     }
+}
+
+async fn railway_graphql(
+    client: &reqwest::Client,
+    railway_url: &str,
+    token: &str,
+    payload: serde_json::Value,
+    operation: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = client
+        .post(railway_url)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Railway {operation} request failed: {e}"))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    if !status.is_success() || body.get("errors").is_some() {
+        let error_msg = body["errors"]
+            .as_array()
+            .and_then(|errors| errors.first())
+            .and_then(|error| error["message"].as_str())
+            .unwrap_or("Railway API error");
+        return Err(format!("Railway {operation} failed: {error_msg}"));
+    }
+
+    Ok(body)
+}
+
+async fn railway_latest_deployment_id(
+    client: &reqwest::Client,
+    railway_url: &str,
+    token: &str,
+    service_id: &str,
+) -> Result<String, String> {
+    let query = serde_json::json!({
+        "query": "query($serviceId: String!) { service(id: $serviceId) { serviceInstances { edges { node { latestDeployment { id status createdAt } } } } } }",
+        "variables": { "serviceId": service_id },
+    });
+
+    let body = railway_graphql(
+        client,
+        railway_url,
+        token,
+        query,
+        "latest deployment lookup",
+    )
+    .await?;
+    let edges = body
+        .get("data")
+        .and_then(|data| data.get("service"))
+        .and_then(|service| service.get("serviceInstances"))
+        .and_then(|instances| instances.get("edges"))
+        .and_then(|edges| edges.as_array())
+        .ok_or_else(|| {
+            "Railway latest deployment lookup returned no service instances".to_string()
+        })?;
+
+    for edge in edges {
+        if let Some(id) = edge
+            .get("node")
+            .and_then(|node| node.get("latestDeployment"))
+            .and_then(|deployment| deployment.get("id"))
+            .and_then(|id| id.as_str())
+            .filter(|id| !id.is_empty())
+        {
+            return Ok(id.to_string());
+        }
+    }
+
+    Err("Railway latest deployment lookup found no latestDeployment.id".to_string())
 }
 
 // ──────────────────────────────── Transports ─────────────────────────────────
@@ -2373,7 +3182,8 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_secret_keys, discord_connect_params_for_secret_update, discord_readyz_response,
+        allowed_secret_keys, datadog_enhanced_app_railway_vars, datadog_runtime_agent_railway_vars,
+        discord_connect_params_for_secret_update, discord_readyz_response,
         discord_start_error_is_retryable, is_discord_ping, persist_discord_public_key,
         personalized_soul_flag_value, secrets_schema, transport_status_report,
         verify_discord_signature,
@@ -2579,6 +3389,35 @@ mod tests {
     }
 
     #[test]
+    fn datadog_agent_env_tags_use_datadog_whitespace_separator() {
+        let runtime_agent_vars = datadog_runtime_agent_railway_vars("api-key", "datadoghq.com");
+        let runtime_agent_tags = runtime_agent_vars
+            .iter()
+            .find_map(|(name, value)| (*name == "DD_TAGS").then_some(value.as_str()))
+            .expect("runtime agent DD_TAGS must be set");
+
+        assert_eq!(
+            runtime_agent_tags,
+            "team:temperpaw service:temperpaw railway_profile:datadog-enhanced"
+        );
+        assert!(
+            !runtime_agent_tags.contains(','),
+            "Datadog Agent DD_TAGS uses whitespace-separated list values"
+        );
+
+        let app_vars = datadog_enhanced_app_railway_vars("api-key", "datadoghq.com", "build-sha");
+        let app_tags = app_vars
+            .iter()
+            .find_map(|(name, value)| (*name == "DD_TAGS").then_some(value.as_str()))
+            .expect("app DD_TAGS must be set");
+        assert_eq!(app_tags, "team:temperpaw");
+        assert!(
+            !app_tags.contains(','),
+            "TemperPaw app DD_TAGS must also remain whitespace-safe"
+        );
+    }
+
+    #[test]
     fn openai_codex_canonical_secret_keys_are_allowed() {
         let allowed = allowed_secret_keys();
         for key in [
@@ -2602,7 +3441,7 @@ mod tests {
             .expect("canonical Codex access token schema");
 
         assert_eq!(codex.label, "OpenAI Codex Access Token");
-        assert!(codex.description.contains("OpenPaw-managed"));
+        assert!(codex.description.contains("TemperPaw-managed"));
         assert!(!codex.description.contains("~/.codex"));
     }
 }

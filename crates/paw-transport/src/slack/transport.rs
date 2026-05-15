@@ -51,6 +51,38 @@ struct WebhookListenerGuard {
     task: Option<JoinHandle<()>>,
 }
 
+#[derive(Clone, Copy)]
+struct SlackTransportEvent<'a> {
+    operation: &'a str,
+    outcome: &'a str,
+    channel_id: &'a str,
+    message_id: &'a str,
+    user_id: &'a str,
+    command: &'a str,
+    webhook_port: Option<u16>,
+    message_len: Option<usize>,
+    block_count: Option<usize>,
+    error: Option<&'a str>,
+}
+
+fn log_slack_transport_event(event: SlackTransportEvent<'_>) {
+    tracing::info!(
+        observability_event = "temperpaw.transport",
+        transport.name = "slack",
+        transport.operation = event.operation,
+        transport.outcome = event.outcome,
+        transport.channel_id = event.channel_id,
+        transport.message_id = event.message_id,
+        transport.command = event.command,
+        transport.webhook_port = event.webhook_port.unwrap_or_default(),
+        slack.user_id = event.user_id,
+        message.length = event.message_len.unwrap_or_default(),
+        slack.block_count = event.block_count.unwrap_or_default(),
+        error.message = event.error.unwrap_or_default(),
+        "slack transport event"
+    );
+}
+
 impl WebhookListenerGuard {
     fn new(port: u16, shutdown: tokio::sync::oneshot::Sender<()>, task: JoinHandle<()>) -> Self {
         Self {
@@ -94,7 +126,18 @@ impl SlackTransport {
         let webhook_listener = self.spawn_webhook_listener().await?;
         let webhook_port = webhook_listener.port();
         let webhook_url = format!("http://127.0.0.1:{webhook_port}/reply");
-        println!("  [slack] Webhook listener on port {webhook_port}");
+        log_slack_transport_event(SlackTransportEvent {
+            operation: "webhook_listener",
+            outcome: "ready",
+            channel_id: "",
+            message_id: "",
+            user_id: "",
+            command: "",
+            webhook_port: Some(webhook_port),
+            message_len: None,
+            block_count: None,
+            error: None,
+        });
 
         // Phase 2: Bootstrap the Channel entity.
         self.bootstrap_channel(&webhook_url).await?;
@@ -104,10 +147,30 @@ impl SlackTransport {
             Ok(resp) => {
                 let user_id = resp.user_id.unwrap_or_default();
                 let user_name = resp.user.unwrap_or_default();
-                println!("  [slack] Authenticated as {user_name} ({user_id})");
+                tracing::info!(
+                    observability_event = "temperpaw.transport",
+                    transport.name = "slack",
+                    transport.operation = "auth_test",
+                    transport.outcome = "success",
+                    slack.user_id = %user_id,
+                    slack.user_name = %user_name,
+                    "slack transport authenticated"
+                );
                 *self.bot_user_id.write().await = user_id;
             }
             Err(e) => {
+                log_slack_transport_event(SlackTransportEvent {
+                    operation: "auth_test",
+                    outcome: "error",
+                    channel_id: "",
+                    message_id: "",
+                    user_id: "",
+                    command: "",
+                    webhook_port: None,
+                    message_len: None,
+                    block_count: None,
+                    error: Some(&e),
+                });
                 return Err(format!("Slack auth.test failed: {e}"));
             }
         }
@@ -120,7 +183,18 @@ impl SlackTransport {
                 match socket::fetch_socket_url(&self.http, &self.config.app_token).await {
                     Ok(url) => url,
                     Err(e) => {
-                        eprintln!("  [slack] Failed to get Socket Mode URL: {e}");
+                        log_slack_transport_event(SlackTransportEvent {
+                            operation: "socket_url",
+                            outcome: "error",
+                            channel_id: "",
+                            message_id: "",
+                            user_id: "",
+                            command: "",
+                            webhook_port: None,
+                            message_len: None,
+                            block_count: None,
+                            error: Some(&e),
+                        });
                         tokio::time::sleep(backoff).await;
                         backoff = (backoff * 2).min(Duration::from_secs(60));
                         continue;
@@ -130,13 +204,35 @@ impl SlackTransport {
             match self.connect_and_handle(&socket_url).await {
                 Ok(()) => backoff = Duration::from_secs(1),
                 Err(e) => {
-                    eprintln!("  [slack] Socket Mode error: {e}");
+                    log_slack_transport_event(SlackTransportEvent {
+                        operation: "socket_loop",
+                        outcome: "error",
+                        channel_id: "",
+                        message_id: "",
+                        user_id: "",
+                        command: "",
+                        webhook_port: None,
+                        message_len: None,
+                        block_count: None,
+                        error: Some(&e),
+                    });
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(60));
                 }
             }
 
-            println!("  [slack] Reconnecting...");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "socket_reconnect",
+                outcome: "scheduled",
+                channel_id: "",
+                message_id: "",
+                user_id: "",
+                command: "",
+                webhook_port: None,
+                message_len: None,
+                block_count: None,
+                error: None,
+            });
         }
     }
 
@@ -185,7 +281,18 @@ impl SlackTransport {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            println!("  [slack] Created Channel entity: {id}");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "channel_bootstrap",
+                outcome: "created",
+                channel_id: &id,
+                message_id: "",
+                user_id: "",
+                command: "",
+                webhook_port: None,
+                message_len: None,
+                block_count: None,
+                error: None,
+            });
 
             // Configure the channel with webhook for reply delivery.
             let _ = self
@@ -260,7 +367,18 @@ impl SlackTransport {
                         handle_slash_command(envelope.payload, &channel_entity_id, &api).await;
                     }
                     other => {
-                        println!("  [slack] Ignoring envelope type: {other}");
+                        log_slack_transport_event(SlackTransportEvent {
+                            operation: "envelope",
+                            outcome: "ignored",
+                            channel_id: "",
+                            message_id: "",
+                            user_id: "",
+                            command: other,
+                            webhook_port: None,
+                            message_len: None,
+                            block_count: None,
+                            error: None,
+                        });
                     }
                 }
             }
@@ -288,7 +406,18 @@ impl SlackTransport {
             let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
             if thread_id.is_empty() || content.is_empty() {
-                eprintln!("  [slack] Webhook received empty reply (thread={thread_id})");
+                log_slack_transport_event(SlackTransportEvent {
+                    operation: "send_reply",
+                    outcome: "invalid",
+                    channel_id: thread_id,
+                    message_id: "",
+                    user_id: "",
+                    command: "",
+                    webhook_port: None,
+                    message_len: Some(content.len()),
+                    block_count: None,
+                    error: Some("missing thread_id or content"),
+                });
                 return axum::http::StatusCode::BAD_REQUEST;
             }
 
@@ -304,13 +433,6 @@ impl SlackTransport {
             let has_blocks = !blocks.is_empty();
 
             if has_blocks {
-                println!(
-                    "  [slack] Delivering rich reply ({} chars, {} blocks to {})",
-                    content.len(),
-                    blocks.len(),
-                    channel_id
-                );
-
                 match api::send_slack_message_with_blocks(
                     &state.http,
                     &state.bot_token,
@@ -320,25 +442,69 @@ impl SlackTransport {
                 )
                 .await
                 {
-                    Ok(_) => axum::http::StatusCode::OK,
+                    Ok(_) => {
+                        log_slack_transport_event(SlackTransportEvent {
+                            operation: "send_reply",
+                            outcome: "success",
+                            channel_id,
+                            message_id: "",
+                            user_id: "",
+                            command: "",
+                            webhook_port: None,
+                            message_len: Some(content.len()),
+                            block_count: Some(blocks.len()),
+                            error: None,
+                        });
+                        axum::http::StatusCode::OK
+                    }
                     Err(e) => {
-                        eprintln!("  [slack] Rich reply delivery failed: {e}");
+                        log_slack_transport_event(SlackTransportEvent {
+                            operation: "send_reply",
+                            outcome: "error",
+                            channel_id,
+                            message_id: "",
+                            user_id: "",
+                            command: "",
+                            webhook_port: None,
+                            message_len: Some(content.len()),
+                            block_count: Some(blocks.len()),
+                            error: Some(&e),
+                        });
                         axum::http::StatusCode::INTERNAL_SERVER_ERROR
                     }
                 }
             } else {
-                println!(
-                    "  [slack] Delivering reply ({} chars to {})",
-                    content.len(),
-                    channel_id
-                );
-
                 match api::send_slack_message(&state.http, &state.bot_token, channel_id, content)
                     .await
                 {
-                    Ok(()) => axum::http::StatusCode::OK,
+                    Ok(()) => {
+                        log_slack_transport_event(SlackTransportEvent {
+                            operation: "send_reply",
+                            outcome: "success",
+                            channel_id,
+                            message_id: "",
+                            user_id: "",
+                            command: "",
+                            webhook_port: None,
+                            message_len: Some(content.len()),
+                            block_count: None,
+                            error: None,
+                        });
+                        axum::http::StatusCode::OK
+                    }
                     Err(e) => {
-                        eprintln!("  [slack] Reply delivery failed: {e}");
+                        log_slack_transport_event(SlackTransportEvent {
+                            operation: "send_reply",
+                            outcome: "error",
+                            channel_id,
+                            message_id: "",
+                            user_id: "",
+                            command: "",
+                            webhook_port: None,
+                            message_len: Some(content.len()),
+                            block_count: None,
+                            error: Some(&e),
+                        });
                         axum::http::StatusCode::INTERNAL_SERVER_ERROR
                     }
                 }
@@ -370,7 +536,18 @@ impl SlackTransport {
                 })
                 .await
             {
-                eprintln!("  [slack] Webhook listener error: {e}");
+                log_slack_transport_event(SlackTransportEvent {
+                    operation: "webhook_listener",
+                    outcome: "error",
+                    channel_id: "",
+                    message_id: "",
+                    user_id: "",
+                    command: "",
+                    webhook_port: None,
+                    message_len: None,
+                    block_count: None,
+                    error: Some(&e.to_string()),
+                });
             }
         });
 
@@ -392,7 +569,18 @@ async fn handle_events_api(
     let events_payload: EventsApiPayload = match serde_json::from_value(payload) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("  [slack] Failed to parse Events API payload: {e}");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "parse_events_api",
+                outcome: "error",
+                channel_id: "",
+                message_id: "",
+                user_id: "",
+                command: "",
+                webhook_port: None,
+                message_len: None,
+                block_count: None,
+                error: Some(&e.to_string()),
+            });
             return;
         }
     };
@@ -410,7 +598,18 @@ async fn handle_events_api(
     let msg: SlackMessageEvent = match serde_json::from_value(events_payload.event) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("  [slack] Failed to parse message event: {e}");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "parse_message_event",
+                outcome: "error",
+                channel_id: "",
+                message_id: "",
+                user_id: "",
+                command: "",
+                webhook_port: None,
+                message_len: None,
+                block_count: None,
+                error: Some(&e.to_string()),
+            });
             return;
         }
     };
@@ -445,12 +644,21 @@ async fn handle_events_api(
         return;
     }
 
-    api::log_message(&user_id, &text);
-
     // Dispatch Channel.ReceiveMessage — the WASM handles everything else.
     let entity_id = channel_entity_id.read().await.clone();
     let Some(entity_id) = entity_id else {
-        eprintln!("  [slack] No Channel entity bootstrapped");
+        log_slack_transport_event(SlackTransportEvent {
+            operation: "receive_message",
+            outcome: "error",
+            channel_id: &channel,
+            message_id: &ts,
+            user_id: &user_id,
+            command: "",
+            webhook_port: None,
+            message_len: Some(text.len()),
+            block_count: None,
+            error: Some("no channel entity bootstrapped"),
+        });
         return;
     };
 
@@ -468,10 +676,32 @@ async fn handle_events_api(
         .await
     {
         Ok(_) => {
-            println!("  [slack] Dispatched ReceiveMessage for {user_id}");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "receive_message",
+                outcome: "success",
+                channel_id: &channel,
+                message_id: &ts,
+                user_id: &user_id,
+                command: "",
+                webhook_port: None,
+                message_len: Some(text.len()),
+                block_count: None,
+                error: None,
+            });
         }
         Err(e) => {
-            eprintln!("  [slack] ReceiveMessage failed: {e}");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "receive_message",
+                outcome: "error",
+                channel_id: &channel,
+                message_id: &ts,
+                user_id: &user_id,
+                command: "",
+                webhook_port: None,
+                message_len: Some(text.len()),
+                block_count: None,
+                error: Some(&e),
+            });
             // Send error message to user.
             let _ = api::send_slack_message(
                 http,
@@ -494,7 +724,18 @@ async fn handle_interactive(
     let interaction: SlackInteractionPayload = match serde_json::from_value(payload) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("  [slack] Failed to parse interaction payload: {e}");
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "approval_interaction",
+                outcome: "error",
+                channel_id: "",
+                message_id: "",
+                user_id: "",
+                command: "",
+                webhook_port: None,
+                message_len: None,
+                block_count: None,
+                error: Some(&e.to_string()),
+            });
             return;
         }
     };
@@ -510,7 +751,18 @@ async fn handle_interactive(
     let action_id = &action.action_id;
     let parts: Vec<&str> = action_id.splitn(2, ':').collect();
     if parts.len() != 2 {
-        eprintln!("  [slack] Invalid action_id format: {action_id}");
+        log_slack_transport_event(SlackTransportEvent {
+            operation: "approval_interaction",
+            outcome: "invalid",
+            channel_id: "",
+            message_id: "",
+            user_id: &interaction.user.id,
+            command: action_id,
+            webhook_port: None,
+            message_len: None,
+            block_count: None,
+            error: Some("invalid action_id format"),
+        });
         return;
     }
 
@@ -532,8 +784,16 @@ async fn handle_interactive(
         .or(interaction.user.username.as_deref())
         .unwrap_or("unknown");
 
-    println!(
-        "  [slack] Interaction: {action_type} target {target_id} by {reviewer_name} ({reviewer_id})"
+    tracing::info!(
+        observability_event = "temperpaw.transport",
+        transport.name = "slack",
+        transport.operation = "approval_interaction",
+        transport.outcome = "received",
+        transport.command = %action_type,
+        approval.target_id = %target_id,
+        slack.user_id = %reviewer_id,
+        slack.user_name = %reviewer_name,
+        "slack approval interaction received"
     );
 
     let base_url = api.config().base_url.clone();
@@ -621,13 +881,30 @@ async fn handle_interactive(
         .unwrap_or("");
 
     if !channel_id.is_empty() && !message_ts.is_empty() {
+        log_slack_transport_event(SlackTransportEvent {
+            operation: "approval_interaction",
+            outcome: if _success { "success" } else { "error" },
+            channel_id,
+            message_id: message_ts,
+            user_id: &reviewer_id,
+            command: action_type,
+            webhook_port: None,
+            message_len: None,
+            block_count: None,
+            error: if _success {
+                None
+            } else {
+                Some(status_line.as_str())
+            },
+        });
+
         // Update with result text and remove buttons.
         let result_blocks = vec![SlackBlock::Section {
             text: SlackTextObject::mrkdwn(&status_line),
             block_id: None,
             fields: None,
         }];
-        let _ = api::update_slack_message(
+        if let Err(e) = api::update_slack_message(
             http,
             bot_token,
             channel_id,
@@ -635,7 +912,21 @@ async fn handle_interactive(
             &status_line,
             Some(&result_blocks),
         )
-        .await;
+        .await
+        {
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "approval_update_message",
+                outcome: "error",
+                channel_id,
+                message_id: message_ts,
+                user_id: &reviewer_id,
+                command: action_type,
+                webhook_port: None,
+                message_len: None,
+                block_count: Some(result_blocks.len()),
+                error: Some(&e),
+            });
+        }
     }
 }
 
@@ -669,13 +960,35 @@ async fn handle_slash_command(
     // Strip leading "/" from command name
     let command = raw_command.strip_prefix('/').unwrap_or(raw_command);
     if command != "plan" && command != "execute" {
-        println!("  [slack] Ignoring unknown slash command: {raw_command}");
+        log_slack_transport_event(SlackTransportEvent {
+            operation: "slash_command",
+            outcome: "ignored",
+            channel_id,
+            message_id: trigger_id,
+            user_id,
+            command: raw_command,
+            webhook_port: None,
+            message_len: Some(text.len()),
+            block_count: None,
+            error: None,
+        });
         return;
     }
 
     let entity_id = channel_entity_id.read().await.clone();
     let Some(entity_id) = entity_id else {
-        eprintln!("  [slack] No channel entity bootstrapped for slash command");
+        log_slack_transport_event(SlackTransportEvent {
+            operation: "slash_command",
+            outcome: "error",
+            channel_id,
+            message_id: trigger_id,
+            user_id,
+            command,
+            webhook_port: None,
+            message_len: Some(text.len()),
+            block_count: None,
+            error: Some("no channel entity bootstrapped"),
+        });
         return;
     };
 
@@ -687,12 +1000,134 @@ async fn handle_slash_command(
         "command": command,
     });
 
-    println!("  [slack] /{command} from {user_id}: {text}");
-
-    if let Err(e) = api
+    match api
         .dispatch_action("Channels", &entity_id, "Paw.Channel.ReceiveMessage", params)
         .await
     {
-        eprintln!("  [slack] Slash command dispatch failed: {e}");
+        Ok(_) => {
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "slash_command",
+                outcome: "success",
+                channel_id,
+                message_id: trigger_id,
+                user_id,
+                command,
+                webhook_port: None,
+                message_len: Some(text.len()),
+                block_count: None,
+                error: None,
+            });
+        }
+        Err(e) => {
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "slash_command",
+                outcome: "error",
+                channel_id,
+                message_id: trigger_id,
+                user_id,
+                command,
+                webhook_port: None,
+                message_len: Some(text.len()),
+                block_count: None,
+                error: Some(&e),
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::fmt::MakeWriter;
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct SharedWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SharedWriter {
+        fn output(&self) -> String {
+            String::from_utf8(self.buffer.lock().unwrap().clone()).unwrap_or_default()
+        }
+    }
+
+    struct SharedLogGuard {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl io::Write for SharedLogGuard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for SharedWriter {
+        type Writer = SharedLogGuard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            SharedLogGuard {
+                buffer: self.buffer.clone(),
+            }
+        }
+    }
+
+    #[test]
+    fn slack_ingress_logging_uses_structured_tracing_without_message_body() {
+        let writer = SharedWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            log_slack_transport_event(SlackTransportEvent {
+                operation: "receive_message",
+                outcome: "success",
+                channel_id: "C123",
+                message_id: "1710000000.000100",
+                user_id: "U456",
+                command: "",
+                webhook_port: None,
+                message_len: Some("secret prompt body".len()),
+                block_count: None,
+                error: None,
+            });
+        });
+
+        let output = writer.output();
+        assert!(
+            output.contains("slack transport event"),
+            "expected Slack transport events to flow through tracing, got: {output:?}"
+        );
+        assert!(
+            output.contains("observability_event=\"temperpaw.transport\""),
+            "expected shared transport observability event, got: {output:?}"
+        );
+        assert!(
+            output.contains("transport.name=\"slack\""),
+            "expected Slack transport name field, got: {output:?}"
+        );
+        assert!(
+            output.contains("transport.operation=\"receive_message\""),
+            "expected transport operation field, got: {output:?}"
+        );
+        assert!(
+            output.contains("transport.message_id=\"1710000000.000100\""),
+            "expected message id field, got: {output:?}"
+        );
+        assert!(
+            !output.contains("secret prompt body"),
+            "Slack transport logs must not emit message bodies, got: {output:?}"
+        );
     }
 }

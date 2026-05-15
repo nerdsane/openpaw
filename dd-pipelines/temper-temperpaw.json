@@ -1,9 +1,9 @@
 {
-  "name": "OpenPaw / Temper Logs (ADR-0054)",
-  "description": "Parses the JSON schema emitted by temper-observe::init_tracing and registers official facets for @tenant, @entity_type, @entity_id, @action_name, @trace_id, @span_id, @error.kind. Includes sensitive-data scanner rules to redact known secret shapes at ingest.",
+  "name": "TemperPaw / Temper Logs (ADR-0054)",
+  "description": "Parses the JSON schema emitted by temper-observe::init_tracing and the WASM structured log fields_json payloads used by TemperFS/blob services (fs.operation, blob.operation, workspace_id, file_id, content_hash) and sandbox bridge diagnostics (sandbox_provider, sandbox_id, sandbox.operation, modal_bridge.operation, modal_bridge.endpoint, modal_bridge.duration_ms). Registers official facets for @tenant, @entity_type, @entity_id, @action_name, @trace_id, @span_id, @error.kind, document/blob diagnostics, and sandbox operations. Includes sensitive-data scanner rules to redact known secret shapes at ingest.",
   "is_enabled": true,
   "filter": {
-    "query": "service:(temper OR openpaw)"
+    "query": "service:(temper OR temperpaw)"
   },
   "processors": [
     {
@@ -11,6 +11,16 @@
       "name": "Ingest the JSON body as structured attributes",
       "is_enabled": true,
       "source": "message",
+      "grok": {
+        "support_rules": "",
+        "match_rules": "json_body %{data::json}"
+      }
+    },
+    {
+      "type": "grok-parser",
+      "name": "Parse WASM structured log fields (fs.operation, blob.operation, sandbox.operation)",
+      "is_enabled": true,
+      "source": "fields_json",
       "grok": {
         "support_rules": "",
         "match_rules": "json_body %{data::json}"

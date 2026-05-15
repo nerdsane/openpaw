@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open GitHub issues for [OpenPaw]/[Temper] Datadog monitors stuck in
+"""Open GitHub issues for [TemperPaw]/[Temper] Datadog monitors stuck in
 `No Data` state for more than 7 consecutive days.
 
 ADR-0052 sub-decision 3: a No-Data monitor surviving >7 days in production
@@ -49,7 +49,7 @@ def datadog_monitors(api_key: str, app_key: str, site: str) -> list[dict]:
         "DD-APPLICATION-KEY": app_key,
         "Content-Type": "application/json",
     }
-    resp = requests.get(url, headers=headers, params={"monitor_tags": "team:openpaw"})
+    resp = requests.get(url, headers=headers, params={"monitor_tags": "team:temperpaw"})
     resp.raise_for_status()
     return resp.json()
 

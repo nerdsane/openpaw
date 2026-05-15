@@ -1,0 +1,76 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+    override: false
+  resource:
+    attributes:
+      - key: service.name
+        value: temperpaw
+        action: upsert
+      - key: service.namespace
+        value: temperpaw
+        action: upsert
+      - key: team
+        value: temperpaw
+        action: upsert
+  transform/dbm:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["span.type"], "sql") where attributes["db.system"] != nil and attributes["span.type"] == nil
+  filter/traces_llmobs:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["gen_ai.operation.name"] == nil and attributes["gen_ai.system"] == nil'
+  filter/traces_apm:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["gen_ai.operation.name"] != nil or attributes["gen_ai.system"] != nil'
+  batch:
+    send_batch_size: 1000
+    timeout: 5s
+
+exporters:
+  datadog:
+    api:
+      key: ${env:DD_API_KEY}
+      site: ${env:DD_SITE}
+  otlphttp/llmobs:
+    endpoint: https://otlp-intake.${env:DD_SITE}
+    headers:
+      dd-api-key: ${env:DD_API_KEY}
+      dd-otlp-source: llmobs
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces/llmobs:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, filter/traces_llmobs, batch]
+      exporters: [otlphttp/llmobs]
+    traces/apm:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, transform/dbm, filter/traces_apm, batch]
+      exporters: [datadog]
+    metrics:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [datadog]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [datadog]

@@ -119,7 +119,7 @@ async fn investigate_datadog_with_codex(
 
 fn datadog_mcp_patrol_prompt(patrol_run_id: &str, worker_run: &WorkerRunState) -> String {
     format!(
-        r#"You are the Datadog MCP Risk Patrol agent for TemperPaw / OpenPaw.
+        r#"You are the Datadog MCP Risk Patrol agent for TemperPaw and Temper.
 
 PatrolRun: {patrol_run_id}
 WorkerRun: {worker_run_id}
@@ -129,12 +129,12 @@ Use your authenticated Datadog MCP tools to actively investigate production obse
 Keep each Datadog MCP call compact: use max_tokens <= 12000, aggregate before sampling raw events, and summarize the evidence instead of copying long result tables.
 
 Required Datadog MCP investigation surfaces:
-1. monitors: active alert/warn/no-data monitor states related to OpenPaw, Temper, TemperPaw, Railway, Discord, OData, WASM, Cedar, workers, and dashboards.
+1. monitors: active alert/warn/no-data monitor states related to TemperPaw, Temper, Railway, Discord, OData, WASM, Cedar, workers, and dashboards.
 2. logs: recent production errors, raw trace leaks into Discord/user surfaces, worker failures, trigger failures, WASM panics, and OData/action errors.
 3. traces: APM traces and spans for Discord DMs, webhook triggers, Temper actions, WASM integrations, worker claims/reports, dashboard/OData failures, and Railway runtime errors.
 4. metrics: error-rate, latency, restart, memory, saturation, queue, and request-volume signals that suggest current regressions or instability.
-5. incidents: open or recent Datadog incidents/events relevant to OpenPaw, Temper, TemperPaw, Discord, Railway, workers, or integrations.
-6. dashboards: relevant OpenPaw/Temper/TemperPaw dashboards or queries that reveal current runtime health.
+5. incidents: open or recent Datadog incidents/events relevant to TemperPaw, Temper, Discord, Railway, workers, or integrations.
+6. dashboards: relevant TemperPaw/Temper dashboards or queries that reveal current runtime health.
 
 Create findings only for actionable issues that are present or strongly evidenced now. If a surface is unavailable through MCP, still include that surface in evidence_scope with result_summary explaining the limitation. High-risk or production-impacting fixes should set requires_human_approval=true.
 

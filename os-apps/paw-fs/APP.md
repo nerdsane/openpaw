@@ -1,15 +1,16 @@
 # paw-fs
 
-TemperFS — the platform file system. Manages workspaces, directories, and files with versioning, quota enforcement, and locking.
+TemperFS — the platform file system. Manages workspace lifecycle, directories, and files with versioning and locking.
 
 ## Entity Types
 
 ### Workspace
-Top-level container. Manages storage quota and usage tracking.
+Top-level lifecycle/config container. Agent PawFS tools do not use Workspace as a path-operation actor; they read and write `Directory`/`File` metadata directly and stream content through `Files('{id}')/$value`.
 
 - **States**: Active <-> Frozen -> Archived
 - **Key actions**: `Create` (name, quota_limit), `UpdateQuota`, `IncrementUsage`, `DecrementUsage`, `IncrementFileCount`, `DecrementFileCount`, `Freeze`, `Thaw`, `Archive`
-- **Invariant**: `used_bytes <= quota_limit` while Active
+- **Legacy counters**: `used_bytes` and `file_count` are non-authoritative until quota/accounting is redesigned.
+- **Legacy filesystem actions**: `MkDir`, `CreateFile`, `ResolvePath`, `ListDir`, `DeleteFile`, and `Rename` remain only for FUSE compatibility.
 
 ### Directory
 Hierarchical container within a workspace.

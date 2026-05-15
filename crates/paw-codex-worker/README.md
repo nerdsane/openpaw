@@ -363,7 +363,7 @@ stream, fake Codex availability, a guarded `codex exec` doctor smoke,
 not printed to the readiness log.
 
 On the production Mac mini, use the guarded bootstrap wrapper to avoid manually
-copying production tokens. It links the known Railway `openpaw` production
+copying production tokens. It links the known Railway `temperpaw` production
 service, reads `TEMPER_API_KEY` through `railway run` without printing it,
 renders the launchd plist, and optionally loads launchd plus runs the
 observe-only proof:

@@ -25,11 +25,14 @@ COPY os-apps ./os-apps
 # the download tiny. Pin via KATAGAMI_REF arg when a reproducible image
 # is needed; defaults to main.
 ARG KATAGAMI_REF=master
+ARG TEMPER_OBSERVABILITY_REV=413ff6810b961317e93e275c5b4277d22501b318
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
     && git clone --depth 1 --branch "${KATAGAMI_REF}" https://github.com/arni-labs/katagami.git /tmp/katagami \
     && cp -a /tmp/katagami/katagami-curation os-apps/katagami-curation \
     && cp -a /tmp/katagami/katagami-commons  os-apps/katagami-commons  \
+    && find os-apps/katagami-curation/wasm -name Cargo.toml -exec sed -i "s|temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", branch = \"main\" }|temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", rev = \"${TEMPER_OBSERVABILITY_REV}\" }|g" {} + \
+    && find os-apps/katagami-curation/wasm -name Cargo.lock -delete \
     && rm -rf /tmp/katagami
 COPY scripts ./scripts
 COPY docs ./docs
@@ -51,6 +54,7 @@ RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/paw-research/wasm && bash build.sh \
     && cd /app/os-apps/paw-patrol/wasm && bash build.sh \
     && cd /app/os-apps/katagami-curation/wasm && bash build.sh
+RUN find os-apps -type d -name target -prune -exec rm -rf {} +
 
 FROM debian:bookworm-slim
 ARG TARGETARCH
@@ -73,7 +77,9 @@ COPY --from=rust-build /app/target/release/temperpaw-server ./temperpaw
 COPY --from=rust-build /app/dashboard/build ./dashboard/build
 COPY --from=rust-build /app/os-apps ./os-apps
 COPY scripts/temperpaw-entrypoint.sh ./scripts/temperpaw-entrypoint.sh
+COPY scripts/datadog_railway_capability_check.sh ./scripts/datadog_railway_capability_check.sh
 RUN chmod +x ./scripts/temperpaw-entrypoint.sh
+RUN chmod +x ./scripts/datadog_railway_capability_check.sh
 ENV BUILD_VERSION=${BUILD_VERSION}
 ENV BUILD_SHA=${BUILD_SHA}
 EXPOSE 3467

@@ -27,6 +27,31 @@ struct TriggerState {
     api: PawApiClient,
 }
 
+#[derive(Clone, Copy)]
+struct WebhookEventLog<'a> {
+    operation: &'a str,
+    outcome: &'a str,
+    route_key: &'a str,
+    event_id: &'a str,
+    status: u16,
+    payload_bytes: usize,
+    error: &'a str,
+}
+
+fn log_webhook_event(event: WebhookEventLog<'_>) {
+    tracing::info!(
+        observability_event = "temperpaw.webhook",
+        webhook.operation = event.operation,
+        webhook.outcome = event.outcome,
+        webhook.route_key = event.route_key,
+        webhook.event_id = event.event_id,
+        webhook.status = event.status,
+        webhook.payload_bytes = event.payload_bytes,
+        error.message = event.error,
+        "webhook trigger event"
+    );
+}
+
 /// Webhook trigger — HTTP endpoint that creates WebhookEvent entities.
 pub struct WebhookTrigger {
     config: WebhookTriggerConfig,
@@ -60,7 +85,14 @@ impl WebhookTrigger {
         let app = router(self.api.clone());
 
         let addr = SocketAddr::from(([0, 0, 0, 0], self.config.port));
-        println!("  [webhook] Trigger listening on {addr}");
+        tracing::info!(
+            observability_event = "temperpaw.webhook",
+            webhook.operation = "listener",
+            webhook.outcome = "ready",
+            webhook.status = 0,
+            listen.addr = %addr,
+            "webhook trigger listener ready"
+        );
 
         let listener = tokio::net::TcpListener::bind(addr)
             .await
@@ -83,18 +115,27 @@ async fn handle_webhook(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     // Serialize headers to JSON for the WASM integration to inspect.
     let headers_json = serialize_headers(&headers);
+    let payload_bytes = body.len();
 
     // ONE entity: create WebhookEvent.
-    let entity = state
-        .api
-        .create_entity("WebhookEvents", json!({}))
-        .await
-        .map_err(|e| {
-            (
+    let entity = match state.api.create_entity("WebhookEvents", json!({})).await {
+        Ok(entity) => entity,
+        Err(e) => {
+            log_webhook_event(WebhookEventLog {
+                operation: "create_entity",
+                outcome: "error",
+                route_key: &route_key,
+                event_id: "",
+                status: 500,
+                payload_bytes,
+                error: &e,
+            });
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": format!("create WebhookEvent failed: {e}") })),
-            )
-        })?;
+            ));
+        }
+    };
 
     let event_id = entity
         .get("entity_id")
@@ -104,6 +145,15 @@ async fn handle_webhook(
         .to_string();
 
     if event_id.is_empty() {
+        log_webhook_event(WebhookEventLog {
+            operation: "create_entity",
+            outcome: "error",
+            route_key: &route_key,
+            event_id: "",
+            status: 500,
+            payload_bytes,
+            error: "WebhookEvent created but no entity_id returned",
+        });
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": "WebhookEvent created but no entity_id returned" })),
@@ -111,7 +161,7 @@ async fn handle_webhook(
     }
 
     // ONE action: dispatch Received.
-    let _ = state
+    let dispatch_result = state
         .api
         .dispatch_action(
             "WebhookEvents",
@@ -120,15 +170,34 @@ async fn handle_webhook(
             json!({
                 "raw_payload": body,
                 "raw_headers": headers_json,
-                "route_key": route_key,
+                "route_key": route_key.clone(),
             }),
         )
-        .await
-        .map_err(|e| {
-            eprintln!("  [webhook] dispatch Received failed for {event_id}: {e}");
-            // Entity was created; WASM will handle error state.
-            // Don't fail the HTTP response — the event exists for audit.
+        .await;
+
+    if let Err(e) = dispatch_result {
+        log_webhook_event(WebhookEventLog {
+            operation: "dispatch_received",
+            outcome: "error",
+            route_key: &route_key,
+            event_id: &event_id,
+            status: 202,
+            payload_bytes,
+            error: &e,
         });
+        // Entity was created; WASM will handle error state.
+        // Do not fail the HTTP response; the event exists for audit.
+    } else {
+        log_webhook_event(WebhookEventLog {
+            operation: "receive",
+            outcome: "success",
+            route_key: &route_key,
+            event_id: &event_id,
+            status: 200,
+            payload_bytes,
+            error: "",
+        });
+    }
 
     Ok(Json(json!({
         "event_id": event_id,
@@ -148,4 +217,82 @@ fn serialize_headers(headers: &HeaderMap) -> String {
         })
         .collect();
     serde_json::to_string(&Value::Object(map)).unwrap_or_else(|_| "{}".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::fmt::MakeWriter;
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct SharedWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SharedWriter {
+        fn output(&self) -> String {
+            String::from_utf8(self.buffer.lock().unwrap().clone()).unwrap_or_default()
+        }
+    }
+
+    struct SharedLogGuard {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl io::Write for SharedLogGuard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for SharedWriter {
+        type Writer = SharedLogGuard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            SharedLogGuard {
+                buffer: self.buffer.clone(),
+            }
+        }
+    }
+
+    #[test]
+    fn webhook_logging_uses_structured_tracing_without_payload_body() {
+        let writer = SharedWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            log_webhook_event(WebhookEventLog {
+                operation: "receive",
+                outcome: "success",
+                route_key: "github",
+                event_id: "wh-123",
+                status: 200,
+                payload_bytes: "secret webhook body".len(),
+                error: "",
+            });
+        });
+
+        let output = writer.output();
+        assert!(output.contains("observability_event=\"temperpaw.webhook\""));
+        assert!(output.contains("webhook.route_key=\"github\""));
+        assert!(output.contains("webhook.event_id=\"wh-123\""));
+        assert!(output.contains("webhook.status=200"));
+        assert!(
+            !output.contains("secret webhook body"),
+            "webhook logs must not emit payload bodies, got: {output:?}"
+        );
+    }
 }

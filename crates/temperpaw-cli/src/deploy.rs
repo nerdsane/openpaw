@@ -10,6 +10,8 @@ use anyhow::{Context, Result};
 const MODAL_BRIDGE_SECRET_NAME: &str = "temperpaw-bridge-auth";
 const MODAL_BRIDGE_SECRET_KEY: &str = "BRIDGE_AUTH_TOKEN";
 const MODAL_BRIDGE_APP_NAME: &str = "temperpaw-sandbox-bridge";
+const DATADOG_POSTGRES_AGENT_SERVICE_NAME: &str = "datadog-postgres-agent";
+const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
 const RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS: u64 = 3600;
 const RAILWAY_HEALTH_POLL_INTERVAL_SECS: u64 = 10;
 const RAILWAY_HEALTH_POLL_ATTEMPTS: u64 =
@@ -58,6 +60,114 @@ fn railway_storage_variables(target: RailwayStorageTarget) -> Vec<String> {
             format!("TURSO_AUTH_TOKEN={auth_token}"),
         ],
     }
+}
+
+fn datadog_runtime_variables(
+    dd_api_key: Option<String>,
+    dd_app_key: Option<String>,
+    dd_site: Option<String>,
+) -> Vec<String> {
+    let datadog_enabled = dd_api_key.is_some();
+    let mut variables = Vec::new();
+
+    if let Some(key) = dd_api_key {
+        variables.push(format!("DD_API_KEY={key}"));
+    }
+    if let Some(key) = dd_app_key {
+        variables.push(format!("DD_APP_KEY={key}"));
+    }
+    if let Some(site) = dd_site {
+        variables.push(format!("DD_SITE={site}"));
+    }
+
+    variables.push("DD_SERVICE=temperpaw".to_string());
+    variables.push("DD_ENV=prod".to_string());
+    variables.push("DD_TAGS=team:temperpaw".to_string());
+
+    if datadog_enabled {
+        variables.push("TEMPER_PROFILING_ENABLED=true".to_string());
+        variables.push("TEMPER_PROFILING_AUTO_UPLOAD=true".to_string());
+        variables.push("TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway".to_string());
+        variables.push("DD_LLMOBS_API_ENABLED=true".to_string());
+        variables.push(
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318"
+                .to_string(),
+        );
+        variables.push("DD_AGENT_HOST=datadog-runtime-agent.railway.internal".to_string());
+        variables.push("DD_TRACE_AGENT_PORT=8126".to_string());
+        variables.push(
+            "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126".to_string(),
+        );
+    } else {
+        variables.push("TEMPER_DATADOG_RAILWAY_PROFILE=portable-otel".to_string());
+    }
+
+    variables
+}
+
+fn datadog_runtime_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<String> {
+    vec![
+        format!("DD_API_KEY={dd_api_key}"),
+        format!("DD_SITE={dd_site}"),
+        "DD_ENV=prod".to_string(),
+        "DD_SERVICE=temperpaw".to_string(),
+        "DD_HOSTNAME=temperpaw-runtime-agent".to_string(),
+        "DD_TAGS=team:temperpaw service:temperpaw railway_profile:datadog-enhanced".to_string(),
+        "DD_APM_ENABLED=true".to_string(),
+        "DD_APM_NON_LOCAL_TRAFFIC=true".to_string(),
+        "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2".to_string(),
+        "DD_LOGS_ENABLED=true".to_string(),
+        "DD_OTLP_CONFIG_LOGS_ENABLED=true".to_string(),
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318".to_string(),
+        "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317".to_string(),
+        "DD_PROCESS_AGENT_ENABLED=true".to_string(),
+    ]
+}
+
+fn datadog_postgres_agent_variables(dd_api_key: &str, dd_site: &str) -> Vec<String> {
+    vec![
+        format!("DD_API_KEY={dd_api_key}"),
+        format!("DD_SITE={dd_site}"),
+        "DD_ENV=prod".to_string(),
+        "DD_HOSTNAME=temperpaw-postgres-dbm".to_string(),
+        "DD_TAGS=team:temperpaw service:temperpaw".to_string(),
+        "DD_APM_ENABLED=true".to_string(),
+        "DD_APM_NON_LOCAL_TRAFFIC=true".to_string(),
+        "DD_APM_FEATURES=enable_operation_and_resource_name_logic_v2".to_string(),
+        "PGHOST=${{Postgres.PGHOST}}".to_string(),
+        "PGPORT=${{Postgres.PGPORT}}".to_string(),
+        "PGUSER=${{Postgres.PGUSER}}".to_string(),
+        "PGPASSWORD=${{Postgres.PGPASSWORD}}".to_string(),
+        "PGDATABASE=${{Postgres.PGDATABASE}}".to_string(),
+    ]
+}
+
+fn datadog_postgres_agent_config() -> &'static str {
+    r#"init_config:
+
+instances:
+  - dbm: true
+    host: "%%env_PGHOST%%"
+    port: "%%env_PGPORT%%"
+    username: "%%env_PGUSER%%"
+    password: "%%env_PGPASSWORD%%"
+    dbname: "%%env_PGDATABASE%%"
+    reported_hostname: "temperpaw-postgres"
+    tags:
+      - service:temperpaw
+      - team:temperpaw
+"#
+}
+
+fn datadog_postgres_agent_dockerfile() -> &'static str {
+    "FROM datadog/agent:7\n\
+     COPY postgres.yaml /etc/datadog-agent/conf.d/postgres.d/conf.yaml\n"
+}
+
+fn datadog_runtime_agent_dockerfile() -> &'static str {
+    "FROM datadog/agent:7\n\
+     LABEL railway_profile=datadog-enhanced\n\
+     LABEL org.opencontainers.image.description=\"TemperPaw Railway runtime Datadog Agent. USM requires system-probe host capabilities. Continuous ddprof is canary-gated from the temperpaw service.\"\n"
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +326,7 @@ pub async fn run_deploy() -> Result<()> {
             generated
         });
 
+    let uses_postgres = matches!(storage_target, RailwayStorageTarget::Postgres);
     let mut variables = railway_storage_variables(storage_target);
     variables.extend([
         format!("BLOB_ENDPOINT={blob_endpoint}"),
@@ -245,16 +356,11 @@ pub async fn run_deploy() -> Result<()> {
 
     // Datadog observability — optional
     let (dd_api_key, dd_app_key, dd_site) = prompt_datadog_config(&mut cache)?;
-    if let Some(key) = &dd_api_key {
-        variables.push(format!("DD_API_KEY={key}"));
-    }
-    if let Some(key) = &dd_app_key {
-        variables.push(format!("DD_APP_KEY={key}"));
-    }
-    if let Some(site) = &dd_site {
-        variables.push(format!("DD_SITE={site}"));
-    }
-    variables.push("DD_ENV=prod".to_string());
+    variables.extend(datadog_runtime_variables(
+        dd_api_key.clone(),
+        dd_app_key.clone(),
+        dd_site.clone(),
+    ));
 
     let mut set_args = vec![
         "variable".to_string(),
@@ -298,6 +404,34 @@ pub async fn run_deploy() -> Result<()> {
 
     deploy_otel_collector(&project_id, &env_id)?;
 
+    if let Some(key) = &dd_api_key {
+        deploy_datadog_runtime_agent(
+            &project_id,
+            &env_id,
+            key,
+            dd_site.as_deref().unwrap_or("datadoghq.com"),
+        )?;
+    } else {
+        cliclack::log::info(
+            "Datadog runtime agent skipped because Datadog is disabled for this deploy.",
+        )?;
+    }
+
+    if uses_postgres {
+        if let Some(key) = &dd_api_key {
+            deploy_datadog_postgres_agent(
+                &project_id,
+                &env_id,
+                key,
+                dd_site.as_deref().unwrap_or("datadoghq.com"),
+            )?;
+        } else {
+            cliclack::log::info(
+                "Postgres DBM agent skipped because Datadog is disabled for this deploy.",
+            )?;
+        }
+    }
+
     if dd_api_key.is_some() {
         cliclack::log::success("OTEL collector → Datadog ✓")?;
     } else {
@@ -308,7 +442,18 @@ pub async fn run_deploy() -> Result<()> {
         )?;
     }
 
-    // Point temperpaw at the collector via Railway private networking
+    // Point temperpaw at the active OTLP route via Railway private networking.
+    let (otel_endpoint, railway_profile) = if dd_api_key.is_some() {
+        (
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
+            "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
+        )
+    } else {
+        (
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            "TEMPER_DATADOG_RAILWAY_PROFILE=portable-otel",
+        )
+    };
     run_interactive(
         "railway",
         &[
@@ -316,8 +461,9 @@ pub async fn run_deploy() -> Result<()> {
             "set",
             "-s",
             "temperpaw",
-            "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.railway.internal:4318",
+            otel_endpoint,
             "OTEL_ENABLED=true",
+            railway_profile,
         ],
     )?;
 
@@ -336,6 +482,13 @@ pub async fn run_deploy() -> Result<()> {
     if let Ok(otel_service_id) = resolve_railway_service_id(&project_id, &env_id, "otel-collector")
     {
         meta_vars.push(format!("RAILWAY_OTEL_SERVICE_ID={otel_service_id}"));
+    }
+    if let Ok(runtime_agent_service_id) =
+        resolve_railway_service_id(&project_id, &env_id, DATADOG_RUNTIME_AGENT_SERVICE_NAME)
+    {
+        meta_vars.push(format!(
+            "RAILWAY_DATADOG_RUNTIME_AGENT_SERVICE_ID={runtime_agent_service_id}"
+        ));
     }
 
     // Use the locally-authenticated Railway CLI token for API calls.
@@ -1148,7 +1301,9 @@ fn prompt_datadog_config(
     if !enable {
         cliclack::log::info(
             "Datadog skipped. You can enable it later by adding DD_API_KEY\n  \
-             to the otel-collector service in the Railway dashboard.",
+             to the otel-collector service in Railway, then adding DD_API_KEY\n  \
+             TEMPER_PROFILING_ENABLED=true, and TEMPER_PROFILING_AUTO_UPLOAD=true\n  \
+             to the temperpaw runtime service.",
         )?;
         return Ok((None, None, None));
     }
@@ -1205,59 +1360,87 @@ fn prompt_datadog_config(
 /// Uses a dynamic entrypoint: if DD_API_KEY is set, exports to Datadog.
 /// Otherwise, uses a debug exporter (traces logged to stdout).
 /// Adding DD_API_KEY later via Railway dashboard auto-restarts with Datadog enabled.
-/// OTEL collector YAML emitted when the service has `DD_API_KEY` set —
-/// pipes OTLP receivers through Datadog's exporter for traces, metrics,
-/// and logs.
+/// OTEL collector YAML emitted when the service has `DD_API_KEY` set.
+/// GenAI spans are copied to Datadog LLM Observability and also kept in the
+/// ordinary APM trace so guest LLM/tool spans stay stitched to host-boundary
+/// spans in trace search.
 ///
 /// Includes `resourcedetection` + `resource` processors per ADR-0037:
 /// without them, Railway containers emit spans with a 12-hex container id
 /// as `host.name`, which makes DD APM bucket spans oddly. The detectors
 /// populate real host/container metadata; the resource processor upserts
-/// `service.name=openpaw` for any OTLP signal that arrives missing its
+/// `service.name=temperpaw` for any OTLP signal that arrives missing its
 /// resource attributes.
 fn otel_datadog_config() -> &'static str {
-    "receivers:\n\
-     \x20 otlp:\n\
-     \x20   protocols:\n\
-     \x20     grpc:\n\
-     \x20       endpoint: 0.0.0.0:4317\n\
-     \x20     http:\n\
-     \x20       endpoint: 0.0.0.0:4318\n\
-     \n\
-     processors:\n\
-     \x20 resourcedetection:\n\
-     \x20   detectors: [env, system]\n\
-     \x20   timeout: 5s\n\
-     \x20   override: false\n\
-     \x20 resource:\n\
-     \x20   attributes:\n\
-     \x20     - key: service.name\n\
-     \x20       value: openpaw\n\
-     \x20       action: upsert\n\
-     \x20 batch:\n\
-     \x20   send_batch_size: 1000\n\
-     \x20   timeout: 5s\n\
-     \n\
-     exporters:\n\
-     \x20 datadog:\n\
-     \x20   api:\n\
-     \x20     key: ${env:DD_API_KEY}\n\
-     \x20     site: ${env:DD_SITE}\n\
-     \n\
-     service:\n\
-     \x20 pipelines:\n\
-     \x20   traces:\n\
-     \x20     receivers: [otlp]\n\
-     \x20     processors: [resourcedetection, resource, batch]\n\
-     \x20     exporters: [datadog]\n\
-     \x20   metrics:\n\
-     \x20     receivers: [otlp]\n\
-     \x20     processors: [resourcedetection, resource, batch]\n\
-     \x20     exporters: [datadog]\n\
-     \x20   logs:\n\
-     \x20     receivers: [otlp]\n\
-     \x20     processors: [resourcedetection, resource, batch]\n\
-     \x20     exporters: [datadog]\n"
+    r#"receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+    override: false
+  resource:
+    attributes:
+      - key: service.name
+        value: temperpaw
+        action: upsert
+      - key: service.namespace
+        value: temperpaw
+        action: upsert
+      - key: team
+        value: temperpaw
+        action: upsert
+  transform/dbm:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["span.type"], "sql") where attributes["db.system"] != nil and attributes["span.type"] == nil
+  filter/traces_llmobs:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["gen_ai.operation.name"] == nil and attributes["gen_ai.system"] == nil'
+  batch:
+    send_batch_size: 1000
+    timeout: 5s
+
+exporters:
+  datadog:
+    api:
+      key: ${env:DD_API_KEY}
+      site: ${env:DD_SITE}
+  otlphttp/llmobs:
+    endpoint: https://otlp-intake.${env:DD_SITE}
+    headers:
+      dd-api-key: ${env:DD_API_KEY}
+      dd-otlp-source: llmobs
+
+service:
+  pipelines:
+    traces/llmobs:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, filter/traces_llmobs, batch]
+      exporters: [otlphttp/llmobs]
+    traces/apm:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, transform/dbm, batch]
+      exporters: [datadog]
+    metrics:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [datadog]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [datadog]
+"#
 }
 
 /// Minimal OTEL collector YAML used when `DD_API_KEY` is absent — pipes
@@ -1299,6 +1482,21 @@ fn otel_debug_config() -> &'static str {
      \x20     exporters: [debug]\n"
 }
 
+fn otel_collector_entrypoint() -> &'static str {
+    r#"#!/bin/sh
+if [ -n "$DD_API_KEY" ]; then
+  echo "DD_API_KEY detected - exporting to Datadog"
+  exec /otelcol-contrib \
+    --feature-gates=datadog.EnableOperationAndResourceNameV2 \
+    --config /etc/otelcol-contrib/otel-datadog.yaml
+else
+  echo "No DD_API_KEY - running in debug mode (traces logged to stdout)"
+  echo "To enable Datadog: add DD_API_KEY to this service in Railway"
+  exec /otelcol-contrib --config /etc/otelcol-contrib/otel-debug.yaml
+fi
+"#
+}
+
 fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     let tmp = std::env::temp_dir().join("temperpaw-otel-deploy");
     let _ = std::fs::create_dir_all(&tmp);
@@ -1306,29 +1504,21 @@ fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     // Dockerfile with both config files + a startup script that picks the right one
     std::fs::write(
         tmp.join("Dockerfile"),
-        "FROM otel/opentelemetry-collector-contrib:latest\n\
+        "FROM otel/opentelemetry-collector-contrib:latest AS collector\n\
+         \n\
+         FROM alpine:3.20\n\
+         \n\
+         RUN apk add --no-cache ca-certificates\n\
+         \n\
+         COPY --from=collector /otelcol-contrib /otelcol-contrib\n\
          COPY otel-datadog.yaml /etc/otelcol-contrib/otel-datadog.yaml\n\
          COPY otel-debug.yaml /etc/otelcol-contrib/otel-debug.yaml\n\
-         COPY entrypoint.sh /entrypoint.sh\n\
-         USER 0\n\
-         RUN chmod +x /entrypoint.sh\n\
-         USER nobody\n\
+         COPY --chmod=755 entrypoint.sh /entrypoint.sh\n\
          ENTRYPOINT [\"/entrypoint.sh\"]\n",
     )?;
 
     // Entrypoint: choose config based on DD_API_KEY presence
-    std::fs::write(
-        tmp.join("entrypoint.sh"),
-        "#!/bin/sh\n\
-         if [ -n \"$DD_API_KEY\" ]; then\n\
-         \x20 echo \"DD_API_KEY detected — exporting to Datadog\"\n\
-         \x20 exec /otelcol-contrib --config /etc/otelcol-contrib/otel-datadog.yaml\n\
-         else\n\
-         \x20 echo \"No DD_API_KEY — running in debug mode (traces logged to stdout)\"\n\
-         \x20 echo \"To enable Datadog: add DD_API_KEY to this service in Railway\"\n\
-         \x20 exec /otelcol-contrib --config /etc/otelcol-contrib/otel-debug.yaml\n\
-         fi\n",
-    )?;
+    std::fs::write(tmp.join("entrypoint.sh"), otel_collector_entrypoint())?;
 
     // Config with Datadog exporter — used when DD_API_KEY is present
     std::fs::write(tmp.join("otel-datadog.yaml"), otel_datadog_config())?;
@@ -1358,6 +1548,125 @@ fn deploy_otel_collector(project_id: &str, env_id: &str) -> Result<()> {
     }
 
     cliclack::log::success("OTEL collector deployed ✓")?;
+    Ok(())
+}
+
+fn deploy_datadog_runtime_agent(
+    project_id: &str,
+    env_id: &str,
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Result<()> {
+    cliclack::log::step("Deploying Datadog runtime agent...")?;
+
+    let _ = Command::new("railway")
+        .args(["add", "--service", DATADOG_RUNTIME_AGENT_SERVICE_NAME])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    let mut set_args = vec![
+        "variable".to_string(),
+        "set".to_string(),
+        "-s".to_string(),
+        DATADOG_RUNTIME_AGENT_SERVICE_NAME.to_string(),
+    ];
+    set_args.extend(datadog_runtime_agent_variables(dd_api_key, dd_site));
+    run_interactive("railway", &as_str_slice(&set_args))?;
+
+    let tmp = std::env::temp_dir().join("temperpaw-datadog-runtime-agent-deploy");
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(tmp.join("Dockerfile"), datadog_runtime_agent_dockerfile())?;
+    std::fs::write(
+        tmp.join("railway.toml"),
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
+         [deploy]\nrestartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )?;
+
+    let status = Command::new("railway")
+        .args([
+            "up",
+            "-s",
+            DATADOG_RUNTIME_AGENT_SERVICE_NAME,
+            "-p",
+            project_id,
+            "-e",
+            env_id,
+        ])
+        .current_dir(&tmp)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to deploy Datadog runtime agent")?;
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if !status.success() {
+        anyhow::bail!("Datadog runtime agent deploy failed");
+    }
+
+    cliclack::log::success("Datadog runtime agent deployed ✓")?;
+    Ok(())
+}
+
+fn deploy_datadog_postgres_agent(
+    project_id: &str,
+    env_id: &str,
+    dd_api_key: &str,
+    dd_site: &str,
+) -> Result<()> {
+    cliclack::log::step("Deploying Datadog Postgres DBM agent...")?;
+
+    let _ = Command::new("railway")
+        .args(["add", "--service", DATADOG_POSTGRES_AGENT_SERVICE_NAME])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    let mut set_args = vec![
+        "variable".to_string(),
+        "set".to_string(),
+        "-s".to_string(),
+        DATADOG_POSTGRES_AGENT_SERVICE_NAME.to_string(),
+    ];
+    set_args.extend(datadog_postgres_agent_variables(dd_api_key, dd_site));
+    run_interactive("railway", &as_str_slice(&set_args))?;
+
+    let tmp = std::env::temp_dir().join("temperpaw-datadog-postgres-agent-deploy");
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(tmp.join("Dockerfile"), datadog_postgres_agent_dockerfile())?;
+    std::fs::write(tmp.join("postgres.yaml"), datadog_postgres_agent_config())?;
+    std::fs::write(
+        tmp.join("railway.toml"),
+        "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
+         [deploy]\nrestartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
+    )?;
+
+    let status = Command::new("railway")
+        .args([
+            "up",
+            "-s",
+            DATADOG_POSTGRES_AGENT_SERVICE_NAME,
+            "-p",
+            project_id,
+            "-e",
+            env_id,
+        ])
+        .current_dir(&tmp)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to deploy Datadog Postgres DBM agent")?;
+
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    if !status.success() {
+        anyhow::bail!("Datadog Postgres DBM agent deploy failed");
+    }
+
+    cliclack::log::success("Datadog Postgres DBM agent deployed ✓")?;
     Ok(())
 }
 
@@ -1946,10 +2255,13 @@ fn as_str_slice(values: &[String]) -> Vec<&str> {
 mod tests {
     use super::{
         RAILWAY_HEALTH_POLL_ATTEMPTS, RAILWAY_HEALTH_POLL_INTERVAL_SECS,
-        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, RailwayStorageTarget, generate_temper_api_key,
-        infer_domain, infer_modal_bridge_base_url, modal_bridge_script_path, otel_datadog_config,
-        otel_debug_config, prebuilt_railway_manifest, railway_storage_variables,
-        read_modal_credentials_from_str, slugify,
+        RAILWAY_SERVICE_HEALTHCHECK_TIMEOUT_SECS, RailwayStorageTarget,
+        datadog_postgres_agent_config, datadog_postgres_agent_variables,
+        datadog_runtime_agent_dockerfile, datadog_runtime_agent_variables,
+        datadog_runtime_variables, generate_temper_api_key, infer_domain,
+        infer_modal_bridge_base_url, modal_bridge_script_path, otel_collector_entrypoint,
+        otel_datadog_config, otel_debug_config, prebuilt_railway_manifest,
+        railway_storage_variables, read_modal_credentials_from_str, slugify,
     };
 
     #[test]
@@ -1999,6 +2311,153 @@ mod tests {
                 "TURSO_URL=libsql://temperpaw.turso.io",
                 "TURSO_AUTH_TOKEN=secret-token",
             ]
+        );
+    }
+
+    #[test]
+    fn datadog_runtime_variables_pin_temperpaw_identity_and_enable_profiling_when_active() {
+        let without_datadog = datadog_runtime_variables(None, None, None);
+        assert!(without_datadog.contains(&"DD_SERVICE=temperpaw".to_string()));
+        assert!(without_datadog.contains(&"DD_ENV=prod".to_string()));
+        assert!(
+            !without_datadog.contains(&"DD_PROFILING_ENABLED=true".to_string()),
+            "profiling should not start ddprof without an API key"
+        );
+        assert!(
+            !without_datadog.contains(&"TEMPER_PROFILING_ENABLED=true".to_string()),
+            "on-demand profile capture should stay disabled without Datadog credentials"
+        );
+
+        let with_datadog = datadog_runtime_variables(
+            Some("api-key".to_string()),
+            Some("app-key".to_string()),
+            Some("datadoghq.com".to_string()),
+        );
+        for expected in [
+            "DD_API_KEY=api-key",
+            "DD_APP_KEY=app-key",
+            "DD_SITE=datadoghq.com",
+            "DD_SERVICE=temperpaw",
+            "DD_ENV=prod",
+            "DD_TAGS=team:temperpaw",
+            "TEMPER_PROFILING_ENABLED=true",
+            "TEMPER_PROFILING_AUTO_UPLOAD=true",
+            "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
+            "DD_LLMOBS_API_ENABLED=true",
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
+            "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
+            "DD_TRACE_AGENT_PORT=8126",
+            "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126",
+        ] {
+            assert!(
+                with_datadog.contains(&expected.to_string()),
+                "missing {expected:?} in {with_datadog:?}"
+            );
+        }
+        assert!(
+            !with_datadog.contains(&"DD_PROFILING_ENABLED=true".to_string()),
+            "Railway deploys must not start ddprof by default because perf_event_open is denied"
+        );
+    }
+
+    #[test]
+    fn datadog_runtime_agent_variables_enable_agent_otlp_apm_logs_and_profiling_intake() {
+        let variables = datadog_runtime_agent_variables("api-key", "datadoghq.com");
+
+        for expected in [
+            "DD_API_KEY=api-key",
+            "DD_SITE=datadoghq.com",
+            "DD_ENV=prod",
+            "DD_SERVICE=temperpaw",
+            "DD_HOSTNAME=temperpaw-runtime-agent",
+            "DD_TAGS=team:temperpaw service:temperpaw railway_profile:datadog-enhanced",
+            "DD_APM_ENABLED=true",
+            "DD_APM_NON_LOCAL_TRAFFIC=true",
+            "DD_LOGS_ENABLED=true",
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318",
+            "DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317",
+            "DD_PROCESS_AGENT_ENABLED=true",
+        ] {
+            assert!(
+                variables.contains(&expected.to_string()),
+                "missing runtime agent var {expected:?} in {variables:?}"
+            );
+        }
+        let dd_tags = variables
+            .iter()
+            .find_map(|var| var.strip_prefix("DD_TAGS="))
+            .expect("runtime agent DD_TAGS must be set");
+        assert!(
+            !dd_tags.contains(','),
+            "Datadog Agent env list values are whitespace-separated, not comma-separated: {dd_tags}"
+        );
+    }
+
+    #[test]
+    fn datadog_runtime_agent_dockerfile_records_railway_product_boundary() {
+        let dockerfile = datadog_runtime_agent_dockerfile();
+
+        for expected in [
+            "FROM datadog/agent:7",
+            "railway_profile=datadog-enhanced",
+            "USM requires system-probe host capabilities",
+            "Continuous ddprof is canary-gated from the temperpaw service",
+        ] {
+            assert!(
+                dockerfile.contains(expected),
+                "runtime agent Dockerfile must include `{expected}`"
+            );
+        }
+    }
+
+    #[test]
+    fn datadog_postgres_agent_config_enables_dbm_with_temperpaw_tags() {
+        let config = datadog_postgres_agent_config();
+        for expected in [
+            "dbm: true",
+            "host: \"%%env_PGHOST%%\"",
+            "port: \"%%env_PGPORT%%\"",
+            "username: \"%%env_PGUSER%%\"",
+            "password: \"%%env_PGPASSWORD%%\"",
+            "dbname: \"%%env_PGDATABASE%%\"",
+            "service:temperpaw",
+            "team:temperpaw",
+        ] {
+            assert!(
+                config.contains(expected),
+                "missing {expected:?} in Datadog Postgres Agent config:\n{config}"
+            );
+        }
+    }
+
+    #[test]
+    fn datadog_postgres_agent_variables_reference_railway_postgres_service() {
+        let variables = datadog_postgres_agent_variables("api-key", "datadoghq.com");
+        for expected in [
+            "DD_API_KEY=api-key",
+            "DD_SITE=datadoghq.com",
+            "DD_ENV=prod",
+            "DD_TAGS=team:temperpaw service:temperpaw",
+            "DD_APM_ENABLED=true",
+            "DD_APM_NON_LOCAL_TRAFFIC=true",
+            "PGHOST=${{Postgres.PGHOST}}",
+            "PGPORT=${{Postgres.PGPORT}}",
+            "PGUSER=${{Postgres.PGUSER}}",
+            "PGPASSWORD=${{Postgres.PGPASSWORD}}",
+            "PGDATABASE=${{Postgres.PGDATABASE}}",
+        ] {
+            assert!(
+                variables.contains(&expected.to_string()),
+                "missing {expected:?} in {variables:?}"
+            );
+        }
+        let dd_tags = variables
+            .iter()
+            .find_map(|var| var.strip_prefix("DD_TAGS="))
+            .expect("postgres agent DD_TAGS must be set");
+        assert!(
+            !dd_tags.contains(','),
+            "Datadog Agent env list values are whitespace-separated, not comma-separated: {dd_tags}"
         );
     }
 
@@ -2104,7 +2563,7 @@ active = true
             "docker detector must stay out of the detector list:\n{cfg}"
         );
         // resource processor upserts service.name so even OTLP signals missing
-        // resource attrs land under service:openpaw.
+        // resource attrs land under service:temperpaw.
         assert!(
             cfg.contains("resource:\n") || cfg.contains("resource:\r\n"),
             "resource processor missing"
@@ -2118,14 +2577,17 @@ active = true
     #[test]
     fn otel_datadog_config_wires_processors_into_every_pipeline() {
         let cfg = otel_datadog_config();
-        // Each of the four pipelines should run resourcedetection + resource
-        // before batch. Simple contains() on the full pipeline-processor
-        // fragment catches all of them.
-        let expected = "processors: [resourcedetection, resource, batch]";
-        let pipeline_count = cfg.matches(expected).count();
+        assert!(cfg.contains("traces/llmobs:"));
+        assert!(
+            cfg.contains("processors: [resourcedetection, resource, filter/traces_llmobs, batch]")
+        );
+        assert!(cfg.contains("traces/apm:"));
+        assert!(cfg.contains("processors: [resourcedetection, resource, transform/dbm, batch]"));
+        let common_expected = "processors: [resourcedetection, resource, batch]";
+        let common_pipeline_count = cfg.matches(common_expected).count();
         assert_eq!(
-            pipeline_count, 3,
-            "expected {expected} in all 3 pipelines (traces/metrics/logs), found {pipeline_count}:\n{cfg}",
+            common_pipeline_count, 2,
+            "expected {common_expected} in metrics/logs pipelines, found {common_pipeline_count}:\n{cfg}",
         );
     }
 
@@ -2135,11 +2597,22 @@ active = true
         // Regression guard: earlier version had datadog exporter + otlp
         // receiver. Refactor must not drop these.
         assert!(cfg.contains("datadog:"));
+        assert!(cfg.contains("otlphttp/llmobs:"));
+        assert!(cfg.contains("dd-otlp-source: llmobs"));
         assert!(cfg.contains("${env:DD_API_KEY}"));
         assert!(cfg.contains("${env:DD_SITE}"));
         assert!(cfg.contains("otlp:"));
         assert!(cfg.contains("0.0.0.0:4317"));
         assert!(cfg.contains("0.0.0.0:4318"));
+    }
+
+    #[test]
+    fn otel_collector_entrypoint_enables_datadog_dbm_correlation_feature_gate() {
+        let entrypoint = otel_collector_entrypoint();
+        assert!(
+            entrypoint.contains("--feature-gates=datadog.EnableOperationAndResourceNameV2"),
+            "Datadog OTel DBM correlation requires operation/resource-name v2 feature gate:\n{entrypoint}"
+        );
     }
 
     #[test]

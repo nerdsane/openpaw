@@ -10,6 +10,27 @@ use super::types::*;
 /// Slack API base URL.
 pub(crate) const SLACK_API_BASE: &str = "https://slack.com/api";
 
+#[derive(Clone, Copy)]
+struct SocketEventLog<'a> {
+    outcome: &'a str,
+    envelope_id: &'a str,
+    envelope_type: &'a str,
+    error: &'a str,
+}
+
+fn log_socket_event(event: SocketEventLog<'_>) {
+    tracing::info!(
+        observability_event = "temperpaw.transport",
+        transport.name = "slack",
+        transport.operation = "socket_mode",
+        transport.outcome = event.outcome,
+        slack.envelope_id = event.envelope_id,
+        slack.envelope_type = event.envelope_type,
+        error.message = event.error,
+        "slack socket mode event"
+    );
+}
+
 // Type aliases kept for reference if needed for observer or other extensions.
 // pub(crate) type WsSink = futures_util::stream::SplitSink<...>;
 // pub(crate) type WsStream = futures_util::stream::SplitStream<...>;
@@ -67,7 +88,12 @@ where
 
     let (mut write, mut read) = ws.split();
 
-    println!("  [slack] Socket Mode connected");
+    log_socket_event(SocketEventLog {
+        outcome: "connected",
+        envelope_id: "",
+        envelope_type: "",
+        error: "",
+    });
 
     loop {
         let frame = match read.next().await {
@@ -76,7 +102,12 @@ where
                 return Err(format!("Socket Mode WebSocket read error: {e}"));
             }
             None => {
-                println!("  [slack] Socket Mode connection closed");
+                log_socket_event(SocketEventLog {
+                    outcome: "closed",
+                    envelope_id: "",
+                    envelope_type: "",
+                    error: "",
+                });
                 return Ok(());
             }
         };
@@ -90,7 +121,12 @@ where
                 continue;
             }
             Message::Close(_) => {
-                println!("  [slack] Socket Mode received close frame");
+                log_socket_event(SocketEventLog {
+                    outcome: "close_frame",
+                    envelope_id: "",
+                    envelope_type: "",
+                    error: "",
+                });
                 return Ok(());
             }
             _ => continue,
@@ -100,7 +136,12 @@ where
         let envelope: SlackEnvelope = match serde_json::from_str(&text) {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("  [slack] Failed to parse Socket Mode envelope: {e}");
+                log_socket_event(SocketEventLog {
+                    outcome: "parse_error",
+                    envelope_id: "",
+                    envelope_type: "",
+                    error: &e.to_string(),
+                });
                 continue;
             }
         };
@@ -111,10 +152,87 @@ where
         };
         let ack_json = serde_json::to_string(&ack).unwrap_or_default();
         if let Err(e) = write.send(Message::Text(ack_json.into())).await {
-            eprintln!("  [slack] Failed to send envelope ack: {e}");
+            log_socket_event(SocketEventLog {
+                outcome: "ack_failed",
+                envelope_id: &envelope.envelope_id,
+                envelope_type: &envelope.envelope_type,
+                error: &e.to_string(),
+            });
         }
 
         // Process the envelope.
         on_envelope(envelope).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::fmt::MakeWriter;
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct SharedWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SharedWriter {
+        fn output(&self) -> String {
+            String::from_utf8(self.buffer.lock().unwrap().clone()).unwrap_or_default()
+        }
+    }
+
+    struct SharedLogGuard {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl io::Write for SharedLogGuard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for SharedWriter {
+        type Writer = SharedLogGuard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            SharedLogGuard {
+                buffer: self.buffer.clone(),
+            }
+        }
+    }
+
+    #[test]
+    fn slack_socket_logging_uses_transport_observability_fields() {
+        let writer = SharedWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            log_socket_event(SocketEventLog {
+                outcome: "ack_failed",
+                envelope_id: "env-123",
+                envelope_type: "events_api",
+                error: "socket closed",
+            });
+        });
+
+        let output = writer.output();
+        assert!(output.contains("observability_event=\"temperpaw.transport\""));
+        assert!(output.contains("transport.name=\"slack\""));
+        assert!(output.contains("transport.operation=\"socket_mode\""));
+        assert!(output.contains("slack.envelope_id=\"env-123\""));
+        assert!(output.contains("slack.envelope_type=\"events_api\""));
     }
 }

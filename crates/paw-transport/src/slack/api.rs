@@ -186,14 +186,3 @@ fn split_message(content: &str, max_len: usize) -> Vec<&str> {
 
     chunks
 }
-
-/// Log a truncated message from a user.
-pub(crate) fn log_message(user_id: &str, content: &str) {
-    let display = if content.len() <= 80 {
-        content.to_string()
-    } else {
-        let end = content.floor_char_boundary(80);
-        format!("{}...", &content[..end])
-    };
-    println!("  [slack] Message from {user_id}: {display}");
-}

@@ -24,7 +24,14 @@ TemperPaw is a **single-user, self-hosted** platform. Each deployment serves one
          |                              |
          |  otel-collector (sidecar)    |
          |    port 4318 (internal)      |
-         |    -> Datadog (if DD_API_KEY)|
+         |    portable-otel fallback    |
+         |                              |
+         |  datadog-runtime-agent       |
+         |    4318 OTLP, 8126 APM       |
+         |    Datadog-enhanced profile  |
+         |                              |
+         |  datadog-postgres-agent      |
+         |    DBM only                  |
          +------------------------------+
                    |           |
                    v           v
@@ -62,12 +69,29 @@ This command:
 2. Authenticates with each service (interactive browser flows)
 3. Creates a Turso database named `temperpaw-<username>`
 4. Creates an R2 bucket named `temperpaw-fs-<username>`
-5. Creates a Railway project named `temperpaw-<username>` with two services
+5. Creates a Railway project named `temperpaw-<username>` with the app,
+   collector fallback, and Datadog services when Datadog credentials are present
 6. Seeds all environment variables (DB credentials, blob keys, LLM keys, OTEL config)
-7. Deploys the OTEL collector sidecar
+7. Deploys the OTEL collector fallback and Datadog Runtime Agent/DBM services
+   when configured
 8. Deploys the pre-built Docker image from GHCR
 9. Assigns a public domain and polls `/readyz` until the new deployment is ready
 10. Prints the dashboard URL
+
+Existing Railway deployments can enable the Datadog Runtime Agent path without
+copying infrastructure secrets out of the app by calling:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $TEMPER_API_KEY" \
+  -H "Content-Type: application/json" \
+  https://<your-temperpaw-domain>/paw/infra/railway/datadog-runtime-agent/ensure
+```
+
+That governed endpoint creates or reuses `datadog-runtime-agent` from
+`datadog/agent:7`, sets Agent and app Datadog variables, stores the Runtime
+Agent service id, and redeploys the Agent plus the app. It does not return the
+Railway token or Datadog API key.
 
 ### LLM credential auto-detection
 
@@ -134,10 +158,12 @@ restartPolicyMaxRetries = 3
 
 Railway builds the Docker image from the repo's Dockerfile. The deployment health check hits `/readyz` on the service's assigned port, while `/healthz` remains process liveness. TemperPaw cold boots can take a long time while the server restores state and reconciles OS apps, so the health window is intentionally set to one hour and traffic should not move to a new container until readiness succeeds.
 
-### Two-service architecture
+### Railway service architecture
 
 1. **`temperpaw`** — The main application. Serves the dashboard, OData API, and agent runtime.
-2. **`otel-collector`** — OpenTelemetry Collector sidecar. Receives traces/metrics from temperpaw via Railway's private network (`otel-collector.railway.internal:4318`) and exports to Datadog (or debug logs if no DD_API_KEY).
+2. **`otel-collector`** — Portable OpenTelemetry fallback. Receives traces/metrics from temperpaw via Railway's private network (`otel-collector.railway.internal:4318`) and exports to Datadog (or debug logs if no DD_API_KEY).
+3. **`datadog-runtime-agent`** — Datadog-enhanced Railway runtime Agent. Receives OTLP HTTP/gRPC from temperpaw via `datadog-runtime-agent.railway.internal`, exposes APM intake on `8126`, and handles Datadog logs/process/APM setup status.
+4. **`datadog-postgres-agent`** — Datadog Postgres DBM Agent. Kept separate from runtime intake so database monitoring does not hide APM/OTLP setup state.
 
 ### Pre-built image deploy
 
@@ -168,6 +194,17 @@ These are set on the `temperpaw` Railway service:
 | `BLOB_BUCKET` | Bucket name |
 | `BLOB_ACCESS_KEY` | S3 access key ID |
 | `BLOB_SECRET_KEY` | S3 secret access key |
+| `PUBLISHED_BLOB_ENDPOINT` | R2/S3-compatible endpoint for immutable public artifacts |
+| `PUBLISHED_BLOB_BUCKET` | Public artifact bucket name, separate from private TemperFS blobs |
+| `PUBLISHED_BLOB_PUBLIC_BASE_URL` | Public/CDN base URL mapped to the public artifact bucket |
+| `PUBLISHED_BLOB_ACCESS_KEY` | Optional public artifact access key; falls back to `BLOB_ACCESS_KEY` |
+| `PUBLISHED_BLOB_SECRET_KEY` | Optional public artifact secret key; falls back to `BLOB_SECRET_KEY` |
+
+The `PUBLISHED_BLOB_*` variables are generic Temper runtime infrastructure.
+They are intentionally not tied to any one app: the runtime publishes immutable
+file-derived artifacts into a separate public bucket so read-only surfaces can
+serve stable bytes without sending browser traffic through governed file reads.
+Do not point `PUBLISHED_BLOB_PUBLIC_BASE_URL` at the private TemperFS bucket.
 
 Turso remains available only as an explicit legacy mode by setting
 `TEMPERPAW_DEPLOY_STORAGE=turso` during deployment and providing `TURSO_URL` /
@@ -188,8 +225,12 @@ Turso remains available only as an explicit legacy mode by setting
 | Variable | Description |
 |----------|-------------|
 | `OTEL_ENABLED` | Set to `true` to enable OTEL export |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector endpoint (set automatically: `http://otel-collector.railway.internal:4318`) |
-| `DD_API_KEY` | Datadog API key (set on `otel-collector` service) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://datadog-runtime-agent.railway.internal:4318` in `datadog-enhanced-railway`, or `http://otel-collector.railway.internal:4318` in `portable-otel` |
+| `TEMPER_DATADOG_RAILWAY_PROFILE` | `datadog-enhanced-railway` when the Runtime Agent is active; `portable-otel` otherwise |
+| `DD_AGENT_HOST` | `datadog-runtime-agent.railway.internal` in Datadog-enhanced Railway mode |
+| `DD_TRACE_AGENT_URL` | `http://datadog-runtime-agent.railway.internal:8126` in Datadog-enhanced Railway mode |
+| `DD_LLMOBS_API_ENABLED` | Enables direct Datadog LLMObs export when runtime OTLP bypasses the collector |
+| `DD_API_KEY` | Datadog API key (set on `temperpaw`, `datadog-runtime-agent`, and Datadog collector/DBM services when enabled) |
 | `DD_SITE` | Datadog site (e.g., `datadoghq.com`) |
 
 ### Railway Integration (for dashboard redeploy)
@@ -201,6 +242,7 @@ Turso remains available only as an explicit legacy mode by setting
 | `RAILWAY_ENVIRONMENT_ID` | Railway environment UUID |
 | `RAILWAY_SERVICE_ID` | Railway service UUID for the temperpaw service |
 | `RAILWAY_OTEL_SERVICE_ID` | Railway service UUID for the otel-collector |
+| `RAILWAY_DATADOG_RUNTIME_AGENT_SERVICE_ID` | Railway service UUID for `datadog-runtime-agent` when Datadog is enabled |
 
 These enable the dashboard's "Deploy latest build" and "Update" buttons to trigger redeployments without leaving the browser.
 
@@ -273,14 +315,22 @@ After the server starts:
 
 ---
 
-## OTEL Collector
+## OTEL Collector And Runtime Agent
 
 The collector runs as a separate Railway service with two modes:
 
 - **Datadog mode** (when `DD_API_KEY` is set): Exports traces, metrics, and logs to Datadog
 - **Debug mode** (no `DD_API_KEY`): Logs traces to stdout for troubleshooting
 
-The collector is reachable from the temperpaw service via Railway's private network at `otel-collector.railway.internal:4318`. To enable Datadog later, add `DD_API_KEY` to the `otel-collector` service in the Railway dashboard — the collector auto-detects it on restart.
+The collector is reachable from the temperpaw service via Railway's private network at `otel-collector.railway.internal:4318`. It remains the `portable-otel` fallback.
+
+When Datadog credentials are present, the deploy flow also creates
+`datadog-runtime-agent` and points TemperPaw at
+`http://datadog-runtime-agent.railway.internal:4318` for OTLP and
+`http://datadog-runtime-agent.railway.internal:8126` for Datadog trace intake.
+USM is only supported if Railway can provide system-probe host mounts and Linux
+capabilities. Continuous `ddprof` profiling is opt-in canary work; on-demand
+profiling through `/_admin/profile/cpu` remains supported.
 
 ---
 
@@ -311,6 +361,9 @@ BLOB_ENDPOINT=https://...
 BLOB_BUCKET=...
 BLOB_ACCESS_KEY=...
 BLOB_SECRET_KEY=...
+PUBLISHED_BLOB_ENDPOINT=https://...
+PUBLISHED_BLOB_BUCKET=...
+PUBLISHED_BLOB_PUBLIC_BASE_URL=https://assets.example.com
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ```

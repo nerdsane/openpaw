@@ -142,7 +142,7 @@ impl PrintWriterCallback for BoundedOutputCollector {
 /// Thread-local flag set by `dispatch_success` / `dispatch_error` whenever
 /// this invocation has handed the Session a follow-up action to run. Read
 /// by `run()`'s outer match to enforce the "every WASM exit dispatches an
-/// action on the Session" invariant (openpaw ADR-0039 Sub-Decision 3a).
+/// action on the Session" invariant (temperpaw ADR-0039 Sub-Decision 3a).
 ///
 /// Reset at the top of each `run()` call so re-used WASM instances don't
 /// carry state between invocations.
@@ -205,6 +205,83 @@ fn run_with_tool_progress<T>(
     let result = run_tool();
     emit_progress(ToolProgressBoundary::End);
     result
+}
+
+fn start_tool_guest_span(
+    ctx: &Context,
+    tool_name: &str,
+    tool_call_id: &str,
+    tool_arguments_json: &str,
+) -> Option<WasmSpan> {
+    let attrs = json!({
+        "tool.operation": "execute",
+        "tool.name": tool_name,
+        "tool.call_id": tool_call_id,
+        "tool.arguments": tool_arguments_json,
+    });
+    match ctx.start_span(&format!("tool.{tool_name}"), &attrs) {
+        Ok(span) => Some(span),
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!("monty_repl: failed to start tool guest span tool_name={tool_name} tool_call_id={tool_call_id}: {err}"),
+            );
+            None
+        }
+    }
+}
+
+fn finish_tool_guest_span(
+    ctx: &Context,
+    tool_name: &str,
+    span: &mut Option<WasmSpan>,
+    result: &Result<Value, String>,
+    duration_ms: u64,
+) {
+    if let Some(span) = span.take() {
+        let _ = ctx.emit_metric(
+            "temperpaw.wasm_tool_call.duration_ms",
+            duration_ms as f64,
+            &json!({
+                "tool.name": tool_name,
+                "tool.success": if result.is_ok() { "true" } else { "false" },
+            }),
+            Some("histogram"),
+        );
+        let event_attrs = match result {
+            Ok(value) => json!({
+                "tool.duration_ms": duration_ms,
+                "tool.result.is_error": false,
+                "tool.result.preview": prefix_at_char_boundary(&value.to_string(), 1024),
+            }),
+            Err(error) => json!({
+                "tool.duration_ms": duration_ms,
+                "tool.result.is_error": true,
+                "error.message": prefix_at_char_boundary(error, 1024),
+            }),
+        };
+        let final_attrs = match result {
+            Ok(_) => json!({
+                "tool.duration_ms": duration_ms,
+                "tool.result.is_error": false,
+            }),
+            Err(error) => json!({
+                "tool.duration_ms": duration_ms,
+                "tool.result.is_error": true,
+                "error.message": prefix_at_char_boundary(error, 1024),
+            }),
+        };
+        let _ = span.add_event("tool.result", &event_attrs);
+        let _ = span.set_attributes(&final_attrs);
+        match result {
+            Ok(_) => {
+                let _ = span.end_ok(&json!({}));
+            }
+            Err(error) => {
+                let _ = span.end_error("tool_error", error, &json!({}));
+            }
+        }
+    }
 }
 
 fn batch_window_len(start_index: usize, total_calls: usize, checkpoint_every_n: usize) -> usize {
@@ -466,7 +543,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 let saved_state = match save_repl_state(&repl) {
                     Ok(s) => s,
                     Err(e) => {
-                        ctx.log("warn", &format!("monty_repl: checkpoint repl save failed, skipping checkpoint: {e}"));
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "monty_repl: checkpoint repl save failed, skipping checkpoint: {e}"
+                            ),
+                        );
                         i += 1;
                         continue;
                     }
@@ -481,7 +563,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ) {
                     Ok(id) => id,
                     Err(e) => {
-                        ctx.log("warn", &format!("monty_repl: checkpoint file save failed, skipping checkpoint: {e}"));
+                        ctx.log(
+                            "warn",
+                            &format!(
+                                "monty_repl: checkpoint file save failed, skipping checkpoint: {e}"
+                            ),
+                        );
                         i += 1;
                         continue;
                     }
@@ -574,8 +661,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let call = &tool_calls[i];
 
             let tool_id = call.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let tool_name = call.get("name").and_then(|v| v.as_str()).unwrap_or("python");
             let input = call.get("input").cloned().unwrap_or(json!({}));
             let code = input.get("code").and_then(|v| v.as_str()).unwrap_or("");
+            let tool_arguments_json = serde_json::to_string(&input).unwrap_or_default();
+            let tool_started_ms = Context::get_time_millis();
+            let mut outer_guest_span =
+                start_tool_guest_span(&ctx, tool_name, tool_id, &tool_arguments_json);
 
             ctx.log(
                 "info",
@@ -605,6 +697,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     }
                     combined.push_str(&msg);
                     tool_results.push(make_tool_result(tool_id, &truncate_output(&combined), true));
+                    let duration_ms = (Context::get_time_millis() - tool_started_ms).max(0) as u64;
+                    let outer_result = Err(msg);
+                    finish_tool_guest_span(
+                        &ctx,
+                        tool_name,
+                        &mut outer_guest_span,
+                        &outer_result,
+                        duration_ms,
+                    );
                     i += 1;
                     continue;
                 }
@@ -648,13 +749,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
                 // Save REPL state before pausing.
                 // Graceful: if save fails, agent gets a fresh REPL on resume.
-                let repl_file_id = match save_repl_state(&repl)
-                    .and_then(|saved_state| {
-                        session::save_repl_to_file(
-                            &ctx, &temper_api_url, tenant, workspace_id,
-                            repl_file_id, &saved_state,
-                        )
-                    }) {
+                let repl_file_id = match save_repl_state(&repl).and_then(|saved_state| {
+                    session::save_repl_to_file(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        workspace_id,
+                        repl_file_id,
+                        &saved_state,
+                    )
+                }) {
                     Ok(id) => id,
                     Err(e) => {
                         ctx.log("warn", &format!(
@@ -698,7 +802,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let printed = printed.into_string();
 
             // Combine print output + expression value
-            match result {
+            let outer_result = match result {
                 Ok(expr_val) => {
                     // Check if the expression value is an image from sandbox.read()
                     if let Some((media_type, base64_data, source_path)) =
@@ -723,6 +827,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             &base64_data,
                             false,
                         ));
+                        Ok(json!({
+                            "tool.result.preview": text,
+                            "tool.result.media_type": media_type,
+                        }))
                     } else {
                         let expr_len = expr_val.len();
                         let mut combined = printed;
@@ -759,6 +867,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             ),
                         );
                         tool_results.push(make_tool_result(tool_id, &content, false));
+                        Ok(json!({ "tool.result.preview": content }))
                     }
                 }
                 Err(e) => {
@@ -779,8 +888,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         ),
                     );
                     tool_results.push(make_tool_result(tool_id, &content, true));
+                    Err(e)
                 }
             };
+            let duration_ms = (Context::get_time_millis() - tool_started_ms).max(0) as u64;
+            finish_tool_guest_span(
+                &ctx,
+                tool_name,
+                &mut outer_guest_span,
+                &outer_result,
+                duration_ms,
+            );
 
             i += 1;
         }
@@ -820,7 +938,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     ) {
                         Ok(id) => id,
                         Err(e) => {
-                            ctx.log("warn", &format!("monty_repl: end-of-batch file save failed: {e}"));
+                            ctx.log(
+                                "warn",
+                                &format!("monty_repl: end-of-batch file save failed: {e}"),
+                            );
                             repl_file_id.to_string()
                         }
                     }
@@ -837,7 +958,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 }
             }
             Err(e) => {
-                ctx.log("warn", &format!("monty_repl: end-of-batch repl save failed: {e}"));
+                ctx.log(
+                    "warn",
+                    &format!("monty_repl: end-of-batch repl save failed: {e}"),
+                );
                 repl_file_id.to_string()
             }
         };
@@ -861,7 +985,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ) {
             Ok(p) => p,
             Err(e) => {
-                ctx.log("warn", &format!("monty_repl: persist_results failed, falling back to inline: {e}"));
+                ctx.log(
+                    "warn",
+                    &format!("monty_repl: persist_results failed, falling back to inline: {e}"),
+                );
                 let results_json = serde_json::to_string(&tool_results).unwrap_or_default();
                 json!({"pending_tool_calls": results_json, "repl_file_id": repl_file_id})
             }
@@ -905,6 +1032,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 ),
             );
         }
+        attach_llmobs_tool_spans(&mut params, &tool_span_events);
 
         // Clear Cedar approval state after successful resume so the next
         // run_tools invocation doesn't erroneously re-enter resume mode.
@@ -1091,6 +1219,19 @@ fn persist_tool_spans_file(ctx: &Context) -> bool {
         .unwrap_or(false)
 }
 
+fn attach_llmobs_tool_spans(params: &mut Value, tool_span_events: &[Value]) {
+    if tool_span_events.is_empty() {
+        return;
+    }
+    let Some(object) = params.as_object_mut() else {
+        return;
+    };
+    object.insert(
+        "_dd_llmobs_tool_spans".to_string(),
+        Value::Array(tool_span_events.to_vec()),
+    );
+}
+
 /// Drive the Monty REPL event loop to completion.
 ///
 /// Accepts a print buffer (from the initial `feed_start()` call) and continues
@@ -1174,6 +1315,8 @@ fn drive_repl_loop(
                     .unwrap_or_default()
                 };
                 let started_ms = Context::get_time_millis();
+                let mut guest_span =
+                    start_tool_guest_span(ctx, &tool_name, &tool_call_id, &tool_arguments_json);
 
                 let result = run_with_tool_progress(
                     |boundary| {
@@ -1201,6 +1344,7 @@ fn drive_repl_loop(
                     },
                 );
                 let duration_ms = (Context::get_time_millis() - started_ms).max(0) as u64;
+                finish_tool_guest_span(ctx, &tool_name, &mut guest_span, &result, duration_ms);
 
                 tool_span_events.push(emit_tool_call_telemetry(
                     ctx,
@@ -1554,6 +1698,25 @@ mod tests {
             events,
             vec![ToolProgressBoundary::Start, ToolProgressBoundary::End]
         );
+    }
+
+    #[test]
+    fn llmobs_tool_spans_are_attached_to_callback_params_when_present() {
+        let mut params = json!({
+            "pending_tool_calls": "[]",
+        });
+        let tool_span_events = vec![json!({
+            "tool_name": "temper.list",
+            "tool_call_id": "call-1",
+            "arguments": "{\"entity_set\":\"Sessions\"}",
+            "result": "{\"value\":[]}",
+            "duration_ms": 42,
+            "is_error": false,
+        })];
+
+        attach_llmobs_tool_spans(&mut params, &tool_span_events);
+
+        assert_eq!(params["_dd_llmobs_tool_spans"], json!(tool_span_events));
     }
 
     #[test]

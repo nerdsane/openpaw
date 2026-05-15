@@ -572,11 +572,12 @@ export interface RailwayStatus {
   environment_id: string | null;
   service_id: string | null;
   otel_service_id: string | null;
+  datadog_runtime_agent_service_id: string | null;
 }
 
 export async function getRailwayStatus(): Promise<RailwayStatus> {
   const res = await apiFetch(`${BASE}/paw/infra/railway/status`);
-  if (!res.ok) return { configured: false, can_update: false, project_id: null, environment_id: null, service_id: null, otel_service_id: null };
+  if (!res.ok) return { configured: false, can_update: false, project_id: null, environment_id: null, service_id: null, otel_service_id: null, datadog_runtime_agent_service_id: null };
   return res.json();
 }
 

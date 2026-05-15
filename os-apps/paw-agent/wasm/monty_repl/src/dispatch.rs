@@ -83,6 +83,7 @@ impl Drop for ToolScope {
 /// temper-wasm) so the resulting `wasm.host.http_call` span is renamed
 /// `tool.<tool_name>` with queryable `tool.name` / `tool.call_id`
 /// attributes.
+#[allow(dead_code)]
 fn tool_span_hint_headers() -> Vec<(String, String)> {
     let tool_name = CURRENT_TOOL_NAME.with(|cell| cell.borrow().clone());
     let tool_call_id = CURRENT_TOOL_CALL_ID.with(|cell| cell.borrow().clone());
@@ -96,6 +97,10 @@ fn tool_span_hint_headers_for(
     let mut headers = Vec::new();
     if let Some(name) = tool_name.filter(|name| !name.is_empty()) {
         headers.push(("X-Temper-Span-Name".to_string(), format!("tool.{name}")));
+        headers.push((
+            "X-Temper-Span-Attr-gen_ai.operation.name".to_string(),
+            "execute_tool".to_string(),
+        ));
         headers.push(("X-Temper-Span-Attr-tool.name".to_string(), name.to_string()));
     }
     if let Some(id) = tool_call_id.filter(|id| !id.is_empty()) {
@@ -1020,10 +1025,7 @@ fn with_managed_session_parent(ctx: &Context, entity_set: &str, mut body: Value)
                 .filter(|value| value.starts_with("ss-"))
             && let Some(object) = body.as_object_mut()
         {
-            object.insert(
-                "ParentSessionId".to_string(),
-                json!(parent_session_id),
-            );
+            object.insert("ParentSessionId".to_string(), json!(parent_session_id));
         }
     }
     body
@@ -2800,12 +2802,11 @@ fn encode_odata_filter_literal(value: &str) -> String {
 
 /// Minimal headers for internal Temper API calls.
 /// Auth headers are injected by the WASM host — see ADR-0043.
-/// Span-hint headers for the current tool dispatch are appended when
-/// `ToolScope` is active (ADR-0037).
+/// Tool observability is now provided by the structured guest span API;
+/// span-hint headers remain available through `internal_headers_for_tool`
+/// for compatibility paths that cannot yet own a guest span per request.
 fn internal_headers() -> Vec<(String, String)> {
-    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(tool_span_hint_headers());
-    headers
+    vec![("Content-Type".to_string(), "application/json".to_string())]
 }
 
 pub fn check_cedar_denial(status: u16, body: &str) -> Option<String> {
@@ -2962,8 +2963,8 @@ mod tests {
         fallback_web_search_query, has_model_csdl, interpret_cached_web_query_result,
         interpret_web_query_entity_result, is_image_extension, is_vague_web_search_query,
         json_dumps, json_loads, media_type_from_extension, normalize_odata_query_arg,
-        sandbox_identity_from_fields, sandbox_image_read_result, web_query_cache_lookup_path,
-        web_search_results_empty,
+        sandbox_identity_from_fields, sandbox_image_read_result, tool_span_hint_headers_for,
+        web_query_cache_lookup_path, web_search_results_empty,
     };
     use serde_json::json;
 
@@ -3274,6 +3275,25 @@ mod tests {
         .expect("decision-bearing denial should parse");
 
         assert!(denial.starts_with("CEDAR_DENIED:PD-123:"));
+    }
+
+    #[test]
+    fn tool_span_hints_use_datadog_tool_operation_semconv() {
+        let headers = tool_span_hint_headers_for(Some("temper.get"), Some("call-123"));
+        let lookup = |key: &str| {
+            headers
+                .iter()
+                .find(|(header, _)| header == key)
+                .map(|(_, value)| value.as_str())
+        };
+
+        assert_eq!(lookup("X-Temper-Span-Name"), Some("tool.temper.get"));
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-gen_ai.operation.name"),
+            Some("execute_tool")
+        );
+        assert_eq!(lookup("X-Temper-Span-Attr-tool.name"), Some("temper.get"));
+        assert_eq!(lookup("X-Temper-Span-Attr-tool.call_id"), Some("call-123"));
     }
 
     #[test]

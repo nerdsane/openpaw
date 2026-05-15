@@ -1,9 +1,9 @@
 {
-  "description": "Log-based metrics generated from OpenPaw / Temper structured logs (ADR-0054). Enables generic error-rate alerting without requiring a bespoke Rust counter for every failure mode.",
+  "description": "Log-based metrics generated from TemperPaw / Temper structured logs (ADR-0054). Enables generic error-rate alerting without requiring a bespoke Rust counter for every failure mode.",
   "metrics": [
     {
-      "id": "openpaw.logs.errors",
-      "filter": {"query": "service:(temper OR openpaw) status:error"},
+      "id": "temperpaw.logs.errors",
+      "filter": {"query": "service:(temper OR temperpaw) status:error"},
       "compute": {"aggregation_type": "count"},
       "group_by": [
         {"path": "service", "tag_name": "service"},
@@ -12,8 +12,8 @@
       ]
     },
     {
-      "id": "openpaw.logs.wasm.default_timeout_fallback",
-      "filter": {"query": "service:(temper OR openpaw) \"WASM integration falling back to default timeout\""},
+      "id": "temperpaw.logs.wasm.default_timeout_fallback",
+      "filter": {"query": "service:(temper OR temperpaw) \"WASM integration falling back to default timeout\""},
       "compute": {"aggregation_type": "count"},
       "group_by": [
         {"path": "@tenant", "tag_name": "tenant"},
@@ -22,8 +22,8 @@
       ]
     },
     {
-      "id": "openpaw.logs.warns",
-      "filter": {"query": "service:(temper OR openpaw) status:warn"},
+      "id": "temperpaw.logs.warns",
+      "filter": {"query": "service:(temper OR temperpaw) status:warn"},
       "compute": {"aggregation_type": "count"},
       "group_by": [
         {"path": "service", "tag_name": "service"}
