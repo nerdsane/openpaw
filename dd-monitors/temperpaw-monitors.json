@@ -21,8 +21,8 @@
   {
     "name": "[TemperPaw] Request Latency Spike (P95)",
     "type": "metric alert",
-    "query": "avg(last_15m):avg:temper_dispatch_ask_latency_ms{service:temperpaw} > 5000",
-    "message": "TemperPaw dispatch latency exceeds 5 seconds over the last 15 minutes.\n\n@slack-temperpaw-alerts",
+    "query": "avg(last_15m):p95:temper_dispatch_ask_latency_ms{service:temperpaw} > 5000",
+    "message": "TemperPaw p95 dispatch latency exceeds 5 seconds over the last 15 minutes.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:medium"
@@ -506,16 +506,16 @@
   {
     "name": "[Temper] Cedar Evaluation Duration p99 Regression",
     "type": "metric alert",
-    "query": "avg(last_15m):p99:temper_cedar_evaluation_duration{service:temperpaw} > 0.05",
-    "message": "p99 Cedar eval exceeds 50ms \u2014 policy evaluation is contributing to dispatch latency. Candidate cause for temper#146 bursts.\n\n@slack-temperpaw-alerts",
+    "query": "avg(last_15m):p99:temper_cedar_evaluation_duration_ms{service:temperpaw} > 50",
+    "message": "p99 Cedar eval exceeds 50ms on the ADR-0084 millisecond metric. If this monitor is No Data while traffic exists, enable Datadog percentile aggregations for temper_cedar_evaluation_duration_ms before treating the gate as live.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:low"
     ],
     "options": {
       "thresholds": {
-        "critical": 0.05,
-        "warning": 0.02
+        "critical": 50,
+        "warning": 20
       },
       "notify_no_data": false,
       "renotify_interval": 240
@@ -744,7 +744,7 @@
     "name": "[Temper] Turso Write Retry Exhaustion",
     "type": "metric alert",
     "query": "sum(last_15m):default_zero(sum:temper_turso_write_retries_total{service:temperpaw,outcome:exhausted}.as_count()) >= 1",
-    "message": "A Turso write exhausted all retry attempts (ADR-0056 Sub-Decision 2). The calling entity's action failed via `on_failure`. If this fires repeatedly, Turso is in sustained trouble — check turso.tech dashboard for quota / region incidents.\n\n@slack-temperpaw-alerts",
+    "message": "A Turso write exhausted all retry attempts (ADR-0056 Sub-Decision 2). The calling entity's action failed via `on_failure`. If this fires repeatedly, Turso is in sustained trouble \u2014 check turso.tech dashboard for quota / region incidents.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -871,10 +871,10 @@
     }
   },
   {
-    "name": "[TemperPaw] Postgres DBM Activity Missing",
+    "name": "[TemperPaw] Postgres DBM Query Metrics Missing",
     "type": "metric alert",
-    "query": "sum(last_30m):sum:datadog.dbm.activity_rows{service:temperpaw,database_instance:temperpaw-postgres}.as_count() < 0.1",
-    "message": "No Postgres DBM activity rows were observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. Datadog can report sparse DBM samples as fractional rollup values, so any value at or above 0.1 is treated as live DBM activity. Verify the Railway datadog-postgres-agent service, Postgres integration config, and DBM credentials. To inspect DBM/APM correlation after DBM activity returns, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
+    "query": "sum(last_30m):default_zero(sum:postgresql.queries.count{service:temperpaw,database_instance:temperpaw-postgres}.as_count()) < 1",
+    "message": "No Postgres DBM query-count metric was observed for service:temperpaw / database_instance:temperpaw-postgres in the last 30 minutes. This is the DBM integration-alive gate: if it fires, verify the Railway datadog-postgres-agent service, Postgres integration config, DBM credentials, and database_instance tags. DBM activity rows and samples can be sparse even while query metrics and explain plans are live, so use them diagnostically rather than as the primary availability gate. To inspect DBM/APM correlation, use Trace Explorer query `service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres` and DBM samples filtered by `service:temperpaw @trace.caller.service:temperpaw`.\n\n@slack-temperpaw-alerts",
     "tags": [
       "team:temperpaw",
       "severity:high",
@@ -883,9 +883,10 @@
     ],
     "options": {
       "thresholds": {
-        "critical": 0.1
+        "critical": 1
       },
       "notify_no_data": false,
+      "on_missing_data": "default",
       "renotify_interval": 60
     }
   },
@@ -926,6 +927,462 @@
       "notify_no_data": false,
       "on_missing_data": "default",
       "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[TemperPaw] APM Request Rate Missing",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:trace.http.server.request.hits{service:temperpaw}.as_count()) < 1",
+    "message": "No APM HTTP request traffic for service:temperpaw in 15 minutes. This is the standard Datadog service-coverage rate monitor; use the Temper No Traffic monitor and Railway /readyz for corroboration.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "service:temperpaw",
+      "signal:apm",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "on_missing_data": "default",
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[TemperPaw] APM HTTP 5xx Spike",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:trace.http.server.request.hits.by_http_status{service:temperpaw,http.status_class:5xx}.as_count()) > 5",
+    "message": "APM HTTP 5xx responses for service:temperpaw exceeded 5 in 15 minutes. Inspect APM resources and logs before treating custom runtime counters as the only error source.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "service:temperpaw",
+      "signal:apm",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5,
+        "warning": 1
+      },
+      "notify_no_data": false,
+      "on_missing_data": "default",
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[TemperPaw] APM Error Rate Spike",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:trace.http.server.request.errors{service:temperpaw,env:prod}.as_count() / sum:trace.http.server.request.hits{service:temperpaw,env:prod}.as_count() > 0.1",
+    "message": "APM error rate for service:temperpaw env:prod exceeded 10% over 15 minutes. Open APM error traces and compare against the 5xx monitor plus service logs.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "service:temperpaw",
+      "env:prod",
+      "signal:apm",
+      "severity:high",
+      "product:apm"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 0.1,
+        "warning": 0.05
+      },
+      "notify_no_data": false,
+      "on_missing_data": "default",
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[TemperPaw] APM HTTP Duration p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:trace.http.server.request{service:temperpaw,!resource_name:get_/observe/events/stream,!resource_name:get_/tdata/_events} > 2",
+    "message": "APM HTTP p95 duration excluding long-lived stream endpoints exceeded 2 seconds. Use this as the standard service latency gate; use Temper dispatch/blob/session/projection monitors to find the cause.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "service:temperpaw",
+      "signal:apm",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 2,
+        "warning": 1
+      },
+      "notify_no_data": false,
+      "on_missing_data": "resolve",
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] WASM Invocation Duration p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_wasm_invocation_duration_ms{service:temperpaw} by {trigger_action} > 5000",
+    "message": "WASM invocation p95 is above 5s for at least one trigger action. Check module execution, host calls, epoch drift, and integration timeout fallbacks before optimizing callers.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5000,
+        "warning": 1500
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] WASM Host HTTP Duration p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_wasm_host_http_duration_ms{service:temperpaw} by {call_kind,status_code_class} > 5000",
+    "message": "WASM host HTTP p95 is above 5s. Separate remote dependency latency from guest execution before changing actor or projection code.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5000,
+        "warning": 1500
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Blob I/O Wait p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_blob_io_wait_duration_ms{service:temperpaw} by {operation} > 1000",
+    "message": "Blob I/O wait p95 is above 1s. Check whether large session content, file reads, or overflow field writes are moving critical-path work through the blob layer.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 300
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Blob Transport Wait p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_blob_transport_wait_duration_ms{service:temperpaw} by {backend,http_method} > 1500",
+    "message": "Remote blob transport wait p95 is above 1.5s. Check backend/object-store health and whether the control plane is depending on remote blob round trips.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1500,
+        "warning": 500
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Monty REPL Wait p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_monty_repl_wait_duration_ms{service:temperpaw} by {max_concurrency} > 1000",
+    "message": "Monty REPL wait p95 is above 1s. This points to tool execution queueing or too-low process concurrency, not necessarily actor runtime latency.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 300
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Session Context Prepare p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_session_context_prepare_duration_ms{service:temperpaw} > 2000",
+    "message": "Session context preparation p95 is above 2s. Inspect loaded entries, content files, token/byte volume, and blob externalization before tuning the provider path.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 2000,
+        "warning": 750
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Session Phase Duration p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_session_phase_duration_ms{service:temperpaw} by {phase,result} > 5000",
+    "message": "At least one session phase has p95 duration above 5s. Use the phase/result tags to separate prompt/context/provider/tool-call work from runtime dispatch latency.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5000,
+        "warning": 2000
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Shadow Drift",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:temper_query_projection_shadow_check_total{service:temperpaw,result:drift}.as_count()) >= 1",
+    "message": "Catalog fast-read shadow checks detected projection drift against authoritative actor state. Treat this as a correctness incident before increasing projection read traffic.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Shadow Check Errors",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:temper_query_projection_shadow_check_total{service:temperpaw,result:error}.as_count()) >= 5",
+    "message": "Projection shadow checks are failing before they can compare catalog rows with actor state. Investigate actor hydration, read support errors, or catalog availability before trusting shadow coverage.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 5,
+        "warning": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Queue Wait p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_query_projection_update_queue_wait_ms{service:temperpaw,source:background_dispatch} by {entity_type,operation} > 1000",
+    "message": "Background projection updates are waiting too long before execution. This points to queue pressure, executor starvation, or projection write contention.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 250
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Query Projection E2E p99 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_query_projection_update_end_to_end_duration_ms{service:temperpaw} by {entity_type,operation,source} > 2000",
+    "message": "End-to-end query projection maintenance is above the latency budget. Compare queue wait, write duration, and Postgres transaction widgets to locate the bottleneck.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 2000,
+        "warning": 500
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Backfill Failures",
+    "type": "metric alert",
+    "query": "sum(last_30m):default_zero(sum:temper_query_projection_backfill_entities_total{service:temperpaw,result:error}.as_count()) >= 1",
+    "message": "Projection backfill hit at least one entity-level error. Check the backfill coverage widgets before enabling projection-dependent read paths for the affected entity type.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Replay Parity Drift",
+    "type": "metric alert",
+    "query": "sum(last_30m):default_zero(sum:temper_query_projection_replay_parity_check_total{service:temperpaw,result:drift}.as_count()) >= 1",
+    "message": "Replay parity verification found durable projection drift against state rebuilt from the event journal. Pause projection-dependent optimization or fast-read rollout for the affected entity type until repaired.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:high"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
+  },
+  {
+    "name": "[Temper] Query Projection Replay Parity Errors",
+    "type": "metric alert",
+    "query": "sum(last_30m):default_zero(sum:temper_query_projection_replay_parity_check_total{service:temperpaw,result:error}.as_count()) >= 1",
+    "message": "Replay parity verification could not compare one or more persisted entities. Check catalog availability, transition-table registration, and event-store reads before trusting projection correctness.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Postgres Pool Acquire p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_postgres_pool_acquire_duration_ms{service:temperpaw} by {operation} > 500",
+    "message": "Postgres pool acquisition is consuming the latency budget. Check connection pool saturation, DBM wait events, and deployment concurrency before tuning query code.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 500,
+        "warning": 100
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Postgres Transaction p99 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p99:temper_postgres_transaction_duration_ms{service:temperpaw} by {operation} > 2000",
+    "message": "Postgres transaction duration is above the p99 budget. Use DBM plan samples, app-side begin/commit timers, and projection write metrics to separate lock, network, and query execution causes.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 2000,
+        "warning": 500
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Trace Sampler Metrics Missing",
+    "type": "metric alert",
+    "query": "max(last_30m):default_zero(max:temper_trace_sampler_configured_rules{service:temperpaw}) < 1",
+    "message": "Trace budget sampler configuration metrics are missing for TemperPaw. The ADR-0083 trace-volume policy may not be deployed, OTEL metrics may be blocked, or the service may be exporting with different tags.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Trace Sampler Delegated Volume Spike",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:temper_trace_sampler_decisions_total{service:temperpaw,rule:delegate}.as_count()) > 100000",
+    "message": "Trace sampler delegated more than 100k non-reduced spans in 15 minutes. Check whether a new high-fanout path lacks a reduced-prefix rule before relying on raw trace volume for diagnosis.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 100000,
+        "warning": 50000
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Dispatch Background Trace Budget Disabled",
+    "type": "metric alert",
+    "query": "avg(last_30m):max:temper_trace_sampler_reduced_sample_rate_pct{service:temperpaw,rule:dispatch_background} > 90",
+    "message": "Dispatch background trace sampling is effectively disabled. This can be intentional during an incident, but it re-opens the routine 100k-span trace risk from fanout-heavy projection or background dispatch work.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:low"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 90
+      },
+      "notify_no_data": false,
+      "renotify_interval": 180
+    }
+  },
+  {
+    "name": "[Temper] Cedar Evaluation Duration Max Regression",
+    "type": "metric alert",
+    "query": "max(last_15m):max:temper_cedar_evaluation_duration_ms{service:temperpaw} > 250",
+    "message": "Max Cedar eval duration exceeded 250ms on the ADR-0084 millisecond metric. Use the AuthZ Phase Breakdown dashboard to identify whether time is in request construction or Cedar authorizer evaluation.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 250,
+        "warning": 100
+      },
+      "notify_no_data": false,
+      "renotify_interval": 240
+    }
+  },
+  {
+    "name": "[Temper] Cedar AuthZ Phase Error",
+    "type": "metric alert",
+    "query": "sum(last_15m):default_zero(sum:temper_cedar_evaluation_phase_duration_ms{service:temperpaw,outcome:error}.as_count()) > 0",
+    "message": "Cedar AuthZ phase instrumentation recorded an error-path authorization attempt. Group by phase on the AuthZ Phase Breakdown dashboard, then inspect action/resource/principal validation errors in service logs.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:low"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 0
+      },
+      "notify_no_data": false,
+      "renotify_interval": 240
     }
   }
 ]

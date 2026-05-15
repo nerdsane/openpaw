@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -72,6 +73,42 @@ def is_temperpaw_owned_monitor(monitor: dict, desired_names: set[str]) -> bool:
     )
 
 
+def monitor_preference_score(monitor: dict, desired_names: set[str]) -> tuple[int, int, int]:
+    """Prefer current TemperPaw monitors when legacy copies share a name."""
+    tags = set(monitor.get("tags") or [])
+    return (
+        int(TEAM_TAG in tags),
+        int(monitor.get("name") in desired_names),
+        int(not legacy_openpaw_monitor(monitor)),
+    )
+
+
+def index_existing_monitors(
+    existing_monitors: list[dict],
+    desired_names: set[str],
+) -> tuple[dict[str, dict], list[dict]]:
+    existing_by_name: dict[str, dict] = {}
+    duplicates: list[dict] = []
+
+    for monitor in existing_monitors:
+        name = monitor["name"]
+        current = existing_by_name.get(name)
+        if current is None:
+            existing_by_name[name] = monitor
+            continue
+
+        if monitor_preference_score(monitor, desired_names) > monitor_preference_score(
+            current,
+            desired_names,
+        ):
+            duplicates.append(current)
+            existing_by_name[name] = monitor
+        else:
+            duplicates.append(monitor)
+
+    return existing_by_name, duplicates
+
+
 def raise_for_status(resp: requests.Response, action: str):
     if resp.ok:
         return
@@ -81,6 +118,34 @@ def raise_for_status(resp: requests.Response, action: str):
         f"{action} failed with {resp.status_code} {resp.reason}{detail}",
         response=resp,
     )
+
+
+def datadog_request(
+    method: str,
+    url: str,
+    headers: dict,
+    *,
+    action: str,
+    raise_on_error: bool = True,
+    **kwargs,
+) -> requests.Response:
+    """Call Datadog with bounded retry/backoff for rate limits and 5xx."""
+    resp = None
+    for attempt in range(6):
+        resp = requests.request(method, url, headers=headers, timeout=30, **kwargs)
+        if resp.status_code != 429 and resp.status_code < 500:
+            break
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after and retry_after.isdigit():
+            sleep_seconds = int(retry_after)
+        else:
+            sleep_seconds = min(2**attempt, 30)
+        time.sleep(sleep_seconds)
+
+    assert resp is not None
+    if raise_on_error:
+        raise_for_status(resp, action)
+    return resp
 
 
 def main():
@@ -106,7 +171,11 @@ def main():
     if not api_key or not app_key:
         sys.exit("DD_API_KEY and DD_APP_KEY must be set")
 
-    monitors_path = Path(__file__).resolve().parent.parent / "dd-monitors" / "temperpaw-monitors.json"
+    monitors_path = (
+        Path(__file__).resolve().parent.parent
+        / "dd-monitors"
+        / "temperpaw-monitors.json"
+    )
     monitors = json.loads(monitors_path.read_text())
     desired_names = {m["name"] for m in monitors}
 
@@ -117,12 +186,38 @@ def main():
         "Content-Type": "application/json",
     }
 
-    resp = requests.get(f"{base_url}/monitor", headers=headers)
-    raise_for_status(resp, "List monitors")
+    validation_errors = []
+    for monitor in monitors:
+        resp = datadog_request(
+            "POST",
+            f"{base_url}/monitor/validate",
+            headers=headers,
+            action=f"Validate monitor {monitor.get('name', '<unnamed>')}",
+            raise_on_error=False,
+            json=monitor,
+        )
+        if resp.status_code >= 400:
+            validation_errors.append(
+                f"{monitor.get('name', '<unnamed>')}: {resp.status_code} {resp.text}"
+            )
+
+    if validation_errors:
+        joined = "\n\n".join(validation_errors)
+        sys.exit(f"Datadog monitor validation failed:\n\n{joined}")
+
+    resp = datadog_request(
+        "GET",
+        f"{base_url}/monitor",
+        headers=headers,
+        action="List monitors",
+    )
     existing_monitors = [
         m for m in resp.json() if is_temperpaw_owned_monitor(m, desired_names)
     ]
-    existing_by_name = {m["name"]: m for m in existing_monitors}
+    existing_by_name, duplicate_existing_monitors = index_existing_monitors(
+        existing_monitors,
+        desired_names,
+    )
 
     for monitor in monitors:
         name = monitor["name"]
@@ -136,17 +231,19 @@ def main():
                         f"(id={monitor_id}, {existing.get('type')} -> {monitor.get('type')})"
                     )
                     continue
-                resp = requests.delete(
+                datadog_request(
+                    "DELETE",
                     f"{base_url}/monitor/{monitor_id}",
                     headers=headers,
+                    action=f"Delete monitor {name} ({monitor_id})",
                 )
-                raise_for_status(resp, f"Delete monitor {name} ({monitor_id})")
-                resp = requests.post(
+                resp = datadog_request(
+                    "POST",
                     f"{base_url}/monitor",
                     headers=headers,
+                    action=f"Create monitor {name}",
                     json=monitor,
                 )
-                raise_for_status(resp, f"Create monitor {name}")
                 monitor_id = resp.json().get("id", "unknown")
                 print(
                     f"Recreated: {name} "
@@ -156,32 +253,39 @@ def main():
             if args.dry_run:
                 print(f"[dry-run] Would update: {name} (id={monitor_id})")
                 continue
-            resp = requests.put(
+            datadog_request(
+                "PUT",
                 f"{base_url}/monitor/{monitor_id}",
                 headers=headers,
+                action=f"Update monitor {name} ({monitor_id})",
                 json=monitor,
             )
-            raise_for_status(resp, f"Update monitor {name} ({monitor_id})")
             print(f"Updated: {name} (id={monitor_id})")
         else:
             if args.dry_run:
                 print(f"[dry-run] Would create: {name}")
                 continue
-            resp = requests.post(
+            resp = datadog_request(
+                "POST",
                 f"{base_url}/monitor",
                 headers=headers,
+                action=f"Create monitor {name}",
                 json=monitor,
             )
-            raise_for_status(resp, f"Create monitor {name}")
             monitor_id = resp.json().get("id", "unknown")
             print(f"Created: {name} (id={monitor_id})")
 
     if args.reconcile:
-        orphans = [
+        orphans = {
+            (m["name"], m["id"])
+            for m in duplicate_existing_monitors
+        }
+        orphans.update(
             (m["name"], m["id"])
             for m in existing_monitors
             if m.get("name") not in desired_names
-        ]
+        )
+        orphans = sorted(orphans)
         if not orphans:
             print("No orphan monitors to reconcile.")
             return
@@ -190,11 +294,12 @@ def main():
             if args.dry_run:
                 print(f"  [dry-run] Would delete: {name} (id={monitor_id})")
                 continue
-            resp = requests.delete(
+            datadog_request(
+                "DELETE",
                 f"{base_url}/monitor/{monitor_id}",
                 headers=headers,
+                action=f"Delete orphan monitor {name} ({monitor_id})",
             )
-            raise_for_status(resp, f"Delete orphan monitor {name} ({monitor_id})")
             print(f"  Deleted: {name} (id={monitor_id})")
 
 

@@ -63,7 +63,7 @@ fn temperpaw_monitors_use_current_emitted_metrics_instead_of_stale_trace_custom_
         ),
         (
             "[TemperPaw] Request Latency Spike (P95)",
-            "avg(last_15m):avg:temper_dispatch_ask_latency_ms{service:temperpaw} > 5000",
+            "avg(last_15m):p95:temper_dispatch_ask_latency_ms{service:temperpaw} > 5000",
         ),
         (
             "[TemperPaw] No Traffic",
@@ -280,14 +280,55 @@ fn platform_dashboard_avoids_unsupported_percentile_queries() {
     let mut strings = Vec::new();
     collect_strings(&dashboard, &mut strings);
 
+    let configured_percentile_metrics = [
+        "temper_admission_permit_hold_time_ms",
+        "temper_admission_wait_time_ms",
+        "temper_actor_ask_reply_latency_ms",
+        "temper_actor_cold_start_duration_ms",
+        "temper_actor_registry_lock_wait_ms",
+        "temper_blob_io_wait_duration_ms",
+        "temper_blob_transport_wait_duration_ms",
+        "temper_cedar_evaluation_duration",
+        "temper_cedar_evaluation_duration_ms",
+        "temper_cedar_evaluation_phase_duration_ms",
+        "temper_dispatch_ask_attempts",
+        "temper_dispatch_ask_latency_ms",
+        "temper_event_store_append_wait_ms",
+        "temper_monty_repl_wait_duration_ms",
+        "temper_postgres_pool_acquire_duration_ms",
+        "temper_postgres_transaction_duration_ms",
+        "temper_query_projection_backfill_duration_ms",
+        "temper_query_projection_backfill_replay_events",
+        "temper_query_projection_replay_parity_duration_ms",
+        "temper_query_projection_replay_parity_sequence_gap",
+        "temper_query_projection_shadow_sequence_gap",
+        "temper_query_projection_update_duration_ms",
+        "temper_query_projection_update_end_to_end_duration_ms",
+        "temper_query_projection_update_queue_wait_ms",
+        "temper_session_context_prepare_duration_ms",
+        "temper_session_phase_duration_ms",
+        "temper_session_phase_step_duration_ms",
+        "temper_trajectory_outbox_persist_latency_ms",
+        "temper_wasm_host_http_duration_ms",
+        "temper_wasm_invocation_duration_ms",
+    ];
+    let percentile_prefixes = ["p50:", "p75:", "p90:", "p95:", "p99:"];
+
     for value in strings {
+        let Some((prefix, start)) = percentile_prefixes
+            .iter()
+            .find_map(|prefix| value.find(prefix).map(|idx| (*prefix, idx)))
+        else {
+            continue;
+        };
+        let metric_start = start + prefix.len();
+        let metric = value[metric_start..]
+            .split(|ch: char| ch == '{' || ch == ',' || ch.is_ascii_whitespace())
+            .next()
+            .unwrap_or_default();
         assert!(
-            !value.contains("p50:")
-                && !value.contains("p75:")
-                && !value.contains("p90:")
-                && !value.contains("p95:")
-                && !value.contains("p99:"),
-            "Datadog percentiles are not enabled for Temper runtime metrics; use avg/max/count instead: {value}"
+            configured_percentile_metrics.contains(&metric),
+            "dashboard percentile query must be backed by scripts/configure_metric_percentiles.py: {value}"
         );
     }
 }
