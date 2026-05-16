@@ -984,6 +984,46 @@
           },
           {
             "definition": {
+              "title": "Native Blob Transport Duration (avg ms)",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_blob_native_transport_duration_ms{service:temperpaw} by {operation,backend,outcome,status_code_class}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Native Blob Transport Requests",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "default_zero(sum:temper_blob_native_transport_requests_total{service:temperpaw} by {operation,backend,outcome,status_code_class}.as_count().rollup(sum, 60))",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Native Blob Request/Response Bytes",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "avg:temper_blob_native_transport_request_bytes{service:temperpaw} by {operation,backend,outcome,status_code_class}.rollup(avg, 60)",
+                  "display_type": "line"
+                },
+                {
+                  "q": "avg:temper_blob_native_transport_response_bytes{service:temperpaw} by {operation,backend,outcome,status_code_class}.rollup(avg, 60)",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
               "title": "Monty REPL Executions",
               "type": "timeseries",
               "requests": [
@@ -1057,6 +1097,22 @@
                 },
                 {
                   "q": "p99:temper_blob_transport_wait_duration_ms{service:temperpaw} by {backend,http_method}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "Native Blob Transport Duration p95/p99",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "q": "p95:temper_blob_native_transport_duration_ms{service:temperpaw} by {operation,backend,outcome,status_code_class}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p99:temper_blob_native_transport_duration_ms{service:temperpaw} by {operation,backend,outcome,status_code_class}",
                   "display_type": "line"
                 }
               ]

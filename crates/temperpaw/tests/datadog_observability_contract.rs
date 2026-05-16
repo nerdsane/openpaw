@@ -59,7 +59,7 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "1796c4f0f5cc9b81557107bae19795db5b578d0c";
+    let expected_rev = "88c9d797b398df04d845ff202738b09542817415";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
@@ -104,7 +104,7 @@ fn temper_dependency_pin_uses_runtime_llmobs_identity_parent_and_hierarchy_fix()
 #[test]
 fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "1796c4f0f5cc9b81557107bae19795db5b578d0c";
+    let expected_rev = "88c9d797b398df04d845ff202738b09542817415";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -167,7 +167,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
 #[test]
 fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "1796c4f0f5cc9b81557107bae19795db5b578d0c";
+    let expected_rev = "88c9d797b398df04d845ff202738b09542817415";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
@@ -500,6 +500,10 @@ fn datadog_covers_temperfs_blob_and_document_services() {
         "TemperFS Blob & Document Services",
         "temper_blob_io_wait_duration_ms",
         "temper_blob_local_fast_path_requests_total",
+        "temper_blob_native_transport_duration_ms",
+        "temper_blob_native_transport_requests_total",
+        "temper_blob_native_transport_request_bytes",
+        "temper_blob_native_transport_response_bytes",
         "temper_blob_transport_wait_duration_ms",
         "temper_blob_transport_requests_total",
         "temperpaw.fs",
@@ -514,10 +518,13 @@ fn datadog_covers_temperfs_blob_and_document_services() {
 
     for required in [
         "[Temper] Blob Transport Wait Spike",
+        "[Temper] Native Blob Transport Duration Spike",
+        "[Temper] Native Blob Transport p95 Regression",
         "[TemperPaw] TemperFS Metadata Operation Errors",
         "[Temper] Session Memory Externalization Spike",
         "observability_event:temperpaw.fs",
         "fs.outcome:error",
+        "temper_blob_native_transport_duration_ms",
         "temper_blob_transport_wait_duration_ms",
         "temper_session_large_content_externalized_total",
     ] {
@@ -602,6 +609,7 @@ fn datadog_covers_temperfs_blob_and_document_services() {
         "@file_id:<file id>",
         "@fs.operation:create_file",
         "@content_hash:<sha256>",
+        "temper_blob_native_transport_duration_ms",
         "temper_blob_transport_wait_duration_ms",
         "temper_blob_local_fast_path_requests_total",
     ] {
@@ -1854,7 +1862,7 @@ fn wasm_guest_observability_live_proof_is_temper_native_and_datadog_backed() {
 
     assert!(
         probe_manifest.contains("temper-wasm-sdk")
-            && probe_manifest.contains("1796c4f0f5cc9b81557107bae19795db5b578d0c"),
+            && probe_manifest.contains("88c9d797b398df04d845ff202738b09542817415"),
         "proof WASM must build against the same guest observability SDK rev as production modules"
     );
 }

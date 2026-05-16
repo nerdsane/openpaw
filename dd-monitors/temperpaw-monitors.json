@@ -1051,6 +1051,24 @@
     }
   },
   {
+    "name": "[Temper] Native Blob Transport Duration Spike",
+    "type": "metric alert",
+    "query": "avg(last_15m):avg:temper_blob_native_transport_duration_ms{service:temperpaw} by {operation,backend,outcome,status_code_class} > 1000",
+    "message": "Native BlobStore transport duration exceeds 1s. Check operation/backend/status breakdown, R2/S3 or local filesystem health, and whether File `$value` requests are waiting on durable blob writes.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 300
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
     "name": "[Temper] Blob I/O Wait p95 Regression",
     "type": "metric alert",
     "query": "avg(last_15m):p95:temper_blob_io_wait_duration_ms{service:temperpaw} by {operation} > 1000",
@@ -1062,6 +1080,24 @@
     "options": {
       "thresholds": {
         "critical": 1000,
+        "warning": 300
+      },
+      "notify_no_data": false,
+      "renotify_interval": 120
+    }
+  },
+  {
+    "name": "[Temper] Native Blob Transport p95 Regression",
+    "type": "metric alert",
+    "query": "avg(last_15m):p95:temper_blob_native_transport_duration_ms{service:temperpaw} by {operation,backend,outcome,status_code_class} > 750",
+    "message": "Native BlobStore transport p95 is above 750ms. This is the measured File `$value` residual split between durable blob transport and actor/event work; pivot by operation/backend/status before changing data-plane architecture.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "severity:medium"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 750,
         "warning": 300
       },
       "notify_no_data": false,
