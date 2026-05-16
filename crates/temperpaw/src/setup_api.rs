@@ -582,6 +582,7 @@ async fn dispatch_openai_codex_auth_action(
             DispatchExtOptions {
                 agent_ctx: &system,
                 await_integration: true,
+                await_reactions: true,
             },
         )
         .await
