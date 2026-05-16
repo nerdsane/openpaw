@@ -287,6 +287,7 @@ fn platform_dashboard_avoids_unsupported_percentile_queries() {
         "temper_actor_cold_start_duration_ms",
         "temper_actor_registry_lock_wait_ms",
         "temper_blob_io_wait_duration_ms",
+        "temper_blob_native_transport_duration_ms",
         "temper_blob_transport_wait_duration_ms",
         "temper_cedar_evaluation_duration",
         "temper_cedar_evaluation_duration_ms",

@@ -452,6 +452,17 @@ Dashboard metrics to start with:
 
 - `temper_blob_transport_wait_duration_ms`
 - `temper_blob_local_fast_path_requests_total`
+- `temper_blob_native_transport_duration_ms`
+- `temper_blob_native_transport_requests_total`
+- `temper_blob_native_transport_request_bytes`
+- `temper_blob_native_transport_response_bytes`
+
+Use `temper_blob_io_wait_duration_ms` for semaphore queue wait and
+`temper_blob_native_transport_duration_ms` for the actual native BlobStore
+transport boundary. For File `$value` residual latency, pivot native transport
+by `operation`, `backend`, `outcome`, and `status_code_class` before deciding
+whether the next fix belongs in R2/S3 client behavior, local filesystem I/O,
+direct upload, or actor/event commit work.
 
 Final publish proof:
 

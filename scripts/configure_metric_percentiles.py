@@ -92,6 +92,13 @@ BLOB_TAGS = COMMON_TAGS | {
     "outcome",
 }
 
+NATIVE_BLOB_TAGS = COMMON_TAGS | {
+    "backend",
+    "operation",
+    "outcome",
+    "status_code_class",
+}
+
 ACTOR_TAGS = COMMON_TAGS | {
     "action",
     "backend",
@@ -115,6 +122,9 @@ METRIC_TAGS = {
     "temper_actor_cold_start_duration_ms": ACTOR_TAGS,
     "temper_actor_registry_lock_wait_ms": ACTOR_TAGS,
     "temper_blob_io_wait_duration_ms": BLOB_TAGS,
+    "temper_blob_native_transport_duration_ms": NATIVE_BLOB_TAGS,
+    "temper_blob_native_transport_request_bytes": NATIVE_BLOB_TAGS,
+    "temper_blob_native_transport_response_bytes": NATIVE_BLOB_TAGS,
     "temper_blob_transport_wait_duration_ms": BLOB_TAGS,
     "temper_cedar_evaluation_duration": AUTHZ_TAGS,
     "temper_cedar_evaluation_duration_ms": AUTHZ_TAGS,
