@@ -6,6 +6,8 @@
 #   PreparingContext → (prepare_context) → EnsuringProviderAuth →
 #   (provider_auth_gate) → CallingProvider → (call_provider) →
 #   ApplyingProviderResponse → ProcessToolCalls/CheckSteering/RecordResult
+#   Non-Codex providers may fast-path from PreparingContext directly to
+#   CallingProvider while recording provider_auth_status = "skipped".
 #
 # Pi architecture additions:
 #   - Session tree: JSONL append-only tree with branching (session_file_id)
@@ -656,6 +658,16 @@ temper_api_url = "{secret:temper_api_url}"
 default_llm_provider = "{secret:llm_provider}"
 auth_action = "EnsureFresh"
 ready_action = "ProviderAuthReady"
+
+
+[[action]]
+name = "ContextReadyAuthSkipped"
+kind = "input"
+from = ["PreparingContext"]
+to = "CallingProvider"
+params = ["prepared_context_file_id", "prepared_context_inline_json", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "context_tokens", "system_prompt_hash", "system_prompt_file_id", "provider_auth_status", "provider_auth_checked_at_ms", "provider_auth_error", "provider_auth_retry_count", "compaction_auth_retry_count"]
+hint = "Prepared context artifact is ready and this provider does not require Codex OAuth. Persist skipped auth fields and call the LLM provider."
+effect = [{ type = "trigger", name = "call_provider" }]
 
 
 [[action]]
