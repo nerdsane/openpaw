@@ -182,6 +182,36 @@ fn provider_caller_does_not_persist_provider_boundary_progress_by_default() {
 }
 
 #[test]
+fn provider_caller_initial_heartbeat_is_opt_in() {
+    let root = repo_root();
+    let source = fs::read_to_string(root.join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
+        .expect("provider_caller source should exist");
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+
+    for needle in [
+        "fn provider_initial_heartbeat_enabled",
+        "fn should_send_initial_provider_heartbeat",
+        "session_provider_initial_heartbeat_enabled",
+        "if should_send_initial_provider_heartbeat",
+    ] {
+        assert!(
+            source.contains(needle),
+            "provider_caller should make eager provider Heartbeat opt-in with {needle}"
+        );
+    }
+
+    assert!(
+        spec.contains("provider_initial_heartbeat_enabled = \"false\""),
+        "Session provider_caller config should make the eager pre-provider Heartbeat disabled by default"
+    );
+    assert!(
+        !source.contains("if !mock_hang {\n        let _ = send_heartbeat"),
+        "provider_caller should not emit an unconditional pre-provider Heartbeat on the fast path"
+    );
+}
+
+#[test]
 fn route_message_carries_context_cache_fields_to_continuations() {
     let source =
         fs::read_to_string(repo_root().join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))

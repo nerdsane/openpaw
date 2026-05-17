@@ -2739,10 +2739,10 @@ fn send_progress(ctx: &Context, temper_api_url: &str, tenant: &str) -> Result<()
     Ok(())
 }
 
-fn provider_progress_dispatch_enabled(ctx: &Context) -> bool {
+fn config_bool(ctx: &Context, primary_key: &str, fallback_key: Option<&str>) -> bool {
     ctx.config
-        .get("provider_progress_dispatch_enabled")
-        .or_else(|| ctx.config.get("session_provider_progress_enabled"))
+        .get(primary_key)
+        .or_else(|| fallback_key.and_then(|key| ctx.config.get(key)))
         .map(|value| {
             matches!(
                 value.trim().to_ascii_lowercase().as_str(),
@@ -2750,6 +2750,29 @@ fn provider_progress_dispatch_enabled(ctx: &Context) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn provider_progress_dispatch_enabled(ctx: &Context) -> bool {
+    config_bool(
+        ctx,
+        "provider_progress_dispatch_enabled",
+        Some("session_provider_progress_enabled"),
+    )
+}
+
+fn provider_initial_heartbeat_enabled(ctx: &Context) -> bool {
+    config_bool(
+        ctx,
+        "provider_initial_heartbeat_enabled",
+        Some("session_provider_initial_heartbeat_enabled"),
+    )
+}
+
+fn should_send_initial_provider_heartbeat(
+    mock_hang: bool,
+    initial_heartbeat_enabled: bool,
+) -> bool {
+    initial_heartbeat_enabled && !mock_hang
 }
 
 fn mock_plan_requests_hang(messages: &[Value]) -> bool {
@@ -3239,7 +3262,8 @@ pub fn run_provider_caller() -> Result<(), String> {
         .unwrap_or_else(|| "temperpaw-agent".to_string());
 
     let mock_hang = provider == "mock" && mock_plan_requests_hang(&prepared.messages);
-    if !mock_hang {
+    if should_send_initial_provider_heartbeat(mock_hang, provider_initial_heartbeat_enabled(&ctx))
+    {
         let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
     }
     let typing_agent_id = fields
@@ -3601,6 +3625,22 @@ mod tests {
                 ProviderProgressBoundary::Start,
                 ProviderProgressBoundary::End
             ]
+        );
+    }
+
+    #[test]
+    fn initial_provider_heartbeat_is_opt_in_and_never_masks_mock_hang() {
+        assert!(
+            !should_send_initial_provider_heartbeat(false, false),
+            "fast provider path should not emit an eager Session.Heartbeat by default"
+        );
+        assert!(
+            should_send_initial_provider_heartbeat(false, true),
+            "operator opt-in should preserve the old eager heartbeat behavior"
+        );
+        assert!(
+            !should_send_initial_provider_heartbeat(true, true),
+            "mock hang proof path should still exercise timeout behavior without a pre-heartbeat"
         );
     }
 
