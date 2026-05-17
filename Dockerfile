@@ -25,7 +25,7 @@ COPY os-apps ./os-apps
 # the download tiny. Pin via KATAGAMI_REF arg when a reproducible image
 # is needed; defaults to main.
 ARG KATAGAMI_REF=master
-ARG TEMPER_OBSERVABILITY_REV=70541b65c7774db6a5377d65d16728dd4d40e8fa
+ARG TEMPER_OBSERVABILITY_REV=0bfaa4ce57c8a0a0c619bf8ece3c9f1fdff8814a
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
     && git clone --depth 1 --branch "${KATAGAMI_REF}" https://github.com/arni-labs/katagami.git /tmp/katagami \
