@@ -3723,6 +3723,58 @@ mod tests {
     }
 
     #[test]
+    fn paw_channels_manifest_declares_route_reply_wasm_startup_policy() {
+        #[derive(serde::Deserialize)]
+        struct AppManifest {
+            #[serde(default)]
+            wasm_modules: Vec<WasmModuleManifest>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct WasmModuleManifest {
+            name: String,
+            criticality: String,
+            startup_loading: String,
+        }
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path = repo_root.join("os-apps/paw-channels/app.toml");
+        let manifest_source = std::fs::read_to_string(&manifest_path)
+            .expect("paw-channels app.toml should be readable");
+        let manifest: AppManifest =
+            toml::from_str(&manifest_source).expect("paw-channels app.toml should parse");
+        let modules_by_name: std::collections::BTreeMap<_, _> = manifest
+            .wasm_modules
+            .into_iter()
+            .map(|module| (module.name, (module.criticality, module.startup_loading)))
+            .collect();
+
+        for module in ["channel_connect", "route_message", "send_reply"] {
+            let Some((criticality, startup_loading)) = modules_by_name.get(module) else {
+                panic!("paw-channels app.toml must declare hot route/reply module {module}");
+            };
+            assert_eq!(
+                criticality.as_str(),
+                "app-required",
+                "paw-channels hot route/reply module {module} must be app-required"
+            );
+            assert_eq!(
+                startup_loading.as_str(),
+                "eager",
+                "paw-channels hot route/reply module {module} must eagerly load"
+            );
+        }
+
+        assert_eq!(
+            modules_by_name
+                .get("transport_reconcile")
+                .map(|(_, startup_loading)| startup_loading.as_str()),
+            Some("lazy"),
+            "transport_reconcile should stay lazy because it is not on the normal route/reply path"
+        );
+    }
+
+    #[test]
     fn startup_metric_names_match_datadog_contract() {
         assert_eq!(
             STARTUP_PHASE_DURATION_METRIC,
