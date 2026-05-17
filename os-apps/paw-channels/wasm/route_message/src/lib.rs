@@ -21,6 +21,14 @@ struct TraceContextFields {
     span_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeliveryRouteSnapshot {
+    channel_id: String,
+    thread_id: String,
+    channel_entity_id: Option<String>,
+    source: String,
+}
+
 impl AsRef<TraceContextFields> for TraceContextFields {
     fn as_ref(&self) -> &TraceContextFields {
         self
@@ -99,6 +107,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         } else {
             thread_id
         };
+        let delivery_route = DeliveryRouteSnapshot {
+            channel_id: channel_id.to_string(),
+            thread_id: thread_id.to_string(),
+            channel_entity_id: None,
+            source: "channel_message".to_string(),
+        };
 
         let existing_cs = find_active_session(
             &ctx,
@@ -152,6 +166,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 route_agent_id,
                 user_msg,
                 "",
+                Some(&delivery_route),
                 trace_context.as_ref(),
             )?;
             create_channel_session(
@@ -220,6 +235,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             route_agent_id,
                             content,
                             command,
+                            Some(&delivery_route),
                             trace_context.as_ref(),
                         )?;
                         create_channel_session(
@@ -321,6 +337,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                             &session_entity_id,
                             content,
                             command,
+                            Some(&delivery_route),
                             trace_context.as_ref(),
                         )?
                     }
@@ -342,6 +359,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         &session_entity_id,
                         content,
                         command,
+                        Some(&delivery_route),
                         trace_context.as_ref(),
                     )?
                 } else {
@@ -370,6 +388,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     route_agent_id,
                     content,
                     command,
+                    Some(&delivery_route),
                     trace_context.as_ref(),
                 )?;
                 create_channel_session(
@@ -404,6 +423,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 route_agent_id,
                 content,
                 command,
+                Some(&delivery_route),
                 trace_context.as_ref(),
             )?;
             create_channel_session(
@@ -513,6 +533,32 @@ fn apply_trace_context(configure_body: &mut Value, trace_context: &TraceContextF
         "gen_ai_parent_span_id".into(),
         json!(trace_context.span_id.clone()),
     );
+}
+
+#[cfg(test)]
+fn delivery_route_snapshot_from_channel_session(value: &Value) -> Option<DeliveryRouteSnapshot> {
+    let channel_id = nested_str_field(value, &["ChannelId", "channel_id"])
+        .filter(|value| !value.trim().is_empty())?;
+    let thread_id = nested_str_field(value, &["ThreadId", "thread_id"])
+        .filter(|value| !value.trim().is_empty())?;
+    Some(DeliveryRouteSnapshot {
+        channel_id: channel_id.to_string(),
+        thread_id: thread_id.to_string(),
+        channel_entity_id: None,
+        source: "channel_session".to_string(),
+    })
+}
+
+fn apply_delivery_route_snapshot(configure_body: &mut Value, route: &DeliveryRouteSnapshot) {
+    let Some(object) = configure_body.as_object_mut() else {
+        return;
+    };
+    object.insert("reply_channel_id".into(), json!(route.channel_id.as_str()));
+    object.insert("reply_thread_id".into(), json!(route.thread_id.as_str()));
+    object.insert("reply_route_source".into(), json!(route.source.as_str()));
+    if let Some(channel_entity_id) = &route.channel_entity_id {
+        object.insert("reply_channel_entity_id".into(), json!(channel_entity_id));
+    }
 }
 
 fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
@@ -642,6 +688,7 @@ fn create_session_for_agent(
     route_agent_id: &str,
     user_message: &str,
     command: &str,
+    delivery_route: Option<&DeliveryRouteSnapshot>,
     trace_context: Option<&TraceContextFields>,
 ) -> Result<(String, String), String> {
     let config: Value = serde_json::from_str(route_config).unwrap_or_else(|_| json!({}));
@@ -746,6 +793,9 @@ fn create_session_for_agent(
     if let Some(trace_context) = trace_context {
         apply_trace_context(&mut configure_body, trace_context);
     }
+    if let Some(delivery_route) = delivery_route {
+        apply_delivery_route_snapshot(&mut configure_body, delivery_route);
+    }
     let configure_url =
         format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
     ctx.log(
@@ -791,6 +841,7 @@ fn continue_with_new_session(
     prior_session_id: &str,
     user_message: &str,
     command: &str,
+    delivery_route: Option<&DeliveryRouteSnapshot>,
     trace_context: Option<&TraceContextFields>,
 ) -> Result<String, String> {
     let fields = prior_session
@@ -942,6 +993,7 @@ fn continue_with_new_session(
         &workspace_id,
         new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
         command,
+        delivery_route,
         trace_context,
     )?;
 
@@ -1006,6 +1058,7 @@ fn configure_session_from_prior(
     workspace_id: &str,
     session_leaf_id: &str,
     command: &str,
+    delivery_route: Option<&DeliveryRouteSnapshot>,
     trace_context: Option<&TraceContextFields>,
 ) -> Result<(), String> {
     // Determine mode-specific tools and session_mode
@@ -1066,6 +1119,9 @@ fn configure_session_from_prior(
     });
     if let Some(trace_context) = trace_context {
         apply_trace_context(&mut configure_body, trace_context);
+    }
+    if let Some(delivery_route) = delivery_route {
+        apply_delivery_route_snapshot(&mut configure_body, delivery_route);
     }
     let configure_url =
         format!("{temper_api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure");
@@ -1339,10 +1395,10 @@ fn resolve_workspace_id_for_session(
     session_file_id: &str,
     conversation_file_id: &str,
 ) -> Result<String, String> {
-    if let Some(workspace_id) = str_field(fields, &["workspace_id", "WorkspaceId"]) {
-        if !workspace_id.is_empty() {
-            return Ok(workspace_id.to_string());
-        }
+    if let Some(workspace_id) = str_field(fields, &["workspace_id", "WorkspaceId"])
+        && !workspace_id.is_empty()
+    {
+        return Ok(workspace_id.to_string());
     }
     if !conversation_file_id.is_empty() {
         match fetch_entity(
@@ -1944,6 +2000,63 @@ mod tests {
                 .and_then(Value::as_str),
             Some("00f067aa0ba902b7")
         );
+    }
+
+    #[test]
+    fn configure_body_carries_reply_route_when_channel_routed() {
+        let mut configure_body = json!({
+            "user_message": "hello",
+            "session_mode": "execute",
+        });
+        let route = DeliveryRouteSnapshot {
+            channel_id: "discord-channel-1".to_string(),
+            thread_id: "discord-thread-1".to_string(),
+            channel_entity_id: Some("ch-entity-1".to_string()),
+            source: "channel_session".to_string(),
+        };
+
+        apply_delivery_route_snapshot(&mut configure_body, &route);
+
+        assert_eq!(
+            configure_body
+                .get("reply_channel_id")
+                .and_then(Value::as_str),
+            Some("discord-channel-1")
+        );
+        assert_eq!(
+            configure_body
+                .get("reply_thread_id")
+                .and_then(Value::as_str),
+            Some("discord-thread-1")
+        );
+        assert_eq!(
+            configure_body
+                .get("reply_channel_entity_id")
+                .and_then(Value::as_str),
+            Some("ch-entity-1")
+        );
+        assert_eq!(
+            configure_body
+                .get("reply_route_source")
+                .and_then(Value::as_str),
+            Some("channel_session")
+        );
+    }
+
+    #[test]
+    fn reply_route_snapshot_from_channel_session_uses_stored_channel_thread() {
+        let fields = json!({
+            "channel_id": "discord-channel-1",
+            "thread_id": "discord-thread-1",
+        });
+
+        let route = delivery_route_snapshot_from_channel_session(&fields)
+            .expect("channel session route should be complete");
+
+        assert_eq!(route.channel_id, "discord-channel-1");
+        assert_eq!(route.thread_id, "discord-thread-1");
+        assert_eq!(route.channel_entity_id, None);
+        assert_eq!(route.source, "channel_session");
     }
 
     #[test]
