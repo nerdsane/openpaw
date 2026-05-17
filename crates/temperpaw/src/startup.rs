@@ -3656,7 +3656,7 @@ mod tests {
     }
 
     #[test]
-    fn paw_agent_manifest_declares_terminal_session_wasm_modules() {
+    fn paw_agent_manifest_declares_hot_session_wasm_startup_policy() {
         #[derive(serde::Deserialize)]
         struct AppManifest {
             #[serde(default)]
@@ -3666,6 +3666,7 @@ mod tests {
         #[derive(serde::Deserialize)]
         struct WasmModuleManifest {
             name: String,
+            startup_loading: String,
         }
 
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -3674,21 +3675,33 @@ mod tests {
             std::fs::read_to_string(&manifest_path).expect("paw-agent app.toml should be readable");
         let manifest: AppManifest =
             toml::from_str(&manifest_source).expect("paw-agent app.toml should parse");
-        let module_names: std::collections::BTreeSet<_> = manifest
+        let modules_by_name: std::collections::BTreeMap<_, _> = manifest
             .wasm_modules
             .into_iter()
-            .map(|module| module.name)
+            .map(|module| (module.name, module.startup_loading))
             .collect();
 
         for module in [
+            "workspace_provisioner",
+            "context_preparer",
+            "provider_auth_gate",
+            "provider_caller",
+            "provider_response_applier",
             "agent_reply",
             "emit_ots_trajectory",
-            "session_link_monitor",
-            "session_recoverer",
         ] {
-            assert!(
-                module_names.contains(module),
-                "paw-agent app.toml must declare session lifecycle module {module}"
+            assert_eq!(
+                modules_by_name.get(module).map(String::as_str),
+                Some("eager"),
+                "paw-agent app.toml must eagerly load hot Session module {module}"
+            );
+        }
+
+        for module in ["monty_repl", "session_link_monitor", "session_recoverer"] {
+            assert_eq!(
+                modules_by_name.get(module).map(String::as_str),
+                Some("lazy"),
+                "paw-agent app.toml should keep non-hot Session module {module} lazy"
             );
         }
     }

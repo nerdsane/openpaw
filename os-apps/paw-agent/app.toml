@@ -5,22 +5,47 @@ startup_install = "core"
 dependencies = ["paw-fs"]
 
 [[wasm_modules]]
+name = "workspace_provisioner"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
+name = "context_preparer"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
+name = "provider_auth_gate"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
+name = "provider_caller"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
+name = "provider_response_applier"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
+name = "agent_reply"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
+name = "emit_ots_trajectory"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
 name = "monty_repl"
 target = "wasm32-wasip1"
 criticality = "app-required"
 startup_loading = "lazy"
 provenance = "bundled-artifact"
 import_class = "temper-host+wasi-preview1"
-
-[[wasm_modules]]
-name = "agent_reply"
-criticality = "app-required"
-startup_loading = "lazy"
-
-[[wasm_modules]]
-name = "emit_ots_trajectory"
-criticality = "app-required"
-startup_loading = "lazy"
 
 [[wasm_modules]]
 name = "session_link_monitor"
