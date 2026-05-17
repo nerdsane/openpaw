@@ -46,6 +46,20 @@ pub struct CreatedSessionEntry {
     pub entry_id: String,
 }
 
+struct SessionEntryCreateSpec<'a> {
+    session_id: &'a str,
+    entry_id: &'a str,
+    parent_entry_id: Option<&'a str>,
+    sequence: i64,
+    entry_type: &'a str,
+    role: Option<&'a str>,
+    content: Option<&'a Value>,
+    content_file_id: Option<&'a str>,
+    content_file_version_id: Option<&'a str>,
+    extra_json: Option<&'a Value>,
+    tokens: usize,
+}
+
 /// Current wall-clock time as a millis-since-epoch string.
 ///
 /// Used as the value for OData fields shaped `last_*_at` (e.g.
@@ -250,30 +264,20 @@ pub fn create_session_entry(
     extra_json: Option<&Value>,
     tokens: usize,
 ) -> Result<CreatedSessionEntry, String> {
-    let content_json = content
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(|err| format!("serialize SessionEntry content: {err}"))?
-        .unwrap_or_default();
-    let extra_json = extra_json
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(|err| format!("serialize SessionEntry extra_json: {err}"))?
-        .unwrap_or_else(|| "{}".to_string());
-
-    let body = json!({
-        "SessionId": session_id,
-        "EntryId": entry_id,
-        "ParentEntryId": parent_entry_id.unwrap_or(""),
-        "Sequence": sequence,
-        "EntryType": entry_type,
-        "Role": role.unwrap_or(""),
-        "Content": content_json,
-        "ContentFileId": content_file_id.unwrap_or(""),
-        "ContentFileVersionId": content_file_version_id.unwrap_or(""),
-        "ExtraJson": extra_json,
-        "Tokens": tokens as i64,
-    });
+    let spec = SessionEntryCreateSpec {
+        session_id,
+        entry_id,
+        parent_entry_id,
+        sequence,
+        entry_type,
+        role,
+        content,
+        content_file_id,
+        content_file_version_id,
+        extra_json,
+        tokens,
+    };
+    let body = session_entry_create_body(&spec)?;
     let url = format!("{temper_api_url}/tdata/SessionEntries");
     let headers = runtime_headers(
         ctx,
@@ -290,12 +294,7 @@ pub fn create_session_entry(
             &resp.body[..resp.body.len().min(300)]
         ));
     }
-
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|err| format!("parse SessionEntry creation response: {err}"))?;
-    let entity_id = entity_field_str(&parsed, &["entity_id", "Id"])
-        .unwrap_or("")
-        .to_string();
+    let entity_id = parse_created_session_entry_entity_id(&resp.body)?;
 
     // Read-back verify. The orphan-chain bug we hit on ss-019de892-8be2
     // (parent=t-8, t-8 missing from db) had this exact symptom: POST
@@ -307,11 +306,7 @@ pub fn create_session_entry(
     // commit and the index being queryable. Retry the read-back a few
     // times before declaring the write lost. Real loss is permanent;
     // transient propagation lag clears in tens of ms.
-    let verify_url = format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
-        session_id.replace('\'', "''"),
-        entry_id.replace('\'', "''"),
-    );
+    let verify_url = session_entry_verify_url(temper_api_url, session_id, entry_id);
     let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
     const VERIFY_ATTEMPTS: u32 = 4;
     let mut verified = false;
@@ -320,15 +315,8 @@ pub fn create_session_entry(
     for attempt in 0..VERIFY_ATTEMPTS {
         match ctx.http_call("GET", &verify_url, &verify_headers, "") {
             Ok(verify_resp) if verify_resp.status == 200 => {
-                let parsed: Value = serde_json::from_str(&verify_resp.body)
-                    .unwrap_or_else(|_| json!({"value": []}));
-                let count = parsed
-                    .get("value")
-                    .and_then(|v| v.as_array())
-                    .map(|a| a.len())
-                    .unwrap_or(0);
                 last_status = verify_resp.status as i64;
-                if count > 0 {
+                if session_entry_verify_response_visible(&verify_resp.body) {
                     if attempt > 0 {
                         ctx.log(
                             "info",
@@ -375,6 +363,226 @@ pub fn create_session_entry(
         entity_id,
         entry_id: entry_id.to_string(),
     })
+}
+
+pub fn create_initial_session_entries(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    user_message: &str,
+) -> Result<(CreatedSessionEntry, CreatedSessionEntry), String> {
+    let header_id = format!("h-{session_id}");
+    let user_entry_id = format!("u-{session_id}-0");
+    let header_extra = json!({ "version": 1 });
+    let user_content = json!(user_message);
+    let specs = [
+        SessionEntryCreateSpec {
+            session_id,
+            entry_id: &header_id,
+            parent_entry_id: None,
+            sequence: 0,
+            entry_type: "header",
+            role: None,
+            content: None,
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: Some(&header_extra),
+            tokens: 0,
+        },
+        SessionEntryCreateSpec {
+            session_id,
+            entry_id: &user_entry_id,
+            parent_entry_id: Some(&header_id),
+            sequence: 1,
+            entry_type: "message",
+            role: Some("user"),
+            content: Some(&user_content),
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: None,
+            tokens: user_message.len() / 4,
+        },
+    ];
+    let create_headers = runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let create_url = format!("{temper_api_url}/tdata/SessionEntries");
+    let create_requests = specs
+        .iter()
+        .map(|spec| {
+            let body = session_entry_create_body(spec)?;
+            Ok(HttpRequest {
+                method: "POST".to_string(),
+                url: create_url.clone(),
+                headers: create_headers.clone(),
+                body: body.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let create_responses = ctx.http_call_batch(&create_requests)?;
+    if create_responses.len() != specs.len() {
+        return Err(format!(
+            "initial SessionEntry batch returned {} responses for {} requests",
+            create_responses.len(),
+            specs.len()
+        ));
+    }
+
+    let mut created = Vec::with_capacity(specs.len());
+    for (spec, resp) in specs.iter().zip(create_responses.iter()) {
+        if resp.status < 200 || resp.status >= 300 {
+            return Err(format!(
+                "initial SessionEntry {} creation failed (HTTP {}): {}",
+                spec.entry_id,
+                resp.status,
+                &resp.body[..resp.body.len().min(300)]
+            ));
+        }
+        created.push(CreatedSessionEntry {
+            entity_id: parse_created_session_entry_entity_id(&resp.body)?,
+            entry_id: spec.entry_id.to_string(),
+        });
+    }
+
+    verify_initial_session_entries(ctx, temper_api_url, tenant, fields, session_id, &header_id, &user_entry_id)?;
+
+    Ok((created.remove(0), created.remove(0)))
+}
+
+fn verify_initial_session_entries(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    header_id: &str,
+    user_entry_id: &str,
+) -> Result<(), String> {
+    const VERIFY_ATTEMPTS: u32 = 4;
+    let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
+    let verify_requests = [
+        HttpRequest {
+            method: "GET".to_string(),
+            url: session_entry_verify_url(temper_api_url, session_id, header_id),
+            headers: verify_headers.clone(),
+            body: String::new(),
+        },
+        HttpRequest {
+            method: "GET".to_string(),
+            url: session_entry_verify_url(temper_api_url, session_id, user_entry_id),
+            headers: verify_headers,
+            body: String::new(),
+        },
+    ];
+    let mut last_status = 0_i64;
+    let mut last_err = String::new();
+    for attempt in 0..VERIFY_ATTEMPTS {
+        match ctx.http_call_batch(&verify_requests) {
+            Ok(responses)
+                if responses.len() == verify_requests.len()
+                    && responses
+                        .iter()
+                        .all(|resp| resp.status == 200 && session_entry_verify_response_visible(&resp.body)) =>
+            {
+                if attempt > 0 {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "create_initial_session_entries: read-back visible on attempt {} (SessionId={session_id})",
+                            attempt + 1
+                        ),
+                    );
+                }
+                return Ok(());
+            }
+            Ok(responses) => {
+                last_status = responses
+                    .iter()
+                    .map(|resp| resp.status as i64)
+                    .max()
+                    .unwrap_or(0);
+            }
+            Err(err) => {
+                last_status = -1;
+                last_err = err.to_string();
+            }
+        }
+        if attempt + 1 < VERIFY_ATTEMPTS {
+            let target_delay_ms = 50_i64 << attempt;
+            let until = Context::get_time_millis() + target_delay_ms;
+            while Context::get_time_millis() < until {}
+        }
+    }
+
+    ctx.log(
+        "error",
+        &format!(
+            "create_initial_session_entries: WRITE LOST — batch POST 2xx for SessionId={session_id} but read-back missed after {VERIFY_ATTEMPTS} attempts (last_status={last_status} last_err={last_err:?})"
+        ),
+    );
+    Err(format!(
+        "initial session entries acknowledged but read-back missed after {VERIFY_ATTEMPTS} attempts: SessionId={session_id}"
+    ))
+}
+
+fn session_entry_create_body(spec: &SessionEntryCreateSpec<'_>) -> Result<Value, String> {
+    let content_json = spec
+        .content
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|err| format!("serialize SessionEntry content: {err}"))?
+        .unwrap_or_default();
+    let extra_json = spec
+        .extra_json
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|err| format!("serialize SessionEntry extra_json: {err}"))?
+        .unwrap_or_else(|| "{}".to_string());
+
+    Ok(json!({
+        "SessionId": spec.session_id,
+        "EntryId": spec.entry_id,
+        "ParentEntryId": spec.parent_entry_id.unwrap_or(""),
+        "Sequence": spec.sequence,
+        "EntryType": spec.entry_type,
+        "Role": spec.role.unwrap_or(""),
+        "Content": content_json,
+        "ContentFileId": spec.content_file_id.unwrap_or(""),
+        "ContentFileVersionId": spec.content_file_version_id.unwrap_or(""),
+        "ExtraJson": extra_json,
+        "Tokens": spec.tokens as i64,
+    }))
+}
+
+fn parse_created_session_entry_entity_id(body: &str) -> Result<String, String> {
+    let parsed: Value = serde_json::from_str(body)
+        .map_err(|err| format!("parse SessionEntry creation response: {err}"))?;
+    Ok(entity_field_str(&parsed, &["entity_id", "Id"])
+        .unwrap_or("")
+        .to_string())
+}
+
+fn session_entry_verify_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
+    format!(
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
+        session_id.replace('\'', "''"),
+        entry_id.replace('\'', "''"),
+    )
+}
+
+fn session_entry_verify_response_visible(body: &str) -> bool {
+    let parsed: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({"value": []}));
+    parsed
+        .get("value")
+        .and_then(|value| value.as_array())
+        .map(|items| !items.is_empty())
+        .unwrap_or(false)
 }
 
 pub fn append_session_entry_inline(
@@ -1411,6 +1619,58 @@ mod tests {
         assert_eq!(lines[1]["id"], "u-1");
         assert_eq!(lines[1]["parentId"], "h-1");
         assert_eq!(lines[1]["content"], "hello");
+    }
+
+    #[test]
+    fn session_entry_create_body_shapes_header_and_user_entries() {
+        let header_extra = json!({"version": 1});
+        let header = session_entry_create_body(&SessionEntryCreateSpec {
+            session_id: "ss-1",
+            entry_id: "h-ss-1",
+            parent_entry_id: None,
+            sequence: 0,
+            entry_type: "header",
+            role: None,
+            content: None,
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: Some(&header_extra),
+            tokens: 0,
+        })
+        .expect("header body");
+        let user_content = json!("hello");
+        let user = session_entry_create_body(&SessionEntryCreateSpec {
+            session_id: "ss-1",
+            entry_id: "u-ss-1-0",
+            parent_entry_id: Some("h-ss-1"),
+            sequence: 1,
+            entry_type: "message",
+            role: Some("user"),
+            content: Some(&user_content),
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: None,
+            tokens: 1,
+        })
+        .expect("user body");
+
+        assert_eq!(header["SessionId"], "ss-1");
+        assert_eq!(header["EntryId"], "h-ss-1");
+        assert_eq!(header["ParentEntryId"], "");
+        assert_eq!(header["ExtraJson"], "{\"version\":1}");
+        assert_eq!(user["EntryId"], "u-ss-1-0");
+        assert_eq!(user["ParentEntryId"], "h-ss-1");
+        assert_eq!(user["Role"], "user");
+        assert_eq!(user["Content"], "\"hello\"");
+    }
+
+    #[test]
+    fn session_entry_verify_response_requires_visible_row() {
+        assert!(session_entry_verify_response_visible(
+            r#"{"value":[{"EntryId":"u-1"}]}"#
+        ));
+        assert!(!session_entry_verify_response_visible(r#"{"value":[]}"#));
+        assert!(!session_entry_verify_response_visible("not-json"));
     }
 
     #[test]

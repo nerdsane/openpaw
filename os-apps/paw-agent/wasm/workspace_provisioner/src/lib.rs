@@ -10,8 +10,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_session_entry, resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
-    session_entries_ref, write_temperfs_value_with_retry,
+    create_initial_session_entries, create_session_entry, resolve_temper_api_url, runtime_headers,
+    runtime_headers_for_workspace, session_entries_ref, write_temperfs_value_with_retry,
 };
 
 fn elapsed_ms_since(started_at: i64) -> i64 {
@@ -272,64 +272,22 @@ fn create_hot_session_storage(
     workspace_id: &str,
 ) -> (String, String, String, String, String) {
     let session_ref = session_entries_ref(session_id);
-    let header_id = format!("h-{session_id}");
     let session_leaf_id = format!("u-{session_id}-0");
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let temper_api_url = resolve_temper_api_url(ctx, &fields);
     let tenant = &ctx.tenant;
 
-    let header_result = create_session_entry(
+    if let Err(e) = create_initial_session_entries(
         ctx,
         &temper_api_url,
         tenant,
         &fields,
         session_id,
-        &header_id,
-        None,
-        0,
-        "header",
-        None,
-        None,
-        None,
-        None,
-        Some(&json!({ "version": 1 })),
-        0,
-    );
-    if let Err(e) = header_result {
+        user_message,
+    ) {
         ctx.log(
             "warn",
-            &format!("workspace_provisioner: hot session header entry failed: {e}"),
-        );
-        return (
-            workspace_id.to_string(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        );
-    }
-
-    let user_result = create_session_entry(
-        ctx,
-        &temper_api_url,
-        tenant,
-        &fields,
-        session_id,
-        &session_leaf_id,
-        Some(&header_id),
-        1,
-        "message",
-        Some("user"),
-        Some(&json!(user_message)),
-        None,
-        None,
-        None,
-        user_message.len() / 4,
-    );
-    if let Err(e) = user_result {
-        ctx.log(
-            "warn",
-            &format!("workspace_provisioner: hot session user entry failed: {e}"),
+            &format!("workspace_provisioner: hot session initial entries failed: {e}"),
         );
         return (
             workspace_id.to_string(),

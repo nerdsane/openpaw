@@ -107,12 +107,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         } else {
             thread_id
         };
-        let delivery_route = DeliveryRouteSnapshot {
-            channel_id: channel_id.to_string(),
-            thread_id: thread_id.to_string(),
-            channel_entity_id: None,
-            source: "channel_message".to_string(),
-        };
+        let delivery_route =
+            delivery_route_snapshot_from_channel_message(channel_id, thread_id, &ctx.entity_id);
 
         let existing_cs = find_active_session(
             &ctx,
@@ -533,6 +529,23 @@ fn apply_trace_context(configure_body: &mut Value, trace_context: &TraceContextF
         "gen_ai_parent_span_id".into(),
         json!(trace_context.span_id.clone()),
     );
+}
+
+fn delivery_route_snapshot_from_channel_message(
+    channel_id: &str,
+    thread_id: &str,
+    channel_entity_id: &str,
+) -> DeliveryRouteSnapshot {
+    DeliveryRouteSnapshot {
+        channel_id: channel_id.to_string(),
+        thread_id: thread_id.to_string(),
+        channel_entity_id: if channel_entity_id.trim().is_empty() {
+            None
+        } else {
+            Some(channel_entity_id.to_string())
+        },
+        source: "channel_message".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -2057,6 +2070,20 @@ mod tests {
         assert_eq!(route.thread_id, "discord-thread-1");
         assert_eq!(route.channel_entity_id, None);
         assert_eq!(route.source, "channel_session");
+    }
+
+    #[test]
+    fn reply_route_snapshot_from_channel_message_includes_channel_entity_id() {
+        let route = delivery_route_snapshot_from_channel_message(
+            "discord-channel-1",
+            "discord-thread-1",
+            "ch-entity-1",
+        );
+
+        assert_eq!(route.channel_id, "discord-channel-1");
+        assert_eq!(route.thread_id, "discord-thread-1");
+        assert_eq!(route.channel_entity_id.as_deref(), Some("ch-entity-1"));
+        assert_eq!(route.source, "channel_message");
     }
 
     #[test]
