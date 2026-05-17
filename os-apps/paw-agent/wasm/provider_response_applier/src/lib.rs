@@ -227,12 +227,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             params["result"] = json!(result_text);
             params["session_leaf_id"] = json!(new_leaf);
 
-            let max_follow_ups = fields
-                .get("max_follow_ups")
-                .and_then(|v| v.as_str())
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(5);
-            if max_follow_ups > 0 {
+            if should_check_steering(&fields) {
                 set_success_result("CheckSteering", &params);
                 emit_phase_total_duration(
                     &ctx,
@@ -439,6 +434,31 @@ fn extract_text_response(content: &Value) -> String {
         .join("\n")
 }
 
+fn should_check_steering(fields: &Value) -> bool {
+    let max_follow_ups = field_i64(fields, "max_follow_ups").unwrap_or(5);
+    if max_follow_ups <= 0 {
+        return false;
+    }
+
+    let follow_up_count = field_i64(fields, "follow_up_count").unwrap_or(0);
+    follow_up_count < max_follow_ups && has_queued_steering_messages(fields)
+}
+
+fn has_queued_steering_messages(fields: &Value) -> bool {
+    let Some(raw) = fields.get("steering_messages").and_then(Value::as_str) else {
+        return false;
+    };
+    serde_json::from_str::<Vec<Value>>(raw)
+        .map(|messages| !messages.is_empty())
+        .unwrap_or(false)
+}
+
+fn field_i64(fields: &Value, field_name: &str) -> Option<i64> {
+    fields
+        .get(field_name)
+        .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
+}
+
 fn write_conversation_to_temperfs(
     ctx: &Context,
     temper_api_url: &str,
@@ -635,6 +655,59 @@ mod tests {
         assert!(should_store_entry_as_file(
             &"a".repeat(SESSION_ENTRY_FILE_THRESHOLD_BYTES + 1)
         ));
+    }
+
+    #[test]
+    fn empty_steering_queue_fast_finalizes() {
+        let fields = json!({
+            "max_follow_ups": "5",
+            "follow_up_count": 0,
+            "steering_messages": "[]"
+        });
+
+        assert!(!should_check_steering(&fields));
+    }
+
+    #[test]
+    fn missing_or_invalid_steering_queue_fast_finalizes() {
+        assert!(!should_check_steering(&json!({"max_follow_ups": "5"})));
+        assert!(!should_check_steering(&json!({
+            "max_follow_ups": "5",
+            "steering_messages": "not-json"
+        })));
+    }
+
+    #[test]
+    fn queued_steering_checks_when_budget_remains() {
+        let fields = json!({
+            "max_follow_ups": "5",
+            "follow_up_count": 1,
+            "steering_messages": r#"[{"content":"please revise"}]"#
+        });
+
+        assert!(should_check_steering(&fields));
+    }
+
+    #[test]
+    fn exhausted_steering_budget_fast_finalizes() {
+        let fields = json!({
+            "max_follow_ups": "2",
+            "follow_up_count": 2,
+            "steering_messages": r#"[{"content":"too late"}]"#
+        });
+
+        assert!(!should_check_steering(&fields));
+    }
+
+    #[test]
+    fn zero_max_follow_ups_fast_finalizes_even_with_queue() {
+        let fields = json!({
+            "max_follow_ups": "0",
+            "follow_up_count": 0,
+            "steering_messages": r#"[{"content":"queued"}]"#
+        });
+
+        assert!(!should_check_steering(&fields));
     }
 
     #[test]
