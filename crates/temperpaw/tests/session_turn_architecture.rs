@@ -86,6 +86,25 @@ fn session_routes_llm_calls_through_codex_auth_gate() {
 }
 
 #[test]
+fn session_defines_non_codex_provider_auth_fast_path() {
+    let spec = fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+
+    for needle in [
+        "name = \"ContextReadyAuthSkipped\"",
+        "from = [\"PreparingContext\"]",
+        "to = \"CallingProvider\"",
+        "params = [\"prepared_context_file_id\", \"prepared_context_inline_json\", \"prepared_context_bytes\", \"prepared_context_entries_loaded\", \"prepared_context_content_files_loaded\", \"context_tokens\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_auth_status\", \"provider_auth_checked_at_ms\", \"provider_auth_error\", \"provider_auth_retry_count\", \"compaction_auth_retry_count\"]",
+        "effect = [{ type = \"trigger\", name = \"call_provider\" }]",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "session spec should define provider-auth skipped fast path: {needle}"
+        );
+    }
+}
+
+#[test]
 fn active_context_preparer_owns_delta_batch_read_contract() {
     let root = repo_root();
     let preparer =
@@ -209,6 +228,7 @@ fn session_policy_authorizes_new_pipeline_callbacks_and_modules() {
 
     for needle in [
         "Action::\"ContextReady\"",
+        "Action::\"ContextReadyAuthSkipped\"",
         "Action::\"ProviderAuthReady\"",
         "Action::\"ProviderAuthExpired\"",
         "Action::\"ProviderResponseReady\"",

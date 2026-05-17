@@ -272,6 +272,24 @@
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
+      <Action Name="ContextReadyAuthSkipped" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="prepared_context_file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="prepared_context_inline_json" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="prepared_context_bytes" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_entries_loaded" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="prepared_context_content_files_loaded" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_status" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_checked_at_ms" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="compaction_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
       <Action Name="ProviderAuthReady" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="provider_auth_status" Type="Edm.String" Nullable="true"/>

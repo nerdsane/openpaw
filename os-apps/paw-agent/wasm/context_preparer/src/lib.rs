@@ -25,6 +25,8 @@ use wasm_helpers::{
 
 const DEFAULT_CONTEXT_PREPARE_BUDGET_MS: i64 = 120_000;
 const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 32 * 1024;
+const CONTEXT_READY_ACTION: &str = "ContextReady";
+const CONTEXT_READY_AUTH_SKIPPED_ACTION: &str = "ContextReadyAuthSkipped";
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -40,6 +42,14 @@ fn normalize_provider(provider: &str) -> String {
         "open_router" => "openrouter".to_string(),
         "codex" | "openai-codex" => "openai_codex".to_string(),
         _ => norm,
+    }
+}
+
+fn context_ready_action_for_provider(provider: &str) -> &'static str {
+    if normalize_provider(provider) == "openai_codex" {
+        CONTEXT_READY_ACTION
+    } else {
+        CONTEXT_READY_AUTH_SKIPPED_ACTION
     }
 }
 
@@ -983,10 +993,14 @@ pub fn run_context_preparer() -> Result<(), String> {
     send_progress_ignore(&ctx, &temper_api_url, tenant, "prepared_context_written");
 
     emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
-    emit_phase_total_duration(&ctx, "context_preparer", started_at, "context_ready");
-    set_success_result(
-        "ContextReady",
-        &json!({
+    let next_action = context_ready_action_for_provider(provider);
+    let phase_result = if next_action == CONTEXT_READY_ACTION {
+        "context_ready"
+    } else {
+        "context_ready_auth_skipped"
+    };
+    emit_phase_total_duration(&ctx, "context_preparer", started_at, phase_result);
+    let mut ready_params = json!({
             "prepared_context_file_id": artifact_storage.file_id,
             "prepared_context_inline_json": artifact_storage.inline_json,
             "prepared_context_bytes": context_bytes,
@@ -995,8 +1009,20 @@ pub fn run_context_preparer() -> Result<(), String> {
             "context_tokens": context_tokens,
             "system_prompt_hash": system_prompt_hash,
             "system_prompt_file_id": system_prompt_file_id,
-        }),
-    );
+    });
+    if next_action == CONTEXT_READY_AUTH_SKIPPED_ACTION {
+        ready_params["provider_auth_status"] = json!("skipped");
+        ready_params["provider_auth_checked_at_ms"] = json!(timestamp_millis_string());
+        ready_params["provider_auth_error"] = json!("");
+        ready_params["provider_auth_retry_count"] =
+            json!(retry_count(&fields, "provider_auth_retry_count", "ProviderAuthRetryCount"));
+        ready_params["compaction_auth_retry_count"] = json!(retry_count(
+            &fields,
+            "compaction_auth_retry_count",
+            "CompactionAuthRetryCount"
+        ));
+    }
+    set_success_result(next_action, &ready_params);
     Ok(())
 }
 
@@ -1575,6 +1601,18 @@ fn configured_usize(ctx: &Context, fields: &Value, key: &str) -> Option<usize> {
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<usize>().ok())
         .or_else(|| ctx.config.get(key).and_then(|s| s.parse::<usize>().ok()))
+}
+
+fn retry_count(fields: &Value, snake_case: &str, pascal_case: &str) -> i64 {
+    fields
+        .get(snake_case)
+        .or_else(|| fields.get(pascal_case))
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|raw| raw.parse::<i64>().ok()))
+        })
+        .unwrap_or(0)
 }
 
 fn emit_phase_step_duration(
@@ -2755,6 +2793,28 @@ mod tests {
     fn build_tool_definitions_empty_when_no_tools_enabled() {
         assert!(build_tool_definitions("", "", "/workspace").is_empty());
         assert!(build_sdk_reference("", "", "/workspace").is_empty());
+    }
+
+    #[test]
+    fn non_codex_providers_select_auth_skipped_context_ready_action() {
+        for provider in ["", "mock", "anthropic", "openai", "openrouter", "open_router"] {
+            assert_eq!(
+                context_ready_action_for_provider(provider),
+                "ContextReadyAuthSkipped",
+                "{provider} should not pay the Codex provider auth gate"
+            );
+        }
+    }
+
+    #[test]
+    fn codex_provider_aliases_keep_provider_auth_gate() {
+        for provider in ["codex", "openai-codex", "openai_codex"] {
+            assert_eq!(
+                context_ready_action_for_provider(provider),
+                "ContextReady",
+                "{provider} should still ensure Codex OAuth before provider call"
+            );
+        }
     }
 
     #[test]

@@ -67,6 +67,7 @@ permit(
     Action::"CheckSandboxReady",
     Action::"WorkspaceReady",
     Action::"ContextReady",
+    Action::"ContextReadyAuthSkipped",
     Action::"ProviderAuthReady",
     Action::"ProviderAuthExpired",
     Action::"ProviderResponseReady",
