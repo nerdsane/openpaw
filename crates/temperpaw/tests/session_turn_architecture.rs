@@ -347,6 +347,7 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
     );
 
     for needle in [
+        "<Parameter Name=\"tool_spans_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"provider_response_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"provider_response_inline_json\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
@@ -369,6 +370,76 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
             "temper.done completion path should contain {needle}"
         );
     }
+}
+
+#[test]
+fn record_result_no_reply_preserves_terminal_cleanup_without_delivery_trigger() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("model.csdl.xml should exist");
+    let applier = fs::read_to_string(
+        root.join("os-apps/paw-agent/wasm/provider_response_applier/src/lib.rs"),
+    )
+    .expect("provider_response_applier source should exist");
+    let policy = fs::read_to_string(root.join("os-apps/paw-agent/policies/session.cedar"))
+        .expect("session policy should exist");
+
+    assert!(
+        spec.contains("name = \"RecordResultNoReply\""),
+        "direct no-route sessions should have a spec-visible terminal action"
+    );
+    let action_start = spec
+        .find("name = \"RecordResultNoReply\"")
+        .expect("RecordResultNoReply action should exist");
+    let action_tail = &spec[action_start..];
+    let action_end = action_tail
+        .find("# --- Actions: Heartbeat")
+        .expect("RecordResultNoReply should appear before heartbeat actions");
+    let action_block = &action_tail[..action_end];
+    assert!(
+        action_block.contains(
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+        ),
+        "RecordResultNoReply should keep RecordResult cleanup/accounting params"
+    );
+    assert!(
+        action_block.contains("{ type = \"trigger\", name = \"emit_ots_trajectory\" }"),
+        "RecordResultNoReply must still emit terminal trajectory"
+    );
+    assert!(
+        !action_block.contains("deliver_reply"),
+        "RecordResultNoReply should not invoke no-op terminal reply delivery"
+    );
+    assert!(
+        csdl.contains("<Action Name=\"RecordResultNoReply\" IsBound=\"true\">"),
+        "CSDL should expose RecordResultNoReply"
+    );
+
+    for needle in [
+        "<Parameter Name=\"tool_spans_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"provider_response_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"provider_response_inline_json\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_tool_context\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_decision_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+    ] {
+        assert!(
+            csdl.contains(needle),
+            "RecordResultNoReply CSDL should contain {needle}"
+        );
+    }
+
+    assert!(
+        applier.contains("should_bypass_terminal_reply(&ctx.entity_id, &fields)")
+            && applier.contains("\"RecordResultNoReply\""),
+        "provider_response_applier should choose the no-reply action for direct no-route completion"
+    );
+    assert!(
+        policy.contains("Action::\"RecordResultNoReply\""),
+        "Cedar policy must permit the new Session callback action"
+    );
 }
 
 #[test]

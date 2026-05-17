@@ -5,7 +5,7 @@
 //! - append assistant output back into session storage
 //! - externalize oversized assistant content when needed
 //! - derive the next Session action
-//! - route to `ProcessToolCalls`, `CheckSteering`, or `RecordResult`
+//! - route to `ProcessToolCalls`, `CheckSteering`, `RecordResult`, or `RecordResultNoReply`
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -239,12 +239,21 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 if let Some(conversation) = inline_conversation {
                     params["conversation"] = json!(conversation);
                 }
-                set_success_result("RecordResult", &params);
+                let terminal_action = if should_bypass_terminal_reply(&ctx.entity_id, &fields) {
+                    "RecordResultNoReply"
+                } else {
+                    "RecordResult"
+                };
+                set_success_result(terminal_action, &params);
                 emit_phase_total_duration(
                     &ctx,
                     "provider_response_applier",
                     started_at,
-                    "record_result",
+                    if terminal_action == "RecordResultNoReply" {
+                        "record_result_no_reply"
+                    } else {
+                        "record_result"
+                    },
                 );
             }
         }
@@ -451,6 +460,38 @@ fn has_queued_steering_messages(fields: &Value) -> bool {
     serde_json::from_str::<Vec<Value>>(raw)
         .map(|messages| !messages.is_empty())
         .unwrap_or(false)
+}
+
+fn should_bypass_terminal_reply(session_id: &str, fields: &Value) -> bool {
+    if string_field(fields, &["reply_channel_id", "ReplyChannelId"])
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+        || string_field(fields, &["reply_thread_id", "ReplyThreadId"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        || string_field(fields, &["reply_route_source", "ReplyRouteSource"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+    {
+        return false;
+    }
+
+    if string_field(fields, &["parent_session_id", "ParentSessionId"])
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+    {
+        return false;
+    }
+
+    let session_id = session_id.trim();
+    let agent_id = string_field(fields, &["agent_id", "AgentId"])
+        .unwrap_or("")
+        .trim();
+    !session_id.is_empty() && (agent_id.is_empty() || agent_id == session_id)
+}
+
+fn string_field<'a>(fields: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names.iter().find_map(|name| fields.get(*name)?.as_str())
 }
 
 fn field_i64(fields: &Value, field_name: &str) -> Option<i64> {
@@ -708,6 +749,28 @@ mod tests {
         });
 
         assert!(!should_check_steering(&fields));
+    }
+
+    #[test]
+    fn terminal_reply_bypass_only_matches_unrouted_direct_sessions() {
+        assert!(should_bypass_terminal_reply("ss-direct", &json!({})));
+        assert!(should_bypass_terminal_reply(
+            "ss-direct",
+            &json!({"agent_id": "ss-direct"})
+        ));
+
+        for fields in [
+            json!({"reply_channel_id": "discord-channel", "reply_thread_id": "thread"}),
+            json!({"reply_thread_id": "thread"}),
+            json!({"reply_route_source": "channel_message"}),
+            json!({"parent_session_id": "ss-parent"}),
+            json!({"agent_id": "aj-agent"}),
+        ] {
+            assert!(
+                !should_bypass_terminal_reply("ss-direct", &fields),
+                "ambiguous or channel-bound fields must keep RecordResult delivery path: {fields}"
+            );
+        }
     }
 
     #[test]
