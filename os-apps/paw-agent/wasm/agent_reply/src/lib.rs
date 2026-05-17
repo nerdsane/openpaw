@@ -1,5 +1,12 @@
+mod delivery_route;
+
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{entity_field_str, resolve_temper_api_url, runtime_headers};
+
+use delivery_route::{
+    channel_session_lookup_candidates, delivery_route_from_channel_session,
+    delivery_route_from_session_fields, should_skip_channel_session_lookup,
+};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -22,28 +29,53 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .unwrap_or("");
         let reply_text = build_reply_text(&ctx.entity_state, status);
 
-        let Some((session, bound_agent_id)) = find_session_by_agent(
-            &ctx,
-            &temper_api_url,
-            tenant,
-            session_id,
-            agent_id,
-            parent_session_id,
-        )?
-        else {
-            ctx.log(
-                "info",
-                &format!("agent_reply: no channel session linked to agent {agent_id}; skipping"),
-            );
-            set_success_result(
-                "",
-                &json!({
-                    "status": "skipped",
-                    "reason": "no_channel_session",
-                    "agent_entity_id": agent_id,
-                }),
-            );
-            return Ok(());
+        let (route, bound_agent_id) = if let Some(route) = delivery_route_from_session_fields(&fields)
+        {
+            (route, agent_id.to_string())
+        } else {
+            if should_skip_channel_session_lookup(session_id, agent_id, parent_session_id) {
+                ctx.log(
+                    "info",
+                    &format!("agent_reply: no reply route for direct session {session_id}; skipping"),
+                );
+                set_success_result(
+                    "",
+                    &json!({
+                        "status": "skipped",
+                        "reason": "no_reply_route",
+                        "agent_entity_id": agent_id,
+                    }),
+                );
+                return Ok(());
+            }
+            let Some((session, bound_agent_id)) = find_session_by_agent(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                session_id,
+                agent_id,
+                parent_session_id,
+            )?
+            else {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "agent_reply: no channel session linked to agent {agent_id}; skipping"
+                    ),
+                );
+                set_success_result(
+                    "",
+                    &json!({
+                        "status": "skipped",
+                        "reason": "no_channel_session",
+                        "agent_entity_id": agent_id,
+                    }),
+                );
+                return Ok(());
+            };
+            let route = delivery_route_from_channel_session(&session)
+                .ok_or_else(|| "agent_reply: channel session missing channel_id/thread_id".to_string())?;
+            (route, bound_agent_id)
         };
         if bound_agent_id != agent_id {
             ctx.log(
@@ -54,21 +86,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             );
         }
 
-        let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
-        let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
-        if channel_id.is_empty() || thread_id.is_empty() {
-            return Err("agent_reply: channel session missing channel_id/thread_id".to_string());
-        }
-
-        let channel = find_channel_by_external_id(&ctx, &temper_api_url, tenant, channel_id)?
-            .ok_or_else(|| {
-                format!(
-                    "agent_reply: no connected Channel entity found for channel_id={channel_id}"
-                )
-            })?;
-        let channel_entity_id = entity_field_str(&channel, &["Id", "entity_id", "id"])
-            .ok_or_else(|| "agent_reply: resolved Channel missing entity id".to_string())?;
-
         let mut headers = runtime_headers(
             &ctx,
             tenant,
@@ -78,7 +95,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         );
         headers.push((
             "x-temper-attr-channelid".to_string(),
-            channel_id.to_string(),
+            route.channel_id.clone(),
         ));
 
         // Only treat as a child agent if agent_depth > 0 (explicitly spawned).
@@ -87,6 +104,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(0);
         let is_child = agent_depth > 0;
+        let resolved_channel = if is_child || route.channel_entity_id.is_none() {
+            find_channel_by_external_id(&ctx, &temper_api_url, tenant, &route.channel_id)?
+                .ok_or_else(|| {
+                    format!(
+                        "agent_reply: no connected Channel entity found for channel_id={}",
+                        route.channel_id
+                    )
+                })?
+        } else {
+            json!({})
+        };
+        let channel_entity_id = route
+            .channel_entity_id
+            .as_deref()
+            .or_else(|| entity_field_str(&resolved_channel, &["Id", "entity_id", "id"]))
+            .ok_or_else(|| "agent_reply: resolved Channel missing entity id".to_string())?;
 
         // For child agents, send an embed directly to the webhook (bypasses
         // Channel.SendReply which doesn't support embeds in its IOA fields).
@@ -115,11 +148,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             // Get webhook_url from the Channel entity
-            let webhook_url =
-                entity_field_str(&channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
+            let webhook_url = entity_field_str(&resolved_channel, &["webhook_url", "WebhookUrl"])
+                .unwrap_or("");
             if !webhook_url.is_empty() {
                 let embed_body = json!({
-                    "thread_id": thread_id,
+                    "thread_id": route.thread_id.as_str(),
                     "content": "",
                     "agent_entity_id": agent_id,
                     "embeds": [{
@@ -143,7 +176,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 }
                 if needs_follow_up {
                     let follow_up_body = json!({
-                        "thread_id": thread_id,
+                        "thread_id": route.thread_id.as_str(),
                         "content": reply_text,
                         "agent_entity_id": agent_id,
                     });
@@ -175,7 +208,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         let body = json!({
-            "thread_id": thread_id,
+            "thread_id": route.thread_id.as_str(),
             "content": reply_text,
             "agent_entity_id": agent_id,
         });
@@ -193,13 +226,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         ctx.log(
             "info",
-            &format!("agent_reply: dispatched reply for agent {agent_id} to thread {thread_id}"),
+            &format!(
+                "agent_reply: dispatched reply for agent {agent_id} to thread {}",
+                route.thread_id
+            ),
         );
         set_success_result(
             "",
             &json!({
                 "status": "replied",
-                "thread_id": thread_id,
+                "thread_id": route.thread_id.as_str(),
                 "agent_entity_id": agent_id,
             }),
         );
@@ -330,102 +366,6 @@ fn escape_odata(value: &str) -> String {
     value.replace('\'', "''")
 }
 
-struct ChannelSessionLookup {
-    filter: String,
-    bound_id: String,
-}
-
-fn channel_session_lookup_candidates(
-    current_session_id: &str,
-    agent_id: &str,
-    parent_session_id: &str,
-) -> Vec<ChannelSessionLookup> {
-    let mut candidates = Vec::new();
-    let current_session_id = current_session_id.trim();
-    let parent_session_id = parent_session_id.trim();
-    let agent_id = agent_id.trim();
-
-    if !current_session_id.is_empty() {
-        let escaped = escape_odata(current_session_id);
-        candidates.push(ChannelSessionLookup {
-            filter: format!(
-                "$filter=Status eq 'Active' and session_entity_id eq '{escaped}'&$top=1"
-            ),
-            bound_id: agent_id.to_string(),
-        });
-    }
-
-    if !parent_session_id.is_empty() && parent_session_id != current_session_id {
-        let escaped = escape_odata(parent_session_id);
-        candidates.push(ChannelSessionLookup {
-            filter: format!(
-                "$filter=Status eq 'Active' and session_entity_id eq '{escaped}'&$top=1"
-            ),
-            bound_id: parent_session_id.to_string(),
-        });
-    }
-
-    if !agent_id.is_empty() {
-        let escaped = escape_odata(agent_id);
-        candidates.push(ChannelSessionLookup {
-            filter: format!("$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1"),
-            bound_id: agent_id.to_string(),
-        });
-        candidates.push(ChannelSessionLookup {
-            filter: format!("$filter=agent_entity_id eq '{escaped}'&$top=1"),
-            bound_id: agent_id.to_string(),
-        });
-    }
-
-    candidates
-}
-
-#[cfg(test)]
-fn channel_session_lookup_filters(
-    current_session_id: &str,
-    agent_id: &str,
-    parent_session_id: &str,
-) -> Vec<String> {
-    channel_session_lookup_candidates(current_session_id, agent_id, parent_session_id)
-        .into_iter()
-        .map(|candidate| candidate.filter)
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn channel_session_lookup_prefers_current_session_then_parent_then_agent_binding() {
-        let filters = channel_session_lookup_filters("ss-current", "aj-agent", "ss-parent");
-
-        assert_eq!(
-            filters,
-            vec![
-                "$filter=Status eq 'Active' and session_entity_id eq 'ss-current'&$top=1",
-                "$filter=Status eq 'Active' and session_entity_id eq 'ss-parent'&$top=1",
-                "$filter=Status eq 'Active' and agent_entity_id eq 'aj-agent'&$top=1",
-                "$filter=agent_entity_id eq 'aj-agent'&$top=1",
-            ]
-        );
-    }
-
-    #[test]
-    fn channel_session_lookup_deduplicates_resumed_parent_session() {
-        let filters = channel_session_lookup_filters("ss-current", "aj-agent", "ss-current");
-
-        assert_eq!(
-            filters,
-            vec![
-                "$filter=Status eq 'Active' and session_entity_id eq 'ss-current'&$top=1",
-                "$filter=Status eq 'Active' and agent_entity_id eq 'aj-agent'&$top=1",
-                "$filter=agent_entity_id eq 'aj-agent'&$top=1",
-            ]
-        );
-    }
-}
-
 fn resolve_soul_name(
     ctx: &Context,
     temper_api_url: &str,
@@ -444,12 +384,12 @@ fn resolve_soul_name(
 
     // Try by ID first
     let url = format!("{temper_api_url}/tdata/Souls('{soul_ref}')");
-    if let Ok(resp) = ctx.http_call("GET", &url, &headers, "") {
-        if resp.status == 200 {
-            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_default();
-            if let Some(name) = entity_field_str(&parsed, &["Name", "name"]) {
-                return Some(name.to_string());
-            }
+    if let Ok(resp) = ctx.http_call("GET", &url, &headers, "")
+        && resp.status == 200
+    {
+        let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_default();
+        if let Some(name) = entity_field_str(&parsed, &["Name", "name"]) {
+            return Some(name.to_string());
         }
     }
 
@@ -458,18 +398,17 @@ fn resolve_soul_name(
     let url = format!(
         "{temper_api_url}/tdata/Souls?$filter=Name eq '{escaped}' and Status eq 'Active'&$top=1"
     );
-    if let Ok(resp) = ctx.http_call("GET", &url, &headers, "") {
-        if resp.status == 200 {
-            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_default();
-            if let Some(soul) = parsed
-                .get("value")
-                .and_then(Value::as_array)
-                .and_then(|a| a.first())
-            {
-                if let Some(name) = entity_field_str(soul, &["Name", "name"]) {
-                    return Some(name.to_string());
-                }
-            }
+    if let Ok(resp) = ctx.http_call("GET", &url, &headers, "")
+        && resp.status == 200
+    {
+        let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_default();
+        if let Some(soul) = parsed
+            .get("value")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            && let Some(name) = entity_field_str(soul, &["Name", "name"])
+        {
+            return Some(name.to_string());
         }
     }
 

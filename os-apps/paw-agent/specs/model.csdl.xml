@@ -72,6 +72,10 @@
         <Property Name="ChildSessionIds" Type="Edm.String"/>
         <Property Name="SessionDepth" Type="Edm.Int64"/>
         <Property Name="AgentId" Type="Edm.String"/>
+        <Property Name="ReplyChannelId" Type="Edm.String"/>
+        <Property Name="ReplyThreadId" Type="Edm.String"/>
+        <Property Name="ReplyChannelEntityId" Type="Edm.String"/>
+        <Property Name="ReplyRouteSource" Type="Edm.String"/>
         <Property Name="LastHeartbeatAt" Type="Edm.String"/>
         <Property Name="HeartbeatTimeoutSeconds" Type="Edm.String"/>
         <Property Name="ProgressToken" Type="Edm.Int64"/>
@@ -217,6 +221,11 @@
         <Parameter Name="sandbox_packages_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="temper_api_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="soul_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="agent_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_channel_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_thread_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_channel_entity_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_route_source" Type="Edm.String" Nullable="true"/>
         <Parameter Name="parent_session_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_depth" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="max_follow_ups" Type="Edm.String" Nullable="true"/>
