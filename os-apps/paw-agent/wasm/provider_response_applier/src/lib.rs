@@ -5,7 +5,8 @@
 //! - append assistant output back into session storage
 //! - externalize oversized assistant content when needed
 //! - derive the next Session action
-//! - route to `ProcessToolCalls`, `CheckSteering`, `RecordResult`, or `RecordResultNoReply`
+//! - route to `ProcessToolCalls`, `CheckSteering`, `RecordResult`, `RecordResultNoReply`,
+//!   or `RecordResultInlineReply`
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -241,6 +242,14 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 }
                 let terminal_action = if should_bypass_terminal_reply(&ctx.entity_id, &fields) {
                     "RecordResultNoReply"
+                } else if try_dispatch_inline_reply(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &fields,
+                    &result_text,
+                ) {
+                    "RecordResultInlineReply"
                 } else {
                     "RecordResult"
                 };
@@ -249,11 +258,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                     &ctx,
                     "provider_response_applier",
                     started_at,
-                    if terminal_action == "RecordResultNoReply" {
-                        "record_result_no_reply"
-                    } else {
-                        "record_result"
-                    },
+                    terminal_phase_name(terminal_action),
                 );
             }
         }
@@ -462,6 +467,131 @@ fn has_queued_steering_messages(fields: &Value) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InlineReplyRoute {
+    channel_id: String,
+    channel_entity_id: String,
+    channel_type: String,
+    thread_id: String,
+    agent_entity_id: String,
+}
+
+fn try_dispatch_inline_reply(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    reply_text: &str,
+) -> bool {
+    let Some(route) = inline_reply_route(&ctx.entity_id, fields) else {
+        return false;
+    };
+
+    let url = inline_reply_action_url(temper_api_url, &route.channel_entity_id);
+    let mut headers = runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    if !route.channel_id.is_empty() {
+        headers.push((
+            "x-temper-attr-channelid".to_string(),
+            route.channel_id.clone(),
+        ));
+    }
+
+    let body = inline_reply_body(&route, reply_text);
+    match ctx.http_call("POST", &url, &headers, &body.to_string()) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            ctx.log(
+                "info",
+                &format!(
+                    "provider_response_applier: recorded inline reply for thread {} via {}",
+                    route.thread_id, route.channel_type
+                ),
+            );
+            true
+        }
+        Ok(resp) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "provider_response_applier: inline reply dispatch failed; falling back to RecordResult (HTTP {}): {}",
+                    resp.status,
+                    truncate_body(&resp.body)
+                ),
+            );
+            false
+        }
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "provider_response_applier: inline reply dispatch failed; falling back to RecordResult: {err}"
+                ),
+            );
+            false
+        }
+    }
+}
+
+fn inline_reply_route(session_id: &str, fields: &Value) -> Option<InlineReplyRoute> {
+    let channel_type = trimmed_string_field(fields, &["reply_channel_type", "ReplyChannelType"])?;
+    if !matches!(channel_type.trim(), "cli" | "tui") {
+        return None;
+    }
+
+    let channel_entity_id =
+        trimmed_string_field(fields, &["reply_channel_entity_id", "ReplyChannelEntityId"])?;
+    let thread_id = trimmed_string_field(fields, &["reply_thread_id", "ReplyThreadId"])?;
+    let channel_id =
+        trimmed_string_field(fields, &["reply_channel_id", "ReplyChannelId"]).unwrap_or_default();
+    let agent_entity_id = string_field(fields, &["agent_id", "AgentId"])
+        .unwrap_or(session_id)
+        .trim()
+        .to_string();
+
+    Some(InlineReplyRoute {
+        channel_id,
+        channel_entity_id,
+        channel_type,
+        thread_id,
+        agent_entity_id,
+    })
+}
+
+fn trimmed_string_field(fields: &Value, names: &[&str]) -> Option<String> {
+    string_field(fields, names)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn inline_reply_action_url(temper_api_url: &str, channel_entity_id: &str) -> String {
+    format!(
+        "{temper_api_url}/tdata/Channels('{}')/Paw.Channel.ReplyDelivered",
+        escape_odata(channel_entity_id)
+    )
+}
+
+fn inline_reply_body(route: &InlineReplyRoute, reply_text: &str) -> Value {
+    json!({
+        "thread_id": route.thread_id.as_str(),
+        "content": reply_text,
+        "agent_entity_id": route.agent_entity_id.as_str(),
+    })
+}
+
+fn terminal_phase_name(action: &str) -> &'static str {
+    match action {
+        "RecordResultNoReply" => "record_result_no_reply",
+        "RecordResultInlineReply" => "record_result_inline_reply",
+        _ => "record_result",
+    }
+}
+
 fn should_bypass_terminal_reply(session_id: &str, fields: &Value) -> bool {
     if string_field(fields, &["reply_channel_id", "ReplyChannelId"])
         .filter(|value| !value.trim().is_empty())
@@ -506,6 +636,19 @@ fn should_bypass_terminal_reply(session_id: &str, fields: &Value) -> bool {
 
 fn string_field<'a>(fields: &'a Value, names: &[&str]) -> Option<&'a str> {
     names.iter().find_map(|name| fields.get(*name)?.as_str())
+}
+
+fn escape_odata(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn truncate_body(body: &str) -> String {
+    const LIMIT: usize = 240;
+    if body.len() <= LIMIT {
+        body.to_string()
+    } else {
+        format!("{}...", &body[..LIMIT])
+    }
 }
 
 fn field_i64(fields: &Value, field_name: &str) -> Option<i64> {
@@ -797,6 +940,86 @@ mod tests {
                 "ambiguous or channel-bound fields must keep RecordResult delivery path: {fields}"
             );
         }
+    }
+
+    #[test]
+    fn inline_reply_route_only_matches_complete_inline_channels() {
+        let route = inline_reply_route(
+            "ss-inline",
+            &json!({
+                "reply_channel_id": "cli-channel",
+                "reply_channel_entity_id": "en-channel",
+                "reply_channel_type": "cli",
+                "reply_thread_id": "thread-1",
+                "agent_id": "aj-agent"
+            }),
+        )
+        .expect("complete cli route should be eligible");
+
+        assert_eq!(route.channel_id, "cli-channel");
+        assert_eq!(route.channel_entity_id, "en-channel");
+        assert_eq!(route.channel_type, "cli");
+        assert_eq!(route.thread_id, "thread-1");
+        assert_eq!(route.agent_entity_id, "aj-agent");
+
+        assert!(inline_reply_route(
+            "ss-inline",
+            &json!({
+                "reply_channel_entity_id": "en-channel",
+                "reply_channel_type": "tui",
+                "reply_thread_id": "thread-1"
+            }),
+        )
+        .is_some());
+
+        for fields in [
+            json!({
+                "reply_channel_entity_id": "en-channel",
+                "reply_channel_type": "discord",
+                "reply_thread_id": "thread-1"
+            }),
+            json!({
+                "reply_channel_type": "cli",
+                "reply_thread_id": "thread-1"
+            }),
+            json!({
+                "reply_channel_entity_id": "en-channel",
+                "reply_channel_type": "cli"
+            }),
+        ] {
+            assert!(
+                inline_reply_route("ss-inline", &fields).is_none(),
+                "non-inline or incomplete route must fall back to RecordResult: {fields}"
+            );
+        }
+    }
+
+    #[test]
+    fn inline_reply_url_and_body_match_channel_reply_delivered_contract() {
+        let route = InlineReplyRoute {
+            channel_id: "cli-channel".to_string(),
+            channel_entity_id: "en-channel'quoted".to_string(),
+            channel_type: "cli".to_string(),
+            thread_id: "thread-1".to_string(),
+            agent_entity_id: "".to_string(),
+        };
+
+        assert_eq!(
+            inline_reply_action_url("http://temper", &route.channel_entity_id),
+            "http://temper/tdata/Channels('en-channel''quoted')/Paw.Channel.ReplyDelivered"
+        );
+        assert_eq!(
+            inline_reply_body(&route, "hello"),
+            json!({
+                "thread_id": "thread-1",
+                "content": "hello",
+                "agent_entity_id": "",
+            })
+        );
+        assert_eq!(
+            terminal_phase_name("RecordResultInlineReply"),
+            "record_result_inline_reply"
+        );
     }
 
     #[test]

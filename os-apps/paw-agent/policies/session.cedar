@@ -76,6 +76,7 @@ permit(
     Action::"CheckpointToolBatch",
     Action::"RecordResult",
     Action::"RecordResultNoReply",
+    Action::"RecordResultInlineReply",
     Action::"NeedsCompaction",
     Action::"CompactionAuthReady",
     Action::"CompactionAuthExpired",
