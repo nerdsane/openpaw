@@ -442,6 +442,17 @@
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
+      <Action Name="FinalizeResultNoReply" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
+        <Parameter Name="result" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="conversation" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Session"/>
+      </Action>
+
       <Action Name="Steer" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="steering_messages" Type="Edm.String" Nullable="false"/>

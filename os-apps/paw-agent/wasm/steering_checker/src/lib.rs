@@ -3,7 +3,7 @@
 //! When the LLM returns end_turn, this module is triggered (via CheckSteering).
 //! It checks for queued steering messages and either:
 //! - Injects the first queued message and returns ContinueWithSteering
-//! - Returns FinalizeResult if no messages are queued
+//! - Returns FinalizeResult or FinalizeResultNoReply if no messages are queued
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
@@ -198,17 +198,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 session_leaf_id,
             )?;
 
-            // Track FinalizeResult dispatches — paired with temperpaw#60 fix.
+            let terminal_action = if should_finalize_without_reply(&ctx.entity_id, &fields) {
+                "FinalizeResultNoReply"
+            } else {
+                "FinalizeResult"
+            };
+
+            // Track final result dispatches — paired with temperpaw#60 fix.
             // Before Phase 2a + 2b landed, the callback for this action could be
             // dropped under heartbeat contention. This log line lets Datadog
             // confirm the dispatch actually reached the server.
             ctx.log("info", &format!(
-                "steering_checker: dispatching FinalizeResult session_id={} follow_up_count={} result_len={}",
+                "steering_checker: dispatching {terminal_action} session_id={} follow_up_count={} result_len={}",
                 ctx.entity_id, follow_up_count, result_text.len()
             ));
 
             set_success_result(
-                "FinalizeResult",
+                terminal_action,
                 &json!({
                     "result": result_text,
                     "session_leaf_id": session_leaf_id,
@@ -320,4 +326,88 @@ fn extract_text_from_content(content: Option<&Value>) -> String {
 /// Simple token estimate (4 chars per token).
 fn estimate_tokens(text: &str) -> usize {
     text.len() / 4
+}
+
+fn should_finalize_without_reply(session_id: &str, fields: &Value) -> bool {
+    if string_field(fields, &["reply_channel_id", "ReplyChannelId"])
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+        || string_field(fields, &["reply_thread_id", "ReplyThreadId"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        || string_field(fields, &["reply_channel_entity_id", "ReplyChannelEntityId"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        || string_field(fields, &["reply_channel_type", "ReplyChannelType"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+    {
+        return false;
+    }
+
+    let reply_route_source = string_field(fields, &["reply_route_source", "ReplyRouteSource"])
+        .unwrap_or("")
+        .trim();
+    if !reply_route_source.is_empty() && reply_route_source != "direct_no_reply" {
+        return false;
+    }
+
+    if string_field(fields, &["parent_session_id", "ParentSessionId"])
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+    {
+        return false;
+    }
+
+    let session_id = session_id.trim();
+    if reply_route_source == "direct_no_reply" {
+        return !session_id.is_empty();
+    }
+
+    let agent_id = string_field(fields, &["agent_id", "AgentId"])
+        .unwrap_or("")
+        .trim();
+    !session_id.is_empty() && (agent_id.is_empty() || agent_id == session_id)
+}
+
+fn string_field<'a>(fields: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names.iter().find_map(|name| fields.get(*name)?.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalize_without_reply_accepts_explicit_direct_marker() {
+        assert!(should_finalize_without_reply(
+            "ss-direct",
+            &json!({
+                "agent_id": "aj-direct",
+                "reply_route_source": "direct_no_reply"
+            })
+        ));
+    }
+
+    #[test]
+    fn finalize_without_reply_preserves_channel_and_parent_fallbacks() {
+        for fields in [
+            json!({"reply_route_source": "channel_message"}),
+            json!({
+                "reply_route_source": "direct_no_reply",
+                "reply_channel_id": "channel",
+                "reply_thread_id": "thread"
+            }),
+            json!({
+                "reply_route_source": "direct_no_reply",
+                "parent_session_id": "ss-parent"
+            }),
+            json!({"agent_id": "aj-ambiguous"}),
+        ] {
+            assert!(
+                !should_finalize_without_reply("ss-direct", &fields),
+                "ambiguous or channel-bound fields must keep FinalizeResult delivery path: {fields}"
+            );
+        }
+    }
 }

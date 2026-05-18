@@ -469,10 +469,20 @@ fn should_bypass_terminal_reply(session_id: &str, fields: &Value) -> bool {
         || string_field(fields, &["reply_thread_id", "ReplyThreadId"])
             .filter(|value| !value.trim().is_empty())
             .is_some()
-        || string_field(fields, &["reply_route_source", "ReplyRouteSource"])
+        || string_field(fields, &["reply_channel_entity_id", "ReplyChannelEntityId"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        || string_field(fields, &["reply_channel_type", "ReplyChannelType"])
             .filter(|value| !value.trim().is_empty())
             .is_some()
     {
+        return false;
+    }
+
+    let reply_route_source = string_field(fields, &["reply_route_source", "ReplyRouteSource"])
+        .unwrap_or("")
+        .trim();
+    if !reply_route_source.is_empty() && reply_route_source != "direct_no_reply" {
         return false;
     }
 
@@ -484,6 +494,10 @@ fn should_bypass_terminal_reply(session_id: &str, fields: &Value) -> bool {
     }
 
     let session_id = session_id.trim();
+    if reply_route_source == "direct_no_reply" {
+        return !session_id.is_empty();
+    }
+
     let agent_id = string_field(fields, &["agent_id", "AgentId"])
         .unwrap_or("")
         .trim();
@@ -758,11 +772,23 @@ mod tests {
             "ss-direct",
             &json!({"agent_id": "ss-direct"})
         ));
+        assert!(should_bypass_terminal_reply(
+            "ss-direct",
+            &json!({
+                "agent_id": "aj-direct",
+                "reply_route_source": "direct_no_reply"
+            })
+        ));
 
         for fields in [
             json!({"reply_channel_id": "discord-channel", "reply_thread_id": "thread"}),
             json!({"reply_thread_id": "thread"}),
             json!({"reply_route_source": "channel_message"}),
+            json!({
+                "reply_route_source": "direct_no_reply",
+                "reply_channel_id": "discord-channel",
+                "reply_thread_id": "thread"
+            }),
             json!({"parent_session_id": "ss-parent"}),
             json!({"agent_id": "aj-agent"}),
         ] {
