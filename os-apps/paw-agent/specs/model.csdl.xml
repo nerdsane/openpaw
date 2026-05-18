@@ -39,6 +39,7 @@
         <Property Name="Conversation" Type="Edm.String"/>
         <Property Name="SessionFileId" Type="Edm.String"/>
         <Property Name="SessionLeafId" Type="Edm.String"/>
+        <Property Name="SessionEntriesMaterialized" Type="Edm.String"/>
         <Property Name="ContextTokens" Type="Edm.Int64"/>
         <Property Name="PreparedContextFileId" Type="Edm.String"/>
         <Property Name="PreparedContextInlineJson" Type="Edm.String"/>
@@ -243,6 +244,7 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <Parameter Name="prepared_context_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="prepared_context_inline_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
@@ -267,6 +269,7 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -333,6 +336,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
@@ -415,6 +419,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
@@ -515,6 +520,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tool_spans_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
@@ -534,6 +540,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tool_spans_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
@@ -553,6 +560,7 @@
         <Parameter Name="input_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="output_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <Parameter Name="repl_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tool_spans_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
@@ -592,6 +600,7 @@
         <Parameter Name="file_manifest_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="session_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="session_leaf_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="session_entries_materialized" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 

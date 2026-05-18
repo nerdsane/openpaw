@@ -17,9 +17,10 @@ use session_turn_artifacts::{
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    append_session_entry_inline, create_content_file, is_session_entries_ref, read_content_file,
-    read_session_from_temperfs, resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
-    write_temperfs_value_with_retry,
+    append_session_entry_inline, create_content_file, is_session_entries_ref,
+    materialize_initial_session_entries_with_assistant, read_content_file,
+    read_session_from_temperfs, resolve_temper_api_url, runtime_headers,
+    session_id_from_entries_ref, write_session_to_temperfs, write_temperfs_value_with_retry,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -184,6 +185,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 json!(serde_json::to_string(&tool_calls).unwrap_or_default());
             if let Some(leaf) = new_leaf {
                 params["session_leaf_id"] = json!(leaf);
+                params["session_entries_materialized"] = json!("true");
             }
             if let Some(conversation) = inline_conversation {
                 params["conversation"] = json!(conversation);
@@ -226,7 +228,15 @@ pub fn run_provider_response_applier() -> Result<(), String> {
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
             params["result"] = json!(result_text);
-            params["session_leaf_id"] = json!(new_leaf);
+            match new_leaf {
+                Some(leaf) => {
+                    params["session_leaf_id"] = json!(leaf);
+                    params["session_entries_materialized"] = json!("true");
+                }
+                None => {
+                    params["session_leaf_id"] = Value::Null;
+                }
+            }
 
             if should_check_steering(&fields) {
                 set_success_result("CheckSteering", &params);
@@ -311,6 +321,39 @@ fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> S
     }
 }
 
+fn session_entries_materialized(fields: &Value) -> bool {
+    fields
+        .get("session_entries_materialized")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(true)
+}
+
+fn initial_user_message(fields: &Value, prepared: &PreparedContextArtifact) -> Result<String, String> {
+    if let Some(message) = fields
+        .get("user_message")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(message.to_string());
+    }
+
+    prepared
+        .messages
+        .iter()
+        .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+        .and_then(|message| message.get("content"))
+        .map(|content| match content.as_str() {
+            Some(text) => text.to_string(),
+            None => serde_json::to_string(content).unwrap_or_default(),
+        })
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "virtual first-turn SessionEntries materialization requires a user message"
+                .to_string()
+        })
+}
+
 fn legacy_updated_conversation_payload(
     prepared: &PreparedContextArtifact,
     artifact: &ProviderResponseArtifact,
@@ -341,6 +384,29 @@ fn append_assistant_response_to_session_tree(
     }
 
     if is_session_entries_ref(&prepared.session_file_id) {
+        if !session_entries_materialized(fields) {
+            let session_id = session_id_from_entries_ref(&prepared.session_file_id)
+                .ok_or("session-entries reference missing session id")?;
+            let user_message = initial_user_message(fields, prepared)?;
+            let created = materialize_initial_session_entries_with_assistant(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                session_id,
+                &user_message,
+                content,
+                output_tokens,
+            )?;
+            ctx.log(
+                "info",
+                &format!(
+                    "provider_response_applier: materialized virtual first-turn SessionEntries through assistant leaf {}",
+                    created.entry_id
+                ),
+            );
+            return Ok(Some(created.entry_id));
+        }
         let created = append_session_entry_inline(
             ctx,
             temper_api_url,

@@ -405,6 +405,119 @@ pub fn create_initial_session_entries(
             tokens: user_message.len() / 4,
         },
     ];
+    let created = create_session_entry_batch(ctx, temper_api_url, tenant, fields, &specs, "initial")?;
+
+    verify_initial_session_entries(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        &header_id,
+        &user_entry_id,
+    )?;
+
+    if created.len() != 2 {
+        return Err(format!(
+            "initial SessionEntry batch returned {} created entries for 2 specs",
+            created.len()
+        ));
+    }
+    Ok((created[0].clone(), created[1].clone()))
+}
+
+pub fn materialize_initial_session_entries_with_assistant(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    user_message: &str,
+    assistant_content: &Value,
+    assistant_tokens: usize,
+) -> Result<CreatedSessionEntry, String> {
+    let header_id = format!("h-{session_id}");
+    let user_entry_id = format!("u-{session_id}-0");
+    let (assistant_entry_id, assistant_sequence) = next_session_entry_id("a", &user_entry_id);
+    let header_extra = json!({ "version": 1 });
+    let user_content = json!(user_message);
+    let specs = [
+        SessionEntryCreateSpec {
+            session_id,
+            entry_id: &header_id,
+            parent_entry_id: None,
+            sequence: 0,
+            entry_type: "header",
+            role: None,
+            content: None,
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: Some(&header_extra),
+            tokens: 0,
+        },
+        SessionEntryCreateSpec {
+            session_id,
+            entry_id: &user_entry_id,
+            parent_entry_id: Some(&header_id),
+            sequence: 1,
+            entry_type: "message",
+            role: Some("user"),
+            content: Some(&user_content),
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: None,
+            tokens: user_message.len() / 4,
+        },
+        SessionEntryCreateSpec {
+            session_id,
+            entry_id: &assistant_entry_id,
+            parent_entry_id: Some(&user_entry_id),
+            sequence: assistant_sequence,
+            entry_type: "message",
+            role: Some("assistant"),
+            content: Some(assistant_content),
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: None,
+            tokens: assistant_tokens,
+        },
+    ];
+    let created = create_session_entry_batch(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        &specs,
+        "materialize initial SessionEntry",
+    )?;
+    verify_session_entries(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        &[&header_id, &user_entry_id, &assistant_entry_id],
+        "materialize_initial_session_entries_with_assistant",
+    )?;
+
+    created
+        .into_iter()
+        .find(|entry| entry.entry_id == assistant_entry_id)
+        .ok_or_else(|| {
+            format!(
+                "materialize initial SessionEntry batch did not return assistant entry {assistant_entry_id}"
+            )
+        })
+}
+
+fn create_session_entry_batch(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    specs: &[SessionEntryCreateSpec<'_>],
+    label: &str,
+) -> Result<Vec<CreatedSessionEntry>, String> {
     let create_headers = runtime_headers(
         ctx,
         tenant,
@@ -428,7 +541,7 @@ pub fn create_initial_session_entries(
     let create_responses = ctx.http_call_batch(&create_requests)?;
     if create_responses.len() != specs.len() {
         return Err(format!(
-            "initial SessionEntry batch returned {} responses for {} requests",
+            "{label} batch returned {} responses for {} requests",
             create_responses.len(),
             specs.len()
         ));
@@ -438,7 +551,7 @@ pub fn create_initial_session_entries(
     for (spec, resp) in specs.iter().zip(create_responses.iter()) {
         if resp.status < 200 || resp.status >= 300 {
             return Err(format!(
-                "initial SessionEntry {} creation failed (HTTP {}): {}",
+                "{label} {} creation failed (HTTP {}): {}",
                 spec.entry_id,
                 resp.status,
                 &resp.body[..resp.body.len().min(300)]
@@ -449,10 +562,7 @@ pub fn create_initial_session_entries(
             entry_id: spec.entry_id.to_string(),
         });
     }
-
-    verify_initial_session_entries(ctx, temper_api_url, tenant, fields, session_id, &header_id, &user_entry_id)?;
-
-    Ok((created.remove(0), created.remove(0)))
+    Ok(created)
 }
 
 fn verify_initial_session_entries(
@@ -464,22 +574,37 @@ fn verify_initial_session_entries(
     header_id: &str,
     user_entry_id: &str,
 ) -> Result<(), String> {
+    verify_session_entries(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        &[header_id, user_entry_id],
+        "create_initial_session_entries",
+    )
+}
+
+fn verify_session_entries(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    entry_ids: &[&str],
+    label: &str,
+) -> Result<(), String> {
     const VERIFY_ATTEMPTS: u32 = 4;
     let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
-    let verify_requests = [
-        HttpRequest {
+    let verify_requests = entry_ids
+        .iter()
+        .map(|entry_id| HttpRequest {
             method: "GET".to_string(),
-            url: session_entry_verify_url(temper_api_url, session_id, header_id),
+            url: session_entry_verify_url(temper_api_url, session_id, entry_id),
             headers: verify_headers.clone(),
             body: String::new(),
-        },
-        HttpRequest {
-            method: "GET".to_string(),
-            url: session_entry_verify_url(temper_api_url, session_id, user_entry_id),
-            headers: verify_headers,
-            body: String::new(),
-        },
-    ];
+        })
+        .collect::<Vec<_>>();
     let mut last_status = 0_i64;
     let mut last_err = String::new();
     for attempt in 0..VERIFY_ATTEMPTS {
@@ -494,7 +619,7 @@ fn verify_initial_session_entries(
                     ctx.log(
                         "info",
                         &format!(
-                            "create_initial_session_entries: read-back visible on attempt {} (SessionId={session_id})",
+                            "{label}: read-back visible on attempt {} (SessionId={session_id})",
                             attempt + 1
                         ),
                     );
@@ -523,11 +648,11 @@ fn verify_initial_session_entries(
     ctx.log(
         "error",
         &format!(
-            "create_initial_session_entries: WRITE LOST — batch POST 2xx for SessionId={session_id} but read-back missed after {VERIFY_ATTEMPTS} attempts (last_status={last_status} last_err={last_err:?})"
+            "{label}: WRITE LOST — batch POST 2xx for SessionId={session_id} but read-back missed after {VERIFY_ATTEMPTS} attempts (last_status={last_status} last_err={last_err:?})"
         ),
     );
     Err(format!(
-        "initial session entries acknowledged but read-back missed after {VERIFY_ATTEMPTS} attempts: SessionId={session_id}"
+        "{label} entries acknowledged but read-back missed after {VERIFY_ATTEMPTS} attempts: SessionId={session_id}"
     ))
 }
 

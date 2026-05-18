@@ -10,8 +10,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_initial_session_entries, create_session_entry, resolve_temper_api_url, runtime_headers,
-    runtime_headers_for_workspace, session_entries_ref, write_temperfs_value_with_retry,
+    create_session_entry, resolve_temper_api_url, runtime_headers, runtime_headers_for_workspace,
+    session_entries_ref, write_temperfs_value_with_retry,
 };
 
 fn elapsed_ms_since(started_at: i64) -> i64 {
@@ -107,6 +107,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let prior_session_entries_materialized = fields
+            .get("session_entries_materialized")
+            .and_then(|v| v.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("true")
+            .to_string();
 
         let (
             workspace_id,
@@ -114,6 +120,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             file_manifest_id,
             session_file_id,
             session_leaf_id,
+            session_entries_materialized,
         ) = if !prior_conversation_file_id.is_empty() || !prior_session_file_id.is_empty() {
             // Continuation session — reuse prior workspace and conversation storage.
             ctx.log(
@@ -128,6 +135,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 prior_file_manifest_id,
                 prior_session_file_id,
                 prior_session_leaf_id,
+                prior_session_entries_materialized,
             )
         } else if !prior_workspace_id.is_empty() {
             // Fresh session with an explicitly configured workspace.
@@ -163,8 +171,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 if fs_result.is_ok() { "ok" } else { "error" },
             );
             match fs_result {
-                Ok((conv, manifest, sess_file, sess_leaf)) => {
-                    (prior_workspace_id, conv, manifest, sess_file, sess_leaf)
+                Ok((conv, manifest, sess_file, sess_leaf, sess_materialized)) => {
+                    (
+                        prior_workspace_id,
+                        conv,
+                        manifest,
+                        sess_file,
+                        sess_leaf,
+                        sess_materialized,
+                    )
                 }
                 Err(e) => {
                     ctx.log(
@@ -192,8 +207,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 if fs_result.is_ok() { "ok" } else { "error" },
             );
             match fs_result {
-                Ok((ws, conv, manifest, sess_file, sess_leaf)) => {
-                    (ws, conv, manifest, sess_file, sess_leaf)
+                Ok((ws, conv, manifest, sess_file, sess_leaf, sess_materialized)) => {
+                    (ws, conv, manifest, sess_file, sess_leaf, sess_materialized)
                 }
                 Err(e) => {
                     ctx.log(
@@ -215,6 +230,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "file_manifest_id": file_manifest_id,
                 "session_file_id": session_file_id,
                 "session_leaf_id": session_leaf_id,
+                "session_entries_materialized": session_entries_materialized,
             }),
         );
         emit_phase_duration(&ctx, "workspace_provisioner", started_at, "workspace_ready");
@@ -265,42 +281,20 @@ fn legacy_session_files_enabled(ctx: &Context, fields: &Value) -> bool {
     bool_field_or_config(ctx, fields, "bootstrap_temperfs_session_files", false)
 }
 
-fn create_hot_session_storage(
+fn create_virtual_hot_session_storage(
     ctx: &Context,
     session_id: &str,
     user_message: &str,
     workspace_id: &str,
-) -> (String, String, String, String, String) {
+) -> (String, String, String, String, String, String) {
     let session_ref = session_entries_ref(session_id);
     let session_leaf_id = format!("u-{session_id}-0");
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-    let temper_api_url = resolve_temper_api_url(ctx, &fields);
-    let tenant = &ctx.tenant;
-
-    if let Err(e) = create_initial_session_entries(
-        ctx,
-        &temper_api_url,
-        tenant,
-        &fields,
-        session_id,
-        user_message,
-    ) {
-        ctx.log(
-            "warn",
-            &format!("workspace_provisioner: hot session initial entries failed: {e}"),
-        );
-        return (
-            workspace_id.to_string(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        );
-    }
-
     ctx.log(
         "info",
-        "workspace_provisioner: hot session entries initialized without PawFS bootstrap",
+        &format!(
+            "workspace_provisioner: virtual first-turn SessionEntries ref initialized without pre-provider writes (user_message_bytes={})",
+            user_message.len()
+        ),
     );
     (
         workspace_id.to_string(),
@@ -308,7 +302,17 @@ fn create_hot_session_storage(
         String::new(),
         session_ref,
         session_leaf_id,
+        "false".to_string(),
     )
+}
+
+fn create_hot_session_storage(
+    ctx: &Context,
+    session_id: &str,
+    user_message: &str,
+    workspace_id: &str,
+) -> (String, String, String, String, String, String) {
+    create_virtual_hot_session_storage(ctx, session_id, user_message, workspace_id)
 }
 
 fn create_hot_session_storage_in_workspace(
@@ -316,26 +320,34 @@ fn create_hot_session_storage_in_workspace(
     session_id: &str,
     user_message: &str,
     workspace_id: &str,
-) -> (String, String, String, String) {
-    let (_, conversation_file_id, file_manifest_id, session_file_id, session_leaf_id) =
+) -> (String, String, String, String, String) {
+    let (
+        _,
+        conversation_file_id,
+        file_manifest_id,
+        session_file_id,
+        session_leaf_id,
+        session_entries_materialized,
+    ) =
         create_hot_session_storage(ctx, session_id, user_message, workspace_id);
     (
         conversation_file_id,
         file_manifest_id,
         session_file_id,
         session_leaf_id,
+        session_entries_materialized,
     )
 }
 
 /// Create a TemperFS Workspace, conversation File, manifest File, and session file.
-/// Returns (workspace_entity_id, conversation_file_id, manifest_file_id, session_file_id, session_leaf_id).
+/// Returns (workspace_entity_id, conversation_file_id, manifest_file_id, session_file_id, session_leaf_id, session_entries_materialized).
 fn create_conversation_storage(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     agent_id: &str,
     user_message: &str,
-) -> Result<(String, String, String, String, String), String> {
+) -> Result<(String, String, String, String, String, String), String> {
     let headers = agent_headers(ctx, tenant, Some("application/json"), None);
 
     // 1. Create Workspace
@@ -370,14 +382,15 @@ fn create_conversation_storage(
         &format!("workspace_provisioner: created workspace {workspace_id}"),
     );
 
-    let (file_id, manifest_id, session_file_id, session_leaf_id) = create_session_storage_files(
-        ctx,
-        temper_api_url,
-        tenant,
-        &workspace_id,
-        agent_id,
-        user_message,
-    )?;
+    let (file_id, manifest_id, session_file_id, session_leaf_id, session_entries_materialized) =
+        create_session_storage_files(
+            ctx,
+            temper_api_url,
+            tenant,
+            &workspace_id,
+            agent_id,
+            user_message,
+        )?;
 
     Ok((
         workspace_id,
@@ -385,6 +398,7 @@ fn create_conversation_storage(
         manifest_id,
         session_file_id,
         session_leaf_id,
+        session_entries_materialized,
     ))
 }
 
@@ -396,7 +410,7 @@ fn create_conversation_storage_in_workspace(
     workspace_id: &str,
     agent_id: &str,
     user_message: &str,
-) -> Result<(String, String, String, String), String> {
+) -> Result<(String, String, String, String, String), String> {
     if workspace_id.is_empty() {
         return Err("configured workspace_id is empty".to_string());
     }
@@ -411,7 +425,7 @@ fn create_conversation_storage_in_workspace(
 }
 
 /// Create conversation + manifest + session files inside the provided workspace.
-/// Returns (conversation_file_id, manifest_file_id, session_file_id, session_leaf_id).
+/// Returns (conversation_file_id, manifest_file_id, session_file_id, session_leaf_id, session_entries_materialized).
 fn create_session_storage_files(
     ctx: &Context,
     temper_api_url: &str,
@@ -419,7 +433,7 @@ fn create_session_storage_files(
     workspace_id: &str,
     agent_id: &str,
     user_message: &str,
-) -> Result<(String, String, String, String), String> {
+) -> Result<(String, String, String, String, String), String> {
     let file_url = format!("{temper_api_url}/tdata/Files");
     let file_headers = workspace_headers(ctx, tenant, workspace_id, Some("application/json"), None);
 
@@ -525,7 +539,13 @@ fn create_session_storage_files(
         user_message,
     );
 
-    Ok((file_id, manifest_id, session_file_id, session_leaf_id))
+    Ok((
+        file_id,
+        manifest_id,
+        session_file_id,
+        session_leaf_id,
+        "true".to_string(),
+    ))
 }
 
 /// Create a Temper-native session tree using one SessionEntry entity per turn.
