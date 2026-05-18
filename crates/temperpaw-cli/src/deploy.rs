@@ -1855,10 +1855,10 @@ async fn poll_health(base_url: &str) -> Result<()> {
     // finish restoring state and reconciling OS apps, so keep the local poll
     // window aligned with Railway's health check timeout.
     for _ in 0..RAILWAY_HEALTH_POLL_ATTEMPTS {
-        if let Ok(response) = client.get(&health_url).send().await {
-            if response.status().is_success() {
-                return Ok(());
-            }
+        if let Ok(response) = client.get(&health_url).send().await
+            && response.status().is_success()
+        {
+            return Ok(());
         }
         tokio::time::sleep(Duration::from_secs(RAILWAY_HEALTH_POLL_INTERVAL_SECS)).await;
     }
@@ -1911,10 +1911,10 @@ fn resolve_railway_service_id(
         if let Some(services) = status_json["services"]["edges"].as_array() {
             for service in services {
                 let name = service["node"]["name"].as_str().unwrap_or_default();
-                if name == service_name {
-                    if let Some(id) = service["node"]["id"].as_str() {
-                        return Ok(id.to_string());
-                    }
+                if name == service_name
+                    && let Some(id) = service["node"]["id"].as_str()
+                {
+                    return Ok(id.to_string());
                 }
             }
         }
@@ -1927,19 +1927,19 @@ fn resolve_railway_service_id(
     if let Some(arr) = json.as_array() {
         for svc in arr {
             let name = svc["name"].as_str().unwrap_or_default();
-            if name == service_name {
-                if let Some(id) = svc["id"].as_str() {
-                    return Ok(id.to_string());
-                }
+            if name == service_name
+                && let Some(id) = svc["id"].as_str()
+            {
+                return Ok(id.to_string());
             }
         }
     } else if let Some(edges) = json["edges"].as_array() {
         for edge in edges {
             let name = edge["node"]["name"].as_str().unwrap_or_default();
-            if name == service_name {
-                if let Some(id) = edge["node"]["id"].as_str() {
-                    return Ok(id.to_string());
-                }
+            if name == service_name
+                && let Some(id) = edge["node"]["id"].as_str()
+            {
+                return Ok(id.to_string());
             }
         }
     }
@@ -1955,7 +1955,7 @@ fn resolve_railway_service_id(
 async fn configure_llm_via_api(deploy_url: &str) -> Result<()> {
     cliclack::log::step("Configure LLM provider")?;
 
-    let providers = vec![
+    let providers = [
         ("anthropic", "Anthropic (Claude)"),
         ("openai", "OpenAI"),
         ("openai_codex", "OpenAI Codex (ChatGPT Plus)"),
