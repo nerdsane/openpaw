@@ -89,13 +89,20 @@ pub fn is_session_entries_ref(reference: &str) -> bool {
 }
 
 pub fn next_session_entry_id(prefix: &str, parent_entry_id: &str) -> (String, i64) {
-    let next_sequence = parent_entry_id
+    let next_sequence = parent_session_entry_sequence(parent_entry_id).unwrap_or(0) + 1;
+    (format!("{prefix}-{next_sequence}"), next_sequence)
+}
+
+fn parent_session_entry_sequence(parent_entry_id: &str) -> Option<i64> {
+    let suffix = parent_entry_id
         .rsplit('-')
         .next()
-        .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or(0)
-        + 1;
-    (format!("{prefix}-{next_sequence}"), next_sequence)
+        .and_then(|value| value.parse::<i64>().ok())?;
+    if parent_entry_id.starts_with("u-ss-") {
+        suffix.checked_mul(2)?.checked_add(1)
+    } else {
+        Some(suffix)
+    }
 }
 
 fn read_temperfs_value_with_retry(
@@ -1691,12 +1698,20 @@ mod tests {
     #[test]
     fn next_session_entry_id_advances_numeric_suffix() {
         assert_eq!(
-            next_session_entry_id("a", "u-ss-019dd16f-0da6-7863-932c-f5a477da4f00-0"),
-            ("a-1".to_string(), 1)
+            next_session_entry_id("a", "u-1"),
+            ("a-2".to_string(), 2)
         );
         assert_eq!(
             next_session_entry_id("t", "a-17"),
             ("t-18".to_string(), 18)
+        );
+    }
+
+    #[test]
+    fn next_session_entry_id_maps_initial_session_user_turn_to_logical_sequence() {
+        assert_eq!(
+            next_session_entry_id("a", "u-ss-019dd16f-0da6-7863-932c-f5a477da4f00-0"),
+            ("a-2".to_string(), 2)
         );
     }
 
