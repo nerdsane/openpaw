@@ -26,10 +26,7 @@ except ImportError:
 
 DEFAULT_SERVICE = os.environ.get("DD_SERVICE", "temperpaw")
 DEFAULT_DB_INSTANCE = os.environ.get("TEMPER_DD_DB_INSTANCE", "temperpaw-postgres")
-DEFAULT_BASE_URL = os.environ.get(
-    "TEMPERPAW_BASE_URL",
-    "https://openpaw-production.up.railway.app",
-)
+DEFAULT_BASE_URL = os.environ.get("TEMPERPAW_BASE_URL")
 DEFAULT_APM_SQL_SPAN_QUERY = (
     "service:temperpaw type:sql @db.system:postgresql @peer.service:temperpaw-postgres"
 )
@@ -118,13 +115,12 @@ def apm_sql_span_query(service: str, db_instance: str) -> str:
 
 
 def capture_cpu_profile(args: argparse.Namespace) -> None:
-    api_key = (
-        os.environ.get("TEMPER_API_KEY")
-        or os.environ.get("OPENPAW_API_KEY")
-        or os.environ.get("API_KEY")
-    )
+    api_key = os.environ.get("TEMPER_API_KEY") or os.environ.get("TEMPERPAW_API_KEY")
     if not api_key:
         print("profile_capture: skipped missing TEMPER_API_KEY")
+        return
+    if not args.profile_base_url:
+        print("profile_capture: skipped missing TEMPERPAW_BASE_URL")
         return
 
     profile_url = (
