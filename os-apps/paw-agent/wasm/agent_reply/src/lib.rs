@@ -29,54 +29,57 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .unwrap_or("");
         let reply_text = build_reply_text(&ctx.entity_state, status);
 
-        let (route, bound_agent_id) = if let Some(route) = delivery_route_from_session_fields(&fields)
-        {
-            (route, agent_id.to_string())
-        } else {
-            if should_skip_channel_session_lookup(session_id, agent_id, parent_session_id) {
-                ctx.log(
-                    "info",
-                    &format!("agent_reply: no reply route for direct session {session_id}; skipping"),
-                );
-                set_success_result(
-                    "",
-                    &json!({
-                        "status": "skipped",
-                        "reason": "no_reply_route",
-                        "agent_entity_id": agent_id,
-                    }),
-                );
-                return Ok(());
-            }
-            let Some((session, bound_agent_id)) = find_session_by_agent(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                session_id,
-                agent_id,
-                parent_session_id,
-            )?
-            else {
-                ctx.log(
-                    "info",
-                    &format!(
-                        "agent_reply: no channel session linked to agent {agent_id}; skipping"
-                    ),
-                );
-                set_success_result(
-                    "",
-                    &json!({
-                        "status": "skipped",
-                        "reason": "no_channel_session",
-                        "agent_entity_id": agent_id,
-                    }),
-                );
-                return Ok(());
+        let (route, bound_agent_id) =
+            if let Some(route) = delivery_route_from_session_fields(&fields) {
+                (route, agent_id.to_string())
+            } else {
+                if should_skip_channel_session_lookup(session_id, agent_id, parent_session_id) {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "agent_reply: no reply route for direct session {session_id}; skipping"
+                        ),
+                    );
+                    set_success_result(
+                        "",
+                        &json!({
+                            "status": "skipped",
+                            "reason": "no_reply_route",
+                            "agent_entity_id": agent_id,
+                        }),
+                    );
+                    return Ok(());
+                }
+                let Some((session, bound_agent_id)) = find_session_by_agent(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                )?
+                else {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "agent_reply: no channel session linked to agent {agent_id}; skipping"
+                        ),
+                    );
+                    set_success_result(
+                        "",
+                        &json!({
+                            "status": "skipped",
+                            "reason": "no_channel_session",
+                            "agent_entity_id": agent_id,
+                        }),
+                    );
+                    return Ok(());
+                };
+                let route = delivery_route_from_channel_session(&session).ok_or_else(|| {
+                    "agent_reply: channel session missing channel_id/thread_id".to_string()
+                })?;
+                (route, bound_agent_id)
             };
-            let route = delivery_route_from_channel_session(&session)
-                .ok_or_else(|| "agent_reply: channel session missing channel_id/thread_id".to_string())?;
-            (route, bound_agent_id)
-        };
         if bound_agent_id != agent_id {
             ctx.log(
                 "info",
@@ -148,8 +151,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             };
 
             // Get webhook_url from the Channel entity
-            let webhook_url = entity_field_str(&resolved_channel, &["webhook_url", "WebhookUrl"])
-                .unwrap_or("");
+            let webhook_url =
+                entity_field_str(&resolved_channel, &["webhook_url", "WebhookUrl"]).unwrap_or("");
             if !webhook_url.is_empty() {
                 let embed_body = json!({
                     "thread_id": route.thread_id.as_str(),
@@ -212,13 +215,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "content": reply_text,
             "agent_entity_id": agent_id,
         });
-        let url = format!(
-            "{temper_api_url}/tdata/Channels('{channel_entity_id}')/Paw.Channel.SendReply?await_integration=true"
+        let reply_action = channel_reply_action_name(route.channel_type.as_deref());
+        let url = channel_reply_action_url(
+            &temper_api_url,
+            channel_entity_id,
+            route.channel_type.as_deref(),
         );
         let resp = ctx.http_call("POST", &url, &headers, &body.to_string())?;
         if !(200..300).contains(&resp.status) {
             return Err(format!(
-                "agent_reply: Channel.SendReply failed (HTTP {}): {}",
+                "agent_reply: Channel.{reply_action} failed (HTTP {}): {}",
                 resp.status,
                 truncate_body(&resp.body)
             ));
@@ -366,6 +372,32 @@ fn escape_odata(value: &str) -> String {
     value.replace('\'', "''")
 }
 
+fn channel_reply_action_url(
+    temper_api_url: &str,
+    channel_entity_id: &str,
+    channel_type: Option<&str>,
+) -> String {
+    let action_name = channel_reply_action_name(channel_type);
+    let mut url =
+        format!("{temper_api_url}/tdata/Channels('{channel_entity_id}')/Paw.Channel.{action_name}");
+    if action_name == "SendReply" {
+        url.push_str("?await_integration=true");
+    }
+    url
+}
+
+fn channel_reply_action_name(channel_type: Option<&str>) -> &'static str {
+    if is_inline_reply_channel(channel_type) {
+        "ReplyDelivered"
+    } else {
+        "SendReply"
+    }
+}
+
+fn is_inline_reply_channel(channel_type: Option<&str>) -> bool {
+    matches!(channel_type.map(str::trim), Some("cli" | "tui"))
+}
+
 fn resolve_soul_name(
     ctx: &Context,
     temper_api_url: &str,
@@ -422,5 +454,34 @@ fn truncate_body(body: &str) -> String {
         body.to_string()
     } else {
         format!("{}...", &body[..LIMIT])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inline_channel_routes_record_reply_delivered_directly() {
+        assert_eq!(
+            channel_reply_action_url("http://temper", "ch-inline", Some("cli")),
+            "http://temper/tdata/Channels('ch-inline')/Paw.Channel.ReplyDelivered"
+        );
+        assert_eq!(
+            channel_reply_action_url("http://temper", "ch-inline", Some("tui")),
+            "http://temper/tdata/Channels('ch-inline')/Paw.Channel.ReplyDelivered"
+        );
+    }
+
+    #[test]
+    fn webhook_or_unknown_channel_routes_keep_awaited_send_reply() {
+        assert_eq!(
+            channel_reply_action_url("http://temper", "ch-webhook", Some("discord")),
+            "http://temper/tdata/Channels('ch-webhook')/Paw.Channel.SendReply?await_integration=true"
+        );
+        assert_eq!(
+            channel_reply_action_url("http://temper", "ch-legacy", None),
+            "http://temper/tdata/Channels('ch-legacy')/Paw.Channel.SendReply?await_integration=true"
+        );
     }
 }

@@ -26,6 +26,7 @@ struct DeliveryRouteSnapshot {
     channel_id: String,
     thread_id: String,
     channel_entity_id: Option<String>,
+    channel_type: Option<String>,
     source: String,
 }
 
@@ -83,6 +84,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or_else(|| json!({}));
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let channel_id = str_field(&fields, &["channel_id", "ChannelId"]).unwrap_or("");
+        let channel_type = str_field(&fields, &["channel_type", "ChannelType"]).unwrap_or("");
         let default_agent_config =
             str_field(&fields, &["default_agent_config", "DefaultAgentConfig"]).unwrap_or("{}");
         let thread_id = str_field(&fields, &["thread_id", "ThreadId"]).unwrap_or("");
@@ -107,8 +109,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         } else {
             thread_id
         };
-        let delivery_route =
-            delivery_route_snapshot_from_channel_message(channel_id, thread_id, &ctx.entity_id);
+        let delivery_route = delivery_route_snapshot_from_channel_message(
+            channel_id,
+            thread_id,
+            &ctx.entity_id,
+            channel_type,
+        );
 
         let existing_cs = find_active_session(
             &ctx,
@@ -535,6 +541,7 @@ fn delivery_route_snapshot_from_channel_message(
     channel_id: &str,
     thread_id: &str,
     channel_entity_id: &str,
+    channel_type: &str,
 ) -> DeliveryRouteSnapshot {
     DeliveryRouteSnapshot {
         channel_id: channel_id.to_string(),
@@ -543,6 +550,11 @@ fn delivery_route_snapshot_from_channel_message(
             None
         } else {
             Some(channel_entity_id.to_string())
+        },
+        channel_type: if channel_type.trim().is_empty() {
+            None
+        } else {
+            Some(channel_type.to_string())
         },
         source: "channel_message".to_string(),
     }
@@ -558,6 +570,7 @@ fn delivery_route_snapshot_from_channel_session(value: &Value) -> Option<Deliver
         channel_id: channel_id.to_string(),
         thread_id: thread_id.to_string(),
         channel_entity_id: None,
+        channel_type: None,
         source: "channel_session".to_string(),
     })
 }
@@ -571,6 +584,9 @@ fn apply_delivery_route_snapshot(configure_body: &mut Value, route: &DeliveryRou
     object.insert("reply_route_source".into(), json!(route.source.as_str()));
     if let Some(channel_entity_id) = &route.channel_entity_id {
         object.insert("reply_channel_entity_id".into(), json!(channel_entity_id));
+    }
+    if let Some(channel_type) = &route.channel_type {
+        object.insert("reply_channel_type".into(), json!(channel_type));
     }
 }
 
@@ -1158,9 +1174,12 @@ fn configure_session_from_prior(
 
 fn continuation_prepared_context_storage(fields: &Value) -> ContinuationPreparedContextStorage {
     ContinuationPreparedContextStorage {
-        file_id: str_field(fields, &["prepared_context_file_id", "PreparedContextFileId"])
-            .unwrap_or("")
-            .to_string(),
+        file_id: str_field(
+            fields,
+            &["prepared_context_file_id", "PreparedContextFileId"],
+        )
+        .unwrap_or("")
+        .to_string(),
         inline_json: String::new(),
     }
 }
@@ -2025,6 +2044,7 @@ mod tests {
             channel_id: "discord-channel-1".to_string(),
             thread_id: "discord-thread-1".to_string(),
             channel_entity_id: Some("ch-entity-1".to_string()),
+            channel_type: Some("cli".to_string()),
             source: "channel_session".to_string(),
         };
 
@@ -2050,6 +2070,12 @@ mod tests {
         );
         assert_eq!(
             configure_body
+                .get("reply_channel_type")
+                .and_then(Value::as_str),
+            Some("cli")
+        );
+        assert_eq!(
+            configure_body
                 .get("reply_route_source")
                 .and_then(Value::as_str),
             Some("channel_session")
@@ -2069,20 +2095,23 @@ mod tests {
         assert_eq!(route.channel_id, "discord-channel-1");
         assert_eq!(route.thread_id, "discord-thread-1");
         assert_eq!(route.channel_entity_id, None);
+        assert_eq!(route.channel_type, None);
         assert_eq!(route.source, "channel_session");
     }
 
     #[test]
-    fn reply_route_snapshot_from_channel_message_includes_channel_entity_id() {
+    fn reply_route_snapshot_from_channel_message_includes_channel_entity_id_and_type() {
         let route = delivery_route_snapshot_from_channel_message(
             "discord-channel-1",
             "discord-thread-1",
             "ch-entity-1",
+            "cli",
         );
 
         assert_eq!(route.channel_id, "discord-channel-1");
         assert_eq!(route.thread_id, "discord-thread-1");
         assert_eq!(route.channel_entity_id.as_deref(), Some("ch-entity-1"));
+        assert_eq!(route.channel_type.as_deref(), Some("cli"));
         assert_eq!(route.source, "channel_message");
     }
 

@@ -78,6 +78,19 @@ permit(
 
 permit(
   principal,
+  action == Action::"ReplyDelivered",
+  resource is Channel
+) when {
+  principal is Agent &&
+  principal.agent_type == "agent" &&
+  (
+    (resource has ChannelType && ["cli", "tui"].contains(resource.ChannelType)) ||
+    (resource has channel_type && ["cli", "tui"].contains(resource.channel_type))
+  )
+};
+
+permit(
+  principal,
   action in [Action::"create", Action::"Create", Action::"Resume", Action::"UpdateSession", Action::"Expire"],
   resource is ChannelSession
 ) when {
