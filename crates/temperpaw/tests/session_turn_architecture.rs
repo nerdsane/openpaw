@@ -592,6 +592,86 @@ fn record_result_no_reply_preserves_terminal_cleanup_without_delivery_trigger() 
 }
 
 #[test]
+fn record_result_inline_reply_preserves_channel_audit_without_agent_reply() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("model.csdl.xml should exist");
+    let applier = fs::read_to_string(
+        root.join("os-apps/paw-agent/wasm/provider_response_applier/src/lib.rs"),
+    )
+    .expect("provider_response_applier source should exist");
+    let policy = fs::read_to_string(root.join("os-apps/paw-agent/policies/session.cedar"))
+        .expect("session policy should exist");
+
+    assert!(
+        spec.contains("name = \"RecordResultInlineReply\""),
+        "inline cli/tui routes should have a spec-visible terminal action"
+    );
+    let action_start = spec
+        .find("name = \"RecordResultInlineReply\"")
+        .expect("RecordResultInlineReply action should exist");
+    let action_tail = &spec[action_start..];
+    let action_end = action_tail
+        .find("# --- Actions: Heartbeat")
+        .expect("RecordResultInlineReply should appear before heartbeat actions");
+    let action_block = &action_tail[..action_end];
+    assert!(
+        action_block.contains(
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+        ),
+        "RecordResultInlineReply should keep RecordResult cleanup/accounting params"
+    );
+    assert!(
+        action_block.contains("{ type = \"trigger\", name = \"emit_ots_trajectory\" }"),
+        "RecordResultInlineReply must still emit terminal trajectory"
+    );
+    assert!(
+        !action_block.contains("deliver_reply"),
+        "RecordResultInlineReply should not invoke agent_reply after inline Channel audit"
+    );
+
+    for needle in [
+        "<Action Name=\"RecordResultInlineReply\" IsBound=\"true\">",
+        "<Parameter Name=\"tool_spans_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"provider_response_file_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"provider_response_inline_json\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_tool_context\" Type=\"Edm.String\" Nullable=\"true\"/>",
+        "<Parameter Name=\"pending_decision_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
+    ] {
+        assert!(
+            csdl.contains(needle),
+            "RecordResultInlineReply CSDL should contain {needle}"
+        );
+    }
+
+    for needle in [
+        "try_dispatch_inline_reply(",
+        "&result_text",
+        "\"RecordResultInlineReply\"",
+        "fn inline_reply_route",
+        "fn inline_reply_action_url",
+        "Paw.Channel.ReplyDelivered",
+        "matches!(channel_type.trim(), \"cli\" | \"tui\")",
+        "\"thread_id\": route.thread_id.as_str()",
+        "\"agent_entity_id\": route.agent_entity_id.as_str()",
+        "provider_response_applier: inline reply dispatch failed; falling back to RecordResult",
+    ] {
+        assert!(
+            applier.contains(needle),
+            "provider_response_applier should inline terminal cli/tui delivery via {needle}"
+        );
+    }
+
+    assert!(
+        policy.contains("Action::\"RecordResultInlineReply\""),
+        "Cedar policy must permit the inline-reply Session callback action"
+    );
+}
+
+#[test]
 fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
     let root = repo_root();
     let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
