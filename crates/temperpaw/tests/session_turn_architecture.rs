@@ -608,9 +608,36 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
         ),
         "FinalizeResult should be able to clear pending tool and approval fields on completion"
     );
+    assert!(
+        spec.contains("name = \"FinalizeResultNoReply\""),
+        "direct no-reply steering completion should have a spec-visible terminal action"
+    );
+    let no_reply_start = spec
+        .find("name = \"FinalizeResultNoReply\"")
+        .expect("FinalizeResultNoReply action should exist");
+    let no_reply_tail = &spec[no_reply_start..];
+    let no_reply_end = no_reply_tail
+        .find("name = \"Steer\"")
+        .expect("FinalizeResultNoReply should appear before Steer");
+    let no_reply_block = &no_reply_tail[..no_reply_end];
+    assert!(
+        no_reply_block.contains(
+            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+        ),
+        "FinalizeResultNoReply should keep FinalizeResult result and cleanup params"
+    );
+    assert!(
+        no_reply_block.contains("{ type = \"trigger\", name = \"emit_ots_trajectory\" }"),
+        "FinalizeResultNoReply must still emit terminal trajectory"
+    );
+    assert!(
+        !no_reply_block.contains("deliver_reply"),
+        "FinalizeResultNoReply should not invoke no-op terminal reply delivery"
+    );
 
     for needle in [
         "<Action Name=\"FinalizeResult\" IsBound=\"true\">",
+        "<Action Name=\"FinalizeResultNoReply\" IsBound=\"true\">",
         "<Parameter Name=\"pending_tool_calls\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"pending_tool_context\" Type=\"Edm.String\" Nullable=\"true\"/>",
         "<Parameter Name=\"pending_decision_id\" Type=\"Edm.String\" Nullable=\"true\"/>",
@@ -625,10 +652,19 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
         "\"pending_tool_calls\": \"\"",
         "\"pending_tool_context\": \"\"",
         "\"pending_decision_id\": \"\"",
+        "\"FinalizeResultNoReply\"",
+        "direct_no_reply",
     ] {
         assert!(
             steering_checker.contains(needle),
             "steering_checker finalize path should contain {needle}"
         );
     }
+
+    let policy = fs::read_to_string(root.join("os-apps/paw-agent/policies/session.cedar"))
+        .expect("session policy should exist");
+    assert!(
+        policy.contains("Action::\"FinalizeResultNoReply\""),
+        "Cedar policy must permit the no-reply steering terminal callback"
+    );
 }

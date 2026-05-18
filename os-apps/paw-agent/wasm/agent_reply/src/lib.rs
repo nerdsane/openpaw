@@ -33,7 +33,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             if let Some(route) = delivery_route_from_session_fields(&fields) {
                 (route, agent_id.to_string())
             } else {
-                if should_skip_channel_session_lookup(session_id, agent_id, parent_session_id) {
+                if should_skip_reply_lookup_for_no_route_session(
+                    session_id,
+                    agent_id,
+                    parent_session_id,
+                    &fields,
+                ) {
                     ctx.log(
                         "info",
                         &format!(
@@ -398,6 +403,40 @@ fn is_inline_reply_channel(channel_type: Option<&str>) -> bool {
     matches!(channel_type.map(str::trim), Some("cli" | "tui"))
 }
 
+fn should_skip_reply_lookup_for_no_route_session(
+    session_id: &str,
+    agent_id: &str,
+    parent_session_id: &str,
+    fields: &Value,
+) -> bool {
+    if should_skip_channel_session_lookup(session_id, agent_id, parent_session_id) {
+        return true;
+    }
+
+    if entity_field_str(fields, &["reply_channel_id", "ReplyChannelId"])
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+        || entity_field_str(fields, &["reply_thread_id", "ReplyThreadId"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        || entity_field_str(fields, &["reply_channel_entity_id", "ReplyChannelEntityId"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        || entity_field_str(fields, &["reply_channel_type", "ReplyChannelType"])
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+    {
+        return false;
+    }
+
+    let route_source = entity_field_str(fields, &["reply_route_source", "ReplyRouteSource"])
+        .unwrap_or("")
+        .trim();
+    route_source == "direct_no_reply"
+        && !session_id.trim().is_empty()
+        && parent_session_id.trim().is_empty()
+}
+
 fn resolve_soul_name(
     ctx: &Context,
     temper_api_url: &str,
@@ -483,5 +522,30 @@ mod tests {
             channel_reply_action_url("http://temper", "ch-legacy", None),
             "http://temper/tdata/Channels('ch-legacy')/Paw.Channel.SendReply?await_integration=true"
         );
+    }
+
+    #[test]
+    fn explicit_direct_no_reply_skips_fallback_lookup_for_distinct_agent() {
+        assert!(should_skip_reply_lookup_for_no_route_session(
+            "ss-direct",
+            "aj-direct",
+            "",
+            &json!({"reply_route_source": "direct_no_reply"})
+        ));
+        assert!(!should_skip_reply_lookup_for_no_route_session(
+            "ss-direct",
+            "aj-direct",
+            "",
+            &json!({"reply_route_source": "channel_message"})
+        ));
+        assert!(!should_skip_reply_lookup_for_no_route_session(
+            "ss-direct",
+            "aj-direct",
+            "",
+            &json!({
+                "reply_route_source": "direct_no_reply",
+                "reply_channel_id": "channel",
+            })
+        ));
     }
 }

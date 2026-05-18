@@ -83,6 +83,7 @@ permit(
     Action::"CheckSteering",
     Action::"ContinueWithSteering",
     Action::"FinalizeResult",
+    Action::"FinalizeResultNoReply",
     Action::"DeliveryFailed",
     Action::"Heartbeat",
     Action::"ProgressMade",
