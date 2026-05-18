@@ -481,6 +481,30 @@ fn monitors_cover_session_trace_llmobs_and_postgres_dbm_health() {
 }
 
 #[test]
+fn datadog_snapshot_helper_covers_profiler_dbm_and_apm_sql_correlation() {
+    let helper = load_text("scripts/read_datadog_snapshot.py");
+
+    for required in [
+        "datadog.profiling.rust.profiles_uploaded",
+        "datadog.profiling.rust.upload_errors",
+        "postgresql.queries.count",
+        "postgresql.queries.time",
+        "datadog.dbm.activity_rows",
+        "api/v2/spans/events/search",
+        "type:sql @db.system:postgresql @peer.service:temperpaw-postgres",
+        "trace_id",
+        "span_id",
+        "resource_name",
+        "--skip-spans",
+    ] {
+        assert!(
+            helper.contains(required),
+            "Datadog snapshot helper must include live proof support for `{required}`"
+        );
+    }
+}
+
+#[test]
 fn datadog_covers_temperfs_blob_and_document_services() {
     let dashboard = dashboard_text();
     let monitors = monitor_search_text();
