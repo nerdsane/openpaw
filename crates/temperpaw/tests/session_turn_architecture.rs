@@ -240,6 +240,15 @@ fn first_turn_session_entries_materialize_after_provider_success() {
         helpers.contains("pub fn materialize_initial_session_entries_with_assistant"),
         "wasm helpers should expose the verified first-turn materialization helper"
     );
+    assert!(
+        helpers.contains("session_entries_verify_url(temper_api_url, session_id)")
+            && helpers.contains("session_entry_verify_missing_ids(&resp.body, entry_ids)"),
+        "batched first-turn materialization should verify all expected SessionEntry ids with one session-scoped read-back"
+    );
+    assert!(
+        helpers.contains("single_entry_id.is_some()"),
+        "single SessionEntry appends should keep the narrower per-entry read-back path"
+    );
 }
 
 #[test]
