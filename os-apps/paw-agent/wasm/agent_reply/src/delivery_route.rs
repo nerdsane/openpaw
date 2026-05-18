@@ -6,6 +6,7 @@ pub(crate) struct DeliveryRoute {
     pub(crate) channel_id: String,
     pub(crate) thread_id: String,
     pub(crate) channel_entity_id: Option<String>,
+    pub(crate) channel_type: Option<String>,
 }
 
 pub(crate) struct ChannelSessionLookup {
@@ -22,11 +23,15 @@ pub(crate) fn delivery_route_from_session_fields(fields: &Value) -> Option<Deliv
         entity_field_str(fields, &["reply_channel_entity_id", "ReplyChannelEntityId"])
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string);
+    let channel_type = entity_field_str(fields, &["reply_channel_type", "ReplyChannelType"])
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
 
     Some(DeliveryRoute {
         channel_id: channel_id.to_string(),
         thread_id: thread_id.to_string(),
         channel_entity_id,
+        channel_type,
     })
 }
 
@@ -40,6 +45,7 @@ pub(crate) fn delivery_route_from_channel_session(session: &Value) -> Option<Del
         channel_id: channel_id.to_string(),
         thread_id: thread_id.to_string(),
         channel_entity_id: None,
+        channel_type: None,
     })
 }
 
@@ -168,6 +174,7 @@ mod tests {
             "reply_channel_id": "discord-channel-1",
             "reply_thread_id": "discord-thread-1",
             "reply_channel_entity_id": "ch-entity-1",
+            "reply_channel_type": "cli",
         });
 
         let route = delivery_route_from_session_fields(&fields).expect("complete route");
@@ -175,10 +182,13 @@ mod tests {
         assert_eq!(route.channel_id, "discord-channel-1");
         assert_eq!(route.thread_id, "discord-thread-1");
         assert_eq!(route.channel_entity_id.as_deref(), Some("ch-entity-1"));
+        assert_eq!(route.channel_type.as_deref(), Some("cli"));
 
-        assert!(delivery_route_from_session_fields(&json!({
-            "reply_channel_id": "discord-channel-1",
-        }))
-        .is_none());
+        assert!(
+            delivery_route_from_session_fields(&json!({
+                "reply_channel_id": "discord-channel-1",
+            }))
+            .is_none()
+        );
     }
 }

@@ -1,8 +1,26 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use temper_authz::{AuthzEngine, SecurityContext};
+
 fn repo_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn agent_context(id: &str, agent_type: &str) -> SecurityContext {
+    SecurityContext::from_headers(&[
+        ("X-Temper-Principal-Id".to_string(), id.to_string()),
+        ("X-Temper-Principal-Kind".to_string(), "agent".to_string()),
+        ("X-Temper-Agent-Type".to_string(), agent_type.to_string()),
+    ])
+}
+
+fn resource_attrs(pairs: &[(&str, serde_json::Value)]) -> HashMap<String, serde_json::Value> {
+    pairs
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), value.clone()))
+        .collect()
 }
 
 #[test]
@@ -220,7 +238,9 @@ fn route_message_carries_context_cache_fields_to_continuations() {
     for needle in [
         "\"prepared_context_file_id\": prepared_context_storage.file_id",
         "fn continuation_prepared_context_storage",
-        "file_id: str_field(fields, &[\"prepared_context_file_id\", \"PreparedContextFileId\"])",
+        "file_id: str_field(",
+        "\"prepared_context_file_id\"",
+        "\"PreparedContextFileId\"",
     ] {
         assert!(
             source.contains(needle),
@@ -248,6 +268,116 @@ fn route_message_records_immediate_parent_session_on_continuation() {
     assert!(
         source.contains("\"parent_session_id\": prior_session_id,"),
         "continuation Configure body should record the immediate prior Session as parent_session_id"
+    );
+}
+
+#[test]
+fn inline_channel_reply_delivery_is_direct_but_policy_gated() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("session model should exist");
+    let route_message =
+        fs::read_to_string(root.join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
+            .expect("route_message source should exist");
+    let agent_reply =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/agent_reply/src/lib.rs"))
+            .expect("agent_reply source should exist");
+    let policy = fs::read_to_string(root.join("os-apps/paw-channels/policies/channels.cedar"))
+        .expect("channels policy should exist");
+
+    for needle in [
+        "name = \"reply_channel_type\"",
+        "\"reply_channel_id\", \"reply_thread_id\", \"reply_channel_entity_id\", \"reply_channel_type\", \"reply_route_source\"",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "Session spec should carry reply channel type via {needle}"
+        );
+    }
+
+    for needle in [
+        "<Property Name=\"ReplyChannelType\" Type=\"Edm.String\"/>",
+        "<Parameter Name=\"reply_channel_type\" Type=\"Edm.String\" Nullable=\"true\"/>",
+    ] {
+        assert!(
+            csdl.contains(needle),
+            "Session CSDL should expose reply channel type via {needle}"
+        );
+    }
+
+    for needle in [
+        "channel_type = str_field(&fields, &[\"channel_type\", \"ChannelType\"]).unwrap_or(\"\")",
+        "reply_channel_type",
+        "delivery_route_snapshot_from_channel_message(",
+        "&ctx.entity_id",
+        "channel_type,",
+    ] {
+        assert!(
+            route_message.contains(needle),
+            "route_message should preserve inline route type via {needle}"
+        );
+    }
+
+    for needle in [
+        "fn channel_reply_action_url",
+        "Paw.Channel.ReplyDelivered",
+        "Paw.Channel.SendReply?await_integration=true",
+        "route.channel_type.as_deref()",
+    ] {
+        assert!(
+            agent_reply.contains(needle),
+            "agent_reply should choose direct inline delivery via {needle}"
+        );
+    }
+
+    for needle in [
+        "action == Action::\"ReplyDelivered\"",
+        "principal.agent_type == \"agent\"",
+        "[\"cli\", \"tui\"].contains(resource.ChannelType)",
+        "[\"cli\", \"tui\"].contains(resource.channel_type)",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "channels policy should narrowly gate inline ReplyDelivered via {needle}"
+        );
+    }
+}
+
+#[test]
+fn inline_reply_delivered_policy_authorizes_only_inline_channels() {
+    let policy =
+        fs::read_to_string(repo_root().join("os-apps/paw-channels/policies/channels.cedar"))
+            .expect("channels policy should exist");
+    let engine = AuthzEngine::new(&policy).expect("channels.cedar should parse");
+    let agent = agent_context("agent-1", "agent");
+    let cli_channel = resource_attrs(&[
+        ("id", serde_json::json!("ch-cli")),
+        ("ChannelType", serde_json::json!("cli")),
+    ]);
+    let discord_channel = resource_attrs(&[
+        ("id", serde_json::json!("ch-discord")),
+        ("ChannelType", serde_json::json!("discord")),
+    ]);
+
+    assert!(
+        engine
+            .authorize(&agent, "ReplyDelivered", "Channel", &cli_channel)
+            .is_allowed(),
+        "agent should be allowed to record direct ReplyDelivered on inline cli channels"
+    );
+    assert!(
+        !engine
+            .authorize(&agent, "ReplyDelivered", "Channel", &discord_channel)
+            .is_allowed(),
+        "agent must not be allowed to bypass send_reply on webhook-backed channels"
+    );
+    assert!(
+        engine
+            .authorize(&agent, "SendReply", "Channel", &discord_channel)
+            .is_allowed(),
+        "agent should still use SendReply for webhook-backed channels"
     );
 }
 
