@@ -122,16 +122,16 @@ async fn fetch_and_emit_review_context(
             })
     };
 
-    if let Some(session_id) = active_session_id.as_deref() {
-        if let Ok(session) = api.get_entity("Sessions", session_id).await {
-            if let Some(status) = entity_status(&session) {
-                let _ = tx.send(TuiEvent::Status {
-                    text: session_status_label(status),
-                });
-            }
-            for notice in extract_session_alerts(&session) {
-                emit_notice(notice, seen, tx);
-            }
+    if let Some(session_id) = active_session_id.as_deref()
+        && let Ok(session) = api.get_entity("Sessions", session_id).await
+    {
+        if let Some(status) = entity_status(&session) {
+            let _ = tx.send(TuiEvent::Status {
+                text: session_status_label(status),
+            });
+        }
+        for notice in extract_session_alerts(&session) {
+            emit_notice(notice, seen, tx);
         }
     }
 
