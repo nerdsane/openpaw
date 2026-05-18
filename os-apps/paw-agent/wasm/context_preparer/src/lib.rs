@@ -19,8 +19,9 @@ use tool_catalog::{
     DEFAULT_TOOLS_ENABLED, build_method_listing, enabled_tool_set, has_sandbox_surface,
 };
 use wasm_helpers::{
-    create_content_file, read_text_file_versions_batch, read_text_files_batch, runtime_headers,
-    runtime_headers_as, timestamp_millis_string, write_temperfs_value_with_retry,
+    create_content_file, is_session_entries_ref, read_text_file_versions_batch,
+    read_text_files_batch, runtime_headers, runtime_headers_as, timestamp_millis_string,
+    write_temperfs_value_with_retry,
 };
 
 const DEFAULT_CONTEXT_PREPARE_BUDGET_MS: i64 = 120_000;
@@ -1055,6 +1056,12 @@ fn load_messages_for_prepare(
         let session_jsonl =
             read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
         if session_jsonl.is_empty() {
+            if is_session_entries_ref(session_file_id) {
+                ctx.log(
+                    "info",
+                    "context_preparer: virtual first-turn session entries; preparing from Session.user_message",
+                );
+            }
             let tree = SessionTree::from_jsonl(&session_jsonl);
             return Ok((
                 vec![json!({ "role": "user", "content": user_message })],

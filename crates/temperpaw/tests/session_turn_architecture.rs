@@ -181,6 +181,68 @@ fn entity_backed_session_appends_use_direct_session_entry_create() {
 }
 
 #[test]
+fn first_turn_session_entries_materialize_after_provider_success() {
+    let root = repo_root();
+    let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
+        .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("model.csdl.xml should exist");
+    let workspace =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/workspace_provisioner/src/lib.rs"))
+            .expect("workspace_provisioner source should exist");
+    let preparer =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_preparer/src/lib.rs"))
+            .expect("context_preparer source should exist");
+    let applier = fs::read_to_string(
+        root.join("os-apps/paw-agent/wasm/provider_response_applier/src/lib.rs"),
+    )
+    .expect("provider_response_applier source should exist");
+    let helpers = fs::read_to_string(root.join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
+        .expect("wasm helpers source should exist");
+
+    for needle in [
+        "[[state]]\nname = \"session_entries_materialized\"",
+        "params = [\"workspace_id\", \"conversation_file_id\", \"file_manifest_id\", \"session_file_id\", \"session_leaf_id\", \"session_entries_materialized\"]",
+        "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\"",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "Session spec should expose first-turn materialization state via {needle}"
+        );
+    }
+
+    assert!(
+        csdl.contains("<Property Name=\"SessionEntriesMaterialized\" Type=\"Edm.String\""),
+        "Session CSDL should expose SessionEntriesMaterialized"
+    );
+    assert!(
+        workspace.contains("create_virtual_hot_session_storage"),
+        "workspace_provisioner should use a virtual first-turn SessionEntries ref"
+    );
+    assert!(
+        workspace.contains("\"session_entries_materialized\": session_entries_materialized")
+            && workspace.contains("\"false\".to_string()"),
+        "WorkspaceReady should record that first-turn SessionEntries are not materialized yet"
+    );
+    assert!(
+        preparer.contains("context_preparer: virtual first-turn session entries"),
+        "context_preparer should explicitly prepare from Session.user_message for virtual first turns"
+    );
+    assert!(
+        applier.contains("materialize_initial_session_entries_with_assistant"),
+        "provider_response_applier should materialize header/user/assistant before terminal success"
+    );
+    assert!(
+        applier.contains("params[\"session_entries_materialized\"] = json!(\"true\")"),
+        "provider_response_applier terminal/tool params should mark materialization complete"
+    );
+    assert!(
+        helpers.contains("pub fn materialize_initial_session_entries_with_assistant"),
+        "wasm helpers should expose the verified first-turn materialization helper"
+    );
+}
+
+#[test]
 fn provider_caller_does_not_persist_provider_boundary_progress_by_default() {
     let source =
         fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
@@ -490,7 +552,7 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
         ),
         "RecordResult should be able to clear pending tool and approval fields on completion"
     );
@@ -549,7 +611,7 @@ fn record_result_no_reply_preserves_terminal_cleanup_without_delivery_trigger() 
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
         ),
         "RecordResultNoReply should keep RecordResult cleanup/accounting params"
     );
@@ -619,7 +681,7 @@ fn record_result_inline_reply_preserves_channel_audit_without_agent_reply() {
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
         ),
         "RecordResultInlineReply should keep RecordResult cleanup/accounting params"
     );
