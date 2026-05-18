@@ -230,6 +230,25 @@ fn provider_caller_initial_heartbeat_is_opt_in() {
 }
 
 #[test]
+fn provider_caller_typing_indicator_is_route_aware() {
+    let source =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
+            .expect("provider_caller source should exist");
+
+    for needle in [
+        "should_send_provider_typing_indicator(&ctx.entity_id, &fields)",
+        "provider_caller: skipping typing indicator for direct or inline route",
+        "\"reply_channel_type\", \"ReplyChannelType\"",
+        "matches!(reply_channel_type.as_str(), \"cli\" | \"tui\")",
+    ] {
+        assert!(
+            source.contains(needle),
+            "provider_caller should keep typing indicator lookup off the direct/inline hot path via {needle}"
+        );
+    }
+}
+
+#[test]
 fn route_message_carries_context_cache_fields_to_continuations() {
     let source =
         fs::read_to_string(repo_root().join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))

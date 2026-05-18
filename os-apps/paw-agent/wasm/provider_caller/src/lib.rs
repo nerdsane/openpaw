@@ -3271,7 +3271,14 @@ pub fn run_provider_caller() -> Result<(), String> {
         .or_else(|| fields.get("AgentId"))
         .and_then(|v| v.as_str())
         .unwrap_or(&ctx.entity_id);
-    send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
+    if should_send_provider_typing_indicator(&ctx.entity_id, &fields) {
+        send_typing_indicator(&ctx, &temper_api_url, tenant, typing_agent_id);
+    } else {
+        ctx.log(
+            "debug",
+            "provider_caller: skipping typing indicator for direct or inline route",
+        );
+    }
 
     let provider_call_started_at = Context::get_time_millis();
     let provider_progress_enabled = provider_progress_dispatch_enabled(&ctx);
@@ -3496,6 +3503,31 @@ fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> S
     }
 }
 
+fn field_str<'a>(fields: &'a Value, names: &[&str]) -> &'a str {
+    names
+        .iter()
+        .find_map(|name| fields.get(*name)?.as_str())
+        .unwrap_or("")
+}
+
+fn should_send_provider_typing_indicator(entity_id: &str, fields: &Value) -> bool {
+    let parent_session_id = field_str(fields, &["parent_session_id", "ParentSessionId"]).trim();
+    if !parent_session_id.is_empty() && parent_session_id != entity_id {
+        return true;
+    }
+
+    let reply_channel_id = field_str(fields, &["reply_channel_id", "ReplyChannelId"]).trim();
+    let reply_thread_id = field_str(fields, &["reply_thread_id", "ReplyThreadId"]).trim();
+    if reply_channel_id.is_empty() || reply_thread_id.is_empty() {
+        return false;
+    }
+
+    let reply_channel_type =
+        field_str(fields, &["reply_channel_type", "ReplyChannelType"]).trim();
+    let reply_channel_type = reply_channel_type.to_ascii_lowercase();
+    !matches!(reply_channel_type.as_str(), "cli" | "tui")
+}
+
 fn session_metric_tags(provider: &str, model: &str) -> Value {
     json!({
         "provider": provider,
@@ -3641,6 +3673,77 @@ mod tests {
         assert!(
             !should_send_initial_provider_heartbeat(true, true),
             "mock hang proof path should still exercise timeout behavior without a pre-heartbeat"
+        );
+    }
+
+    #[test]
+    fn typing_indicator_is_route_aware() {
+        assert!(
+            !should_send_provider_typing_indicator("ss-direct", &json!({})),
+            "direct no-route sessions should not spend provider time on ChannelSession lookup"
+        );
+        assert!(
+            !should_send_provider_typing_indicator(
+                "ss-cli",
+                &json!({
+                    "reply_channel_id": "cli-channel",
+                    "reply_thread_id": "thread-1",
+                    "reply_channel_type": "cli"
+                })
+            ),
+            "inline CLI routes have no external typing indicator"
+        );
+        assert!(
+            !should_send_provider_typing_indicator(
+                "ss-cli-pascal",
+                &json!({
+                    "ReplyChannelId": "cli-channel",
+                    "ReplyThreadId": "thread-1",
+                    "ReplyChannelType": "CLI"
+                })
+            ),
+            "inline route detection should support projected field casing"
+        );
+        assert!(
+            !should_send_provider_typing_indicator(
+                "ss-tui",
+                &json!({
+                    "reply_channel_id": "tui-channel",
+                    "reply_thread_id": "thread-1",
+                    "reply_channel_type": "tui"
+                })
+            ),
+            "inline TUI routes have no external typing indicator"
+        );
+        assert!(
+            should_send_provider_typing_indicator(
+                "ss-discord",
+                &json!({
+                    "reply_channel_id": "discord-channel",
+                    "reply_thread_id": "thread-1",
+                    "reply_channel_type": "discord"
+                })
+            ),
+            "explicit Discord routes should preserve typing behavior"
+        );
+        assert!(
+            should_send_provider_typing_indicator(
+                "ss-legacy",
+                &json!({
+                    "reply_channel_id": "legacy-channel",
+                    "reply_thread_id": "thread-1"
+                })
+            ),
+            "legacy channel routes without a type may still be webhook-backed"
+        );
+        assert!(
+            should_send_provider_typing_indicator(
+                "ss-child",
+                &json!({
+                    "parent_session_id": "ss-parent"
+                })
+            ),
+            "parented sessions keep inherited channel typing compatibility"
         );
     }
 
