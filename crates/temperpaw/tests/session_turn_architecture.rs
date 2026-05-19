@@ -233,7 +233,7 @@ fn first_turn_session_entries_materialize_after_provider_success() {
     );
     assert!(
         applier.contains("materialize_initial_session_entries_with_assistant"),
-        "provider_response_applier should materialize header/user/assistant before terminal success"
+        "provider_response_applier should materialize initial user/assistant entries before terminal success"
     );
     assert!(
         applier.contains("params[\"session_entries_materialized\"] = json!(\"true\")"),
@@ -245,8 +245,9 @@ fn first_turn_session_entries_materialize_after_provider_success() {
     );
     assert!(
         helpers.contains("session_entries_verify_url(temper_api_url, session_id)")
-            && helpers.contains("session_entry_verify_missing_ids(&resp.body, entry_ids)"),
-        "batched first-turn materialization should verify all expected SessionEntry ids with one session-scoped read-back"
+            && helpers.contains("session_entry_verify_missing_ids(&resp.body, entry_ids)")
+            && helpers.contains("parent_entry_id: None,\n            sequence: 1,\n            entry_type: \"message\",\n            role: Some(\"user\")"),
+        "batched first-turn materialization should verify expected headerless user/assistant SessionEntry ids with one session-scoped read-back"
     );
     assert!(
         helpers.contains("single_entry_id.is_some()"),

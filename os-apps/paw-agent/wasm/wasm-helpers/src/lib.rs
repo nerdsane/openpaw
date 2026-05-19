@@ -444,29 +444,14 @@ pub fn materialize_initial_session_entries_with_assistant(
     assistant_content: &Value,
     assistant_tokens: usize,
 ) -> Result<CreatedSessionEntry, String> {
-    let header_id = format!("h-{session_id}");
     let user_entry_id = format!("u-{session_id}-0");
     let (assistant_entry_id, assistant_sequence) = next_session_entry_id("a", &user_entry_id);
-    let header_extra = json!({ "version": 1 });
     let user_content = json!(user_message);
     let specs = [
         SessionEntryCreateSpec {
             session_id,
-            entry_id: &header_id,
-            parent_entry_id: None,
-            sequence: 0,
-            entry_type: "header",
-            role: None,
-            content: None,
-            content_file_id: None,
-            content_file_version_id: None,
-            extra_json: Some(&header_extra),
-            tokens: 0,
-        },
-        SessionEntryCreateSpec {
-            session_id,
             entry_id: &user_entry_id,
-            parent_entry_id: Some(&header_id),
+            parent_entry_id: None,
             sequence: 1,
             entry_type: "message",
             role: Some("user"),
@@ -504,7 +489,7 @@ pub fn materialize_initial_session_entries_with_assistant(
         tenant,
         fields,
         session_id,
-        &[&header_id, &user_entry_id, &assistant_entry_id],
+        &[&user_entry_id, &assistant_entry_id],
         "materialize_initial_session_entries_with_assistant",
     )?;
 
@@ -1790,6 +1775,43 @@ mod tests {
     }
 
     #[test]
+    fn session_entries_jsonl_supports_headerless_root_user() {
+        let entities = vec![
+            json!({
+                "EntryId": "a-2",
+                "ParentEntryId": "u-ss-1-0",
+                "Sequence": 2,
+                "EntryType": "message",
+                "Role": "assistant",
+                "Content": "[{\"type\":\"text\",\"text\":\"hi\"}]",
+                "Tokens": 3,
+                "ExtraJson": "{}"
+            }),
+            json!({
+                "EntryId": "u-ss-1-0",
+                "ParentEntryId": "",
+                "Sequence": 1,
+                "EntryType": "message",
+                "Role": "user",
+                "Content": "\"hello\"",
+                "Tokens": 2,
+                "ExtraJson": "{}"
+            }),
+        ];
+
+        let jsonl = session_entries_jsonl_from_entities(&entities);
+        let lines: Vec<Value> = jsonl
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("valid json line"))
+            .collect();
+
+        assert_eq!(lines[0]["id"], "u-ss-1-0");
+        assert_eq!(lines[0]["parentId"], Value::Null);
+        assert_eq!(lines[1]["id"], "a-2");
+        assert_eq!(lines[1]["parentId"], "u-ss-1-0");
+    }
+
+    #[test]
     fn session_entry_create_body_shapes_header_and_user_entries() {
         let header_extra = json!({"version": 1});
         let header = session_entry_create_body(&SessionEntryCreateSpec {
@@ -1846,12 +1868,11 @@ mod tests {
         let missing = session_entry_verify_missing_ids(
             r#"{
                 "value": [
-                    {"EntryId": "h-ss-1"},
                     {"fields": {"EntryId": "u-ss-1-0"}},
                     {"entry_id": "a-2"}
                 ]
             }"#,
-            &["h-ss-1", "u-ss-1-0", "a-2"],
+            &["u-ss-1-0", "a-2"],
         )
         .expect("parse verify response");
 

@@ -778,6 +778,20 @@ mod tests {
     }
 
     #[test]
+    fn headerless_root_user_builds_context_inline() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"u-ss-1-0","parentId":null,"type":"message","role":"user","content":"hello","tokens":2}
+{"id":"a-2","parentId":"u-ss-1-0","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":3}"#,
+        );
+
+        let messages = tree.build_context("a-2");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "hello");
+        assert_eq!(messages[1]["role"], "assistant");
+    }
+
+    #[test]
     fn test_interrupted_tool_results_for_clean_leaf() {
         let mut tree = SessionTree::new("test-r1");
         let header_id = tree.last_entry_id().unwrap().to_string();
