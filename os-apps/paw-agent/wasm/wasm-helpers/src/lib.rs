@@ -301,75 +301,18 @@ pub fn create_session_entry(
             &resp.body[..resp.body.len().min(300)]
         ));
     }
-    let entity_id = parse_created_session_entry_entity_id(&resp.body)?;
+    let created = parse_created_session_entry_ack(&resp.body, session_id, entry_id)?;
+    maybe_verify_session_entries(
+        ctx,
+        temper_api_url,
+        tenant,
+        fields,
+        session_id,
+        &[entry_id],
+        "create_session_entry",
+    )?;
 
-    // Read-back verify. The orphan-chain bug we hit on ss-019de892-8be2
-    // (parent=t-8, t-8 missing from db) had this exact symptom: POST
-    // returned 2xx but the row was never visible afterwards. Refusing to
-    // claim success without a confirming read prevents callers from
-    // advancing session_leaf_id past a write that didn't actually land.
-    //
-    // Postgres + OData has some natural read-after-write latency between
-    // commit and the index being queryable. Retry the read-back a few
-    // times before declaring the write lost. Real loss is permanent;
-    // transient propagation lag clears in tens of ms.
-    let verify_url = session_entry_verify_url(temper_api_url, session_id, entry_id);
-    let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
-    const VERIFY_ATTEMPTS: u32 = 4;
-    let mut verified = false;
-    let mut last_status: i64 = 0;
-    let mut last_err = String::new();
-    for attempt in 0..VERIFY_ATTEMPTS {
-        match ctx.http_call("GET", &verify_url, &verify_headers, "") {
-            Ok(verify_resp) if verify_resp.status == 200 => {
-                last_status = verify_resp.status as i64;
-                if session_entry_verify_response_visible(&verify_resp.body) {
-                    if attempt > 0 {
-                        ctx.log(
-                            "info",
-                            &format!(
-                                "create_session_entry: read-back visible on attempt {} (SessionId={session_id} EntryId={entry_id})",
-                                attempt + 1
-                            ),
-                        );
-                    }
-                    verified = true;
-                    break;
-                }
-            }
-            Ok(resp) => {
-                last_status = resp.status as i64;
-            }
-            Err(e) => {
-                last_err = e.to_string();
-                last_status = -1;
-            }
-        }
-        // Quick backoff: 50ms, 150ms, 350ms (skip after final attempt).
-        if attempt + 1 < VERIFY_ATTEMPTS {
-            let target_delay_ms = 50_i64 << attempt;
-            let until = Context::get_time_millis() + target_delay_ms;
-            while Context::get_time_millis() < until {
-                // busy wait; wasm SDK has no sleep primitive
-            }
-        }
-    }
-    if !verified {
-        ctx.log(
-            "error",
-            &format!(
-                "create_session_entry: WRITE LOST — POST 2xx for SessionId={session_id} EntryId={entry_id} but read-back found 0 rows after {VERIFY_ATTEMPTS} attempts (last_status={last_status} last_err={last_err:?})"
-            ),
-        );
-        return Err(format!(
-            "session entry write acknowledged but read-back missed after {VERIFY_ATTEMPTS} attempts: SessionId={session_id} EntryId={entry_id}"
-        ));
-    }
-
-    Ok(CreatedSessionEntry {
-        entity_id,
-        entry_id: entry_id.to_string(),
-    })
+    Ok(created)
 }
 
 pub fn create_initial_session_entries(
@@ -415,14 +358,14 @@ pub fn create_initial_session_entries(
     let created =
         create_session_entry_batch(ctx, temper_api_url, tenant, fields, &specs, "initial")?;
 
-    verify_initial_session_entries(
+    maybe_verify_session_entries(
         ctx,
         temper_api_url,
         tenant,
         fields,
         session_id,
-        &header_id,
-        &user_entry_id,
+        &[&header_id, &user_entry_id],
+        "create_initial_session_entries",
     )?;
 
     if created.len() != 2 {
@@ -483,7 +426,7 @@ pub fn materialize_initial_session_entries_with_assistant(
         &specs,
         "materialize initial SessionEntry",
     )?;
-    verify_session_entries(
+    maybe_verify_session_entries(
         ctx,
         temper_api_url,
         tenant,
@@ -550,32 +493,48 @@ fn create_session_entry_batch(
                 &resp.body[..resp.body.len().min(300)]
             ));
         }
-        created.push(CreatedSessionEntry {
-            entity_id: parse_created_session_entry_entity_id(&resp.body)?,
-            entry_id: spec.entry_id.to_string(),
-        });
+        created.push(parse_created_session_entry_ack(
+            &resp.body,
+            spec.session_id,
+            spec.entry_id,
+        )?);
     }
     Ok(created)
 }
 
-fn verify_initial_session_entries(
+fn maybe_verify_session_entries(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     fields: &Value,
     session_id: &str,
-    header_id: &str,
-    user_entry_id: &str,
+    entry_ids: &[&str],
+    label: &str,
 ) -> Result<(), String> {
-    verify_session_entries(
-        ctx,
-        temper_api_url,
-        tenant,
-        fields,
-        session_id,
-        &[header_id, user_entry_id],
-        "create_initial_session_entries",
-    )
+    let config_value = ctx
+        .config
+        .get("session_entry_create_verify_readback")
+        .map(String::as_str);
+    if session_entry_create_verify_readback_enabled(fields, config_value) {
+        return verify_session_entries(
+            ctx,
+            temper_api_url,
+            tenant,
+            fields,
+            session_id,
+            entry_ids,
+            label,
+        );
+    }
+
+    ctx.log(
+        "info",
+        &format!(
+            "{label}: SessionEntry create response ack verified; strict read-back skipped (SessionId={session_id}, entries={})",
+            entry_ids.join(",")
+        ),
+    );
+    Ok(())
 }
 
 fn verify_session_entries(
@@ -686,12 +645,57 @@ fn session_entry_create_body(spec: &SessionEntryCreateSpec<'_>) -> Result<Value,
     }))
 }
 
-fn parse_created_session_entry_entity_id(body: &str) -> Result<String, String> {
+fn parse_created_session_entry_ack(
+    body: &str,
+    expected_session_id: &str,
+    expected_entry_id: &str,
+) -> Result<CreatedSessionEntry, String> {
     let parsed: Value = serde_json::from_str(body)
         .map_err(|err| format!("parse SessionEntry creation response: {err}"))?;
-    Ok(entity_field_str(&parsed, &["entity_id", "Id"])
+    let entity_id = entity_field_str(&parsed, &["entity_id", "Id"])
         .unwrap_or("")
-        .to_string())
+        .to_string();
+    if entity_id.is_empty() {
+        return Err("SessionEntry creation response missing entity_id/Id".to_string());
+    }
+
+    let actual_session_id = entity_field_str(&parsed, &["SessionId", "session_id"]).unwrap_or("");
+    let actual_entry_id = entity_field_str(&parsed, &["EntryId", "entry_id"]).unwrap_or("");
+    if actual_session_id != expected_session_id || actual_entry_id != expected_entry_id {
+        return Err(format!(
+            "SessionEntry creation response ack mismatch: expected SessionId={expected_session_id} EntryId={expected_entry_id}, got SessionId={actual_session_id:?} EntryId={actual_entry_id:?}"
+        ));
+    }
+
+    Ok(CreatedSessionEntry {
+        entity_id,
+        entry_id: expected_entry_id.to_string(),
+    })
+}
+
+fn session_entry_create_verify_readback_enabled(
+    fields: &Value,
+    config_value: Option<&str>,
+) -> bool {
+    fields
+        .get("session_entry_create_verify_readback")
+        .and_then(boolish_json)
+        .or_else(|| config_value.and_then(boolish_str))
+        .unwrap_or(false)
+}
+
+fn boolish_json(value: &Value) -> Option<bool> {
+    value
+        .as_bool()
+        .or_else(|| value.as_str().and_then(boolish_str))
+}
+
+fn boolish_str(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 fn session_entry_verify_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
@@ -1852,6 +1856,65 @@ mod tests {
         assert_eq!(user["ParentEntryId"], "h-ss-1");
         assert_eq!(user["Role"], "user");
         assert_eq!(user["Content"], "\"hello\"");
+    }
+
+    #[test]
+    fn session_entry_create_ack_accepts_matching_odata_state_response() {
+        let created = parse_created_session_entry_ack(
+            r#"{
+                "entity_id": "se-123",
+                "fields": {
+                    "SessionId": "ss-1",
+                    "EntryId": "a-2"
+                }
+            }"#,
+            "ss-1",
+            "a-2",
+        )
+        .expect("acknowledged create");
+
+        assert_eq!(created.entity_id, "se-123");
+        assert_eq!(created.entry_id, "a-2");
+    }
+
+    #[test]
+    fn session_entry_create_ack_rejects_wrong_session_or_entry() {
+        assert!(
+            parse_created_session_entry_ack(
+                r#"{"fields":{"SessionId":"ss-other","EntryId":"a-2"}}"#,
+                "ss-1",
+                "a-2",
+            )
+            .is_err()
+        );
+        assert!(
+            parse_created_session_entry_ack(
+                r#"{"fields":{"SessionId":"ss-1","EntryId":"a-3"}}"#,
+                "ss-1",
+                "a-2",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn session_entry_strict_readback_is_opt_in_by_field_or_config() {
+        assert!(!session_entry_create_verify_readback_enabled(
+            &json!({}),
+            None,
+        ));
+        assert!(session_entry_create_verify_readback_enabled(
+            &json!({"session_entry_create_verify_readback": "true"}),
+            None,
+        ));
+        assert!(session_entry_create_verify_readback_enabled(
+            &json!({}),
+            Some("true"),
+        ));
+        assert!(!session_entry_create_verify_readback_enabled(
+            &json!({"session_entry_create_verify_readback": "false"}),
+            Some("true"),
+        ));
     }
 
     #[test]
