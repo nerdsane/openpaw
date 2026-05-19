@@ -59,7 +59,7 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 fn temper_dependency_pin_uses_event_driven_observe_wait_revision() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "47af04681bb83591aa7b65b19a004b4a275bcc8a";
+    let expected_rev = "f3cf53c9750af7e8d2f7d0ace29e654869aeb1be";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
@@ -104,7 +104,7 @@ fn temper_dependency_pin_uses_event_driven_observe_wait_revision() {
 #[test]
 fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "47af04681bb83591aa7b65b19a004b4a275bcc8a";
+    let expected_rev = "f3cf53c9750af7e8d2f7d0ace29e654869aeb1be";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -167,7 +167,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
 #[test]
 fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "47af04681bb83591aa7b65b19a004b4a275bcc8a";
+    let expected_rev = "f3cf53c9750af7e8d2f7d0ace29e654869aeb1be";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
@@ -1886,7 +1886,7 @@ fn wasm_guest_observability_live_proof_is_temper_native_and_datadog_backed() {
 
     assert!(
         probe_manifest.contains("temper-wasm-sdk")
-            && probe_manifest.contains("47af04681bb83591aa7b65b19a004b4a275bcc8a"),
+            && probe_manifest.contains("f3cf53c9750af7e8d2f7d0ace29e654869aeb1be"),
         "proof WASM must build against the same guest observability SDK rev as production modules"
     );
 }
