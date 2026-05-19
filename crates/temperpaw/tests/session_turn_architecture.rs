@@ -138,6 +138,9 @@ fn active_context_preparer_owns_delta_batch_read_contract() {
         "read_text_files_batch",
         "read_content_file_version_raw",
         "context_preparer: reused prepared context",
+        "load_prompt_auxiliary_blocks",
+        "ctx.http_call_batch(&requests)",
+        "context_preparer: prompt metadata batch unavailable",
     ] {
         assert!(
             preparer.contains(needle),
