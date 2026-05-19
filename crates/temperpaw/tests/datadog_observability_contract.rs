@@ -56,10 +56,10 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 }
 
 #[test]
-fn temper_dependency_pin_uses_projection_parity_and_local_tenant_revision() {
+fn temper_dependency_pin_uses_data_only_create_and_projection_parity_revision() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "19d34f0a6cdbcba09a3d65773c73385c8cfb1b86";
+    let expected_rev = "de081598a950d0587494029aff3106920af25e0b";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
@@ -80,7 +80,7 @@ fn temper_dependency_pin_uses_projection_parity_and_local_tenant_revision() {
         );
         assert!(
             manifest.contains(&manifest_clause),
-            "{temper_crate} must pin the Temper rev with projection read parity, local TData tenant propagation, runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, Datadog-visible WASM span hints, host-boundary spans, guest progress/log correlation, and wasm.invoke phase tracing"
+            "{temper_crate} must pin the Temper rev with data-only create fast path support, projection read parity, local TData tenant propagation, runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, Datadog-visible WASM span hints, host-boundary spans, guest progress/log correlation, and wasm.invoke phase tracing"
         );
     }
 
@@ -97,14 +97,14 @@ fn temper_dependency_pin_uses_projection_parity_and_local_tenant_revision() {
     );
     assert!(
         lockfile.contains(expected_rev),
-        "Cargo.lock must resolve Temper dependencies to the projection parity and local tenant propagation revision"
+        "Cargo.lock must resolve Temper dependencies to the data-only create, projection parity, and local tenant propagation revision"
     );
 }
 
 #[test]
 fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "19d34f0a6cdbcba09a3d65773c73385c8cfb1b86";
+    let expected_rev = "de081598a950d0587494029aff3106920af25e0b";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -167,7 +167,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
 #[test]
 fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "19d34f0a6cdbcba09a3d65773c73385c8cfb1b86";
+    let expected_rev = "de081598a950d0587494029aff3106920af25e0b";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
@@ -1886,7 +1886,7 @@ fn wasm_guest_observability_live_proof_is_temper_native_and_datadog_backed() {
 
     assert!(
         probe_manifest.contains("temper-wasm-sdk")
-            && probe_manifest.contains("19d34f0a6cdbcba09a3d65773c73385c8cfb1b86"),
+            && probe_manifest.contains("de081598a950d0587494029aff3106920af25e0b"),
         "proof WASM must build against the same guest observability SDK rev as production modules"
     );
 }
