@@ -74,6 +74,27 @@ struct PreparedContextStorage {
     inline_json: String,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct PromptAuxiliaryBlocks {
+    project_harness: String,
+    skills: String,
+    memory: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptBatchRequestKind {
+    ProjectHarness,
+    SkillIndex,
+    Memory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PromptBatchRequestSpec {
+    kind: PromptBatchRequestKind,
+    label: String,
+    url: String,
+}
+
 fn stringify_content(value: &Value) -> String {
     if let Some(s) = value.as_str() {
         s.to_string()
@@ -507,6 +528,18 @@ fn load_harness_block(
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let url = format!("{temper_api_url}/tdata/Harnesses('{project_harness_id}')");
     let resp = ctx.http_call("GET", &url, &headers, "")?;
+    Ok(parse_harness_block_from_response(
+        ctx,
+        project_harness_id,
+        &resp,
+    ))
+}
+
+fn parse_harness_block_from_response(
+    ctx: &Context,
+    project_harness_id: &str,
+    resp: &HttpResponse,
+) -> String {
     if resp.status != 200 {
         ctx.log(
             "warn",
@@ -515,13 +548,13 @@ fn load_harness_block(
                 resp.status
             ),
         );
-        return Ok(String::new());
+        return String::new();
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
     let tech_stack = entity_field_str(&parsed, &["TechStack", "tech_stack"]).unwrap_or("");
     let conventions = entity_field_str(&parsed, &["Conventions", "conventions"]).unwrap_or("");
     if tech_stack.is_empty() && conventions.is_empty() {
-        return Ok(String::new());
+        return String::new();
     }
     let id_attr = entity_field_str(&parsed, &["Id", "id"]).unwrap_or(project_harness_id);
     let mut block = format!("<project_harness id=\"{id_attr}\">\n");
@@ -532,7 +565,7 @@ fn load_harness_block(
         block.push_str(&format!("<conventions>\n{conventions}\n</conventions>\n"));
     }
     block.push_str("</project_harness>");
-    Ok(block)
+    block
 }
 
 /// Read a TemperFS file's content as a string (convenience wrapper).
@@ -1015,8 +1048,11 @@ pub fn run_context_preparer() -> Result<(), String> {
         ready_params["provider_auth_status"] = json!("skipped");
         ready_params["provider_auth_checked_at_ms"] = json!(timestamp_millis_string());
         ready_params["provider_auth_error"] = json!("");
-        ready_params["provider_auth_retry_count"] =
-            json!(retry_count(&fields, "provider_auth_retry_count", "ProviderAuthRetryCount"));
+        ready_params["provider_auth_retry_count"] = json!(retry_count(
+            &fields,
+            "provider_auth_retry_count",
+            "ProviderAuthRetryCount"
+        ));
         ready_params["compaction_auth_retry_count"] = json!(retry_count(
             &fields,
             "compaction_auth_retry_count",
@@ -1717,6 +1753,37 @@ fn assemble_system_prompt(
     workdir: &str,
 ) -> Result<String, String> {
     let mut parts: Vec<String> = Vec::new();
+    let empty_fields = json!({});
+    let fields = ctx.entity_state.get("fields").unwrap_or(&empty_fields);
+    let agent_id = fields
+        .get("agent_id")
+        .or_else(|| fields.get("AgentId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let project_id = fields
+        .get("project_id")
+        .or_else(|| fields.get("ProjectId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let project_harness_id = fields
+        .get("project_harness_id")
+        .or_else(|| fields.get("ProjectHarnessId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let session_mode = fields
+        .get("session_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("execute");
+    let active_plan_id = fields
+        .get("active_plan_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let skills_prompt_mode = configured_string(ctx, fields, "skills_prompt_mode", "index");
+    let memory_entity_id = ctx
+        .entity_state
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     // 1. Soul content
     if !soul_id.is_empty() {
@@ -1731,22 +1798,14 @@ fn assemble_system_prompt(
     }
 
     // 1b. Agent instructions (from Agent entity's instructions_file_id)
-    {
-        let agent_id = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if !agent_id.is_empty() {
-            match load_agent_instructions(ctx, temper_api_url, tenant, agent_id) {
-                Ok(content) if !content.is_empty() => parts.push(content),
-                Ok(_) => {}
-                Err(e) => ctx.log(
-                    "warn",
-                    &format!("assemble_system_prompt: failed to load agent instructions: {e}"),
-                ),
-            }
+    if !agent_id.is_empty() {
+        match load_agent_instructions(ctx, temper_api_url, tenant, agent_id) {
+            Ok(content) if !content.is_empty() => parts.push(content),
+            Ok(_) => {}
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load agent instructions: {e}"),
+            ),
         }
     }
 
@@ -1755,138 +1814,62 @@ fn assemble_system_prompt(
         parts.push(system_prompt_override.to_string());
     }
 
+    let prompt_aux = load_prompt_auxiliary_blocks(
+        ctx,
+        temper_api_url,
+        tenant,
+        project_harness_id,
+        project_id,
+        agent_id,
+        &skills_prompt_mode,
+        memory_entity_id,
+    );
+
     // 2b. Project harness conventions (auto-injected like CLAUDE.md)
-    {
-        let fields_val = ctx.entity_state.get("fields");
-        let project_harness_id = fields_val
-            .and_then(|f| {
-                f.get("project_harness_id")
-                    .or_else(|| f.get("ProjectHarnessId"))
-            })
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        match load_harness_block(ctx, temper_api_url, tenant, project_harness_id) {
-            Ok(block) if !block.is_empty() => parts.push(block),
-            Ok(_) => {}
-            Err(e) => ctx.log(
-                "warn",
-                &format!("assemble_system_prompt: failed to load harness: {e}"),
-            ),
-        }
+    if !prompt_aux.project_harness.is_empty() {
+        parts.push(prompt_aux.project_harness.clone());
     }
 
     // 3. Available skills — discovered from TemperFS SKILL.md files (ADR-002)
     //    Path = scope: /system/skills/, /agents/{id}/skills/, /projects/{id}/skills/
-    {
-        let fields_val = ctx.entity_state.get("fields");
-        let agent_id = fields_val
-            .and_then(|f| f.get("agent_id").or_else(|| f.get("AgentId")))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let project_id = fields_val
-            .and_then(|f| f.get("project_id").or_else(|| f.get("ProjectId")))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let empty_fields = json!({});
-        let fields_for_config = fields_val.unwrap_or(&empty_fields);
-        let skills_prompt_mode =
-            configured_string(ctx, fields_for_config, "skills_prompt_mode", "index");
-        if !matches!(
-            skills_prompt_mode.as_str(),
-            "off" | "none" | "disabled" | "false"
-        ) {
-            let include_bodies = matches!(
-                skills_prompt_mode.as_str(),
-                "full" | "body" | "bodies" | "legacy"
-            );
-            match load_skills_block(
-                ctx,
-                temper_api_url,
-                tenant,
-                project_id,
-                agent_id,
-                include_bodies,
-            ) {
-                Ok(block) if !block.is_empty() => parts.push(block),
-                Ok(_) => {}
-                Err(e) => ctx.log(
-                    "warn",
-                    &format!("assemble_system_prompt: failed to load skills: {e}"),
-                ),
-            }
-        }
+    if !prompt_aux.skills.is_empty() {
+        parts.push(prompt_aux.skills.clone());
     }
 
     // 3b. Plan-mode instructions — conditional on session_mode, NOT a system skill (ADR-004)
-    {
-        let session_mode = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("session_mode"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("execute");
-        if session_mode == "plan" {
-            match load_mode_instructions(ctx, temper_api_url, tenant, "plan") {
-                Ok(content) if !content.is_empty() => parts.push(content),
-                Ok(_) => {
-                    parts.push(PLAN_MODE_FALLBACK.to_string());
-                }
-                Err(e) => {
-                    ctx.log(
-                        "warn",
-                        &format!("assemble_system_prompt: plan mode instructions failed: {e}"),
-                    );
-                    parts.push(PLAN_MODE_FALLBACK.to_string());
-                }
+    if session_mode == "plan" {
+        match load_mode_instructions(ctx, temper_api_url, tenant, "plan") {
+            Ok(content) if !content.is_empty() => parts.push(content),
+            Ok(_) => {
+                parts.push(PLAN_MODE_FALLBACK.to_string());
+            }
+            Err(e) => {
+                ctx.log(
+                    "warn",
+                    &format!("assemble_system_prompt: plan mode instructions failed: {e}"),
+                );
+                parts.push(PLAN_MODE_FALLBACK.to_string());
             }
         }
     }
 
     // 3c. Active plan injection — when executing after planning (ADR-004)
-    {
-        let session_mode = ctx
-            .entity_state
-            .get("fields")
-            .and_then(|f| f.get("session_mode"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("execute");
-        if session_mode == "execute" {
-            let plan_id = ctx
-                .entity_state
-                .get("fields")
-                .and_then(|f| f.get("active_plan_id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if !plan_id.is_empty() {
-                match load_active_plan(ctx, temper_api_url, tenant, plan_id) {
-                    Ok(content) if !content.is_empty() => {
-                        parts.push(format!("<active_plan>\n{}\n</active_plan>", content));
-                    }
-                    Ok(_) => {}
-                    Err(e) => ctx.log(
-                        "warn",
-                        &format!("assemble_system_prompt: failed to load active plan: {e}"),
-                    ),
-                }
+    if session_mode == "execute" && !active_plan_id.is_empty() {
+        match load_active_plan(ctx, temper_api_url, tenant, active_plan_id) {
+            Ok(content) if !content.is_empty() => {
+                parts.push(format!("<active_plan>\n{}\n</active_plan>", content));
             }
+            Ok(_) => {}
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load active plan: {e}"),
+            ),
         }
     }
 
     // 4. Memory context — scoped to agent, not soul (ADR-0007)
-    {
-        let entity_id = ctx
-            .entity_state
-            .get("entity_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        match load_memory_block(ctx, temper_api_url, tenant, entity_id) {
-            Ok(block) if !block.is_empty() => parts.push(block),
-            Ok(_) => {}
-            Err(e) => ctx.log(
-                "warn",
-                &format!("assemble_system_prompt: failed to load memory: {e}"),
-            ),
-        }
+    if !prompt_aux.memory.is_empty() {
+        parts.push(prompt_aux.memory);
     }
 
     // 5. Temper SDK reference (available REPL commands)
@@ -2142,26 +2125,15 @@ fn strip_skill_frontmatter(content: &str) -> &str {
     content
 }
 
-/// Load skills from TemperFS SKILL.md files as an XML block for the system prompt.
-///
-/// Skills are discovered by path convention (ADR-002). Path = scope:
-///   /system/skills/{name}/SKILL.md           — system-level (platform knowledge, all agents)
-///   /agents/{agent-id}/skills/{name}/SKILL.md — agent-scoped (from app bootstrap or runtime)
-///   /projects/{pid}/skills/{name}/SKILL.md   — project-scoped (runtime, created by leads)
-///
-/// No frontmatter scope filtering. Precedence on name collision: agent > project > system.
-/// Agents use temper.read(path) for progressive disclosure.
-fn load_skills_block(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    project_id: &str,
-    agent_id: &str,
-    include_bodies: bool,
-) -> Result<String, String> {
-    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+fn skills_prompt_enabled(mode: &str) -> bool {
+    !matches!(mode, "off" | "none" | "disabled" | "false")
+}
 
-    // Build path prefixes to search — path = scope
+fn skills_prompt_includes_bodies(mode: &str) -> bool {
+    matches!(mode, "full" | "body" | "bodies" | "legacy")
+}
+
+fn skill_prefixes(project_id: &str, agent_id: &str) -> Vec<String> {
     let mut prefixes = vec!["/system/skills/".to_string()];
     if !project_id.is_empty() {
         prefixes.push(format!("/projects/{project_id}/skills/"));
@@ -2169,66 +2141,74 @@ fn load_skills_block(
     if !agent_id.is_empty() {
         prefixes.push(format!("/agents/{agent_id}/skills/"));
     }
+    prefixes
+}
 
-    // Collect all SKILL.md files across all prefixes.
-    // Tuple: (file_id, path, workspace_id).
-    // workspace_id is threaded into the `<skill>` advertisement so the agent
-    // can resolve the skill via `temper.read(path, {workspace_id})` against
-    // the workspace the skill actually lives in — typically the shared
-    // `os-app-docs` workspace, not the session's own workspace.
+fn skill_index_filter(prefix: &str) -> String {
+    // OData field names match the canonical capitalized form on File entities
+    // (Path/Name/Status). Lowercase aliases aren't indexed, so case-mismatched
+    // filters silently return zero results.
+    format!("startswith(Path,'{prefix}') and Name eq 'SKILL.md' and Status ne 'Archived'")
+}
+
+fn append_skill_file_entries_from_response(
+    ctx: &Context,
+    prefix: &str,
+    resp: &HttpResponse,
+    file_entries: &mut Vec<(String, String, String)>,
+) {
+    if resp.status != 200 {
+        ctx.log(
+            "warn",
+            &format!(
+                "load_skills_block: file query for prefix {prefix} returned HTTP {}",
+                resp.status
+            ),
+        );
+        return;
+    }
+
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
+    let Some(items) = parsed.get("value").and_then(|v| v.as_array()) else {
+        return;
+    };
+
+    for item in items {
+        let id = entity_field_str(item, &["Id", "entity_id"])
+            .unwrap_or("")
+            .to_string();
+        let path = entity_field_str(item, &["Path", "path"])
+            .unwrap_or("")
+            .to_string();
+        // Prefer the snake_case `workspace_id` — that's the workspace the file
+        // actually lives in. The PascalCase `WorkspaceId` field on File rows can
+        // contain stale app-grouping values that diverge from the row's real
+        // workspace.
+        let workspace_id = entity_field_str(item, &["workspace_id", "WorkspaceId"])
+            .unwrap_or("")
+            .to_string();
+        if !id.is_empty() {
+            file_entries.push((id, path, workspace_id));
+        }
+    }
+}
+
+fn query_skill_file_entries_serial(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+    project_id: &str,
+    agent_id: &str,
+) -> Vec<(String, String, String)> {
     let mut file_entries: Vec<(String, String, String)> = Vec::new();
 
-    for prefix in &prefixes {
-        let filter =
-            // OData field names match the canonical capitalized form on File
-            // entities (Path/Name/Status). Lowercase aliases aren't indexed,
-            // so case-mismatched filters silently return zero results.
-            format!("startswith(Path,'{prefix}') and Name eq 'SKILL.md' and Status ne 'Archived'");
+    for prefix in skill_prefixes(project_id, agent_id) {
+        let filter = skill_index_filter(&prefix);
         let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
-        match ctx.http_call("GET", &url, &headers, "") {
-            Ok(resp) if resp.status == 200 => {
-                let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
-                if let Some(items) = parsed.get("value").and_then(|v| v.as_array()) {
-                    for item in items {
-                        let id = entity_field_str(item, &["Id", "entity_id"])
-                            .unwrap_or("")
-                            .to_string();
-                        let path = entity_field_str(item, &["Path", "path"])
-                            .unwrap_or("")
-                            .to_string();
-                        // Prefer the snake_case `workspace_id` — that's the
-                        // workspace the file actually lives in. The
-                        // PascalCase `WorkspaceId` field on File rows is
-                        // populated with stale or app-grouping values that
-                        // diverge from the row's real workspace (observed:
-                        // `workspace_id=null`, `WorkspaceId="os-app-docs"`
-                        // on system skill files that are in the default
-                        // workspace). Advertising the PascalCase value in
-                        // the skill index leads agents to issue
-                        // workspace-scoped reads against the wrong
-                        // workspace — e.g. `os-app-docs` is the workspace
-                        // bundling OS-app docs, including
-                        // `os-app-guide-katagami-curation`, so a guest
-                        // reading `/system/skills/platform-awareness/SKILL.md`
-                        // with `workspace_id="os-app-docs"` can land on the
-                        // katagami launch guide instead of the platform
-                        // awareness primer.
-                        let workspace_id = entity_field_str(item, &["workspace_id", "WorkspaceId"])
-                            .unwrap_or("")
-                            .to_string();
-                        if !id.is_empty() {
-                            file_entries.push((id, path, workspace_id));
-                        }
-                    }
-                }
+        match ctx.http_call("GET", &url, headers, "") {
+            Ok(resp) => {
+                append_skill_file_entries_from_response(ctx, &prefix, &resp, &mut file_entries)
             }
-            Ok(resp) => ctx.log(
-                "warn",
-                &format!(
-                    "load_skills_block: file query for prefix {prefix} returned HTTP {}",
-                    resp.status
-                ),
-            ),
             Err(e) => ctx.log(
                 "warn",
                 &format!("load_skills_block: file query for prefix {prefix} failed: {e}"),
@@ -2236,6 +2216,16 @@ fn load_skills_block(
         }
     }
 
+    file_entries
+}
+
+fn render_skill_block_from_file_entries(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+    include_bodies: bool,
+    file_entries: Vec<(String, String, String)>,
+) -> Result<String, String> {
     if file_entries.is_empty() {
         return Ok(String::new());
     }
@@ -2252,7 +2242,7 @@ fn load_skills_block(
 
     for (file_id, path, workspace_id) in &file_entries {
         let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
-        match ctx.http_call("GET", &url, &headers, "") {
+        match ctx.http_call("GET", &url, headers, "") {
             Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
                 let (fm_name, fm_desc, _) = parse_skill_frontmatter(&resp.body);
 
@@ -2262,13 +2252,7 @@ fn load_skills_block(
                     fm_name
                 };
 
-                let scope_priority = if path.starts_with("/agents/") {
-                    0
-                } else if path.starts_with("/projects/") {
-                    1
-                } else {
-                    2
-                };
+                let scope_priority = scope_priority(path);
 
                 // System skills get fully injected; others stay L0 (name+desc only)
                 let body = if scope_priority == 2 {
@@ -2335,6 +2319,35 @@ fn load_skills_block(
     }
     xml.push_str("</available_skills>");
     Ok(xml)
+}
+
+/// Load skills from TemperFS SKILL.md files as an XML block for the system prompt.
+///
+/// Skills are discovered by path convention (ADR-002). Path = scope:
+///   /system/skills/{name}/SKILL.md           — system-level (platform knowledge, all agents)
+///   /agents/{agent-id}/skills/{name}/SKILL.md — agent-scoped (from app bootstrap or runtime)
+///   /projects/{pid}/skills/{name}/SKILL.md   — project-scoped (runtime, created by leads)
+///
+/// No frontmatter scope filtering. Precedence on name collision: agent > project > system.
+/// Agents use temper.read(path) for progressive disclosure.
+fn load_skills_block(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    project_id: &str,
+    agent_id: &str,
+    include_bodies: bool,
+) -> Result<String, String> {
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let file_entries =
+        query_skill_file_entries_serial(ctx, temper_api_url, &headers, project_id, agent_id);
+    render_skill_block_from_file_entries(
+        ctx,
+        temper_api_url,
+        &headers,
+        include_bodies,
+        file_entries,
+    )
 }
 
 fn render_skill_index(mut file_entries: Vec<(String, String, String)>) -> String {
@@ -2502,8 +2515,12 @@ fn load_memory_block(
     );
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     let resp = ctx.http_call("GET", &url, &headers, "")?;
+    Ok(render_memory_block_from_response(&resp))
+}
+
+fn render_memory_block_from_response(resp: &HttpResponse) -> String {
     if resp.status != 200 {
-        return Ok(String::new());
+        return String::new();
     }
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or(json!({}));
     let memories = parsed
@@ -2512,7 +2529,7 @@ fn load_memory_block(
         .cloned()
         .unwrap_or_default();
     if memories.is_empty() {
-        return Ok(String::new());
+        return String::new();
     }
     let mut block = String::from("<agent_memory>\n");
     for mem in &memories {
@@ -2524,7 +2541,217 @@ fn load_memory_block(
         ));
     }
     block.push_str("</agent_memory>");
-    Ok(block)
+    block
+}
+
+fn build_prompt_auxiliary_batch_plan(
+    temper_api_url: &str,
+    project_harness_id: &str,
+    project_id: &str,
+    agent_id: &str,
+    skills_prompt_mode: &str,
+    memory_entity_id: &str,
+) -> Vec<PromptBatchRequestSpec> {
+    let mut specs = Vec::new();
+
+    if !project_harness_id.is_empty() {
+        specs.push(PromptBatchRequestSpec {
+            kind: PromptBatchRequestKind::ProjectHarness,
+            label: project_harness_id.to_string(),
+            url: format!("{temper_api_url}/tdata/Harnesses('{project_harness_id}')"),
+        });
+    }
+
+    if skills_prompt_enabled(skills_prompt_mode) {
+        for prefix in skill_prefixes(project_id, agent_id) {
+            let filter = skill_index_filter(&prefix);
+            specs.push(PromptBatchRequestSpec {
+                kind: PromptBatchRequestKind::SkillIndex,
+                label: prefix,
+                url: format!("{temper_api_url}/tdata/Files?$filter={filter}"),
+            });
+        }
+    }
+
+    if !memory_entity_id.is_empty() {
+        specs.push(PromptBatchRequestSpec {
+            kind: PromptBatchRequestKind::Memory,
+            label: memory_entity_id.to_string(),
+            url: format!(
+                "{temper_api_url}/tdata/Memories?$filter=AgentId eq '{}' and Status eq 'Active'",
+                memory_entity_id
+            ),
+        });
+    }
+
+    specs
+}
+
+fn load_prompt_auxiliary_blocks_serial(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    project_harness_id: &str,
+    project_id: &str,
+    agent_id: &str,
+    skills_prompt_mode: &str,
+    memory_entity_id: &str,
+) -> PromptAuxiliaryBlocks {
+    let mut blocks = PromptAuxiliaryBlocks::default();
+
+    if !project_harness_id.is_empty() {
+        match load_harness_block(ctx, temper_api_url, tenant, project_harness_id) {
+            Ok(block) => blocks.project_harness = block,
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load harness: {e}"),
+            ),
+        }
+    }
+
+    if skills_prompt_enabled(skills_prompt_mode) {
+        match load_skills_block(
+            ctx,
+            temper_api_url,
+            tenant,
+            project_id,
+            agent_id,
+            skills_prompt_includes_bodies(skills_prompt_mode),
+        ) {
+            Ok(block) => blocks.skills = block,
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load skills: {e}"),
+            ),
+        }
+    }
+
+    if !memory_entity_id.is_empty() {
+        match load_memory_block(ctx, temper_api_url, tenant, memory_entity_id) {
+            Ok(block) => blocks.memory = block,
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load memory: {e}"),
+            ),
+        }
+    }
+
+    blocks
+}
+
+fn load_prompt_auxiliary_blocks(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    project_harness_id: &str,
+    project_id: &str,
+    agent_id: &str,
+    skills_prompt_mode: &str,
+    memory_entity_id: &str,
+) -> PromptAuxiliaryBlocks {
+    let specs = build_prompt_auxiliary_batch_plan(
+        temper_api_url,
+        project_harness_id,
+        project_id,
+        agent_id,
+        skills_prompt_mode,
+        memory_entity_id,
+    );
+    if specs.is_empty() {
+        return PromptAuxiliaryBlocks::default();
+    }
+
+    let headers = agent_headers(ctx, tenant, None, Some("application/json"));
+    let requests = specs
+        .iter()
+        .map(|spec| HttpRequest {
+            method: "GET".to_string(),
+            url: spec.url.clone(),
+            headers: headers.clone(),
+            body: String::new(),
+        })
+        .collect::<Vec<_>>();
+
+    let responses = match ctx.http_call_batch(&requests) {
+        Ok(responses) if responses.len() == specs.len() => responses,
+        Ok(responses) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_preparer: prompt metadata batch unavailable: got {} responses for {} requests",
+                    responses.len(),
+                    specs.len()
+                ),
+            );
+            return load_prompt_auxiliary_blocks_serial(
+                ctx,
+                temper_api_url,
+                tenant,
+                project_harness_id,
+                project_id,
+                agent_id,
+                skills_prompt_mode,
+                memory_entity_id,
+            );
+        }
+        Err(e) => {
+            ctx.log(
+                "warn",
+                &format!("context_preparer: prompt metadata batch unavailable: {e}"),
+            );
+            return load_prompt_auxiliary_blocks_serial(
+                ctx,
+                temper_api_url,
+                tenant,
+                project_harness_id,
+                project_id,
+                agent_id,
+                skills_prompt_mode,
+                memory_entity_id,
+            );
+        }
+    };
+
+    let mut blocks = PromptAuxiliaryBlocks::default();
+    let mut skill_file_entries: Vec<(String, String, String)> = Vec::new();
+
+    for (spec, response) in specs.iter().zip(responses.iter()) {
+        match spec.kind {
+            PromptBatchRequestKind::ProjectHarness => {
+                blocks.project_harness =
+                    parse_harness_block_from_response(ctx, &spec.label, response);
+            }
+            PromptBatchRequestKind::SkillIndex => {
+                append_skill_file_entries_from_response(
+                    ctx,
+                    &spec.label,
+                    response,
+                    &mut skill_file_entries,
+                );
+            }
+            PromptBatchRequestKind::Memory => {
+                blocks.memory = render_memory_block_from_response(response);
+            }
+        }
+    }
+
+    if skills_prompt_enabled(skills_prompt_mode) {
+        match render_skill_block_from_file_entries(
+            ctx,
+            temper_api_url,
+            &headers,
+            skills_prompt_includes_bodies(skills_prompt_mode),
+            skill_file_entries,
+        ) {
+            Ok(block) => blocks.skills = block,
+            Err(e) => ctx.log(
+                "warn",
+                &format!("assemble_system_prompt: failed to load skills: {e}"),
+            ),
+        }
+    }
+
+    blocks
 }
 
 fn direct_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -2804,7 +3031,14 @@ mod tests {
 
     #[test]
     fn non_codex_providers_select_auth_skipped_context_ready_action() {
-        for provider in ["", "mock", "anthropic", "openai", "openrouter", "open_router"] {
+        for provider in [
+            "",
+            "mock",
+            "anthropic",
+            "openai",
+            "openrouter",
+            "open_router",
+        ] {
             assert_eq!(
                 context_ready_action_for_provider(provider),
                 "ContextReadyAuthSkipped",
@@ -2837,11 +3071,12 @@ mod tests {
 
     #[test]
     fn prepared_context_storage_externalizes_large_artifacts() {
-        let storage = choose_prepared_context_storage("larger-than-threshold", "existing-file", 8, |body| {
-            assert_eq!(body, "larger-than-threshold");
-            Ok("prepared-file".to_string())
-        })
-        .expect("storage decision");
+        let storage =
+            choose_prepared_context_storage("larger-than-threshold", "existing-file", 8, |body| {
+                assert_eq!(body, "larger-than-threshold");
+                Ok("prepared-file".to_string())
+            })
+            .expect("storage decision");
 
         assert_eq!(storage.file_id, "prepared-file");
         assert_eq!(storage.inline_json, "");
@@ -2867,6 +3102,55 @@ mod tests {
         assert!(block.contains("workspace_id=\"agent-docs\""));
         assert!(!block.contains("file-1"));
         assert!(!block.contains("</skill>"));
+    }
+
+    #[test]
+    fn prompt_auxiliary_batch_plan_preserves_prompt_metadata_order() {
+        let specs = build_prompt_auxiliary_batch_plan(
+            "https://temper.example",
+            "harness-1",
+            "project-1",
+            "agent-1",
+            "index",
+            "session-1",
+        );
+
+        let kinds = specs.iter().map(|spec| spec.kind).collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            vec![
+                PromptBatchRequestKind::ProjectHarness,
+                PromptBatchRequestKind::SkillIndex,
+                PromptBatchRequestKind::SkillIndex,
+                PromptBatchRequestKind::SkillIndex,
+                PromptBatchRequestKind::Memory,
+            ]
+        );
+        assert!(specs[0].url.contains("/tdata/Harnesses('harness-1')"));
+        assert_eq!(specs[1].label, "/system/skills/");
+        assert_eq!(specs[2].label, "/projects/project-1/skills/");
+        assert_eq!(specs[3].label, "/agents/agent-1/skills/");
+        assert!(
+            specs[4]
+                .url
+                .contains("/tdata/Memories?$filter=AgentId eq 'session-1'")
+        );
+    }
+
+    #[test]
+    fn prompt_auxiliary_batch_plan_skips_skills_when_disabled() {
+        let specs = build_prompt_auxiliary_batch_plan(
+            "https://temper.example",
+            "harness-1",
+            "project-1",
+            "agent-1",
+            "off",
+            "session-1",
+        );
+
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].kind, PromptBatchRequestKind::ProjectHarness);
+        assert_eq!(specs[1].kind, PromptBatchRequestKind::Memory);
     }
 
     #[test]
