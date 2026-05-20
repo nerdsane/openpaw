@@ -430,6 +430,38 @@ fn railway_redeploy_uses_current_deployment_api() {
 }
 
 #[test]
+fn manual_railway_redeploy_workflow_is_secret_backed_and_version_proven() {
+    let workflow = fs::read_to_string(repo_root().join(".github/workflows/railway-redeploy.yml"))
+        .expect("manual Railway redeploy workflow should be readable");
+
+    for required in [
+        "workflow_dispatch",
+        "environment: production",
+        "RAILWAY_TOKEN",
+        "RAILWAY_PROJECT_ID",
+        "RAILWAY_ENVIRONMENT_ID",
+        "RAILWAY_SERVICE_ID",
+        "TEMPERPAW_BASE_URL",
+        "VariableUpsertInput",
+        "skipDeploys: true",
+        "deploymentRedeploy",
+        "TEMPER_API_KEY",
+        "/paw/version",
+        "expected_sha",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "Railway redeploy workflow must contain {required}"
+        );
+    }
+
+    assert!(
+        workflow.contains("edge|latest|sha-[0-9a-f]*"),
+        "Railway redeploy workflow must restrict deployable tags"
+    );
+}
+
+#[test]
 fn railway_agent_tool_uses_project_scoped_variable_lookup() {
     let railway_tool =
         fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/railway.rs"))

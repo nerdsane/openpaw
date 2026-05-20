@@ -1,0 +1,213 @@
+name: Railway Redeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Published GHCR tag to deploy: edge, latest, or sha-*"
+        required: true
+        default: edge
+      expected_sha:
+        description: "Optional full commit SHA expected from /paw/version"
+        required: false
+        default: ""
+      base_url:
+        description: "Optional base URL to verify; falls back to TEMPERPAW_BASE_URL secret/variable"
+        required: false
+        default: ""
+      poll_attempts:
+        description: "Number of readiness/version polling attempts"
+        required: true
+        default: "60"
+      poll_seconds:
+        description: "Seconds between polling attempts"
+        required: true
+        default: "10"
+
+permissions:
+  contents: read
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      BASE_URL_INPUT: ${{ inputs.base_url }}
+      TEMPERPAW_BASE_URL: ${{ secrets.TEMPERPAW_BASE_URL || vars.TEMPERPAW_BASE_URL }}
+      POLL_ATTEMPTS: ${{ inputs.poll_attempts }}
+      POLL_SECONDS: ${{ inputs.poll_seconds }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID || vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID || vars.RAILWAY_ENVIRONMENT_ID }}
+      RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID || vars.RAILWAY_SERVICE_ID }}
+      TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
+      RAILWAY_GRAPHQL_URL: https://backboard.railway.com/graphql/v2
+    steps:
+      - name: Validate inputs and secrets
+        run: |
+          set -euo pipefail
+
+          case "${IMAGE_TAG}" in
+            edge|latest|sha-[0-9a-f]*)
+              ;;
+            *)
+              echo "image_tag must be edge, latest, or sha-*" >&2
+              exit 64
+              ;;
+          esac
+
+          if [ -z "${RAILWAY_TOKEN}" ]; then
+            echo "RAILWAY_TOKEN secret is required" >&2
+            exit 65
+          fi
+          if [ -z "${RAILWAY_PROJECT_ID}" ] || [ -z "${RAILWAY_ENVIRONMENT_ID}" ] || [ -z "${RAILWAY_SERVICE_ID}" ]; then
+            echo "RAILWAY_PROJECT_ID, RAILWAY_ENVIRONMENT_ID, and RAILWAY_SERVICE_ID are required as secrets or variables" >&2
+            exit 65
+          fi
+          base_url="${BASE_URL_INPUT:-${TEMPERPAW_BASE_URL:-}}"
+          if [ -z "${base_url}" ]; then
+            echo "base_url input or TEMPERPAW_BASE_URL secret/variable is required" >&2
+            exit 65
+          fi
+          case "${base_url}" in
+            http://*|https://*)
+              ;;
+            *)
+              echo "base_url must start with http:// or https://" >&2
+              exit 64
+              ;;
+          esac
+          echo "BASE_URL=${base_url%/}" >> "${GITHUB_ENV}"
+
+          if [ -n "${EXPECTED_SHA}" ] && [ -z "${TEMPER_API_KEY}" ]; then
+            echo "TEMPER_API_KEY secret is required when expected_sha is provided" >&2
+            exit 65
+          fi
+
+          case "${POLL_ATTEMPTS}" in
+            ''|*[!0-9]*)
+              echo "poll_attempts must be an integer" >&2
+              exit 64
+              ;;
+          esac
+          case "${POLL_SECONDS}" in
+            ''|*[!0-9]*)
+              echo "poll_seconds must be an integer" >&2
+              exit 64
+              ;;
+          esac
+
+      - name: Set Railway IMAGE_TAG without implicit deploy
+        run: |
+          set -euo pipefail
+
+          response="$(jq -n \
+            --arg projectId "${RAILWAY_PROJECT_ID}" \
+            --arg environmentId "${RAILWAY_ENVIRONMENT_ID}" \
+            --arg serviceId "${RAILWAY_SERVICE_ID}" \
+            --arg value "${IMAGE_TAG}" \
+            '{
+              query: "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+              variables: {
+                input: {
+                  projectId: $projectId,
+                  environmentId: $environmentId,
+                  serviceId: $serviceId,
+                  name: "IMAGE_TAG",
+                  value: $value,
+                  skipDeploys: true
+                }
+              }
+            }' | curl -fsS \
+              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data @- \
+              "${RAILWAY_GRAPHQL_URL}")"
+
+          if jq -e '.errors' >/dev/null <<<"${response}"; then
+            jq -r '.errors[0].message // "Railway variableUpsert failed"' <<<"${response}" >&2
+            exit 1
+          fi
+
+      - name: Find current Railway deployment
+        id: deployment
+        run: |
+          set -euo pipefail
+
+          response="$(jq -n \
+            --arg serviceId "${RAILWAY_SERVICE_ID}" \
+            '{
+              query: "query($serviceId: String!) { service(id: $serviceId) { serviceInstances { edges { node { latestDeployment { id status createdAt } } } } } }",
+              variables: { serviceId: $serviceId }
+            }' | curl -fsS \
+              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data @- \
+              "${RAILWAY_GRAPHQL_URL}")"
+
+          if jq -e '.errors' >/dev/null <<<"${response}"; then
+            jq -r '.errors[0].message // "Railway latest deployment lookup failed"' <<<"${response}" >&2
+            exit 1
+          fi
+
+          deployment_id="$(jq -r '.data.service.serviceInstances.edges[]?.node.latestDeployment.id // empty' <<<"${response}" | head -n 1)"
+          if [ -z "${deployment_id}" ]; then
+            echo "No Railway latestDeployment.id found for service" >&2
+            exit 1
+          fi
+
+          echo "deployment_id=${deployment_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Trigger Railway redeploy
+        run: |
+          set -euo pipefail
+
+          response="$(jq -n \
+            --arg deploymentId "${{ steps.deployment.outputs.deployment_id }}" \
+            '{
+              query: "mutation($deploymentId: String!) { deploymentRedeploy(id: $deploymentId) { id status } }",
+              variables: { deploymentId: $deploymentId }
+            }' | curl -fsS \
+              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data @- \
+              "${RAILWAY_GRAPHQL_URL}")"
+
+          if jq -e '.errors' >/dev/null <<<"${response}"; then
+            jq -r '.errors[0].message // "Railway deploymentRedeploy failed"' <<<"${response}" >&2
+            exit 1
+          fi
+
+          jq -r '.data.deploymentRedeploy | "Redeploy triggered: \(.id) status=\(.status)"' <<<"${response}"
+
+      - name: Verify ready and optional version
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 "${POLL_ATTEMPTS}"); do
+            if curl -fsS "${BASE_URL%/}/readyz" >/tmp/readyz.json; then
+              if [ -z "${EXPECTED_SHA}" ]; then
+                cat /tmp/readyz.json
+                exit 0
+              fi
+
+              version="$(curl -fsS \
+                -H "Authorization: Bearer ${TEMPER_API_KEY}" \
+                "${BASE_URL%/}/paw/version")"
+              live_sha="$(jq -r '.sha // empty' <<<"${version}")"
+              if [ "${live_sha}" = "${EXPECTED_SHA}" ]; then
+                echo "${version}"
+                exit 0
+              fi
+              echo "Attempt ${attempt}: ready but version is ${live_sha:-unknown}, waiting for ${EXPECTED_SHA}"
+            else
+              echo "Attempt ${attempt}: /readyz not ready yet"
+            fi
+
+            sleep "${POLL_SECONDS}"
+          done
+
+          echo "Railway deployment did not reach expected readiness/version in time" >&2
+          exit 1
