@@ -23,7 +23,7 @@ COPY os-apps ./os-apps
 # Replace the symlinks with real content pulled from the upstream repo so the
 # catalog discovers them. Pin the default ref to the exact Katagami commit baked
 # into this image; callers may still override KATAGAMI_REF with a branch or tag.
-ARG KATAGAMI_REF=d16c99213fcd2ff5bff426539eb5831e1ae029a7
+ARG KATAGAMI_REF=c01089955c967d936acfb636b700ab099bb51532
 ARG TEMPER_OBSERVABILITY_REV=83a0e1135f9ab53dda5749fae987c4ccb77a05a7
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
