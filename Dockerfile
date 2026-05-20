@@ -20,15 +20,17 @@ COPY os-apps ./os-apps
 # from manifests` reported only ["paw-agent","paw-channels","paw-fs",
 # "paw-research"] and the Katagami data layer was missing every deploy.
 #
-# Replace the symlinks with real content pulled from the upstream repo
-# on every image build so the catalog discovers them. `--depth 1` keeps
-# the download tiny. Pin via KATAGAMI_REF arg when a reproducible image
-# is needed; defaults to main.
-ARG KATAGAMI_REF=master
+# Replace the symlinks with real content pulled from the upstream repo so the
+# catalog discovers them. Pin the default ref to the exact Katagami commit baked
+# into this image; callers may still override KATAGAMI_REF with a branch or tag.
+ARG KATAGAMI_REF=d16c99213fcd2ff5bff426539eb5831e1ae029a7
 ARG TEMPER_OBSERVABILITY_REV=83a0e1135f9ab53dda5749fae987c4ccb77a05a7
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
-    && git clone --depth 1 --branch "${KATAGAMI_REF}" https://github.com/arni-labs/katagami.git /tmp/katagami \
+    && git init /tmp/katagami \
+    && git -C /tmp/katagami remote add origin https://github.com/arni-labs/katagami.git \
+    && git -C /tmp/katagami fetch --depth 1 origin "${KATAGAMI_REF}" \
+    && git -C /tmp/katagami checkout --detach FETCH_HEAD \
     && cp -a /tmp/katagami/katagami-curation os-apps/katagami-curation \
     && cp -a /tmp/katagami/katagami-commons  os-apps/katagami-commons  \
     && find os-apps/katagami-curation/wasm -name Cargo.toml -exec sed -i "s|temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", branch = \"main\" }|temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", rev = \"${TEMPER_OBSERVABILITY_REV}\" }|g" {} + \
