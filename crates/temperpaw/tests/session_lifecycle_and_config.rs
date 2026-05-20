@@ -68,6 +68,38 @@ fn session_link_is_a_reusable_temperpaw_child_session_monitor() {
 }
 
 #[test]
+fn wiki_build_session_message_emits_step_metrics_for_spawn_path() {
+    let root = repo_root();
+    let wiki_builder = read(root.join("os-apps/paw-wiki/wasm/build_session_message/src/lib.rs"));
+
+    assert!(
+        wiki_builder.contains("temper_wiki_build_session_message_step_duration_ms"),
+        "WikiJob child-session spawn should emit an app-specific step-duration histogram"
+    );
+    assert!(
+        wiki_builder.contains("emit_build_session_step_duration")
+            && wiki_builder.contains("Context::get_time_millis"),
+        "WikiJob child-session spawn should measure each stateful OData boundary"
+    );
+
+    for needle in [
+        "\"ensure_workspace\"",
+        "\"create_session\"",
+        "\"configure_session\"",
+        "\"session_spawned\"",
+        "\"create_session_link\"",
+        "\"configure_session_link\"",
+        "\"total\"",
+        "\"result\": result",
+    ] {
+        assert!(
+            wiki_builder.contains(needle),
+            "WikiJob build_session_message metrics should include {needle}"
+        );
+    }
+}
+
+#[test]
 fn runtime_model_provider_selection_has_no_hardcoded_llm_fallbacks() {
     let root = repo_root();
     let checked_files = [

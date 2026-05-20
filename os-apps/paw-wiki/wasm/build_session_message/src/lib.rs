@@ -15,6 +15,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
         ctx.log("info", "build_session_message: starting");
+        let total_started_at = Context::get_time_millis();
 
         // --- Read WikiJob entity fields ---
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
@@ -25,269 +26,405 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .unwrap_or("")
             .to_string();
 
-        let input = fields
-            .get("input")
-            .and_then(|v| v.as_str())
-            .unwrap_or("{}")
-            .to_string();
+        let result = (|| -> Result<(), String> {
+            let input = fields
+                .get("input")
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}")
+                .to_string();
 
-        let scope_id = fields
-            .get("scope_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+            let scope_id = fields
+                .get("scope_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
-        let soul_id = fields
-            .get("soul_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+            let soul_id = fields
+                .get("soul_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
-        let model = required_field(&fields, &["model", "Model"], "WikiJob.model")?;
-        let provider = required_field(&fields, &["provider", "Provider"], "WikiJob.provider")?;
+            let model = required_field(&fields, &["model", "Model"], "WikiJob.model")?;
+            let provider = required_field(&fields, &["provider", "Provider"], "WikiJob.provider")?;
 
-        let temperature = fields
-            .get("temperature")
-            .and_then(|v| v.as_str())
-            .unwrap_or("1.0")
-            .to_string();
+            let temperature = fields
+                .get("temperature")
+                .and_then(|v| v.as_str())
+                .unwrap_or("1.0")
+                .to_string();
 
-        let tools_enabled = fields
+            let tools_enabled = fields
             .get("tools_enabled")
             .and_then(|v| v.as_str())
             .unwrap_or("temper_get,temper_list,temper_create,temper_action,temper_write,temper_read,temper_web_search,temper_web_fetch")
             .to_string();
-        let tools_enabled = sanitize_tools_enabled(&tools_enabled);
+            let tools_enabled = sanitize_tools_enabled(&tools_enabled);
 
-        let max_turns = fields
-            .get("max_turns")
-            .and_then(|v| v.as_str())
-            .unwrap_or("250")
-            .to_string();
+            let max_turns = fields
+                .get("max_turns")
+                .and_then(|v| v.as_str())
+                .unwrap_or("250")
+                .to_string();
 
-        let entity_id = ctx
-            .entity_state
-            .get("entity_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&ctx.entity_id)
-            .to_string();
+            let entity_id = ctx
+                .entity_state
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&ctx.entity_id)
+                .to_string();
 
-        // --- Config ---
-        let api_url = ctx
-            .config
-            .get("temper_api_url")
-            .filter(|s| !s.is_empty() && !s.contains("{secret:"))
-            .cloned()
-            .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
+            // --- Config ---
+            let api_url = ctx
+                .config
+                .get("temper_api_url")
+                .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+                .cloned()
+                .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
 
-        let odata_namespace = ctx
-            .config
-            .get("odata_namespace")
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .unwrap_or_else(|| "WikiCore".to_string());
+            let odata_namespace = ctx
+                .config
+                .get("odata_namespace")
+                .filter(|s| !s.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "WikiCore".to_string());
 
-        let tenant = &ctx.tenant;
+            let tenant = &ctx.tenant;
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-            ("X-Tenant-Id".to_string(), tenant.to_string()),
-            ("x-temper-principal-kind".to_string(), "agent".to_string()),
-            ("x-temper-principal-id".to_string(), "system".to_string()),
-            ("x-temper-agent-type".to_string(), "system".to_string()),
-        ];
+            let headers = vec![
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("X-Tenant-Id".to_string(), tenant.to_string()),
+                ("x-temper-principal-kind".to_string(), "agent".to_string()),
+                ("x-temper-principal-id".to_string(), "system".to_string()),
+                ("x-temper-agent-type".to_string(), "system".to_string()),
+            ];
 
-        // --- Build user_message based on job_type ---
-        let existing_workspace_id = fields
-            .get("workspace_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let workspace_name = shared_workspace_name(&scope_id);
-        let workspace_id = if existing_workspace_id.is_empty() {
-            ensure_workspace(&ctx, &api_url, tenant, &headers, &workspace_name)?
-        } else {
-            existing_workspace_id
-        };
-        let workspace_label = if scope_id.is_empty() {
-            format!("attached workspace ({workspace_id})")
-        } else {
-            workspace_name.clone()
-        };
+            // --- Build user_message based on job_type ---
+            let existing_workspace_id = fields
+                .get("workspace_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let workspace_name = shared_workspace_name(&scope_id);
+            let workspace_id = if existing_workspace_id.is_empty() {
+                let workspace_started_at = Context::get_time_millis();
+                let workspace_result =
+                    ensure_workspace(&ctx, &api_url, tenant, &headers, &workspace_name);
+                emit_build_session_step_duration(
+                    &ctx,
+                    &job_type,
+                    "ensure_workspace",
+                    workspace_started_at,
+                    if workspace_result.is_ok() {
+                        "ok"
+                    } else {
+                        "error"
+                    },
+                );
+                workspace_result?
+            } else {
+                emit_build_session_step_duration(
+                    &ctx,
+                    &job_type,
+                    "ensure_workspace",
+                    Context::get_time_millis(),
+                    "skipped",
+                );
+                existing_workspace_id
+            };
+            let workspace_label = if scope_id.is_empty() {
+                format!("attached workspace ({workspace_id})")
+            } else {
+                workspace_name.clone()
+            };
 
-        // Check for custom mission_template in input JSON
-        let parsed_input = serde_json::from_str::<serde_json::Value>(&input).ok();
-        let custom_template = parsed_input
-            .as_ref()
-            .and_then(|v| v.get("mission_template"))
-            .and_then(|v| v.as_str());
+            // Check for custom mission_template in input JSON
+            let parsed_input = serde_json::from_str::<serde_json::Value>(&input).ok();
+            let custom_template = parsed_input
+                .as_ref()
+                .and_then(|v| v.get("mission_template"))
+                .and_then(|v| v.as_str());
 
-        let user_message = if let Some(template) = custom_template {
-            build_custom_message(
-                template,
-                &scope_id,
-                &entity_id,
-                &workspace_id,
-                &workspace_label,
-                &input,
-                &job_type,
-            )
-        } else {
-            match job_type.as_str() {
-                "source_search" => build_source_search_message(
-                    &input,
+            let user_message = if let Some(template) = custom_template {
+                build_custom_message(
+                    template,
                     &scope_id,
                     &entity_id,
                     &workspace_id,
                     &workspace_label,
-                ),
-                "synthesize" => build_synthesize_message(
-                    &fields,
                     &input,
-                    &scope_id,
-                    &entity_id,
-                    &workspace_id,
-                    &workspace_label,
-                ),
-                other => {
-                    return Err(format!(
+                    &job_type,
+                )
+            } else {
+                match job_type.as_str() {
+                    "source_search" => build_source_search_message(
+                        &input,
+                        &scope_id,
+                        &entity_id,
+                        &workspace_id,
+                        &workspace_label,
+                    ),
+                    "synthesize" => build_synthesize_message(
+                        &fields,
+                        &input,
+                        &scope_id,
+                        &entity_id,
+                        &workspace_id,
+                        &workspace_label,
+                    ),
+                    other => {
+                        return Err(format!(
                         "build_session_message: unsupported job_type '{other}' (provide a mission_template in input JSON for custom job types)"
                     ));
+                    }
                 }
+            };
+
+            ctx.log(
+                "info",
+                &format!(
+                    "build_session_message: built user_message for job_type='{}' ({} chars)",
+                    job_type,
+                    user_message.len()
+                ),
+            );
+
+            // --- Create Session entity ---
+            let session_body = json!({
+                "fields": {}
+            });
+
+            let create_session_started_at = Context::get_time_millis();
+            let create_resp = match ctx.http_call(
+                "POST",
+                &format!("{api_url}/tdata/Sessions"),
+                &headers,
+                &session_body.to_string(),
+            ) {
+                Ok(response) => response,
+                Err(err) => {
+                    emit_build_session_step_duration(
+                        &ctx,
+                        &job_type,
+                        "create_session",
+                        create_session_started_at,
+                        "error",
+                    );
+                    return Err(err);
+                }
+            };
+            if create_resp.status < 200 || create_resp.status >= 300 {
+                emit_build_session_step_duration(
+                    &ctx,
+                    &job_type,
+                    "create_session",
+                    create_session_started_at,
+                    "error",
+                );
+                return Err(format!(
+                    "Failed to create Session: HTTP {}: {}",
+                    create_resp.status,
+                    &create_resp.body[..create_resp.body.len().min(500)]
+                ));
             }
-        };
 
-        ctx.log(
-            "info",
-            &format!(
-                "build_session_message: built user_message for job_type='{}' ({} chars)",
-                job_type,
-                user_message.len()
-            ),
-        );
+            let created: serde_json::Value = match serde_json::from_str(&create_resp.body) {
+                Ok(value) => value,
+                Err(err) => {
+                    emit_build_session_step_duration(
+                        &ctx,
+                        &job_type,
+                        "create_session",
+                        create_session_started_at,
+                        "error",
+                    );
+                    return Err(format!("Failed to parse Session creation response: {err}"));
+                }
+            };
 
-        // --- Create Session entity ---
-        let session_body = json!({
-            "fields": {}
-        });
+            let session_id = match created.get("entity_id").and_then(|v| v.as_str()) {
+                Some(session_id) => session_id.to_string(),
+                None => {
+                    emit_build_session_step_duration(
+                        &ctx,
+                        &job_type,
+                        "create_session",
+                        create_session_started_at,
+                        "error",
+                    );
+                    return Err("Created Session has no entity_id".to_string());
+                }
+            };
+            emit_build_session_step_duration(
+                &ctx,
+                &job_type,
+                "create_session",
+                create_session_started_at,
+                "ok",
+            );
 
-        let create_resp = ctx.http_call(
-            "POST",
-            &format!("{api_url}/tdata/Sessions"),
-            &headers,
-            &session_body.to_string(),
-        )?;
-        if create_resp.status < 200 || create_resp.status >= 300 {
-            return Err(format!(
-                "Failed to create Session: HTTP {}: {}",
-                create_resp.status,
-                &create_resp.body[..create_resp.body.len().min(500)]
-            ));
-        }
+            ctx.log(
+                "info",
+                &format!("build_session_message: created Session '{session_id}'"),
+            );
 
-        let created: serde_json::Value = serde_json::from_str(&create_resp.body)
-            .map_err(|e| format!("Failed to parse Session creation response: {e}"))?;
+            // --- Dispatch Configure on the Session ---
+            let mut config_body = json!({
+                "user_message": user_message,
+                "model": model,
+                "provider": provider,
+                "temperature": temperature,
+                "tools_enabled": tools_enabled,
+                "max_turns": max_turns,
+                "workspace_id": workspace_id,
+            });
+            if !soul_id.is_empty() {
+                config_body["soul_id"] = json!(soul_id);
+            }
 
-        let session_id = created
-            .get("entity_id")
-            .and_then(|v| v.as_str())
-            .ok_or("Created Session has no entity_id")?
-            .to_string();
+            let configure_session_started_at = Context::get_time_millis();
+            let configure_resp = match ctx.http_call(
+                "POST",
+                &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"),
+                &headers,
+                &config_body.to_string(),
+            ) {
+                Ok(response) => response,
+                Err(err) => {
+                    emit_build_session_step_duration(
+                        &ctx,
+                        &job_type,
+                        "configure_session",
+                        configure_session_started_at,
+                        "error",
+                    );
+                    return Err(err);
+                }
+            };
+            if configure_resp.status < 200 || configure_resp.status >= 300 {
+                emit_build_session_step_duration(
+                    &ctx,
+                    &job_type,
+                    "configure_session",
+                    configure_session_started_at,
+                    "error",
+                );
+                return Err(format!(
+                    "Failed to Configure Session: HTTP {}: {}",
+                    configure_resp.status,
+                    &configure_resp.body[..configure_resp.body.len().min(500)]
+                ));
+            }
+            emit_build_session_step_duration(
+                &ctx,
+                &job_type,
+                "configure_session",
+                configure_session_started_at,
+                "ok",
+            );
 
-        ctx.log(
-            "info",
-            &format!("build_session_message: created Session '{session_id}'"),
-        );
+            ctx.log(
+                "info",
+                &format!("build_session_message: dispatched Configure on Session '{session_id}'"),
+            );
 
-        // --- Dispatch Configure on the Session ---
-        let mut config_body = json!({
-            "user_message": user_message,
-            "model": model,
-            "provider": provider,
-            "temperature": temperature,
-            "tools_enabled": tools_enabled,
-            "max_turns": max_turns,
-            "workspace_id": workspace_id,
-        });
-        if !soul_id.is_empty() {
-            config_body["soul_id"] = json!(soul_id);
-        }
+            // --- Dispatch SessionSpawned on the WikiJob ---
+            let spawned_body = json!({
+                "session_id": session_id,
+                "workspace_id": workspace_id,
+            });
 
-        let configure_resp = ctx.http_call(
-            "POST",
-            &format!("{api_url}/tdata/Sessions('{session_id}')/TemperPaw.Configure"),
-            &headers,
-            &config_body.to_string(),
-        )?;
-        if configure_resp.status < 200 || configure_resp.status >= 300 {
-            return Err(format!(
-                "Failed to Configure Session: HTTP {}: {}",
-                configure_resp.status,
-                &configure_resp.body[..configure_resp.body.len().min(500)]
-            ));
-        }
+            let spawned_started_at = Context::get_time_millis();
+            let spawned_resp = match ctx.http_call(
+                "POST",
+                &format!(
+                    "{api_url}/tdata/WikiJobs('{entity_id}')/{odata_namespace}.SessionSpawned"
+                ),
+                &headers,
+                &spawned_body.to_string(),
+            ) {
+                Ok(response) => response,
+                Err(err) => {
+                    emit_build_session_step_duration(
+                        &ctx,
+                        &job_type,
+                        "session_spawned",
+                        spawned_started_at,
+                        "error",
+                    );
+                    return Err(err);
+                }
+            };
+            if spawned_resp.status < 200 || spawned_resp.status >= 300 {
+                emit_build_session_step_duration(
+                    &ctx,
+                    &job_type,
+                    "session_spawned",
+                    spawned_started_at,
+                    "error",
+                );
+                return Err(format!(
+                    "Failed to dispatch SessionSpawned: HTTP {}: {}",
+                    spawned_resp.status,
+                    &spawned_resp.body[..spawned_resp.body.len().min(500)]
+                ));
+            }
+            emit_build_session_step_duration(
+                &ctx,
+                &job_type,
+                "session_spawned",
+                spawned_started_at,
+                "ok",
+            );
 
-        ctx.log(
-            "info",
-            &format!("build_session_message: dispatched Configure on Session '{session_id}'"),
-        );
-
-        // --- Dispatch SessionSpawned on the WikiJob ---
-        let spawned_body = json!({
-            "session_id": session_id,
-            "workspace_id": workspace_id,
-        });
-
-        let spawned_resp = ctx.http_call(
-            "POST",
-            &format!("{api_url}/tdata/WikiJobs('{entity_id}')/{odata_namespace}.SessionSpawned"),
-            &headers,
-            &spawned_body.to_string(),
-        )?;
-        if spawned_resp.status < 200 || spawned_resp.status >= 300 {
-            return Err(format!(
-                "Failed to dispatch SessionSpawned: HTTP {}: {}",
-                spawned_resp.status,
-                &spawned_resp.body[..spawned_resp.body.len().min(500)]
-            ));
-        }
-
-        if let Err(link_error) = create_session_link(
-            &ctx,
-            &api_url,
-            &headers,
-            &entity_id,
-            &odata_namespace,
-            &session_id,
-        ) {
-            let message =
-                format!("SessionLink setup failed for child Session '{session_id}': {link_error}");
-            if let Err(fail_error) = dispatch_wiki_job_failure(
+            if let Err(link_error) = create_session_link(
                 &ctx,
                 &api_url,
                 &headers,
+                &job_type,
                 &entity_id,
                 &odata_namespace,
-                &message,
+                &session_id,
             ) {
-                return Err(format!(
-                    "{message}; additionally failed to mark WikiJob failed: {fail_error}"
-                ));
+                let message = format!(
+                    "SessionLink setup failed for child Session '{session_id}': {link_error}"
+                );
+                if let Err(fail_error) = dispatch_wiki_job_failure(
+                    &ctx,
+                    &api_url,
+                    &headers,
+                    &entity_id,
+                    &odata_namespace,
+                    &message,
+                ) {
+                    return Err(format!(
+                        "{message}; additionally failed to mark WikiJob failed: {fail_error}"
+                    ));
+                }
+                return Err(message);
             }
-            return Err(message);
-        }
 
-        ctx.log("info", "build_session_message: completed successfully");
+            ctx.log("info", "build_session_message: completed successfully");
 
-        set_success_result(
-            "",
-            &json!({
-                "status": "ok",
-                "session_id": session_id,
-                "job_type": job_type,
-            }),
+            set_success_result(
+                "",
+                &json!({
+                    "status": "ok",
+                    "session_id": session_id,
+                    "job_type": job_type,
+                }),
+            );
+            Ok(())
+        })();
+
+        emit_build_session_step_duration(
+            &ctx,
+            &job_type,
+            "total",
+            total_started_at,
+            if result.is_ok() { "ok" } else { "error" },
         );
-        Ok(())
+        result
     })();
 
     if let Err(e) = result {
@@ -307,34 +444,118 @@ fn required_field(fields: &Value, keys: &[&str], name: &str) -> Result<String, S
         })
 }
 
+fn elapsed_ms_since(started_at: i64) -> i64 {
+    Context::get_time_millis().saturating_sub(started_at)
+}
+
+fn emit_build_session_step_duration(
+    ctx: &Context,
+    job_type: &str,
+    step: &str,
+    started_at: i64,
+    result: &str,
+) -> i64 {
+    let elapsed_ms = elapsed_ms_since(started_at);
+    let _ = ctx.emit_metric(
+        "temper_wiki_build_session_message_step_duration_ms",
+        elapsed_ms as f64,
+        &json!({
+            "job_type": job_type,
+            "step": step,
+            "result": result,
+        }),
+        Some("histogram"),
+    );
+    ctx.log(
+        "info",
+        &format!(
+            "build_session_message_step job_type={job_type} step={step} result={result} elapsed_ms={elapsed_ms}"
+        ),
+    );
+    elapsed_ms
+}
+
 fn create_session_link(
     ctx: &Context,
     api_url: &str,
     headers: &[(String, String)],
+    job_type: &str,
     parent_job_id: &str,
     parent_action_namespace: &str,
     child_session_id: &str,
 ) -> Result<(), String> {
-    let create_resp = ctx.http_call(
+    let create_started_at = Context::get_time_millis();
+    let create_resp = match ctx.http_call(
         "POST",
         &format!("{api_url}/tdata/SessionLinks"),
         headers,
         "{}",
-    )?;
+    ) {
+        Ok(response) => response,
+        Err(err) => {
+            emit_build_session_step_duration(
+                ctx,
+                job_type,
+                "create_session_link",
+                create_started_at,
+                "error",
+            );
+            return Err(err);
+        }
+    };
     if create_resp.status < 200 || create_resp.status >= 300 {
+        emit_build_session_step_duration(
+            ctx,
+            job_type,
+            "create_session_link",
+            create_started_at,
+            "error",
+        );
         return Err(format!(
             "Failed to create SessionLink: HTTP {}: {}",
             create_resp.status,
             &create_resp.body[..create_resp.body.len().min(500)]
         ));
     }
-    let created: Value = serde_json::from_str(&create_resp.body)
-        .map_err(|err| format!("Failed to parse SessionLink creation response: {err}"))?;
-    let link_id = created
+    let created: Value = match serde_json::from_str(&create_resp.body) {
+        Ok(value) => value,
+        Err(err) => {
+            emit_build_session_step_duration(
+                ctx,
+                job_type,
+                "create_session_link",
+                create_started_at,
+                "error",
+            );
+            return Err(format!(
+                "Failed to parse SessionLink creation response: {err}"
+            ));
+        }
+    };
+    let link_id = match created
         .get("entity_id")
         .or_else(|| created.get("Id"))
         .and_then(|value| value.as_str())
-        .ok_or("Created SessionLink has no entity_id")?;
+    {
+        Some(link_id) => link_id,
+        None => {
+            emit_build_session_step_duration(
+                ctx,
+                job_type,
+                "create_session_link",
+                create_started_at,
+                "error",
+            );
+            return Err("Created SessionLink has no entity_id".to_string());
+        }
+    };
+    emit_build_session_step_duration(
+        ctx,
+        job_type,
+        "create_session_link",
+        create_started_at,
+        "ok",
+    );
 
     let configure_body = json!({
         "ParentEntitySet": "WikiJobs",
@@ -345,19 +566,46 @@ fn create_session_link(
         "OnFailureAction": "Fail",
         "MaxChecks": "80",
     });
-    let configure_resp = ctx.http_call(
+    let configure_started_at = Context::get_time_millis();
+    let configure_resp = match ctx.http_call(
         "POST",
         &format!("{api_url}/tdata/SessionLinks('{link_id}')/TemperPaw.Configure"),
         headers,
         &configure_body.to_string(),
-    )?;
+    ) {
+        Ok(response) => response,
+        Err(err) => {
+            emit_build_session_step_duration(
+                ctx,
+                job_type,
+                "configure_session_link",
+                configure_started_at,
+                "error",
+            );
+            return Err(err);
+        }
+    };
     if configure_resp.status < 200 || configure_resp.status >= 300 {
+        emit_build_session_step_duration(
+            ctx,
+            job_type,
+            "configure_session_link",
+            configure_started_at,
+            "error",
+        );
         return Err(format!(
             "Failed to configure SessionLink: HTTP {}: {}",
             configure_resp.status,
             &configure_resp.body[..configure_resp.body.len().min(500)]
         ));
     }
+    emit_build_session_step_duration(
+        ctx,
+        job_type,
+        "configure_session_link",
+        configure_started_at,
+        "ok",
+    );
 
     ctx.log(
         "info",
