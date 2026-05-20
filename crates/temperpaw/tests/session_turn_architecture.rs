@@ -164,6 +164,7 @@ fn context_preparer_keeps_medium_artifacts_inline_and_measurable() {
     for needle in [
         "const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 128 * 1024",
         "temper_session_prepared_context_artifact_bytes",
+        "temper_session_prepared_context_artifact_bytes_total",
         "temper_session_prepared_context_artifact_storage_total",
         "\"mode\": mode",
     ] {
