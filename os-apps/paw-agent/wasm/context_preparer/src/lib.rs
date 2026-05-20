@@ -25,7 +25,7 @@ use wasm_helpers::{
 };
 
 const DEFAULT_CONTEXT_PREPARE_BUDGET_MS: i64 = 120_000;
-const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 32 * 1024;
+const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 128 * 1024;
 const CONTEXT_READY_ACTION: &str = "ContextReady";
 const CONTEXT_READY_AUTH_SKIPPED_ACTION: &str = "ContextReadyAuthSkipped";
 
@@ -1010,6 +1010,30 @@ pub fn run_context_preparer() -> Result<(), String> {
             )
         },
     )?;
+    let artifact_storage_mode = if artifact_storage.file_id.is_empty() {
+        "inline"
+    } else {
+        "file"
+    };
+    let artifact_metric_tags = session_artifact_metric_tags(
+        normalize_provider(provider).as_str(),
+        model,
+        artifact_storage_mode,
+    );
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_prepared_context_artifact_bytes",
+        artifact_json.len() as f64,
+        &artifact_metric_tags,
+        Some("gauge"),
+    );
+    emit_metric_ignore(
+        &ctx,
+        "temper_session_prepared_context_artifact_storage_total",
+        1.0,
+        &artifact_metric_tags,
+        Some("count"),
+    );
     emit_phase_step_duration(
         &ctx,
         "context_preparer",
@@ -1617,6 +1641,14 @@ fn session_metric_tags(provider: &str, model: &str) -> Value {
     json!({
         "provider": provider,
         "model": model,
+    })
+}
+
+fn session_artifact_metric_tags(provider: &str, model: &str, mode: &str) -> Value {
+    json!({
+        "provider": provider,
+        "model": model,
+        "mode": mode,
     })
 }
 
@@ -3067,6 +3099,21 @@ mod tests {
 
         assert_eq!(storage.file_id, "");
         assert_eq!(storage.inline_json, "small");
+    }
+
+    #[test]
+    fn prepared_context_storage_keeps_observed_medium_artifacts_inline_by_default() {
+        let artifact = "x".repeat(45 * 1024);
+        let storage = choose_prepared_context_storage(
+            &artifact,
+            "existing-file",
+            DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES,
+            |_| panic!("observed 45 KiB artifacts should not be written to TemperFS"),
+        )
+        .expect("storage decision");
+
+        assert_eq!(storage.file_id, "");
+        assert_eq!(storage.inline_json.len(), artifact.len());
     }
 
     #[test]
