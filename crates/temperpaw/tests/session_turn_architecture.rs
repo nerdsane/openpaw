@@ -155,6 +155,26 @@ fn active_context_preparer_owns_delta_batch_read_contract() {
 }
 
 #[test]
+fn context_preparer_keeps_medium_artifacts_inline_and_measurable() {
+    let root = repo_root();
+    let preparer =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_preparer/src/lib.rs"))
+            .expect("context_preparer source should exist");
+
+    for needle in [
+        "const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 128 * 1024",
+        "temper_session_prepared_context_artifact_bytes",
+        "temper_session_prepared_context_artifact_storage_total",
+        "\"mode\": mode",
+    ] {
+        assert!(
+            preparer.contains(needle),
+            "context_preparer should keep medium prepared artifacts inline and observable: {needle}"
+        );
+    }
+}
+
+#[test]
 fn entity_backed_session_appends_use_direct_session_entry_create() {
     let root = repo_root();
     let provider_applier = fs::read_to_string(
