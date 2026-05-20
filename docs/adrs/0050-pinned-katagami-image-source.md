@@ -22,6 +22,7 @@ Pin the Docker build's Katagami source to the exact Katagami commit required by
 the deployment:
 
 - `d16c99213fcd2ff5bff426539eb5831e1ae029a7`
+- `c01089955c967d936acfb636b700ab099bb51532`
 
 The Dockerfile now fetches the requested ref into a temporary checkout and
 checks out `FETCH_HEAD`, which supports branch names, tags, and exact commits.
