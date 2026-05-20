@@ -1029,6 +1029,13 @@ pub fn run_context_preparer() -> Result<(), String> {
     );
     emit_metric_ignore(
         &ctx,
+        "temper_session_prepared_context_artifact_bytes_total",
+        artifact_json.len() as f64,
+        &artifact_metric_tags,
+        Some("count"),
+    );
+    emit_metric_ignore(
+        &ctx,
         "temper_session_prepared_context_artifact_storage_total",
         1.0,
         &artifact_metric_tags,
