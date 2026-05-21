@@ -12,14 +12,14 @@ path = "src/main.rs"
 
 [dependencies]
 # Temper platform engine
-temper-platform = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
-temper-observe = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
-temper-server = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5", features = ["observe"] }
-temper-runtime = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
-temper-jit = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
-temper-authz = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
-temper-store-postgres = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
-temper-store-turso = { git = "https://github.com/nerdsane/temper.git", rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5" }
+temper-platform = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
+temper-observe = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
+temper-server = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94", features = ["observe"] }
+temper-runtime = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
+temper-jit = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
+temper-authz = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
+temper-store-postgres = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
+temper-store-turso = { git = "https://github.com/nerdsane/temper.git", rev = "acc080368ee107d2905ae8d645a50361e1e74d94" }
 
 # Paw transport (local)
 paw-transport = { path = "../paw-transport" }
