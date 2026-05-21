@@ -23,6 +23,7 @@ the deployment:
 
 - `d16c99213fcd2ff5bff426539eb5831e1ae029a7`
 - `c01089955c967d936acfb636b700ab099bb51532`
+- `00c4db68c8ca119bc22df98ca6417d6ecf0f8a79`
 
 The Dockerfile now fetches the requested ref into a temporary checkout and
 checks out `FETCH_HEAD`, which supports branch names, tags, and exact commits.
@@ -33,5 +34,5 @@ checks out `FETCH_HEAD`, which supports branch names, tags, and exact commits.
   build production curation WASM.
 - Rebuilding the TemperPaw image is required for future Katagami app changes;
   a same-image Railway redeploy is not enough.
-- PERF-035 Datadog proof can distinguish image packaging from guest telemetry
-  behavior.
+- PERF-035 and later CurationJob latency proofs can distinguish image packaging
+  from guest telemetry behavior.
