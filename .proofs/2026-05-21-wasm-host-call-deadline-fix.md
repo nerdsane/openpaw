@@ -62,7 +62,18 @@ TemperPaw verification:
 - `GET http://127.0.0.1:34991/readyz` returned `200 OK` with `{"status":"ready","healthz":"/healthz","discord":{"status":"disconnected","configured":false,"connected":false}}`.
 - OData state check: `GET /tdata/Apps?$top=20` returned 8 startup app entities, all with `status: "Installed"` and `sequence_nr: 2`: `paw-agent`, `paw-research`, `katagami-curation`, `paw-channels`, `paw-ingest`, `paw-pm`, `paw-patrol`, and `paw-skills`.
 
-Pending:
+Release and deployment:
 
-- TemperPaw PR merge.
-- Railway deployment and live readiness/version proof.
+- TemperPaw PR #325 passed CI and merged on 2026-05-21 at merge commit `8b5a5c0bb0798342c71393dd8f60abcd04458c4b`.
+- Main CI for merge commit `8b5a5c0bb0798342c71393dd8f60abcd04458c4b` passed: fmt, clippy, check, worker smoke syntax, OS app WASM build, tests, and dashboard build.
+- Docker workflow for the same merge commit passed and published `ghcr.io/nerdsane/temperpaw:sha-8b5a5c0`.
+- The manual GitHub Railway redeploy workflow could not run because repository/environment Railway secrets were not configured (`RAILWAY_TOKEN`, project/environment/service ids, and base URL were empty).
+- Railway CLI deployment used the linked production project `openpaw-seshendranalla` and service `openpaw`.
+- Set Railway `IMAGE_TAG=sha-8b5a5c0`, `BUILD_VERSION=sha-8b5a5c0`, and `BUILD_SHA=8b5a5c0bb0798342c71393dd8f60abcd04458c4b`.
+- `railway up --service openpaw --environment production --message "Deploy temperpaw sha-8b5a5c0 host-call deadline fix"` created deployment `d7e2454f-e68c-4067-b613-446893c2c981`.
+- `railway redeploy --service openpaw` after updating runtime build variables created deployment `8d79094a-7299-4c07-9b19-4d5357835441`, which reached `SUCCESS`.
+- Live URL used for verification: `https://openpaw-production.up.railway.app` (the custom `temperpaw.katagami.ai` Railway variable did not resolve from local DNS during this proof).
+- `GET https://openpaw-production.up.railway.app/readyz` returned `200 OK` with `{"status":"ready","healthz":"/healthz","discord":{"status":"connected","configured":true,"connected":true,"desired_state":"connected","connection_state":"Connected","last_error":null,"next_retry_at":null}}`.
+- Authenticated `GET https://openpaw-production.up.railway.app/paw/version` returned `{"version":"sha-8b5a5c0","sha":"8b5a5c0bb0798342c71393dd8f60abcd04458c4b"}`.
+- Datadog logs check: `(service:temperpaw OR service:openpaw) "WASM host call exceeded outer deadline"` returned count `0` for the last 30 minutes.
+- Datadog recent error pattern check: `(service:temperpaw OR service:openpaw) status:error` returned zero patterns for the last 15 minutes.
