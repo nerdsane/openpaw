@@ -88,6 +88,7 @@ fn datadog_runtime_variables(
         variables.push("TEMPER_PROFILING_ENABLED=true".to_string());
         variables.push("TEMPER_PROFILING_AUTO_UPLOAD=true".to_string());
         variables.push("TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway".to_string());
+        variables.push("DD_LLMOBS_ENABLED=true".to_string());
         variables.push("DD_LLMOBS_API_ENABLED=true".to_string());
         variables.push(
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318"
@@ -1402,11 +1403,6 @@ processors:
       - context: span
         statements:
           - set(attributes["span.type"], "sql") where attributes["db.system"] != nil and attributes["span.type"] == nil
-  filter/traces_llmobs:
-    error_mode: ignore
-    traces:
-      span:
-        - 'attributes["gen_ai.operation.name"] == nil and attributes["gen_ai.system"] == nil'
   batch:
     send_batch_size: 1000
     timeout: 5s
@@ -1416,18 +1412,9 @@ exporters:
     api:
       key: ${env:DD_API_KEY}
       site: ${env:DD_SITE}
-  otlphttp/llmobs:
-    endpoint: https://otlp-intake.${env:DD_SITE}
-    headers:
-      dd-api-key: ${env:DD_API_KEY}
-      dd-otlp-source: llmobs
 
 service:
   pipelines:
-    traces/llmobs:
-      receivers: [otlp]
-      processors: [resourcedetection, resource, filter/traces_llmobs, batch]
-      exporters: [otlphttp/llmobs]
     traces/apm:
       receivers: [otlp]
       processors: [resourcedetection, resource, transform/dbm, batch]
@@ -2343,6 +2330,7 @@ mod tests {
             "TEMPER_PROFILING_ENABLED=true",
             "TEMPER_PROFILING_AUTO_UPLOAD=true",
             "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
+            "DD_LLMOBS_ENABLED=true",
             "DD_LLMOBS_API_ENABLED=true",
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
             "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
@@ -2577,9 +2565,9 @@ active = true
     #[test]
     fn otel_datadog_config_wires_processors_into_every_pipeline() {
         let cfg = otel_datadog_config();
-        assert!(cfg.contains("traces/llmobs:"));
         assert!(
-            cfg.contains("processors: [resourcedetection, resource, filter/traces_llmobs, batch]")
+            !cfg.contains("traces/llmobs:"),
+            "collector should not mirror generic OTLP traces into Datadog LLM Observability:\n{cfg}"
         );
         assert!(cfg.contains("traces/apm:"));
         assert!(cfg.contains("processors: [resourcedetection, resource, transform/dbm, batch]"));
@@ -2597,8 +2585,11 @@ active = true
         // Regression guard: earlier version had datadog exporter + otlp
         // receiver. Refactor must not drop these.
         assert!(cfg.contains("datadog:"));
-        assert!(cfg.contains("otlphttp/llmobs:"));
-        assert!(cfg.contains("dd-otlp-source: llmobs"));
+        assert!(
+            !cfg.contains("otlphttp/llmobs:"),
+            "generic OTLP trace forwarding should not be sent to the LLMObs intake:\n{cfg}"
+        );
+        assert!(!cfg.contains("dd-otlp-source: llmobs"));
         assert!(cfg.contains("${env:DD_API_KEY}"));
         assert!(cfg.contains("${env:DD_SITE}"));
         assert!(cfg.contains("otlp:"));

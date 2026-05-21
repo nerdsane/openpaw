@@ -40,11 +40,6 @@ processors:
       - context: span
         statements:
           - set(attributes["span.type"], "sql") where attributes["db.system"] != nil and attributes["span.type"] == nil
-  filter/traces_llmobs:
-    error_mode: ignore
-    traces:
-      span:
-        - 'attributes["gen_ai.operation.name"] == nil and attributes["gen_ai.system"] == nil'
   batch:
     send_batch_size: 1000
     timeout: 5s
@@ -69,22 +64,12 @@ exporters:
     api:
       key: ${env:DD_API_KEY}
       site: ${env:DD_SITE}
-  otlphttp/llmobs:
-    endpoint: https://otlp-intake.${env:DD_SITE}
-    headers:
-      dd-api-key: ${env:DD_API_KEY}
-      dd-otlp-source: llmobs
-
 service:
   extensions: [health_check]
   telemetry:
     logs:
       level: info
   pipelines:
-    traces/llmobs:
-      receivers: [otlp]
-      processors: [resourcedetection, resource, filter/traces_llmobs, batch]
-      exporters: [clickhouse, otlphttp/llmobs]
     traces/apm:
       receivers: [otlp]
       processors: [resourcedetection, resource, transform/dbm, batch]

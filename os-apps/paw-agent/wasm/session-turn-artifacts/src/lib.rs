@@ -129,6 +129,9 @@ pub fn build_provider_response_applier_base_params(
 }
 
 const GEN_AI_MESSAGE_ATTR_LIMIT: usize = 16_384;
+const GEN_AI_COMPACT_TEXT_LIMIT: usize = 2_048;
+const GEN_AI_COMPACT_JSON_LIMIT: usize = 3_072;
+const GEN_AI_COMPACT_KEEP_COUNTS: &[usize] = &[32, 16, 8, 4, 2, 1];
 
 pub fn build_gen_ai_system_instructions(system_prompt: &str) -> String {
     let payload = if system_prompt.is_empty() {
@@ -187,12 +190,7 @@ pub fn build_gen_ai_input_messages(messages: &[Value]) -> String {
         }
     }
 
-    serialize_gen_ai_payload(json!(gen_ai_msgs), |size| {
-        json!([{
-            "role": "user",
-            "parts": [{"type": "text", "content": format!("[truncated, {size} bytes]")}],
-        }])
-    })
+    serialize_gen_ai_messages_payload(gen_ai_msgs)
 }
 
 pub fn build_gen_ai_output_messages(response_content: &Value, finish_reason: &str) -> String {
@@ -221,23 +219,29 @@ pub fn build_gen_ai_output_messages(response_content: &Value, finish_reason: &st
         }
     }
 
+    if !parts_have_text_content(&parts) {
+        if let Some(summary) = summarize_tool_call_parts(&parts) {
+            parts.insert(
+                0,
+                json!({
+                    "type": "text",
+                    "content": summary,
+                }),
+            );
+        }
+    }
+
     let payload = if parts.is_empty() {
-        json!([])
+        Vec::new()
     } else {
-        json!([{
+        vec![json!({
             "role": "assistant",
             "finish_reason": finish_reason,
             "parts": parts,
-        }])
+        })]
     };
 
-    serialize_gen_ai_payload(payload, |size| {
-        json!([{
-            "role": "assistant",
-            "finish_reason": finish_reason,
-            "parts": [{"type": "text", "content": format!("[truncated, {size} bytes]")}],
-        }])
-    })
+    serialize_gen_ai_messages_payload(payload)
 }
 
 fn append_user_gen_ai_messages(target: &mut Vec<Value>, content: Option<&Value>) {
@@ -405,12 +409,165 @@ fn serialize_gen_ai_payload(payload: Value, fallback: impl Fn(usize) -> Value) -
     }
 }
 
+fn serialize_gen_ai_messages_payload(messages: Vec<Value>) -> String {
+    let payload = json!(messages);
+    let serialized = serde_json::to_string(&payload).unwrap_or_default();
+    if serialized.len() <= GEN_AI_MESSAGE_ATTR_LIMIT {
+        return serialized;
+    }
+
+    for keep_count in GEN_AI_COMPACT_KEEP_COUNTS {
+        let compacted = compact_gen_ai_messages(&messages, *keep_count, serialized.len());
+        let compacted_serialized = serde_json::to_string(&compacted).unwrap_or_default();
+        if compacted_serialized.len() <= GEN_AI_MESSAGE_ATTR_LIMIT {
+            return compacted_serialized;
+        }
+    }
+
+    let fallback = json!([observability_notice_message(format!(
+        "LLM input/output payload was too large to attach safely; original payload was {} bytes.",
+        serialized.len()
+    ))]);
+    serde_json::to_string(&fallback).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn compact_gen_ai_messages(
+    messages: &[Value],
+    keep_count: usize,
+    original_size: usize,
+) -> Vec<Value> {
+    if messages.is_empty() {
+        return Vec::new();
+    }
+
+    let keep_count = keep_count.min(messages.len());
+    let omitted = messages.len().saturating_sub(keep_count);
+    let mut compacted = Vec::with_capacity(keep_count + usize::from(omitted > 0));
+
+    if omitted > 0 {
+        compacted.push(observability_notice_message(format!(
+            "{omitted} earlier LLM messages omitted from observability payload; original payload was {original_size} bytes."
+        )));
+    }
+
+    compacted.extend(
+        messages[messages.len() - keep_count..]
+            .iter()
+            .map(compact_gen_ai_message),
+    );
+
+    compacted
+}
+
+fn observability_notice_message(content: String) -> Value {
+    json!({
+        "role": "user",
+        "parts": [{
+            "type": "text",
+            "content": content,
+        }],
+    })
+}
+
+fn compact_gen_ai_message(message: &Value) -> Value {
+    let mut compacted = message.clone();
+    let Some(parts) = compacted.get_mut("parts").and_then(Value::as_array_mut) else {
+        return compacted;
+    };
+
+    for part in parts {
+        compact_gen_ai_part(part);
+    }
+
+    compacted
+}
+
+fn compact_gen_ai_part(part: &mut Value) {
+    let Some(part_type) = part.get("type").and_then(Value::as_str) else {
+        return;
+    };
+
+    match part_type {
+        "text" => {
+            if let Some(content) = part.get("content").and_then(Value::as_str) {
+                let truncated = truncate_preview(content, GEN_AI_COMPACT_TEXT_LIMIT);
+                part["content"] = json!(truncated);
+            }
+        }
+        "tool_call" => {
+            if let Some(arguments) = part.get_mut("arguments") {
+                *arguments = compact_json_value(arguments, GEN_AI_COMPACT_JSON_LIMIT);
+            }
+        }
+        "tool_call_response" => {
+            if let Some(result) = part.get_mut("result") {
+                *result = compact_json_value(result, GEN_AI_COMPACT_JSON_LIMIT);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn compact_json_value(value: &Value, max_bytes: usize) -> Value {
+    let serialized = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
+    if serialized.len() <= max_bytes {
+        return value.clone();
+    }
+
+    json!(truncate_preview(&serialized, max_bytes))
+}
+
+fn parts_have_text_content(parts: &[Value]) -> bool {
+    parts.iter().any(|part| {
+        part.get("type").and_then(Value::as_str) == Some("text")
+            && part
+                .get("content")
+                .and_then(Value::as_str)
+                .map(|content| !content.trim().is_empty())
+                .unwrap_or(false)
+    })
+}
+
+fn summarize_tool_call_parts(parts: &[Value]) -> Option<String> {
+    let tool_names: Vec<&str> = parts
+        .iter()
+        .filter(|part| part.get("type").and_then(Value::as_str) == Some("tool_call"))
+        .filter_map(|part| part.get("name").and_then(Value::as_str))
+        .collect();
+
+    if tool_names.is_empty() {
+        return None;
+    }
+
+    let visible: Vec<&str> = tool_names.iter().copied().take(8).collect();
+    let remaining = tool_names.len().saturating_sub(visible.len());
+    let suffix = if remaining == 0 {
+        String::new()
+    } else {
+        format!(" and {remaining} more")
+    };
+
+    Some(format!(
+        "Requested tool calls: {}{suffix}.",
+        visible.join(", ")
+    ))
+}
+
 fn truncate_for_gen_ai_attr(value: &str) -> String {
     if value.len() <= GEN_AI_MESSAGE_ATTR_LIMIT / 2 {
         return value.to_string();
     }
 
     let prefix = prefix_at_char_boundary(value, GEN_AI_MESSAGE_ATTR_LIMIT / 4);
+    format!("{prefix}... [truncated, {} bytes total]", value.len())
+}
+
+fn truncate_preview(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+
+    let prefix = prefix_at_char_boundary(value, max_bytes.saturating_sub(64));
     format!("{prefix}... [truncated, {} bytes total]", value.len())
 }
 
@@ -507,6 +664,65 @@ mod tests {
         assert_eq!(parsed[0]["role"], "assistant");
         assert_eq!(parsed[0]["finish_reason"], "tool_use");
         assert_eq!(parsed[0]["parts"][0]["type"], "text");
+        assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
+        assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
+    }
+
+    #[test]
+    fn gen_ai_input_messages_compact_large_payload_without_erasing_recent_context() {
+        let huge_tool_result = "x".repeat(80_000);
+        let payload = build_gen_ai_input_messages(&[
+            json!({"role": "user", "content": "Start the curation repair job."}),
+            json!({
+                "role": "tool",
+                "tool_use_id": "tool_huge",
+                "content": huge_tool_result,
+            }),
+            json!({"role": "user", "content": "Now summarize the repair result for Datadog."}),
+        ]);
+
+        assert!(payload.len() <= GEN_AI_MESSAGE_ATTR_LIMIT);
+        assert!(
+            !payload.contains("\"content\":\"[truncated,"),
+            "payload should keep compact real messages rather than a single placeholder: {payload}"
+        );
+
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed.as_array().unwrap().len(), 3);
+        assert_eq!(
+            parsed[2]["parts"][0]["content"],
+            "Now summarize the repair result for Datadog."
+        );
+        assert_eq!(parsed[1]["parts"][0]["type"], "tool_call_response");
+        assert!(
+            parsed[1]["parts"][0]["result"]
+                .as_str()
+                .unwrap()
+                .contains("truncated")
+        );
+    }
+
+    #[test]
+    fn gen_ai_output_messages_add_summary_for_tool_only_responses() {
+        let payload = build_gen_ai_output_messages(
+            &json!([
+                {
+                    "type": "tool_use",
+                    "id": "tool_456",
+                    "name": "temper.list_sessions",
+                    "input": {"top": 5}
+                }
+            ]),
+            "tool_use",
+        );
+
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed[0]["role"], "assistant");
+        assert_eq!(parsed[0]["parts"][0]["type"], "text");
+        assert_eq!(
+            parsed[0]["parts"][0]["content"],
+            "Requested tool calls: temper.list_sessions."
+        );
         assert_eq!(parsed[0]["parts"][1]["type"], "tool_call");
         assert_eq!(parsed[0]["parts"][1]["id"], "tool_456");
     }

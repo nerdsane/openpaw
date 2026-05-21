@@ -2166,6 +2166,7 @@ fn datadog_enhanced_app_railway_vars(
             "TEMPER_DATADOG_RAILWAY_PROFILE",
             "datadog-enhanced-railway".to_string(),
         ),
+        ("DD_LLMOBS_ENABLED", "true".to_string()),
         ("DD_LLMOBS_API_ENABLED", "true".to_string()),
         (
             "OTEL_EXPORTER_OTLP_ENDPOINT",

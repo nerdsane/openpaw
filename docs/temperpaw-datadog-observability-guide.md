@@ -315,6 +315,13 @@ requires Datadog scanner group context in the UI for this account.
 
 Open LLM Observability with `ml_app:temperpaw`.
 
+TemperPaw emits LLMObs through the direct LLMObs span payload path. The OTEL
+collector still exports runtime OTLP traces to Datadog APM, but it intentionally
+does not forward generic OTLP spans to the LLMObs intake; otherwise internal
+workflow, SQL, and WASM phase spans show up in LLMObs as `No content` rows.
+Use LLMObs for agent/workflow/LLM/tool content and APM for the lower-level
+runtime trace.
+
 Final LLMObs proof:
 
 - Trace id: `123527112440865216744564245077429649188`

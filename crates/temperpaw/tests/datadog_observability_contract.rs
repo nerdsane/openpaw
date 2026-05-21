@@ -1035,67 +1035,84 @@ fn datadog_covers_webhook_trigger_observability() {
 }
 
 #[test]
-fn otel_collector_routes_llmobs_without_dropping_apm_coverage() {
+fn otel_collector_keeps_otlp_in_apm_and_avoids_noisy_llmobs_forwarding() {
     let collector =
         std::fs::read_to_string(repo_root().join("scripts/otel-collector-datadog.yaml"))
             .expect("collector config should be readable");
 
     for required in [
-        "traces/llmobs",
         "traces/apm",
-        "dd-otlp-source: llmobs",
         "transform/dbm",
         "set(attributes[\"span.type\"], \"sql\") where attributes[\"db.system\"] != nil and attributes[\"span.type\"] == nil",
-        "attributes[\"gen_ai.operation.name\"] == nil and attributes[\"gen_ai.system\"] == nil",
-        "exporters: [clickhouse, otlphttp/llmobs]",
         "exporters: [clickhouse, datadog]",
         "processors: [resourcedetection, resource, transform/dbm, batch]",
     ] {
         assert!(
             collector.contains(required),
-            "collector must preserve LLMObs/APM routing clause `{required}`"
+            "collector must preserve Datadog APM routing clause `{required}`"
         );
     }
-    assert!(
-        !collector.contains("filter/traces_apm"),
-        "APM trace pipeline must retain gen_ai spans so guest/provider/tool spans remain stitched"
-    );
+    for forbidden in [
+        "traces/llmobs",
+        "otlphttp/llmobs",
+        "dd-otlp-source: llmobs",
+        "filter/traces_llmobs",
+        "filter/traces_apm",
+    ] {
+        assert!(
+            !collector.contains(forbidden),
+            "collector must not use generic OTLP trace forwarding for LLMObs clause `{forbidden}`"
+        );
+    }
 }
 
 #[test]
-fn railway_otel_collectors_preserve_llmobs_routing() {
+fn railway_otel_collectors_keep_otlp_in_apm_and_avoid_noisy_llmobs_forwarding() {
     let railway_collector =
         std::fs::read_to_string(repo_root().join("scripts/otel-collector-railway.yaml"))
             .expect("railway collector config should be readable");
     let deploy_source =
         std::fs::read_to_string(repo_root().join("crates/temperpaw-cli/src/deploy.rs"))
             .expect("deploy source should be readable");
+    let deploy_collector_config = deploy_source
+        .split("fn otel_datadog_config() -> &'static str {")
+        .nth(1)
+        .and_then(|source| source.split("fn otel_collector_entrypoint()").next())
+        .expect("deploy source should contain otel_datadog_config")
+        .to_string();
 
     for (name, source) in [
         ("scripts/otel-collector-railway.yaml", railway_collector),
-        ("crates/temperpaw-cli/src/deploy.rs", deploy_source),
+        (
+            "crates/temperpaw-cli/src/deploy.rs",
+            deploy_collector_config,
+        ),
     ] {
         for required in [
-            "traces/llmobs",
             "traces/apm",
-            "otlphttp/llmobs",
-            "dd-otlp-source: llmobs",
             "service.namespace",
             "team",
             "transform/dbm",
             "set(attributes[\"span.type\"], \"sql\") where attributes[\"db.system\"] != nil and attributes[\"span.type\"] == nil",
-            "attributes[\"gen_ai.operation.name\"] == nil and attributes[\"gen_ai.system\"] == nil",
             "processors: [resourcedetection, resource, transform/dbm, batch]",
         ] {
             assert!(
                 source.contains(required),
-                "{name} must preserve LLMObs/APM routing clause `{required}`"
+                "{name} must preserve Datadog APM routing clause `{required}`"
             );
         }
-        assert!(
-            !source.contains("filter/traces_apm"),
-            "{name} must not filter gen_ai spans out of APM traces"
-        );
+        for forbidden in [
+            "traces/llmobs",
+            "otlphttp/llmobs",
+            "dd-otlp-source: llmobs",
+            "filter/traces_llmobs",
+            "filter/traces_apm",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{name} must not use generic OTLP trace forwarding for LLMObs clause `{forbidden}`"
+            );
+        }
     }
 }
 
@@ -1150,14 +1167,24 @@ fn railway_otel_collector_has_deployable_checked_in_source() {
     for required in [
         "value: temperpaw",
         "action: upsert",
-        "traces/llmobs",
         "traces/apm",
         "transform/dbm",
-        "dd-otlp-source: llmobs",
     ] {
         assert!(
             datadog.contains(required),
             "checked-in collector Datadog config must include `{required}`"
+        );
+    }
+    for forbidden in [
+        "traces/llmobs",
+        "otlphttp/llmobs",
+        "dd-otlp-source: llmobs",
+        "filter/traces_llmobs",
+        "filter/traces_apm",
+    ] {
+        assert!(
+            !datadog.contains(forbidden),
+            "checked-in collector Datadog config must not include generic LLMObs forwarding `{forbidden}`"
         );
     }
 
@@ -1450,6 +1477,7 @@ fn railway_datadog_runtime_agent_product_coverage_is_documented_and_deployable()
         "DD_PROCESS_AGENT_ENABLED=true",
         "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
         "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126",
+        "DD_LLMOBS_ENABLED=true",
         "DD_LLMOBS_API_ENABLED=true",
         "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
         "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
@@ -1595,6 +1623,7 @@ fn setup_api_can_ensure_railway_datadog_runtime_agent_without_exposing_tokens() 
         "datadog-enhanced-railway",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "DD_TRACE_AGENT_URL",
+        "DD_LLMOBS_ENABLED",
         "DD_LLMOBS_API_ENABLED",
     ] {
         assert!(
