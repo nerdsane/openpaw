@@ -56,10 +56,11 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 }
 
 #[test]
-fn temper_dependency_pin_uses_event_driven_observe_wait_revision() {
+fn temper_dependency_pin_uses_budgeted_wasm_host_call_revision() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "6ccc483af87abbf6d9b060d0e6a6def3adfe6718";
+    let expected_rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5";
+    let observe_wait_only_rev = "6ccc483af87abbf6d9b060d0e6a6def3adfe6718";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
@@ -80,12 +81,14 @@ fn temper_dependency_pin_uses_event_driven_observe_wait_revision() {
         );
         assert!(
             manifest.contains(&manifest_clause),
-            "{temper_crate} must pin the Temper rev with event-driven observe wait, native data-only create storage, lazy WASM secret authorization, WASM dispatch envelope attribution, data-only create fast path support, projection read parity, local TData tenant propagation, runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, Datadog-visible WASM span hints, host-boundary spans, guest progress/log correlation, and wasm.invoke phase tracing"
+            "{temper_crate} must pin the Temper rev with budgeted WASM host-call deadlines, event-driven observe wait, native data-only create storage, lazy WASM secret authorization, WASM dispatch envelope attribution, data-only create fast path support, projection read parity, local TData tenant propagation, runtime-derived LLMObs service identity, parent stitching, agent/workflow hierarchy, DBM attribution, profiling envelope, Datadog-visible WASM span hints, host-boundary spans, guest progress/log correlation, and wasm.invoke phase tracing"
         );
     }
 
     assert!(
-        !manifest.contains(legacy_rev)
+        !manifest.contains(observe_wait_only_rev)
+            && !lockfile.contains(observe_wait_only_rev)
+            && !manifest.contains(legacy_rev)
             && !lockfile.contains(legacy_rev)
             && !manifest.contains(parent_only_rev)
             && !lockfile.contains(parent_only_rev)
@@ -93,18 +96,18 @@ fn temper_dependency_pin_uses_event_driven_observe_wait_revision() {
             && !lockfile.contains(parentless_rev)
             && !manifest.contains(host_boundary_rev)
             && !lockfile.contains(host_boundary_rev),
-        "TemperPaw must not pin Temper revs without complete WASM host-boundary observability, hard-coded LLMObs identity, parentless direct LLMObs spans, or one-span LLMObs traces"
+        "TemperPaw must not pin Temper revs without budgeted WASM host-call deadlines, complete WASM host-boundary observability, hard-coded LLMObs identity, parentless direct LLMObs spans, or one-span LLMObs traces"
     );
     assert!(
         lockfile.contains(expected_rev),
-        "Cargo.lock must resolve Temper dependencies to the event-driven observe wait revision"
+        "Cargo.lock must resolve Temper dependencies to the budgeted WASM host-call deadline revision"
     );
 }
 
 #[test]
-fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
+fn wasm_sdk_dependencies_pin_same_temper_runtime_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "6ccc483af87abbf6d9b060d0e6a6def3adfe6718";
+    let expected_rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -124,7 +127,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
         sdk_manifests += 1;
         assert!(
             manifest.contains(&expected_dependency),
-            "{} must pin temper-wasm-sdk to the same Temper rev as the server so guest modules do not drift away from WASM host-boundary observability contracts",
+            "{} must pin temper-wasm-sdk to the same Temper rev as the server so guest modules do not drift away from WASM host-call and observability contracts",
             manifest_path.display()
         );
         assert!(
@@ -142,7 +145,7 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
                 sdk_lockfiles += 1;
                 assert!(
                     lockfile.contains(expected_rev),
-                    "{} must resolve temper-wasm-sdk to the same Temper observability rev as the server",
+                    "{} must resolve temper-wasm-sdk to the same Temper runtime rev as the server",
                     lock_path.display()
                 );
                 assert!(
@@ -165,9 +168,9 @@ fn wasm_sdk_dependencies_pin_same_temper_observability_revision_as_server() {
 }
 
 #[test]
-fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
+fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_runtime_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "6ccc483af87abbf6d9b060d0e6a6def3adfe6718";
+    let expected_rev = "041a096a6d48d4e0c2649d4a1e33471f72b7b9d5";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
@@ -179,7 +182,7 @@ fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_observability_revision() {
     ] {
         assert!(
             dockerfile.contains(required),
-            "Dockerfile must pin cloned Katagami WASM SDK dependencies with `{required}`"
+            "Dockerfile must pin cloned Katagami WASM SDK dependencies to the runtime rev with `{required}`"
         );
     }
 }
@@ -1886,7 +1889,7 @@ fn wasm_guest_observability_live_proof_is_temper_native_and_datadog_backed() {
 
     assert!(
         probe_manifest.contains("temper-wasm-sdk")
-            && probe_manifest.contains("6ccc483af87abbf6d9b060d0e6a6def3adfe6718"),
-        "proof WASM must build against the same guest observability SDK rev as production modules"
+            && probe_manifest.contains("041a096a6d48d4e0c2649d4a1e33471f72b7b9d5"),
+        "proof WASM must build against the same guest SDK runtime rev as production modules"
     );
 }
