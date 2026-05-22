@@ -295,16 +295,19 @@ temper.list("Bookmarks", "Status eq 'Active'")
 temper.action("Bookmarks", bookmark_id, "Archive", {})
 ```
 
-### Path 2: Install a pre-built app (from the app catalog)
+### Path 2: Install a pre-built app from Genesis
 
-Use this when an app already exists as a directory (in `os-apps/` or a known catalog).
+Use this when an app already exists in Genesis.
 
 ```python
-# Install by name — resolves dependencies, loads specs, policies, WASM, reactions
-temper.install_app("paw-research", reason="Need web search capability")
+apps = temper.search_apps({"query": "research"})
+app_ref = apps["apps"][0]["app_ref"]
+temper.install_app({"app_ref": app_ref, "reason": "Need web search capability"})
 ```
 
-The platform reads the app's `app.toml`, installs dependencies first, then registers everything. After install, `temper.specs()` shows the new entity types.
+The platform materializes the pinned Genesis closure, installs dependencies
+first, then registers everything. After install, `temper.specs()` shows the new
+entity types.
 
 ---
 

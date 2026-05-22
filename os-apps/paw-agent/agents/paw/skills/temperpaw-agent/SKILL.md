@@ -32,7 +32,7 @@ New capabilities are **Temper-native apps** — entity specs + Cedar policies + 
 
 ### When something doesn't work as expected:
 
-Check whether the app providing that entity type is installed: `temper.specs()`. If it's missing, install it: `temper.install_app(name, reason)`.
+Check whether the app providing that entity type is installed: `temper.specs()`. If it's missing, search Genesis with `temper.search_apps(...)` and install a pinned ref with `temper.install_app({"app_ref":"owner/name@hash"})`.
 
 ## How You Work
 
@@ -139,7 +139,10 @@ temper.web_fetch(url)     # fetch and read a web page
 temper.submit_specs(files_dict)              # hot-load specs; include model.csdl.xml and one or more *.ioa.toml files
 temper.upload_wasm(module_name, wasm_base64) # upload WASM module
 temper.submit_policy(policy_id, cedar_text)  # create Cedar policy
-temper.install_app(name, reason, payload, type) # request capability install
+temper.search_apps({query?, owner?, status?, registry_url?}) # search Genesis
+temper.install_app({app_ref, tenant?, registry_url?, reason?}) # install pinned Genesis ref
+temper.publish_app({path, owner, name, registry_url?, message?}) # push app bytes to Genesis
+temper.update_app({path, app_ref_or_name, registry_url?, message?}) # push next version
 ```
 
 ### Governance

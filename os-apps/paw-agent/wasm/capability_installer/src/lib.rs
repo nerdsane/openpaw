@@ -2,7 +2,7 @@
 //!
 //! Triggered when a CapabilityRequest transitions to Installing (after approval).
 //! Dispatches the actual installation based on capability_type:
-//!   - os_app    → POST /api/apps/install
+//!   - genesis_app → POST /api/genesis/apps/install
 //!   - specs     → POST /api/specs/load-inline
 //!   - wasm      → POST /api/wasm/modules/<name>
 //!   - secret    → logs instruction for human provisioning
@@ -55,27 +55,44 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ];
 
         match capability_type {
-            "os_app" => {
-                // Install an OS app bundle
-                let body = json!({
-                    "tenant": tenant,
-                    "app_name": capability_name,
-                });
+            "genesis_app" => {
+                let mut body: Value = if payload.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_str(payload)
+                        .map_err(|e| format!("invalid genesis_app payload JSON: {e}"))?
+                };
+                if !body.is_object() {
+                    return Err("genesis_app payload must be a JSON object".into());
+                }
+                if body.get("app_ref").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+                    body["app_ref"] = json!(capability_name);
+                }
+                if body.get("tenant").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+                    body["tenant"] = json!(tenant);
+                }
                 let resp = ctx.http_call(
                     "POST",
-                    &format!("{temper_api_url}/api/apps/install"),
+                    &format!("{temper_api_url}/api/genesis/apps/install"),
                     &headers,
                     &body.to_string(),
                 )?;
                 if resp.status >= 400 {
                     return Err(format!(
-                        "failed to install app '{}': {} {}",
+                        "failed to install Genesis app '{}': {} {}",
                         capability_name, resp.status, resp.body
                     ));
                 }
                 ctx.log(
                     "info",
-                    &format!("capability_installer: app '{capability_name}' installed"),
+                    &format!("capability_installer: Genesis app '{capability_name}' installed"),
+                );
+            }
+
+            "os_app" => {
+                return Err(
+                    "local os_app install is legacy/admin-only; use capability_type='genesis_app' with a pinned owner/app@hash ref"
+                        .into(),
                 );
             }
 
@@ -245,7 +262,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             _ => {
                 return Err(format!(
-                    "unknown capability_type: '{}'. Expected: os_app, specs, wasm, secret, cedar_policy, app",
+                    "unknown capability_type: '{}'. Expected: genesis_app, specs, wasm, secret, cedar_policy, app",
                     capability_type
                 ));
             }

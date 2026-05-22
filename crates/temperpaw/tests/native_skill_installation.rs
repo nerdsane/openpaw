@@ -157,7 +157,7 @@ fn paw_skills_app_declares_native_install_surface() {
 }
 
 #[test]
-fn native_skill_installer_preserves_existing_path_scoped_runtime_contract() {
+fn native_skill_runtime_preserves_path_scoped_contract_without_agent_install_tool() {
     let root = repo_root();
     let installer = read(root.join("os-apps/paw-skills/wasm/skill_installer/src/lib.rs"));
     let context_preparer = read(root.join("os-apps/paw-agent/wasm/context_preparer/src/lib.rs"));
@@ -194,12 +194,12 @@ fn native_skill_installer_preserves_existing_path_scoped_runtime_contract() {
     }
 
     assert!(
-        monty.contains("fn temper_install_skill"),
-        "Monty should expose temper.install_skill as a native SkillInstall request helper"
+        !monty.contains("fn temper_install_skill"),
+        "Monty should not expose skill install as a normal agent tool"
     );
     assert!(
-        catalog.contains("method: \"install_skill\""),
-        "tool catalog should advertise temper.install_skill"
+        !catalog.contains("method: \"install_skill\""),
+        "tool catalog should not advertise temper.install_skill"
     );
 }
 

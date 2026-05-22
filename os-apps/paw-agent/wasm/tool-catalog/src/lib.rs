@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-pub const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_install_skill,temper_create_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+pub const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_ls,temper_grep,temper_glob,temper_edit,temper_rename,temper_search_history,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 
 #[derive(Clone, Copy, Debug)]
 pub struct ReplMethodSpec {
@@ -204,23 +204,30 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
     ReplMethodSpec {
         object: "temper",
         method: "install_app",
-        signature: "(app_name, reason, payload=None, capability_type='os_app')",
-        description: "request capability install",
+        signature: "({app_ref, tenant?, registry_url?, registry_tenant?, reason?})",
+        description: "install a pinned Genesis app ref into this Temper instance",
         token: Some("temper_install_app"),
     },
     ReplMethodSpec {
         object: "temper",
-        method: "install_skill",
-        signature: "({source_url, target_scope_type, target_scope_id, reason})",
-        description: "request native skill install",
-        token: Some("temper_install_skill"),
+        method: "search_apps",
+        signature: "({query?, owner?, status?, registry_url?, registry_tenant?})",
+        description: "search Genesis registry apps",
+        token: Some("temper_search_apps"),
     },
     ReplMethodSpec {
         object: "temper",
-        method: "create_app",
-        signature: "(app_bundle)",
-        description: "create app from bundled specs and policies",
-        token: Some("temper_create_app"),
+        method: "publish_app",
+        signature: "({path, owner, name, registry_url?, message?})",
+        description: "publish an app directory to Genesis and return owner/name@hash",
+        token: Some("temper_publish_app"),
+    },
+    ReplMethodSpec {
+        object: "temper",
+        method: "update_app",
+        signature: "({path, app_ref_or_name, registry_url?, message?})",
+        description: "push a new Genesis app version and return owner/name@hash",
+        token: Some("temper_update_app"),
     },
     ReplMethodSpec {
         object: "temper",
