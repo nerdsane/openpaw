@@ -439,6 +439,37 @@ On Railway, profiling uploads are on-demand. The paging monitor is therefore
 `[Temper] Profiler Upload Failures`; absence of a recent manual profile is not
 itself a production fault.
 
+## Runtime RSS / OOM Guard
+
+Process RSS is the host-level signal for projection, query, replay, and
+prepared-context materialization regressions that can kill the Railway runtime
+before request-level counters explain the failure.
+
+The May 22, 2026 OOM follow-up established this baseline:
+
+- Failing versions reached roughly `7.6-8.0 GB` RSS before restarts.
+- The fixed `sha-72ad9b9` rollout settled around `1.3-1.4 GB` RSS.
+- The live hot `SessionEntries` SQL-page path returned p50 `36.416ms`, p95
+  `43.599ms`, max `44.671ms`, with `candidate_count=1`,
+  `materialized_count=1`, and `pushdown_sparse_skip_reason=sql_page`.
+- DBM sampled the corresponding entity-catalog SQL page query at roughly
+  `4.701ms` CPU on `temperpaw-postgres`.
+
+Paging guard:
+
+- Monitor: `[TemperPaw] Process RSS OOM Guard`
+- Query:
+  `max(last_10m):max:process_resident_memory_bytes{service:temperpaw,env:prod} by {host,version} > 6500000000`
+- Warning: `4.5 GB`
+- Critical: `6.5 GB`
+
+When this monitor fires, first compare host and version on the Process Memory
+dashboard, then inspect `odata.entity_set_read` spans for large
+`candidate_count` or `materialized_count`, replay parity probes, and prepared
+context inline artifact volume. The expected healthy shape for the fixed sparse
+page path is `pushdown_sparse_skip_reason=sql_page` with page-sized candidate
+and materialized counts.
+
 ## TemperFS Blob & Document Services
 
 TemperFS and published artifacts are observable as file/blob events, APM spans,
@@ -601,6 +632,8 @@ Live metric proof from the current proof window included:
 
 - `temper_wasm_host_http_requests_total{service:temperpaw}` activity
 - `temper_cedar_evaluations_total{service:temperpaw}` activity
+- `process_resident_memory_bytes{service:temperpaw,env:prod}` activity by host
+  and version
 - `postgresql.queries.count{service:temperpaw,database_instance:temperpaw-postgres}` activity
 - fresh DBM explain plans for `service:temperpaw` / `temperpaw-postgres`
 - `datadog.profiling.rust.profiles_uploaded{service:temperpaw,env:prod,version:86bd073dc89efc6e559cbdf9787ce9e0b92228fe}` activity
@@ -623,6 +656,7 @@ Important monitors include:
 - `[TemperPaw] Sandbox Host HTTP Error Spike`
 - `[Temper] Required WASM Load Failures`
 - `[Temper] Profiler Upload Failures`
+- `[TemperPaw] Process RSS OOM Guard`
 
 The DBM integration-alive monitor gates on query-count telemetry rather than
 sparse `datadog.dbm.activity_rows` samples:
