@@ -20,6 +20,19 @@ If you prefer the one-click path, use the Railway button in the README and provi
 - `BLOB_ACCESS_KEY`
 - `BLOB_SECRET_KEY`
 
+## Genesis app source
+
+Production TemperPaw app capabilities should come from Genesis, not from the
+repo-local app catalog. Configure fresh-instance bootstrap with pinned refs:
+
+- `TEMPERPAW_GENESIS_REGISTRY_URL=https://genesis-production-164d.up.railway.app`
+- `TEMPERPAW_GENESIS_REGISTRY_TENANT=default`
+- `TEMPERPAW_GENESIS_BOOTSTRAP_REFS=temperpaw/paw-fs@HASH,temperpaw/paw-agent@HASH`
+
+On restart with the same database, TemperPaw restores installed Genesis app
+metadata and skips unchanged bootstrap refs. A wiped database is treated as a
+fresh instance and installs the configured pinned refs once.
+
 ## Optional Datadog
 
 Deploy the collector config in `scripts/otel-collector-railway.yaml` as a second Railway service and point `OTEL_EXPORTER_OTLP_ENDPOINT` at the collector's internal hostname.

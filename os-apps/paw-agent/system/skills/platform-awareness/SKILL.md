@@ -19,7 +19,7 @@ This is your defining advantage. Most agents are limited to whatever someone pre
 
 You are an agent running on the Temper platform. Your tools (`temper.create`, `temper.action`, `temper.list`, etc.) are generic — they operate on **entity types**. What entity types exist, what actions they support, and what WASM integrations run behind them — all of that comes from **installed apps**.
 
-**Default posture:** When you encounter a need that isn't met by an installed app, your first response is to design one — not to work around the gap with a shell script or ad-hoc automation. Check what exists first (`temper.specs()` and `temper.list("Apps", "Status eq 'Installed'")`). If nothing fits, the `temper-app-creation` skill has the full authoring guide.
+**Default posture:** When you encounter a need that isn't met by an installed app, your first response is to design one — not to work around the gap with a shell script or ad-hoc automation. Check what is installed with `temper.specs()`, then search Genesis with `temper.search_apps(...)`. If nothing fits, author/publish a Temper app and install the returned pinned ref.
 
 An app is not a shell script. An app is not a binary on PATH. An app is a governed package of:
 
@@ -48,11 +48,15 @@ specs = temper.specs()
 ### What apps have been installed?
 
 ```python
-apps = temper.list("Apps", "Status eq 'Installed'")
-# Returns App entities with name, description, version, app_guide_file_id
-# Read an app's guide for architecture context:
-for app in apps:
-    guide = temper.read(f"/apps/{app['Name']}/APP.md")
+specs = temper.specs()
+# Installed apps show up as live entity types, actions, policies, WASM, and files.
+```
+
+### What apps exist in Genesis?
+
+```python
+apps = temper.search_apps({"query": "research"})
+# Returns Genesis registry apps with pinned owner/name@hash refs.
 ```
 
 ### What entities exist for a given type?
@@ -185,14 +189,26 @@ temper.upload_wasm("my_integration", base64.b64encode(wasm_bytes).decode())
 
 The WASM module gets referenced in the `.ioa.toml` spec via an integration block, and the platform calls it when the associated action fires.
 
-### Installing a packaged app
+### Installing a packaged app from Genesis
 
-If a pre-built app exists in the platform's app catalog:
+Genesis is the app source of truth. Install only by pinned ref:
 
 ```python
-temper.install_app("my-app", reason="Need bookmark management for project tracking")
-# This reads the app's manifest, resolves dependencies, registers specs, policies, WASM, and reactions
+temper.install_app({
+    "app_ref": "owner/name@HASH",
+    "reason": "Need bookmark management for project tracking"
+})
+# This calls the Genesis install path, materializes the pinned closure locally,
+# resolves dependencies, registers specs, policies, WASM, files, agents, and seed data.
 ```
+
+Use `temper.publish_app({"path": "/workspace/my-app", "owner": "owner", "name": "name"})`
+or `temper.update_app(...)` to push app bytes to Genesis and receive the next
+pinned ref. Direct `git push` is the transport underneath, not the normal agent UX.
+
+Installed apps are durable tenant state. After a TemperPaw restart or redeploy
+with the same database, already-installed Genesis refs recover from the DB and
+are not reinstalled unless the configured pinned ref changes.
 
 ### The full app anatomy (for authoring from scratch)
 
@@ -217,6 +233,7 @@ my-app/
 ## What you should never do
 
 - **Never create a shell script or CLI binary and call it an "app."** That's a sandbox tool, not a Temper-native capability. It has no state machine, no Cedar policy, no audit trail, no governance.
+- **Never install a Temper app by local catalog name.** Search Genesis, use a pinned `owner/name@hash`, and call `temper.install_app({...})`.
 - **Never hardcode a list of capabilities.** Query `temper.specs()` — the live platform is the source of truth.
 - **Never assume an entity type exists without checking.** If `temper.list("SomeEntities", "")` fails, the app providing that type may not be installed.
 - **Never bypass Cedar governance by doing work in the sandbox that should be a governed entity action.** If the work needs traceability, authorization, or state transitions — it belongs in a Temper entity, not a bash command.

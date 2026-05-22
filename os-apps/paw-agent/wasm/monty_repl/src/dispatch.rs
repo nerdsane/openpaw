@@ -349,8 +349,9 @@ pub fn dispatch(
 
     // Lazy sandbox provisioning (ADR-0022): if this tool needs a sandbox and
     // none is attached, provision one on-demand instead of failing.
-    let needs_sandbox =
-        obj_name == "sandbox" || (obj_name == "temper" && method == "run_coding_agent");
+    let needs_sandbox = obj_name == "sandbox"
+        || (obj_name == "temper"
+            && matches!(method, "run_coding_agent" | "publish_app" | "update_app"));
 
     let effective_sandbox_url = if needs_sandbox && sandbox_url.is_empty() {
         // Check thread-local cache first (already provisioned this invocation)
@@ -374,6 +375,12 @@ pub fn dispatch(
     };
 
     ensure_method_enabled(ctx, obj_name, method, &effective_sandbox_url)?;
+    let fields_for_sandbox = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let (sandbox_id, cached_provider) = sandbox_identity_from_fields(&fields_for_sandbox);
+    let provider = cached_provider.unwrap_or_else(|| {
+        wasm_helpers::sandbox::resolve_sandbox_provider(ctx, &fields_for_sandbox)
+            .unwrap_or_else(|_| "tensorlake".to_string())
+    });
     let result = match obj_name {
         "temper" => {
             // Coalesce kwargs into args[0] when caller used keyword form
@@ -402,6 +409,8 @@ pub fn dispatch(
                 temper_api_url,
                 tenant,
                 &effective_sandbox_url,
+                sandbox_id.as_deref().unwrap_or(""),
+                provider.as_str(),
                 workdir,
                 method,
                 &temper_args,
@@ -409,12 +418,6 @@ pub fn dispatch(
         }
         "sandbox" => {
             let sandbox_args = coalesce_sandbox_args(method, args, kwargs)?;
-            let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-            let (sandbox_id, cached_provider) = sandbox_identity_from_fields(&fields);
-            let provider = cached_provider.unwrap_or_else(|| {
-                wasm_helpers::sandbox::resolve_sandbox_provider(ctx, &fields)
-                    .unwrap_or_else(|_| "tensorlake".to_string())
-            });
             dispatch_sandbox(
                 ctx,
                 &effective_sandbox_url,
@@ -674,9 +677,10 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "get_policy" => Some("temper_get_policy"),
         "update_policy" => Some("temper_update_policy"),
         "delete_policy" => Some("temper_delete_policy"),
+        "search_apps" => Some("temper_search_apps"),
         "install_app" => Some("temper_install_app"),
-        "install_skill" => Some("temper_install_skill"),
-        "create_app" => Some("temper_create_app"),
+        "publish_app" => Some("temper_publish_app"),
+        "update_app" => Some("temper_update_app"),
         "list_apps" => Some("temper_list_apps"),
         "spawn_session" => Some("temper_spawn_session"),
         "list_sessions" => Some("temper_list_sessions"),
@@ -713,6 +717,8 @@ fn dispatch_temper(
     api_url: &str,
     tenant: &str,
     sandbox_url: &str,
+    sandbox_id: &str,
+    sandbox_provider: &str,
     workdir: &str,
     method: &str,
     args: &[Value],
@@ -752,8 +758,9 @@ fn dispatch_temper(
 
         // Apps
         "install_app" => temper_install_app(ctx, api_url, tenant, args),
-        "install_skill" => temper_install_skill(ctx, api_url, tenant, args),
-        "create_app" => temper_create_app(ctx, api_url, tenant, args),
+        "search_apps" => temper_search_apps(ctx, args),
+        "publish_app" => temper_publish_app(ctx, sandbox_url, sandbox_id, sandbox_provider, workdir, args),
+        "update_app" => temper_update_app(ctx, sandbox_url, sandbox_id, sandbox_provider, workdir, args),
         "list_apps" => temper_list_apps(ctx, api_url, tenant),
 
         // Agent identity
@@ -927,7 +934,7 @@ fn dispatch_temper(
              upload_wasm, get_trajectories, get_insights, \
              get_decisions, poll_decision, approve_decision, deny_decision, \
              submit_policy, list_policies, get_policy, update_policy, delete_policy, \
-             get_secret, done, install_app, install_skill, list_apps, get_agent_id, get_session_id, \
+             get_secret, done, install_app, search_apps, publish_app, update_app, list_apps, get_agent_id, get_session_id, \
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, write, read, ls, grep, glob, edit, rename, \
              search_history, run_coding_agent, datadog_query, railway, vercel, \
@@ -1846,216 +1853,335 @@ fn temper_install_app(
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let app_name = str_arg(args, 0, "app_name", "install_app")?;
-    let reason = opt_str_arg(args, 1).unwrap_or_default();
-    let payload = opt_str_arg(args, 2).unwrap_or_default();
-    let cap_type = opt_str_arg(args, 3).unwrap_or_else(|| "os_app".to_string());
-    let agent_id = ctx
-        .entity_state
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    // Create a CapabilityRequest entity (Cedar-governed).
-    // Use PascalCase keys to match CSDL property names (Temper maps these to IOA variables).
-    let body = json!({
-        "CapabilityType": cap_type,
-        "CapabilityName": app_name,
-        "Reason": reason,
-        "RequestingAgentId": agent_id,
-        "Payload": payload,
-    });
-    http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
-}
-
-fn temper_install_skill(
-    ctx: &Context,
-    api_url: &str,
-    tenant: &str,
-    args: &[Value],
-) -> Result<Value, String> {
-    let input = args.first().filter(|value| value.is_object());
-    let source_url = input
-        .and_then(|value| value.get("source_url").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .or_else(|| opt_str_arg(args, 0))
-        .unwrap_or_default();
-    let target_scope_type = input
-        .and_then(|value| value.get("target_scope_type").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .or_else(|| opt_str_arg(args, 1))
-        .unwrap_or_else(|| "agent".to_string());
-    let target_scope_id = input
-        .and_then(|value| value.get("target_scope_id").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .or_else(|| opt_str_arg(args, 2))
-        .unwrap_or_default();
-    let requested_skill_name = input
-        .and_then(|value| value.get("requested_skill_name").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .or_else(|| opt_str_arg(args, 3))
-        .unwrap_or_default();
-    let reason = input
-        .and_then(|value| value.get("reason").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .or_else(|| opt_str_arg(args, 4))
-        .unwrap_or_default();
-    let source_type = input
-        .and_then(|value| value.get("source_type").and_then(|v| v.as_str()))
-        .unwrap_or("");
-    let source_ref = input
-        .and_then(|value| value.get("source_ref").and_then(|v| v.as_str()))
-        .unwrap_or("");
-    let source_subpath = input
-        .and_then(|value| value.get("source_subpath").and_then(|v| v.as_str()))
-        .unwrap_or("");
-    let inline_content = input
-        .and_then(|value| value.get("inline_content").and_then(|v| v.as_str()))
-        .unwrap_or("");
-    let companion_manifest = input
-        .and_then(|value| value.get("companion_manifest"))
-        .map(|value| {
-            if value.is_string() {
-                value.as_str().unwrap_or("").to_string()
-            } else {
-                value.to_string()
-            }
-        })
-        .unwrap_or_default();
-
-    if source_url.is_empty() && inline_content.is_empty() {
+    let input = args
+        .first()
+        .ok_or_else(|| {
+            "temper.install_app() requires {app_ref:'owner/name@hash', registry_url?, tenant?}"
+                .to_string()
+        })?;
+    let app_ref = if let Some(obj) = input.as_object() {
+        obj.get("app_ref")
+            .or_else(|| obj.get("AppRef"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    } else {
+        input.as_str().unwrap_or("").trim().to_string()
+    };
+    if !is_pinned_app_ref(&app_ref) {
         return Err(
-            "temper.install_skill() requires source_url, or inline_content with source_type='inline'"
+            "temper.install_app() only installs pinned Genesis refs: owner/name@hash. Local app-name installs are legacy/admin-only."
                 .to_string(),
         );
     }
-
-    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-    let session_agent_id = fields
-        .get("agent_id")
-        .or_else(|| fields.get("AgentId"))
-        .and_then(|value| value.as_str())
-        .unwrap_or("");
-    let fallback_agent_id = ctx
-        .entity_state
-        .get("entity_id")
-        .and_then(|value| value.as_str())
-        .unwrap_or("");
-    let requesting_agent_id = input
-        .and_then(|value| value.get("requesting_agent_id").and_then(|v| v.as_str()))
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            if session_agent_id.is_empty() {
-                fallback_agent_id
-            } else {
-                session_agent_id
-            }
-        });
-
-    let mut resolved_scope_id = target_scope_id;
-    if resolved_scope_id.is_empty() && target_scope_type == "agent" {
-        resolved_scope_id = session_agent_id.to_string();
-    }
-
+    let input_obj = input.as_object();
+    let target_tenant = input_obj
+        .and_then(|obj| obj.get("tenant").or_else(|| obj.get("TargetTenant")))
+        .and_then(Value::as_str)
+        .unwrap_or(tenant)
+        .to_string();
+    let registry_url = genesis_registry_url(ctx, input_obj)?;
+    let registry_tenant = input_obj
+        .and_then(|obj| obj.get("registry_tenant").or_else(|| obj.get("RegistryTenant")))
+        .and_then(Value::as_str)
+        .unwrap_or("default");
     let body = json!({
-        "SourceType": source_type,
-        "SourceUrl": source_url,
-        "SourceRef": source_ref,
-        "SourceSubpath": source_subpath,
-        "RequestedSkillName": requested_skill_name,
-        "TargetScopeType": target_scope_type,
-        "TargetScopeId": resolved_scope_id,
-        "Reason": reason,
-        "RequestingAgentId": requesting_agent_id,
-        "InlineContent": inline_content,
-        "CompanionManifest": companion_manifest,
+        "tenant": target_tenant,
+        "app_ref": app_ref,
+        "registry_url": registry_url,
+        "registry_tenant": registry_tenant,
     });
-    http_post(ctx, api_url, tenant, "/tdata/SkillInstalls", &body)
+    http_post(ctx, api_url, tenant, "/api/genesis/apps/install", &body)
 }
 
-/// Create an app at runtime by bundling specs, policies, and WASM modules inline.
-/// This bypasses the on-disk catalog — the capability_installer processes the bundle
-/// using its `cap_type="app"` handler.
-///
-/// Input (single object arg):
-///   { name, specs: {filename: content, ...}, policies?: {filename: content, ...},
-///     wasm_modules?: {name: base64_bytes, ...}, reason? }
-fn temper_create_app(
+fn temper_search_apps(ctx: &Context, args: &[Value]) -> Result<Value, String> {
+    let input = args.first().filter(|value| value.is_object());
+    let input_obj = input.and_then(Value::as_object);
+    let registry_url = genesis_registry_url(ctx, input_obj)?;
+    let registry_tenant = input_obj
+        .and_then(|obj| obj.get("registry_tenant").or_else(|| obj.get("RegistryTenant")))
+        .and_then(Value::as_str)
+        .unwrap_or("default");
+    let query = input_obj
+        .and_then(|obj| obj.get("query").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let owner = input_obj
+        .and_then(|obj| obj.get("owner").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let status = input_obj
+        .and_then(|obj| obj.get("status").and_then(Value::as_str))
+        .unwrap_or("Active")
+        .to_ascii_lowercase();
+
+    let url = format!("{}/tdata/Apps", registry_url.trim_end_matches('/'));
+    let mut headers = internal_headers();
+    headers.push(("X-Tenant-Id".to_string(), registry_tenant.to_string()));
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status >= 400 {
+        return Err(format!(
+            "Genesis app search failed: HTTP {} {}",
+            resp.status, resp.body
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("Genesis app search returned invalid JSON: {e}"))?;
+    let values = parsed
+        .get("value")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Genesis app search expected OData JSON with a value array".to_string())?;
+    let mut apps = Vec::new();
+    for app in values {
+        let fields = app.get("fields").unwrap_or(app);
+        let app_status = app
+            .get("Status")
+            .or_else(|| app.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or("Active")
+            .to_ascii_lowercase();
+        if !status.is_empty() && app_status != status.to_ascii_lowercase() {
+            continue;
+        }
+        let app_owner = field_str(fields, &["OwnerId", "owner_id", "owner"]).to_ascii_lowercase();
+        if !owner.is_empty() && app_owner != owner {
+            continue;
+        }
+        let name = field_str(fields, &["Name", "name"]);
+        let desc = field_str(fields, &["Description", "description"]);
+        let hash = field_str(fields, &["LatestVersionHash", "latest_version_hash"]);
+        let haystack = format!("{} {} {}", app_owner, name.to_ascii_lowercase(), desc.to_ascii_lowercase());
+        if !query.is_empty() && !haystack.contains(&query) {
+            continue;
+        }
+        apps.push(json!({
+            "owner": app_owner,
+            "name": name,
+            "description": desc,
+            "latest_hash": hash,
+            "app_ref": if hash.is_empty() { String::new() } else { format!("{}/{}@{}", app_owner, name, hash.trim_start_matches('@')) },
+        }));
+    }
+    Ok(json!({
+        "registry_url": registry_url,
+        "registry_tenant": registry_tenant,
+        "apps": apps,
+    }))
+}
+
+fn temper_publish_app(
     ctx: &Context,
-    api_url: &str,
-    tenant: &str,
+    sandbox_url: &str,
+    sandbox_id: &str,
+    sandbox_provider: &str,
+    workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = args.first().ok_or_else(|| {
-        "temper.create_app() requires an object argument with at least 'name' and 'specs'"
-            .to_string()
-    })?;
+    let input = args
+        .first()
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            "temper.publish_app() requires {path, owner, name, registry_url?, message?}"
+                .to_string()
+        })?;
+    let path = required_obj_str(input, "path", "publish_app")?;
+    let owner = required_obj_str(input, "owner", "publish_app")?;
+    let name = required_obj_str(input, "name", "publish_app")?;
+    let registry_url = genesis_registry_url(ctx, Some(input))?;
+    let message = input
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Publish Genesis app");
+    publish_or_update_app_via_git(
+        ctx,
+        sandbox_url,
+        sandbox_id,
+        sandbox_provider,
+        workdir,
+        &path,
+        &owner,
+        &name,
+        &registry_url,
+        message,
+    )
+}
 
-    let app_name = input
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "temper.create_app(): 'name' (string) is required".to_string())?;
-    let specs = input.get("specs").ok_or_else(|| {
-        "temper.create_app(): 'specs' (object of filename→content strings) is required".to_string()
-    })?;
-    let policies = input.get("policies").cloned().unwrap_or(json!({}));
-    let wasm_modules = input.get("wasm_modules").cloned().unwrap_or(json!({}));
-    let reason = input.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+fn temper_update_app(
+    ctx: &Context,
+    sandbox_url: &str,
+    sandbox_id: &str,
+    sandbox_provider: &str,
+    workdir: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = args
+        .first()
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            "temper.update_app() requires {path, app_ref_or_name, registry_url?, message?}"
+                .to_string()
+        })?;
+    let path = required_obj_str(input, "path", "update_app")?;
+    let app_ref_or_name = required_obj_str(input, "app_ref_or_name", "update_app")?;
+    let (owner, name) = owner_name_from_ref_or_name(&app_ref_or_name)?;
+    let registry_url = genesis_registry_url(ctx, Some(input))?;
+    let message = input
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Update Genesis app");
+    publish_or_update_app_via_git(
+        ctx,
+        sandbox_url,
+        sandbox_id,
+        sandbox_provider,
+        workdir,
+        &path,
+        &owner,
+        &name,
+        &registry_url,
+        message,
+    )
+}
 
-    // Validate specs values are strings (same check as temper_submit_specs).
-    if let Some(obj) = specs.as_object() {
-        for (key, val) in obj {
-            if !val.is_string() {
-                let vtype = if val.is_object() {
-                    "object"
-                } else if val.is_array() {
-                    "array"
-                } else if val.is_number() {
-                    "number"
-                } else if val.is_boolean() {
-                    "boolean"
-                } else {
-                    "non-string"
-                };
-                return Err(format!(
-                    "temper.create_app(): spec value for '{}' must be a string, not a {} value.",
-                    key, vtype
-                ));
-            }
+fn publish_or_update_app_via_git(
+    ctx: &Context,
+    sandbox_url: &str,
+    sandbox_id: &str,
+    sandbox_provider: &str,
+    workdir: &str,
+    path: &str,
+    owner: &str,
+    name: &str,
+    registry_url: &str,
+    message: &str,
+) -> Result<Value, String> {
+    if sandbox_url.is_empty() {
+        return Err("temper.publish_app()/update_app() requires an attached sandbox".to_string());
+    }
+    let handle = wasm_helpers::sandbox::SandboxHandle {
+        sandbox_url: sandbox_url.to_string(),
+        sandbox_id: sandbox_id.to_string(),
+        provider: if sandbox_provider.is_empty() {
+            "tensorlake".to_string()
+        } else {
+            sandbox_provider.to_string()
+        },
+    };
+    let remote = format!(
+        "{}/{}/{}.git",
+        registry_url.trim_end_matches('/'),
+        owner,
+        name
+    );
+    let command = format!(
+        "set -euo pipefail\n\
+         cd {}\n\
+         if [ ! -d .git ]; then git init -b main >/dev/null 2>&1 || (git init >/dev/null && git checkout -B main >/dev/null); fi\n\
+         git add .\n\
+         if ! git diff --cached --quiet; then git -c user.name={} -c user.email={} commit -m {} >/dev/null; fi\n\
+         git push {} HEAD:main\n\
+         git rev-parse HEAD",
+        shell_quote(path),
+        shell_quote("TemperPaw Agent"),
+        shell_quote("agent@temperpaw.local"),
+        shell_quote(message),
+        shell_quote(&remote),
+    );
+    let result = wasm_helpers::sandbox::sandbox_exec(ctx, &handle, &command, workdir)?;
+    if result.exit_code != 0 {
+        return Err(format!(
+            "Genesis app publish failed with exit {}: {}{}{}",
+            result.exit_code,
+            result.stderr,
+            if result.stderr.is_empty() || result.stdout.is_empty() {
+                ""
+            } else {
+                "\n"
+            },
+            result.stdout
+        ));
+    }
+    let hash = result.stdout.lines().last().unwrap_or("").trim();
+    if hash.is_empty() {
+        return Err("Genesis app publish succeeded but did not return a commit hash".to_string());
+    }
+    Ok(json!({
+        "app_ref": format!("{owner}/{name}@{hash}"),
+        "owner": owner,
+        "name": name,
+        "hash": hash,
+        "registry_url": registry_url,
+        "remote": remote,
+    }))
+}
+
+fn genesis_registry_url(
+    ctx: &Context,
+    input: Option<&serde_json::Map<String, Value>>,
+) -> Result<String, String> {
+    let configured = input
+        .and_then(|obj| {
+            obj.get("registry_url")
+                .or_else(|| obj.get("url"))
+                .or_else(|| obj.get("RegistryUrl"))
+        })
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .or_else(|| ctx.config.get("genesis_registry_url").cloned())
+        .or_else(|| ctx.config.get("GENESIS_REGISTRY_URL").cloned())
+        .unwrap_or_else(|| "https://genesis-production-164d.up.railway.app".to_string());
+    let trimmed = configured.trim().trim_end_matches('/').to_string();
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err("Genesis registry URL must start with http:// or https://".to_string());
+    }
+    Ok(trimmed)
+}
+
+fn is_pinned_app_ref(app_ref: &str) -> bool {
+    let Some((owner_name, hash)) = app_ref.split_once('@') else {
+        return false;
+    };
+    let Some((owner, name)) = owner_name.split_once('/') else {
+        return false;
+    };
+    !owner.trim().is_empty() && !name.trim().is_empty() && !hash.trim().is_empty()
+}
+
+fn owner_name_from_ref_or_name(value: &str) -> Result<(String, String), String> {
+    let left = value.split_once('@').map(|(left, _)| left).unwrap_or(value);
+    let (owner, name) = left
+        .split_once('/')
+        .ok_or_else(|| "app_ref_or_name must be owner/name or owner/name@hash".to_string())?;
+    Ok((owner.to_string(), name.to_string()))
+}
+
+fn required_obj_str(
+    input: &serde_json::Map<String, Value>,
+    key: &str,
+    method: &str,
+) -> Result<String, String> {
+    input
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string())
+        .ok_or_else(|| format!("temper.{method}() requires string field '{key}'"))
+}
+
+fn field_str(fields: &Value, names: &[&str]) -> String {
+    for name in names {
+        if let Some(value) = fields.get(*name).and_then(Value::as_str) {
+            return value.to_string();
         }
     }
-
-    // Build the bundle that capability_installer's app handler expects.
-    let bundle = json!({
-        "specs": specs,
-        "policies": policies,
-        "wasm_modules": wasm_modules,
-    });
-    let payload = serde_json::to_string(&bundle)
-        .map_err(|e| format!("temper.create_app(): failed to serialize bundle: {e}"))?;
-
-    let agent_id = ctx
-        .entity_state
-        .get("entity_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    let body = json!({
-        "CapabilityType": "app",
-        "CapabilityName": app_name,
-        "Reason": reason,
-        "RequestingAgentId": agent_id,
-        "Payload": payload,
-    });
-    http_post(ctx, api_url, tenant, "/tdata/CapabilityRequests", &body)
+    String::new()
 }
 
 fn temper_list_apps(ctx: &Context, api_url: &str, tenant: &str) -> Result<Value, String> {
-    // Canonical app discovery endpoint. Returns installed os-apps with
-    // descriptions and entity_types so agents can route requests to the
-    // right app (matches the path used by temper-sandbox and the
-    // platform-awareness skill's stated discovery flow).
-    http_get(ctx, api_url, tenant, "/api/os-apps")
+    let _ = (api_url, tenant);
+    temper_search_apps(ctx, &[])
 }
 
 // ---------------------------------------------------------------------------
@@ -2391,7 +2517,6 @@ fn batchable_direct_get_path(method: &str, args: &[String]) -> Option<(String, b
         "list_policies" if args.is_empty() => {
             Some(("/api/tenants/{tenant}/policies/list".to_string(), false))
         }
-        "list_apps" if args.is_empty() => Some(("/api/os-apps".to_string(), false)),
         _ => None,
     }
 }

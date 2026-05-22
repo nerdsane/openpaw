@@ -16,6 +16,10 @@ use axum::response::IntoResponse;
 use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{KeyValue, global};
 use temper_platform::PlatformState;
+use temper_platform::genesis_install::{
+    GenesisRegistryInstallRequest, install_genesis_app_from_registry,
+    restore_genesis_registry_cache_roots,
+};
 use temper_platform::os_apps::{
     InstallResult, OsAppReconcileResult, get_os_app, list_startup_os_apps, reconcile_os_app,
     resolve_os_app_install_order,
@@ -36,7 +40,7 @@ use tokio::task::JoinHandle;
 use crate::config::Config;
 use crate::storage::PawStorage;
 
-const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+const DEFAULT_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
 const DEFAULT_AGENT_WORKDIR: &str = "/workspace";
 const STARTUP_PHASE_DURATION_METRIC: &str = "temper_startup_phase_duration_ms";
 const STARTUP_TIME_TO_READY_METRIC: &str = "temper_startup_time_to_healthy_ms";
@@ -45,6 +49,7 @@ const OS_APP_RECONCILE_TOTAL_METRIC: &str = "temper_os_app_reconcile_total";
 const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration_ms";
 const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
 const DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT: usize = 25;
+const DEFAULT_GENESIS_REGISTRY_URL: &str = "https://genesis-production-164d.up.railway.app";
 
 fn running_on_railway() -> bool {
     std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
@@ -308,11 +313,157 @@ fn runtime_recovery_plan(tenant_ids: &[TenantId]) -> Vec<RuntimeRecoveryStep> {
 }
 
 fn startup_os_apps() -> Vec<String> {
+    if !genesis_bootstrap_app_refs().is_empty() {
+        return Vec::new();
+    }
     list_startup_os_apps()
 }
 
 fn default_agent_specs_bootstrap_needed(startup_apps: &[String]) -> bool {
     !startup_apps.iter().any(|app| app == "paw-agent")
+}
+
+fn genesis_bootstrap_app_refs() -> Vec<String> {
+    let configured = std::env::var("TEMPERPAW_GENESIS_BOOTSTRAP_REFS")
+        .or_else(|_| std::env::var("TEMPER_GENESIS_BOOTSTRAP_REFS"))
+        .unwrap_or_default();
+    configured
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn genesis_bootstrap_app_names() -> Vec<String> {
+    genesis_bootstrap_app_refs()
+        .into_iter()
+        .filter_map(|app_ref| pinned_app_ref_name(&app_ref).map(ToString::to_string))
+        .collect()
+}
+
+fn genesis_registry_url() -> String {
+    std::env::var("TEMPERPAW_GENESIS_REGISTRY_URL")
+        .or_else(|_| std::env::var("TEMPER_GENESIS_REGISTRY_URL"))
+        .or_else(|_| std::env::var("GENESIS_REGISTRY_URL"))
+        .unwrap_or_else(|_| DEFAULT_GENESIS_REGISTRY_URL.to_string())
+        .trim()
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn genesis_registry_tenant() -> String {
+    std::env::var("TEMPERPAW_GENESIS_REGISTRY_TENANT")
+        .or_else(|_| std::env::var("TEMPER_GENESIS_REGISTRY_TENANT"))
+        .unwrap_or_else(|_| "default".to_string())
+}
+
+fn pinned_app_ref_name(app_ref: &str) -> Option<&str> {
+    let (owner_and_name, hash) = app_ref.split_once('@')?;
+    if hash.trim().is_empty() {
+        return None;
+    }
+    let (_owner, name) = owner_and_name.split_once('/')?;
+    let name = name.trim();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn pinned_app_ref_owner(app_ref: &str) -> Option<&str> {
+    let (owner_and_name, hash) = app_ref.split_once('@')?;
+    if hash.trim().is_empty() {
+        return None;
+    }
+    let (owner, name) = owner_and_name.split_once('/')?;
+    if owner.trim().is_empty() || name.trim().is_empty() {
+        return None;
+    }
+    Some(owner.trim())
+}
+
+async fn bootstrap_configured_genesis_apps(
+    state: &PlatformState,
+    platform_store: &dyn PlatformStore,
+    tenant: &str,
+) -> Result<usize> {
+    let app_refs = genesis_bootstrap_app_refs();
+    if app_refs.is_empty() {
+        return Ok(0);
+    }
+
+    let registry_url = genesis_registry_url();
+    if !(registry_url.starts_with("http://") || registry_url.starts_with("https://")) {
+        anyhow::bail!("TEMPERPAW_GENESIS_REGISTRY_URL must start with http:// or https://");
+    }
+    let registry_tenant = genesis_registry_tenant();
+    let mut installed = 0usize;
+
+    for app_ref in app_refs {
+        let Some(app_name) = pinned_app_ref_name(&app_ref).map(ToString::to_string) else {
+            anyhow::bail!(
+                "TEMPERPAW_GENESIS_BOOTSTRAP_REFS must contain pinned owner/app@hash refs; got '{app_ref}'"
+            );
+        };
+        let Some(_owner) = pinned_app_ref_owner(&app_ref) else {
+            anyhow::bail!(
+                "TEMPERPAW_GENESIS_BOOTSTRAP_REFS must contain pinned owner/app@hash refs; got '{app_ref}'"
+            );
+        };
+
+        match platform_store.get_installed_app(tenant, &app_name).await {
+            Ok(Some(record))
+                if record.source_kind == "genesis"
+                    && record.app_ref == app_ref
+                    && record.status == "installed" =>
+            {
+                tracing::info!(
+                    app = %app_name,
+                    app_ref = %app_ref,
+                    "Skipping unchanged Genesis bootstrap app"
+                );
+                continue;
+            }
+            Ok(Some(record)) => {
+                tracing::info!(
+                    app = %app_name,
+                    previous_ref = %record.app_ref,
+                    next_ref = %app_ref,
+                    "Reconciling changed Genesis bootstrap app"
+                );
+            }
+            Ok(None) => {
+                tracing::info!(
+                    app = %app_name,
+                    app_ref = %app_ref,
+                    "Installing fresh Genesis bootstrap app"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    app = %app_name,
+                    app_ref = %app_ref,
+                    error = %error,
+                    "Could not read installed app metadata before Genesis bootstrap; installing"
+                );
+            }
+        }
+
+        install_genesis_app_from_registry(
+            state,
+            GenesisRegistryInstallRequest {
+                tenant: tenant.to_string(),
+                app_ref: app_ref.clone(),
+                registry_url: registry_url.clone(),
+                registry_tenant: registry_tenant.clone(),
+            },
+        )
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("Genesis bootstrap install failed for {app_ref}: {error}")
+        })?;
+        installed += 1;
+    }
+
+    Ok(installed)
 }
 
 #[cfg(test)]
@@ -723,7 +874,8 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tracing::warn!("os-apps/ directory not found — OS apps will not be available");
     }
 
-    // Register reference apps (available for install_app() but NOT auto-installed)
+    // Local app directories are retained for development and tests only.
+    // Normal agent-facing app discovery/install goes through Genesis pinned refs.
     let reference_apps_dir = PathBuf::from("reference-projects/deep-sci-fi");
     if reference_apps_dir.exists() {
         temper_platform::os_apps::add_os_apps_dir(reference_apps_dir);
@@ -737,19 +889,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         tracing::info!("  Kotowari apps directory registered (available for install)");
     }
 
-    // Phase 3b: Sync git app sources (TEMPER_APP_SOURCES env var)
-    if std::env::var("TEMPER_APP_SOURCES").is_ok() {
-        let git_apps_cache = data_dir.join("git-apps");
-        match temper_platform::os_apps::git_sources::sync_and_register_git_sources(&git_apps_cache)
-        {
-            Ok(repos) => {
-                for name in &repos {
-                    tracing::info!("  Git app source registered: {name}");
-                }
-            }
-            Err(e) => tracing::warn!("Failed to sync git app sources: {e}"),
-        }
-    }
+    // GitHub/submodule/symlink app sources are intentionally not synced here.
+    // Genesis is the app source of truth; direct Git is a registry transport,
+    // not an extra install catalog.
 
     // Phase 4: Assemble PlatformState
     tracing::info!("Phase 4: Assembling platform state...");
@@ -786,7 +928,10 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         temper_platform::persist_system_verification(platform_store, &sys_hashes, &sys_cache).await;
 
         let startup_apps = startup_os_apps();
-        if default_agent_specs_bootstrap_needed(&startup_apps) {
+        let genesis_bootstrap_apps = genesis_bootstrap_app_names();
+        if default_agent_specs_bootstrap_needed(&startup_apps)
+            && default_agent_specs_bootstrap_needed(&genesis_bootstrap_apps)
+        {
             let agent_cache = platform_store
                 .load_verification_cache(&tenant)
                 .await
@@ -1420,6 +1565,23 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     )
     .await
     .context("Temper Paw HTTP API failed to become reachable during startup")?;
+
+    let restored_genesis_registry_caches = restore_genesis_registry_cache_roots(&state).await;
+    if restored_genesis_registry_caches > 0 {
+        tracing::info!(
+            restored = restored_genesis_registry_caches,
+            "Restored Genesis registry app cache roots"
+        );
+    }
+
+    let genesis_bootstrap_installs =
+        bootstrap_configured_genesis_apps(&state, platform_store, &tenant).await?;
+    if genesis_bootstrap_installs > 0 {
+        tracing::info!(
+            installed = genesis_bootstrap_installs,
+            "Installed configured Genesis bootstrap apps"
+        );
+    }
 
     // Phase 6a: Recover persisted WASM modules + Cedar policies BEFORE app install.
     //
@@ -3351,8 +3513,8 @@ mod tests {
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
-        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
-        local_wasm_startup_policy, orphaned_session_recovery_limit,
+        genesis_bootstrap_app_names, installed_app_runtime_recovery_result,
+        load_or_create_temper_api_key, local_wasm_startup_policy, orphaned_session_recovery_limit,
         paw_soul_content_is_personalized, resolve_startup_secret,
         runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
@@ -3362,6 +3524,7 @@ mod tests {
     use crate::transport_manager::TransportStatus;
 
     static ORPHANED_SESSION_ENV_LOCK: Mutex<()> = Mutex::new(());
+    static GENESIS_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn empty_install_result() -> temper_platform::os_apps::InstallResult {
         temper_platform::os_apps::InstallResult {
@@ -3490,6 +3653,28 @@ mod tests {
             "paw-fs".to_string(),
             "paw-channels".to_string(),
         ]));
+    }
+
+    #[test]
+    fn genesis_bootstrap_refs_replace_local_startup_surface() {
+        let _guard = GENESIS_ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var(
+                "TEMPERPAW_GENESIS_BOOTSTRAP_REFS",
+                "temperpaw/paw-agent@abc123, katagami/katagami-commons@def456",
+            );
+            std::env::remove_var("TEMPER_GENESIS_BOOTSTRAP_REFS");
+        }
+
+        assert_eq!(
+            genesis_bootstrap_app_names(),
+            vec!["paw-agent".to_string(), "katagami-commons".to_string()]
+        );
+        assert!(startup_os_apps().is_empty());
+
+        unsafe {
+            std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_REFS");
+        }
     }
 
     #[test]
