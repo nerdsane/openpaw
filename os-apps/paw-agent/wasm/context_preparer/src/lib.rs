@@ -25,7 +25,7 @@ use wasm_helpers::{
 };
 
 const DEFAULT_CONTEXT_PREPARE_BUDGET_MS: i64 = 120_000;
-const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 128 * 1024;
+const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 32 * 1024;
 const CONTEXT_READY_ACTION: &str = "ContextReady";
 const CONTEXT_READY_AUTH_SKIPPED_ACTION: &str = "ContextReadyAuthSkipped";
 
@@ -3046,14 +3046,18 @@ mod tests {
 
         prune_old_tool_results(&mut messages, 1);
 
-        let pruned = messages[1]["content"][0]["content"].as_str().unwrap();
+        let pruned = messages[1]["content"][0]["content"]
+            .as_str()
+            .expect("pruned tool result remains a string");
         assert!(pruned.contains("tool result pruned"));
     }
 
     #[test]
     fn build_tool_definitions_reflect_enabled_methods() {
         let tools = build_tool_definitions("temper_get,temper_list", "", "/workspace");
-        let description = tools[0]["description"].as_str().unwrap();
+        let description = tools[0]["description"]
+            .as_str()
+            .expect("tool definition description is a string");
 
         assert!(description.contains("temper.get(entity_set, entity_id)"));
         assert!(description.contains("temper.list(entity_set, filter_str)"));
@@ -3109,18 +3113,21 @@ mod tests {
     }
 
     #[test]
-    fn prepared_context_storage_keeps_observed_medium_artifacts_inline_by_default() {
+    fn prepared_context_storage_externalizes_medium_artifacts_by_default() {
         let artifact = "x".repeat(45 * 1024);
         let storage = choose_prepared_context_storage(
             &artifact,
             "existing-file",
             DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES,
-            |_| panic!("observed 45 KiB artifacts should not be written to TemperFS"),
+            |body| {
+                assert_eq!(body.len(), artifact.len());
+                Ok("prepared-medium-file".to_string())
+            },
         )
         .expect("storage decision");
 
-        assert_eq!(storage.file_id, "");
-        assert_eq!(storage.inline_json.len(), artifact.len());
+        assert_eq!(storage.file_id, "prepared-medium-file");
+        assert_eq!(storage.inline_json, "");
     }
 
     #[test]

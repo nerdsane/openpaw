@@ -155,14 +155,14 @@ fn active_context_preparer_owns_delta_batch_read_contract() {
 }
 
 #[test]
-fn context_preparer_keeps_medium_artifacts_inline_and_measurable() {
+fn context_preparer_uses_small_default_inline_budget_and_keeps_metrics() {
     let root = repo_root();
     let preparer =
         fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_preparer/src/lib.rs"))
             .expect("context_preparer source should exist");
 
     for needle in [
-        "const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 128 * 1024",
+        "const DEFAULT_PREPARED_CONTEXT_INLINE_MAX_BYTES: usize = 32 * 1024",
         "temper_session_prepared_context_artifact_bytes",
         "temper_session_prepared_context_artifact_bytes_total",
         "temper_session_prepared_context_artifact_storage_total",
@@ -170,7 +170,7 @@ fn context_preparer_keeps_medium_artifacts_inline_and_measurable() {
     ] {
         assert!(
             preparer.contains(needle),
-            "context_preparer should keep medium prepared artifacts inline and observable: {needle}"
+            "context_preparer should keep a small default inline budget and observable storage metrics: {needle}"
         );
     }
 }
