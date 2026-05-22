@@ -161,6 +161,28 @@
     }
   },
   {
+    "name": "[TemperPaw] Process RSS OOM Guard",
+    "type": "metric alert",
+    "query": "max(last_10m):max:process_resident_memory_bytes{service:temperpaw,env:prod} by {host,version} > 6500000000",
+    "message": "TemperPaw process RSS is above 6.5 GB for 10 minutes. This is the host/version guard for projection, query, replay, or prepared-context materialization regressions before Railway starts OOM restarting the runtime.\n\nCompare the Process Memory dashboard by host and version, then inspect OData `odata.entity_set_read` spans for large `candidate_count` or `materialized_count`, replay parity probes, and prepared context inline artifacts. The fixed `sha-72ad9b9` rollout sat around 1.3-1.4 GB; prior failing builds reached roughly 7.6-8.0 GB RSS.\n\n@slack-temperpaw-alerts",
+    "tags": [
+      "team:temperpaw",
+      "service:temperpaw",
+      "env:prod",
+      "severity:high",
+      "surface:runtime-memory"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 6500000000,
+        "warning": 4500000000
+      },
+      "notify_no_data": false,
+      "on_missing_data": "resolve",
+      "renotify_interval": 60
+    }
+  },
+  {
     "name": "[Temper] Dispatch Retry Budget Exhausted",
     "type": "metric alert",
     "query": "sum(last_10m):default_zero(sum:temper_dispatch_ask_outcome_total{service:temperpaw,outcome:transient_exhausted}.as_count()) > 10",

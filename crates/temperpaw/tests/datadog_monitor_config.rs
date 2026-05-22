@@ -157,6 +157,36 @@ fn monitor_queries_use_current_runtime_metric_names_and_zero_fill_sparse_counter
 }
 
 #[test]
+fn process_rss_monitor_guards_against_oom_regressions() {
+    let monitors = load_monitors();
+    let by_name = monitors_by_name(&monitors);
+    let monitor = by_name
+        .get("[TemperPaw] Process RSS OOM Guard")
+        .expect("process RSS OOM guard should be source-controlled");
+
+    assert_eq!(monitor["type"].as_str(), Some("metric alert"));
+    assert_eq!(
+        monitor["query"].as_str(),
+        Some(
+            "max(last_10m):max:process_resident_memory_bytes{service:temperpaw,env:prod} by {host,version} > 6500000000"
+        )
+    );
+    assert_eq!(
+        monitor["options"]["thresholds"]["critical"].as_u64(),
+        Some(6_500_000_000)
+    );
+    assert_eq!(
+        monitor["options"]["thresholds"]["warning"].as_u64(),
+        Some(4_500_000_000)
+    );
+    assert_eq!(monitor["options"]["notify_no_data"].as_bool(), Some(false));
+    assert_eq!(
+        monitor["options"]["on_missing_data"].as_str(),
+        Some("resolve")
+    );
+}
+
+#[test]
 fn platform_dashboard_uses_live_runtime_metrics_instead_of_stale_trace_custom_queries() {
     let dashboard = load_dashboard();
     let dashboard_json = dashboard.to_string();
