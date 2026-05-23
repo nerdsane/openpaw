@@ -96,3 +96,29 @@ fn deployment_docs_preserve_production_databases() {
         );
     }
 }
+
+#[test]
+fn paw_channels_policy_allows_system_reconcile_without_broad_local_install_escape_hatch() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-channels/policies/channels.cedar"));
+
+    for required in [
+        "transport_reconcile",
+        "transport-reconcile",
+        "action == Action::\"http_call\"",
+        "resource is HttpEndpoint",
+        "principal.agent_type == \"system\"",
+        "action in [Action::\"create\", Action::\"Register\", Action::\"Update\", Action::\"Disable\", Action::\"Enable\"]",
+        "resource is AgentRoute",
+    ] {
+        assert!(
+            policy.contains(required),
+            "paw-channels policy must contain {required}"
+        );
+    }
+
+    assert!(
+        !policy.contains("CapabilityRequest"),
+        "transport policy must not reintroduce capability request install UX"
+    );
+}

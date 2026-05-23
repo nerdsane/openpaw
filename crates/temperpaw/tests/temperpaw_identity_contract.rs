@@ -412,6 +412,17 @@ fn railway_deploy_dockerfile_uses_image_tag_variable() {
         railway_config.contains("healthcheckPath = \"/healthz\""),
         "Railway cutover must use process liveness; /readyz remains the stronger post-cutover readiness proof"
     );
+
+    let deploy_rs = fs::read_to_string(repo_root().join("crates/temperpaw/src/deploy.rs"))
+        .expect("deploy.rs should be readable");
+    assert!(
+        deploy_rs.contains("healthcheckPath = \\\"/healthz\\\""),
+        "generated Railway manifests must also use /healthz for process liveness"
+    );
+    assert!(
+        !deploy_rs.contains("healthcheckPath = \\\"/readyz\\\""),
+        "generated Railway manifests must not cut over on /readyz"
+    );
 }
 
 #[test]

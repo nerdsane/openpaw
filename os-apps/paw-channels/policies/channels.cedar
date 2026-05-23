@@ -50,6 +50,14 @@ permit(
   ["supervisor", "human"].contains(principal.agent_type)
 };
 
+permit(
+  principal,
+  action in [Action::"create", Action::"Register", Action::"Update", Action::"Disable", Action::"Enable"],
+  resource is AgentRoute
+) when {
+  principal.agent_type == "system"
+};
+
 // System agents can handle channel callbacks and session management
 permit(
   principal,
@@ -128,4 +136,12 @@ permit(
   resource is HttpEndpoint
 ) when {
   ["channel_connect", "route_message", "send_reply", "transport_reconcile"].contains(context.module)
+};
+
+permit(
+  principal,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  ["transport_reconcile", "transport-reconcile"].contains(context.module)
 };

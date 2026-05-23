@@ -524,7 +524,7 @@ fn deploy_prebuilt_image() -> Result<()> {
     std::fs::write(
         tmp.join("railway.toml"),
         "[build]\nbuilder = \"dockerfile\"\ndockerfilePath = \"Dockerfile\"\n\n\
-         [deploy]\nhealthcheckPath = \"/readyz\"\nhealthcheckTimeout = 60\n\
+         [deploy]\nhealthcheckPath = \"/healthz\"\nhealthcheckTimeout = 60\n\
          restartPolicyType = \"ON_FAILURE\"\nrestartPolicyMaxRetries = 3\n",
     )?;
 
