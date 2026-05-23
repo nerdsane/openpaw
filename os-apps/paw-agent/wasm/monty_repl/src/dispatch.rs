@@ -1989,6 +1989,7 @@ fn temper_publish_app(
     let owner = required_obj_str(input, "owner", "publish_app")?;
     let name = required_obj_str(input, "name", "publish_app")?;
     let registry_url = genesis_registry_url(ctx, Some(input))?;
+    let registry_tenant = genesis_registry_tenant(input);
     let message = input
         .get("message")
         .and_then(Value::as_str)
@@ -2003,6 +2004,7 @@ fn temper_publish_app(
         &owner,
         &name,
         &registry_url,
+        &registry_tenant,
         message,
     )
 }
@@ -2026,6 +2028,7 @@ fn temper_update_app(
     let app_ref_or_name = required_obj_str(input, "app_ref_or_name", "update_app")?;
     let (owner, name) = owner_name_from_ref_or_name(&app_ref_or_name)?;
     let registry_url = genesis_registry_url(ctx, Some(input))?;
+    let registry_tenant = genesis_registry_tenant(input);
     let message = input
         .get("message")
         .and_then(Value::as_str)
@@ -2040,6 +2043,7 @@ fn temper_update_app(
         &owner,
         &name,
         &registry_url,
+        &registry_tenant,
         message,
     )
 }
@@ -2054,11 +2058,14 @@ fn publish_or_update_app_via_git(
     owner: &str,
     name: &str,
     registry_url: &str,
+    registry_tenant: &str,
     message: &str,
 ) -> Result<Value, String> {
     if sandbox_url.is_empty() {
         return Err("temper.publish_app()/update_app() requires an attached sandbox".to_string());
     }
+    let repository_id =
+        ensure_genesis_repository(ctx, registry_url, registry_tenant, owner, name, message)?;
     let handle = wasm_helpers::sandbox::SandboxHandle {
         sandbox_url: sandbox_url.to_string(),
         sandbox_id: sandbox_id.to_string(),
@@ -2106,13 +2113,149 @@ fn publish_or_update_app_via_git(
     if hash.is_empty() {
         return Err("Genesis app publish succeeded but did not return a commit hash".to_string());
     }
+    let registry_action = publish_genesis_app_version(
+        ctx,
+        registry_url,
+        registry_tenant,
+        owner,
+        name,
+        &repository_id,
+        hash,
+        message,
+    )?;
     Ok(json!({
         "app_ref": format!("{owner}/{name}@{hash}"),
         "owner": owner,
         "name": name,
         "hash": hash,
         "registry_url": registry_url,
+        "registry_tenant": registry_tenant,
         "remote": remote,
+        "registry_action": registry_action,
+    }))
+}
+
+fn ensure_genesis_repository(
+    ctx: &Context,
+    registry_url: &str,
+    registry_tenant: &str,
+    owner: &str,
+    name: &str,
+    description: &str,
+) -> Result<String, String> {
+    let repository_id = repository_id_for(owner, name);
+    let url = format!(
+        "{}/tdata/Repositories('{}')",
+        registry_url.trim_end_matches('/'),
+        escape_odata_key(&repository_id)
+    );
+    let headers = genesis_registry_headers(registry_tenant);
+    let existing = ctx.http_call("GET", &url, &headers, "")?;
+    if existing.status < 400 {
+        return Ok(repository_id);
+    }
+    if existing.status != 404 {
+        return Err(format!(
+            "Genesis repository lookup failed for {owner}/{name}: HTTP {} {}",
+            existing.status, existing.body
+        ));
+    }
+
+    let create_url = format!(
+        "{}/tdata/Repositories?await_integration=true",
+        registry_url.trim_end_matches('/')
+    );
+    let body = json!({
+        "Id": repository_id,
+        "OwnerAccountId": owner,
+        "Name": name,
+        "Description": description,
+        "DefaultBranch": "main",
+        "Visibility": "public",
+    });
+    let created = ctx.http_call("POST", &create_url, &headers, &body.to_string())?;
+    if created.status >= 400 && !created.body.contains("already") && !created.body.contains("exists") {
+        return Err(format!(
+            "Genesis repository create failed for {owner}/{name}: HTTP {} {}",
+            created.status, created.body
+        ));
+    }
+    Ok(repository_id)
+}
+
+fn publish_genesis_app_version(
+    ctx: &Context,
+    registry_url: &str,
+    registry_tenant: &str,
+    owner: &str,
+    name: &str,
+    repository_id: &str,
+    hash: &str,
+    message: &str,
+) -> Result<Value, String> {
+    let app_id = app_id_for(owner, name);
+    let app_url = format!(
+        "{}/tdata/Apps('{}')",
+        registry_url.trim_end_matches('/'),
+        escape_odata_key(&app_id)
+    );
+    let headers = genesis_registry_headers(registry_tenant);
+    let existing = ctx.http_call("GET", &app_url, &headers, "")?;
+    if existing.status == 404 {
+        let register_url = format!("{app_url}/Temper.RegisterNewApp?await_integration=true");
+        let body = json!({
+            "Name": name,
+            "RepositoryId": repository_id,
+            "Description": message,
+            "Exports": "{}",
+            "Visibility": "public",
+        });
+        let registered = ctx.http_call("POST", &register_url, &headers, &body.to_string())?;
+        if registered.status >= 400 {
+            return Err(format!(
+                "Genesis RegisterNewApp failed for {owner}/{name}: HTTP {} {}",
+                registered.status, registered.body
+            ));
+        }
+        return Ok(json!({
+            "kind": "registered",
+            "app_id": app_id,
+            "response": parse_json_or_text(&registered.body),
+        }));
+    }
+    if existing.status >= 400 {
+        return Err(format!(
+            "Genesis app lookup failed for {owner}/{name}: HTTP {} {}",
+            existing.status, existing.body
+        ));
+    }
+
+    let parsed = serde_json::from_str::<Value>(&existing.body).unwrap_or(Value::Null);
+    let fields = parsed.get("fields").unwrap_or(&parsed);
+    let latest_hash = field_str(fields, &["LatestVersionHash", "latest_version_hash"]);
+    if latest_hash.trim_start_matches('@') == hash {
+        return Ok(json!({
+            "kind": "already_current",
+            "app_id": app_id,
+        }));
+    }
+
+    let publish_url = format!("{app_url}/Temper.PublishNewVersion?await_integration=true");
+    let body = json!({
+        "NewHash": hash,
+        "RefName": "main",
+    });
+    let published = ctx.http_call("POST", &publish_url, &headers, &body.to_string())?;
+    if published.status >= 400 {
+        return Err(format!(
+            "Genesis PublishNewVersion failed for {owner}/{name}: HTTP {} {}",
+            published.status, published.body
+        ));
+    }
+    Ok(json!({
+        "kind": "published_version",
+        "app_id": app_id,
+        "response": parse_json_or_text(&published.body),
     }))
 }
 
@@ -2139,6 +2282,27 @@ fn genesis_registry_url(
     Ok(trimmed)
 }
 
+fn genesis_registry_tenant(input: &serde_json::Map<String, Value>) -> String {
+    input
+        .get("registry_tenant")
+        .or_else(|| input.get("RegistryTenant"))
+        .and_then(Value::as_str)
+        .filter(|tenant| !tenant.trim().is_empty())
+        .unwrap_or("default")
+        .trim()
+        .to_string()
+}
+
+fn genesis_registry_headers(registry_tenant: &str) -> Vec<(String, String)> {
+    let mut headers = internal_headers();
+    headers.push(("X-Tenant-Id".to_string(), registry_tenant.to_string()));
+    headers
+}
+
+fn parse_json_or_text(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or_else(|_| json!({ "body": body }))
+}
+
 fn is_pinned_app_ref(app_ref: &str) -> bool {
     let Some((owner_name, hash)) = app_ref.split_once('@') else {
         return false;
@@ -2155,6 +2319,42 @@ fn owner_name_from_ref_or_name(value: &str) -> Result<(String, String), String> 
         .split_once('/')
         .ok_or_else(|| "app_ref_or_name must be owner/name or owner/name@hash".to_string())?;
     Ok((owner.to_string(), name.to_string()))
+}
+
+fn repository_id_for(owner: &str, name: &str) -> String {
+    format!(
+        "rp-{}-{}",
+        sanitize_genesis_id_component(owner),
+        sanitize_genesis_id_component(name)
+    )
+}
+
+fn app_id_for(owner: &str, name: &str) -> String {
+    format!(
+        "app-{}-{}",
+        sanitize_genesis_id_component(owner),
+        sanitize_genesis_id_component(name)
+    )
+}
+
+fn sanitize_genesis_id_component(input: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in input.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
 }
 
 fn required_obj_str(
@@ -3085,17 +3285,34 @@ mod tests {
         BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX,
         MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS, ODataQueryArg, batchable_tool_plan_from_code,
         coalesce_sandbox_args, encode_odata_filter_literal, escape_odata_string_literal,
-        fallback_web_search_query, has_model_csdl, interpret_cached_web_query_result,
-        interpret_web_query_entity_result, is_image_extension, is_vague_web_search_query,
-        json_dumps, json_loads, media_type_from_extension, normalize_odata_query_arg,
-        sandbox_identity_from_fields, sandbox_image_read_result, tool_span_hint_headers_for,
-        web_query_cache_lookup_path, web_search_results_empty,
+        fallback_web_search_query, genesis_registry_tenant, has_model_csdl,
+        interpret_cached_web_query_result, interpret_web_query_entity_result, is_image_extension,
+        is_vague_web_search_query, json_dumps, json_loads, media_type_from_extension,
+        normalize_odata_query_arg, repository_id_for, sandbox_identity_from_fields,
+        sandbox_image_read_result, tool_span_hint_headers_for, web_query_cache_lookup_path,
+        web_search_results_empty,
     };
     use serde_json::json;
 
     #[test]
     fn detects_model_csdl_at_root() {
         assert!(has_model_csdl(&["model.csdl.xml".to_string()]));
+    }
+
+    #[test]
+    fn genesis_publish_helpers_use_registry_id_conventions() {
+        assert_eq!(
+            repository_id_for("Arni Labs", "Katagami Commons"),
+            "rp-arni-labs-katagami-commons"
+        );
+    }
+
+    #[test]
+    fn genesis_registry_tenant_defaults_to_default() {
+        assert_eq!(genesis_registry_tenant(&serde_json::Map::new()), "default");
+        let mut input = serde_json::Map::new();
+        input.insert("registry_tenant".to_string(), json!("team-a"));
+        assert_eq!(genesis_registry_tenant(&input), "team-a");
     }
 
     #[test]
