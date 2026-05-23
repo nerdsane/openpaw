@@ -2040,8 +2040,8 @@ fn paw_agent_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-agent should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        14,
-        "paw-agent should expose all Agent entity specs"
+        13,
+        "paw-agent should expose all active Agent entity specs"
     );
     assert!(
         bundle

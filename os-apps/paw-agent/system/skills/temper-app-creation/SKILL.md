@@ -309,6 +309,26 @@ The platform materializes the pinned Genesis closure, installs dependencies
 first, then registers everything. After install, `temper.specs()` shows the new
 entity types.
 
+### Path 3: Repair an existing Genesis app
+
+Use this when the app exists and is installed, but behavior is wrong.
+
+```python
+apps = temper.search_apps({"query": "katagami"})
+old_ref = apps["apps"][0]["app_ref"]
+
+new_ref = temper.update_app({
+    "path": "/workspace/katagami-curation",
+    "app_ref_or_name": old_ref,
+    "message": "Fix quality review behavior"
+})
+
+temper.install_app({"app_ref": new_ref, "reason": "Install repaired app"})
+```
+
+Verify the broken entity/action after install. A repair is a new version of the
+same Genesis app. Use lineage only when creating a fork/import/derivative app.
+
 ---
 
 ## IOA spec format (complete reference)

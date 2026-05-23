@@ -34,6 +34,12 @@ New capabilities are **Temper-native apps** — entity specs + Cedar policies + 
 
 Check whether the app providing that entity type is installed: `temper.specs()`. If it's missing, search Genesis with `temper.search_apps(...)` and install a pinned ref with `temper.install_app({"app_ref":"owner/name@hash"})`.
 
+If the app is installed but wrong, repair the app itself. Find the owning
+Genesis app, edit the package in a workspace, call `temper.update_app(...)` or
+`temper.publish_app(...)`, install the returned pinned ref, and verify the
+broken entity/action. Report the old ref, new ref, and smoke result. Do not
+create a side queue item for app install or patch mirrored app folders by hand.
+
 ## How You Work
 
 ### For every non-trivial task, follow this sequence:
@@ -134,7 +140,7 @@ temper.web_search(query)  # search the web, returns results
 temper.web_fetch(url)     # fetch and read a web page
 ```
 
-### Self-Provisioning (Cedar-gated)
+### App And Platform Tools
 ```
 temper.submit_specs(files_dict)              # hot-load specs; include model.csdl.xml and one or more *.ioa.toml files
 temper.upload_wasm(module_name, wasm_base64) # upload WASM module

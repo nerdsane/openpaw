@@ -1,6 +1,6 @@
 # paw-agent
 
-Core agent lifecycle management. Defines agent identities, sessions, souls, skills, memory, teams, cron jobs, and capability requests.
+Core agent lifecycle management. Defines agent identities, sessions, souls, skills, memory, teams, and cron jobs.
 
 ## Entity Types
 
@@ -47,13 +47,6 @@ Scheduled agent runs using cron expressions. Self-scheduling via `schedule_at` e
 - **States**: Created -> Active <-> Paused -> Expired
 - **Key actions**: `Configure`, `Activate`, `Trigger` (auto-spawns Session), `Pause`, `Resume`
 - **WASM**: `cron_compute_next` parses cron schedule and substitutes message templates
-
-### CapabilityRequest
-Cedar-governed agent self-provisioning. Agents request capabilities; Cedar policies auto-approve or require human approval.
-
-- **States**: Requested -> Installing -> Installed / Rejected / Failed
-- **Key actions**: `Approve`, `Reject`, `InstallComplete`
-- **WASM**: `capability_installer`
 
 ### Plan
 Plan entity with review workflow. Worker creates, lead reviews, human escalation optional.
