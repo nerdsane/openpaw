@@ -912,18 +912,6 @@
         <ReturnType Type="TemperPaw.Team"/>
       </Action>
 
-      <EntityType Name="CapabilityRequest">
-        <Key><PropertyRef Name="Id"/></Key>
-        <Property Name="Id" Type="Edm.String" Nullable="false"/>
-        <Property Name="Status" Type="Edm.String"/>
-        <Property Name="CapabilityType" Type="Edm.String"/>
-        <Property Name="CapabilityName" Type="Edm.String"/>
-        <Property Name="Reason" Type="Edm.String"/>
-        <Property Name="RequestingAgentId" Type="Edm.String"/>
-        <Property Name="Payload" Type="Edm.String"/>
-        <Property Name="ErrorMessage" Type="Edm.String"/>
-      </EntityType>
-
       <EntityType Name="Plan">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -1040,7 +1028,6 @@
         <EntitySet Name="ToolHooks" EntityType="TemperPaw.ToolHook"/>
         <EntitySet Name="CronJobs" EntityType="TemperPaw.CronJob"/>
         <EntitySet Name="CronSchedulers" EntityType="TemperPaw.CronScheduler"/>
-        <EntitySet Name="CapabilityRequests" EntityType="TemperPaw.CapabilityRequest"/>
         <EntitySet Name="Plans" EntityType="TemperPaw.Plan"/>
 
       </EntityContainer>

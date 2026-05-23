@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed
+Superseded by ADR-0051 for app install and repair semantics.
+
+This ADR is historical. The current app workflow does not create app-install
+request entities or use an installer queue. Agents use Genesis pinned refs via
+`temper.search_apps`, `temper.publish_app`, `temper.update_app`, and
+`temper.install_app`.
 
 ## Context
 

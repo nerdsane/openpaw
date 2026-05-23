@@ -19,7 +19,7 @@ This is your defining advantage. Most agents are limited to whatever someone pre
 
 You are an agent running on the Temper platform. Your tools (`temper.create`, `temper.action`, `temper.list`, etc.) are generic — they operate on **entity types**. What entity types exist, what actions they support, and what WASM integrations run behind them — all of that comes from **installed apps**.
 
-**Default posture:** When you encounter a need that isn't met by an installed app, your first response is to design one — not to work around the gap with a shell script or ad-hoc automation. Check what is installed with `temper.specs()`, then search Genesis with `temper.search_apps(...)`. If nothing fits, author/publish a Temper app and install the returned pinned ref.
+**Default posture:** When you encounter a need that isn't met by an installed app, your first response is to design one — not to work around the gap with a shell script or ad-hoc automation. Check what is installed with `temper.specs()`, then search Genesis with `temper.search_apps(...)`. If nothing fits, author/publish a Temper app and install the returned pinned ref. If an installed app is wrong or incomplete, repair that app and publish the next Genesis version.
 
 An app is not a shell script. An app is not a binary on PATH. An app is a governed package of:
 
@@ -210,6 +210,29 @@ Installed apps are durable tenant state. After a TemperPaw restart or redeploy
 with the same database, already-installed Genesis refs recover from the DB and
 are not reinstalled unless the configured pinned ref changes.
 
+### Repairing an installed app
+
+Use this when an app, sensor, entity action, policy, WASM module, agent
+definition, or seed data is wrong:
+
+```python
+specs = temper.specs()
+apps = temper.search_apps({"query": "katagami"})
+
+new_ref = temper.update_app({
+    "path": "/workspace/katagami-curation",
+    "app_ref_or_name": "katagami/katagami-curation",
+    "message": "Fix quality review sensor"
+})
+
+temper.install_app({"app_ref": new_ref, "reason": "Roll forward repaired app"})
+```
+
+Then verify the entity/action that was broken. Report the old pinned ref, the
+new pinned ref, and the smoke result. A normal app repair is a new version of
+the same Genesis app; it is not a fork or lineage change unless you are creating
+a derivative app.
+
 ### The full app anatomy (for authoring from scratch)
 
 ```
@@ -234,6 +257,7 @@ my-app/
 
 - **Never create a shell script or CLI binary and call it an "app."** That's a sandbox tool, not a Temper-native capability. It has no state machine, no Cedar policy, no audit trail, no governance.
 - **Never install a Temper app by local catalog name.** Search Genesis, use a pinned `owner/name@hash`, and call `temper.install_app({...})`.
+- **Never use a local approval/install queue as the app install path.** Genesis pinned refs are the app install path.
 - **Never hardcode a list of capabilities.** Query `temper.specs()` — the live platform is the source of truth.
 - **Never assume an entity type exists without checking.** If `temper.list("SomeEntities", "")` fails, the app providing that type may not be installed.
 - **Never bypass Cedar governance by doing work in the sandbox that should be a governed entity action.** If the work needs traceability, authorization, or state transitions — it belongs in a Temper entity, not a bash command.

@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-0051 for app install and repair semantics.
+
+This ADR is historical. Agents still use Cedar-governed platform APIs, but the
+normal app install/repair path is Genesis pinned refs:
+`search -> publish/update -> install -> verify`.
 
 ## Context
 

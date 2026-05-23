@@ -30,8 +30,9 @@ repo-local app catalog. Configure fresh-instance bootstrap with pinned refs:
 - `TEMPERPAW_GENESIS_BOOTSTRAP_REFS=temperpaw/paw-fs@HASH,temperpaw/paw-agent@HASH`
 
 On restart with the same database, TemperPaw restores installed Genesis app
-metadata and skips unchanged bootstrap refs. A wiped database is treated as a
-fresh instance and installs the configured pinned refs once.
+metadata and skips unchanged bootstrap refs. Do not reset, wipe, replace, or
+restore over a production database. Only a genuinely new empty database is a
+fresh instance that installs the configured pinned refs once.
 
 ## Optional Datadog
 
