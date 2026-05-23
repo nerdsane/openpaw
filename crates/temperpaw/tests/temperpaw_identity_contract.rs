@@ -408,6 +408,10 @@ fn railway_deploy_dockerfile_uses_image_tag_variable() {
         railway_config.contains("dockerfilePath = \"Dockerfile.deploy\""),
         "railway.toml must upload Dockerfile.deploy as the production deployment source"
     );
+    assert!(
+        railway_config.contains("healthcheckPath = \"/healthz\""),
+        "Railway cutover must use process liveness; /readyz remains the stronger post-cutover readiness proof"
+    );
 }
 
 #[test]
