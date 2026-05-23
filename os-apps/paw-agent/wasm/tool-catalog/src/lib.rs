@@ -218,15 +218,15 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
     ReplMethodSpec {
         object: "temper",
         method: "publish_app",
-        signature: "({path, owner, name, registry_url?, message?})",
-        description: "publish an app directory to Genesis and return owner/name@hash",
+        signature: "({path, owner, name, registry_url?, registry_tenant?, message?})",
+        description: "publish an app directory to Genesis, advance the registry, and return owner/name@hash",
         token: Some("temper_publish_app"),
     },
     ReplMethodSpec {
         object: "temper",
         method: "update_app",
-        signature: "({path, app_ref_or_name, registry_url?, message?})",
-        description: "push a new Genesis app version and return owner/name@hash",
+        signature: "({path, app_ref_or_name, registry_url?, registry_tenant?, message?})",
+        description: "push a new Genesis app version, advance the registry, and return owner/name@hash",
         token: Some("temper_update_app"),
     },
     ReplMethodSpec {
