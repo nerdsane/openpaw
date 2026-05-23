@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.deploy"
 
 [deploy]
-healthcheckPath = "/readyz"
+healthcheckPath = "/healthz"
 healthcheckTimeout = 3600
 overlapSeconds = 0
 drainingSeconds = 0
