@@ -51,6 +51,7 @@ const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures
 const DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT: usize = 25;
 const DEFAULT_GENESIS_REGISTRY_URL: &str = "https://genesis-production-164d.up.railway.app";
 const DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT: Duration = Duration::from_secs(20);
+const DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn running_on_railway() -> bool {
     std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
@@ -366,6 +367,15 @@ fn genesis_cache_restore_timeout() -> Duration {
         .filter(|seconds| *seconds > 0)
         .map(Duration::from_secs)
         .unwrap_or(DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT)
+}
+
+fn genesis_bootstrap_timeout() -> Duration {
+    std::env::var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT)
 }
 
 fn pinned_app_ref_name(app_ref: &str) -> Option<&str> {
@@ -1599,8 +1609,22 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
     }
 
-    let genesis_bootstrap_installs =
-        bootstrap_configured_genesis_apps(&state, platform_store, &tenant).await?;
+    let genesis_bootstrap_timeout = genesis_bootstrap_timeout();
+    let genesis_bootstrap_installs = match tokio::time::timeout(
+        genesis_bootstrap_timeout,
+        bootstrap_configured_genesis_apps(&state, platform_store, &tenant),
+    )
+    .await
+    {
+        Ok(installs) => installs?,
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = genesis_bootstrap_timeout.as_millis(),
+                "Genesis bootstrap install/reconcile timed out; continuing startup without completing bootstrap"
+            );
+            0
+        }
+    };
     if genesis_bootstrap_installs > 0 {
         tracing::info!(
             installed = genesis_bootstrap_installs,
@@ -3534,13 +3558,13 @@ mod tests {
     use temper_server::secrets::vault::SecretsVault;
 
     use super::{
-        DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT, LocalWasmStartupPolicy,
-        OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC, RuntimeRecoveryStep,
-        STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
+        DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT, DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT,
+        LocalWasmStartupPolicy, OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC,
+        RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
-        genesis_bootstrap_app_names, genesis_cache_restore_timeout,
+        genesis_bootstrap_app_names, genesis_bootstrap_timeout, genesis_cache_restore_timeout,
         installed_app_runtime_recovery_result, load_or_create_temper_api_key,
         local_wasm_startup_policy, orphaned_session_recovery_limit,
         paw_soul_content_is_personalized, resolve_startup_secret,
@@ -3731,6 +3755,35 @@ mod tests {
 
         unsafe {
             std::env::remove_var("TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS");
+        }
+    }
+
+    #[test]
+    fn genesis_bootstrap_timeout_defaults_and_overrides() {
+        let _guard = GENESIS_ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS");
+        }
+        assert_eq!(
+            genesis_bootstrap_timeout(),
+            DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT
+        );
+
+        unsafe {
+            std::env::set_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS", "7");
+        }
+        assert_eq!(genesis_bootstrap_timeout(), Duration::from_secs(7));
+
+        unsafe {
+            std::env::set_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS", "0");
+        }
+        assert_eq!(
+            genesis_bootstrap_timeout(),
+            DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT
+        );
+
+        unsafe {
+            std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS");
         }
     }
 
