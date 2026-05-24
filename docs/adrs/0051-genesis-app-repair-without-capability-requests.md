@@ -35,12 +35,19 @@ Genesis app; forks/imports are lineage changes in Genesis.
 The active model no longer exposes the old request entity, policy, or installer
 WASM. Existing production rows remain inert historical data.
 
+Genesis cache recovery and configured bootstrap installs are bounded startup
+work. If a pinned app ref or registry call stalls during redeploy, TemperPaw
+logs the timeout and continues to readiness from the durable installed-app state
+already in the database. Operators then repair the Genesis app version and
+redeploy; they do not reset or manually rewrite the database to recover.
+
 ## Consequences
 
 - Agents have one normal app workflow: Genesis pinned refs.
 - Human UX no longer has a separate app-install queue to reconcile.
 - Warm restarts preserve existing installed app state from the database and skip
   unchanged bootstrap refs.
+- A bad or slow Genesis bootstrap ref cannot indefinitely block `/readyz`.
 - Future approval UX must wrap Genesis pinned-ref publish/install semantics
   instead of reintroducing a parallel app-install mechanism.
 
