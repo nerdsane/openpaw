@@ -50,6 +50,7 @@ const OS_APP_RECONCILE_DURATION_METRIC: &str = "temper_os_app_reconcile_duration
 const WASM_MODULE_LOAD_FAILURES_METRIC: &str = "temper_wasm_module_load_failures_total";
 const DEFAULT_ORPHANED_SESSION_RECOVERY_LIMIT: usize = 25;
 const DEFAULT_GENESIS_REGISTRY_URL: &str = "https://genesis-production-164d.up.railway.app";
+const DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn running_on_railway() -> bool {
     std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
@@ -356,6 +357,15 @@ fn genesis_registry_tenant() -> String {
     std::env::var("TEMPERPAW_GENESIS_REGISTRY_TENANT")
         .or_else(|_| std::env::var("TEMPER_GENESIS_REGISTRY_TENANT"))
         .unwrap_or_else(|_| "default".to_string())
+}
+
+fn genesis_cache_restore_timeout() -> Duration {
+    std::env::var("TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT)
 }
 
 fn pinned_app_ref_name(app_ref: &str) -> Option<&str> {
@@ -1566,7 +1576,22 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     .await
     .context("Temper Paw HTTP API failed to become reachable during startup")?;
 
-    let restored_genesis_registry_caches = restore_genesis_registry_cache_roots(&state).await;
+    let genesis_cache_restore_timeout = genesis_cache_restore_timeout();
+    let restored_genesis_registry_caches = match tokio::time::timeout(
+        genesis_cache_restore_timeout,
+        restore_genesis_registry_cache_roots(&state),
+    )
+    .await
+    {
+        Ok(restored) => restored,
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = genesis_cache_restore_timeout.as_millis(),
+                "Genesis registry cache recovery timed out; continuing startup without restored cache roots"
+            );
+            0
+        }
+    };
     if restored_genesis_registry_caches > 0 {
         tracing::info!(
             restored = restored_genesis_registry_caches,
@@ -3500,6 +3525,7 @@ mod tests {
     use axum::routing::any;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use anyhow::anyhow;
     use serde_json::Value;
@@ -3508,13 +3534,15 @@ mod tests {
     use temper_server::secrets::vault::SecretsVault;
 
     use super::{
-        LocalWasmStartupPolicy, OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC,
-        RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
+        DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT, LocalWasmStartupPolicy,
+        OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC, RuntimeRecoveryStep,
+        STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
-        genesis_bootstrap_app_names, installed_app_runtime_recovery_result,
-        load_or_create_temper_api_key, local_wasm_startup_policy, orphaned_session_recovery_limit,
+        genesis_bootstrap_app_names, genesis_cache_restore_timeout,
+        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
+        local_wasm_startup_policy, orphaned_session_recovery_limit,
         paw_soul_content_is_personalized, resolve_startup_secret,
         runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
@@ -3674,6 +3702,35 @@ mod tests {
 
         unsafe {
             std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_REFS");
+        }
+    }
+
+    #[test]
+    fn genesis_cache_restore_timeout_defaults_and_overrides() {
+        let _guard = GENESIS_ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS");
+        }
+        assert_eq!(
+            genesis_cache_restore_timeout(),
+            DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT
+        );
+
+        unsafe {
+            std::env::set_var("TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS", "3");
+        }
+        assert_eq!(genesis_cache_restore_timeout(), Duration::from_secs(3));
+
+        unsafe {
+            std::env::set_var("TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS", "0");
+        }
+        assert_eq!(
+            genesis_cache_restore_timeout(),
+            DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT
+        );
+
+        unsafe {
+            std::env::remove_var("TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS");
         }
     }
 
