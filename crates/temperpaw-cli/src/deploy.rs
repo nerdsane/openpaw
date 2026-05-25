@@ -90,6 +90,7 @@ fn datadog_runtime_variables(
         variables.push("TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway".to_string());
         variables.push("DD_LLMOBS_ENABLED=true".to_string());
         variables.push("DD_LLMOBS_API_ENABLED=true".to_string());
+        variables.push("OTEL_RESOURCE_ATTRIBUTES=dd_llmobs_enabled=false".to_string());
         variables.push(
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318"
                 .to_string(),
@@ -1397,6 +1398,9 @@ processors:
       - key: team
         value: temperpaw
         action: upsert
+      - key: dd_llmobs_enabled
+        value: false
+        action: upsert
   transform/dbm:
     error_mode: ignore
     trace_statements:
@@ -2332,6 +2336,7 @@ mod tests {
             "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
             "DD_LLMOBS_ENABLED=true",
             "DD_LLMOBS_API_ENABLED=true",
+            "OTEL_RESOURCE_ATTRIBUTES=dd_llmobs_enabled=false",
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
             "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
             "DD_TRACE_AGENT_PORT=8126",
@@ -2559,6 +2564,10 @@ active = true
         assert!(
             cfg.contains("service.name"),
             "service.name upsert missing:\n{cfg}"
+        );
+        assert!(
+            cfg.contains("dd_llmobs_enabled") && cfg.contains("value: false"),
+            "APM OTLP traces must opt out of automatic Datadog LLMObs conversion so direct LLMObs spans remain the only canonical LLMObs source:\n{cfg}"
         );
     }
 

@@ -444,24 +444,24 @@ fn compact_gen_ai_messages(
     let omitted = messages.len().saturating_sub(keep_count);
     let mut compacted = Vec::with_capacity(keep_count + usize::from(omitted > 0));
 
-    if omitted > 0 {
-        compacted.push(observability_notice_message(format!(
-            "{omitted} earlier LLM messages omitted from observability payload; original payload was {original_size} bytes."
-        )));
-    }
-
     compacted.extend(
         messages[messages.len() - keep_count..]
             .iter()
             .map(compact_gen_ai_message),
     );
 
+    if omitted > 0 {
+        compacted.push(observability_notice_message(format!(
+            "{omitted} earlier LLM messages omitted from observability payload; original payload was {original_size} bytes."
+        )));
+    }
+
     compacted
 }
 
 fn observability_notice_message(content: String) -> Value {
     json!({
-        "role": "user",
+        "role": "system",
         "parts": [{
             "type": "text",
             "content": content,
@@ -699,6 +699,40 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("truncated")
+        );
+    }
+
+    #[test]
+    fn gen_ai_input_messages_put_omission_notice_after_real_recent_messages() {
+        let messages = (0..40)
+            .map(|idx| {
+                json!({
+                    "role": "user",
+                    "content": format!("turn {idx}: {}", "x".repeat(600)),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let payload = build_gen_ai_input_messages(&messages);
+
+        assert!(payload.len() <= GEN_AI_MESSAGE_ATTR_LIMIT);
+        let parsed: Value = serde_json::from_str(&payload).unwrap();
+        let parsed = parsed.as_array().unwrap();
+        assert!(
+            parsed[0]["parts"][0]["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("turn "),
+            "first visible input should be real conversation content, not a technical compaction notice: {payload}"
+        );
+
+        let notice = parsed.last().unwrap();
+        assert_eq!(notice["role"], "system");
+        assert!(
+            notice["parts"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("earlier LLM messages omitted from observability payload")
         );
     }
 

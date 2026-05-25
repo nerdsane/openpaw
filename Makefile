@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: setup dev build wasm dashboard check docker clean deploy deploy-observability
+.PHONY: setup dev lapdog lapdog-run lapdog-env lapdog-doctor build wasm dashboard dashboard-build check docker clean deploy deploy-observability
 
 setup:
 	./scripts/setup-dev.sh
@@ -8,9 +8,27 @@ setup:
 dev:
 	cargo run -p temperpaw
 
+lapdog:
+	./scripts/run-lapdog-local.sh --lapdog-only
+
+lapdog-run: dashboard/build/index.html
+	./scripts/run-lapdog-local.sh
+
+lapdog-env:
+	./scripts/run-lapdog-local.sh --print-env
+
+lapdog-doctor:
+	./scripts/run-lapdog-local.sh doctor
+
 build:
 	cd dashboard && npm run build
 	cargo build -p temperpaw --release
+
+dashboard-build:
+	cd dashboard && npm run build
+
+dashboard/build/index.html:
+	cd dashboard && npm run build
 
 wasm:
 	cargo build --workspace --target wasm32-unknown-unknown

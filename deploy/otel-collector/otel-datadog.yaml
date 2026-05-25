@@ -22,6 +22,9 @@ processors:
       - key: team
         value: temperpaw
         action: upsert
+      - key: dd_llmobs_enabled
+        value: false
+        action: upsert
   transform/dbm:
     error_mode: ignore
     trace_statements:

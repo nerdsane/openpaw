@@ -59,7 +59,7 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
 fn temper_dependency_pin_uses_budgeted_wasm_host_call_revision() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
     let lockfile = load_text("Cargo.lock");
-    let expected_rev = "be5b0d2a9d94cb8341f6a45751c3025af13dad36";
+    let expected_rev = "cf19d55d45607a6222081c4b0e12581e6816c421";
     let observe_wait_only_rev = "6ccc483af87abbf6d9b060d0e6a6def3adfe6718";
     let host_boundary_rev = "7b170cf71246e01c337e81062b54ea8c597b9293";
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
@@ -107,7 +107,7 @@ fn temper_dependency_pin_uses_budgeted_wasm_host_call_revision() {
 #[test]
 fn wasm_sdk_dependencies_pin_same_temper_runtime_revision_as_server() {
     let root = repo_root();
-    let expected_rev = "be5b0d2a9d94cb8341f6a45751c3025af13dad36";
+    let expected_rev = "cf19d55d45607a6222081c4b0e12581e6816c421";
     let expected_dependency = format!(
         "temper-wasm-sdk = {{ git = \"https://github.com/nerdsane/temper.git\", rev = \"{expected_rev}\""
     );
@@ -170,7 +170,7 @@ fn wasm_sdk_dependencies_pin_same_temper_runtime_revision_as_server() {
 #[test]
 fn dockerfile_pins_cloned_katagami_wasm_sdk_to_temper_runtime_revision() {
     let dockerfile = load_text("Dockerfile");
-    let expected_rev = "be5b0d2a9d94cb8341f6a45751c3025af13dad36";
+    let expected_rev = "cf19d55d45607a6222081c4b0e12581e6816c421";
 
     for required in [
         &format!("TEMPER_OBSERVABILITY_REV={expected_rev}"),
@@ -1046,6 +1046,8 @@ fn otel_collector_keeps_otlp_in_apm_and_avoids_noisy_llmobs_forwarding() {
         "set(attributes[\"span.type\"], \"sql\") where attributes[\"db.system\"] != nil and attributes[\"span.type\"] == nil",
         "exporters: [clickhouse, datadog]",
         "processors: [resourcedetection, resource, transform/dbm, batch]",
+        "dd_llmobs_enabled",
+        "value: false",
     ] {
         assert!(
             collector.contains(required),
@@ -1092,6 +1094,8 @@ fn railway_otel_collectors_keep_otlp_in_apm_and_avoid_noisy_llmobs_forwarding() 
             "traces/apm",
             "service.namespace",
             "team",
+            "dd_llmobs_enabled",
+            "value: false",
             "transform/dbm",
             "set(attributes[\"span.type\"], \"sql\") where attributes[\"db.system\"] != nil and attributes[\"span.type\"] == nil",
             "processors: [resourcedetection, resource, transform/dbm, batch]",
@@ -1169,6 +1173,8 @@ fn railway_otel_collector_has_deployable_checked_in_source() {
         "action: upsert",
         "traces/apm",
         "transform/dbm",
+        "dd_llmobs_enabled",
+        "value: false",
     ] {
         assert!(
             datadog.contains(required),
@@ -1643,6 +1649,43 @@ fn setup_api_can_ensure_railway_datadog_runtime_agent_without_exposing_tokens() 
 }
 
 #[test]
+fn lapdog_local_run_uses_direct_llmobs_payload_instead_of_otlp_bridge() {
+    let makefile = load_text("Makefile");
+    let script = load_text("scripts/run-lapdog-local.sh");
+
+    for required in [
+        "lapdog-run:",
+        "lapdog-env:",
+        "./scripts/run-lapdog-local.sh",
+    ] {
+        assert!(
+            makefile.contains(required),
+            "Makefile must expose the local Lapdog helper `{required}`"
+        );
+    }
+
+    for required in [
+        "DD_LLMOBS_API_ENABLED",
+        "DD_LLMOBS_ENDPOINT",
+        "DD_API_KEY",
+        "/evp_proxy/v2/api/v2/llmobs",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "dd_llmobs_enabled=false",
+    ] {
+        assert!(
+            script.contains(required),
+            "local Lapdog run must configure `{required}`"
+        );
+    }
+
+    assert!(
+        !script.contains("lapdog_otlp_llmobs_bridge.py")
+            && !script.contains("LAPDOG_LLMOBS_BRIDGE"),
+        "local Lapdog should receive Temper's direct LLMObs payload, not a second OTLP-derived LLMObs bridge payload"
+    );
+}
+
+#[test]
 fn railway_runtime_agent_variable_upserts_are_batched_before_redeploy() {
     let setup_api = load_text("crates/temperpaw/src/setup_api.rs");
     let helper_start = setup_api
@@ -1918,7 +1961,7 @@ fn wasm_guest_observability_live_proof_is_temper_native_and_datadog_backed() {
 
     assert!(
         probe_manifest.contains("temper-wasm-sdk")
-            && probe_manifest.contains("be5b0d2a9d94cb8341f6a45751c3025af13dad36"),
+            && probe_manifest.contains("cf19d55d45607a6222081c4b0e12581e6816c421"),
         "proof WASM must build against the same guest SDK runtime rev as production modules"
     );
 }
