@@ -2639,15 +2639,18 @@ async fn bootstrap_agent(
     let resp = odata_get(client, &list_url, tenant, api_key).await?;
 
     if let Some(items) = resp["value"].as_array()
-        && let Some(existing) = items.first()
+        && !items.is_empty()
     {
-        let id = entity_id_from_json(existing).unwrap_or("unknown");
+        let id = entity_id_from_json(&items[0]).unwrap_or("unknown");
         tracing::info!("  Agent '{name}' already exists: {id}");
-        if let Err(err) =
-            repair_existing_default_agent(client, api_url, tenant, api_key, name, existing, config)
-                .await
-        {
-            tracing::warn!("  Could not repair existing Agent '{name}' tool config: {err}");
+        for existing in items {
+            if let Err(err) = repair_existing_default_agent(
+                client, api_url, tenant, api_key, name, existing, config,
+            )
+            .await
+            {
+                tracing::warn!("  Could not repair existing Agent '{name}' tool config: {err}");
+            }
         }
         return Ok(id.to_string());
     }
