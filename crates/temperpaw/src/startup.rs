@@ -2643,6 +2643,12 @@ async fn bootstrap_agent(
     {
         let id = entity_id_from_json(existing).unwrap_or("unknown");
         tracing::info!("  Agent '{name}' already exists: {id}");
+        if let Err(err) =
+            repair_existing_default_agent(client, api_url, tenant, api_key, name, existing, config)
+                .await
+        {
+            tracing::warn!("  Could not repair existing Agent '{name}' tool config: {err}");
+        }
         return Ok(id.to_string());
     }
 
@@ -2692,6 +2698,69 @@ async fn bootstrap_agent(
     .await?;
 
     Ok(agent_id)
+}
+
+/// Repair persisted default Agent rows created before newer platform tools
+/// existed. Sessions spawned from AgentRoutes prefer Agent.tools_enabled over
+/// route config, so stale Agent rows can hide newly shipped tools indefinitely.
+#[allow(clippy::too_many_arguments)]
+async fn repair_existing_default_agent(
+    client: &reqwest::Client,
+    api_url: &str,
+    tenant: &str,
+    api_key: &Option<String>,
+    name: &str,
+    existing: &serde_json::Value,
+    default_config: &serde_json::Value,
+) -> Result<()> {
+    let current_tools = entity_field_str(existing, &["ToolsEnabled", "tools_enabled"])
+        .unwrap_or("")
+        .trim();
+    let Some(repaired_tools) = repair_default_agent_tools_enabled(current_tools) else {
+        return Ok(());
+    };
+    let agent_id = entity_id_from_json(existing)
+        .filter(|id| !id.is_empty())
+        .context("existing Agent entity missing ID")?;
+
+    let model = entity_field_str(existing, &["Model", "model"])
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| default_config["model"].as_str())
+        .unwrap_or("");
+    let provider = entity_field_str(existing, &["Provider", "provider"])
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| default_config["provider"].as_str())
+        .unwrap_or("");
+    let max_turns = entity_field_str(existing, &["MaxTurns", "max_turns"])
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| default_config["max_turns"].as_str())
+        .unwrap_or("24");
+    let description =
+        entity_field_str(existing, &["Description", "description"]).unwrap_or_default();
+    let instructions_file_id =
+        entity_field_str(existing, &["InstructionsFileId", "instructions_file_id"])
+            .unwrap_or_default();
+    let temperature = entity_field_str(existing, &["Temperature", "temperature"]).unwrap_or("1.0");
+
+    odata_post(
+        client,
+        &format!("{api_url}/tdata/Agents('{agent_id}')/TemperPaw.Update"),
+        tenant,
+        api_key,
+        serde_json::json!({
+            "description": description,
+            "instructions_file_id": instructions_file_id,
+            "model": model,
+            "provider": provider,
+            "temperature": temperature,
+            "tools_enabled": repaired_tools,
+            "max_turns": max_turns,
+        }),
+    )
+    .await?;
+    tracing::info!("  Repaired Agent '{name}' tools_enabled for Genesis app workflow");
+
+    Ok(())
 }
 
 /// Attach a Soul entity to an Agent by updating the Agent's soul_id field.
@@ -3151,6 +3220,39 @@ fn repaired_agent_config(
     }
 }
 
+fn repair_default_agent_tools_enabled(raw: &str) -> Option<String> {
+    let normalized = normalize_tools_enabled(raw, false);
+    let mut changed = normalized.is_some();
+    let source = normalized.as_deref().unwrap_or(raw);
+    let mut tokens: Vec<String> = source
+        .split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    for default_token in DEFAULT_AGENT_TOOLS_ENABLED
+        .split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        if !tokens.iter().any(|token| token == default_token) {
+            tokens.push(default_token.to_string());
+            changed = true;
+        }
+    }
+
+    if changed {
+        if tokens.is_empty() {
+            Some(DEFAULT_AGENT_TOOLS_ENABLED.to_string())
+        } else {
+            Some(tokens.join(","))
+        }
+    } else {
+        None
+    }
+}
+
 fn normalize_tools_enabled(raw: &str, replace_all: bool) -> Option<String> {
     if raw.trim().is_empty() {
         return Some(DEFAULT_AGENT_TOOLS_ENABLED.to_string());
@@ -3558,17 +3660,18 @@ mod tests {
     use temper_server::secrets::vault::SecretsVault;
 
     use super::{
-        DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT, DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT,
-        LocalWasmStartupPolicy, OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC,
-        RuntimeRecoveryStep, STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
+        DEFAULT_AGENT_TOOLS_ENABLED, DEFAULT_GENESIS_BOOTSTRAP_TIMEOUT,
+        DEFAULT_GENESIS_CACHE_RESTORE_TIMEOUT, LocalWasmStartupPolicy,
+        OS_APP_RECONCILE_DURATION_METRIC, OS_APP_RECONCILE_TOTAL_METRIC, RuntimeRecoveryStep,
+        STARTUP_LIVE_RESTORE_ENTITIES_METRIC, STARTUP_PHASE_DURATION_METRIC,
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
         genesis_bootstrap_app_names, genesis_bootstrap_timeout, genesis_cache_restore_timeout,
         installed_app_runtime_recovery_result, load_or_create_temper_api_key,
         local_wasm_startup_policy, orphaned_session_recovery_limit,
-        paw_soul_content_is_personalized, resolve_startup_secret,
-        runtime_indexes_required_before_reconcile, runtime_recovery_plan,
+        paw_soul_content_is_personalized, repair_default_agent_tools_enabled,
+        resolve_startup_secret, runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
         startup_discord_connect_result, startup_discord_summary_label, startup_os_apps,
         startup_surface_runtime_indexes_required_before_reconcile, wait_for_runtime_server,
@@ -3727,6 +3830,36 @@ mod tests {
         unsafe {
             std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_REFS");
         }
+    }
+
+    #[test]
+    fn default_agent_tool_repair_adds_genesis_app_workflow_tokens() {
+        let legacy_tools = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_install_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
+
+        let repaired = repair_default_agent_tools_enabled(legacy_tools)
+            .expect("legacy default Agent tools should be repaired");
+        let tokens: Vec<&str> = repaired.split(',').collect();
+
+        for required in [
+            "temper_search_apps",
+            "temper_publish_app",
+            "temper_update_app",
+            "temper_install_app",
+            "temper_list_apps",
+        ] {
+            assert!(
+                tokens.contains(&required),
+                "repaired default Agent tools should contain {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_agent_tool_repair_is_noop_for_current_default() {
+        assert_eq!(
+            repair_default_agent_tools_enabled(DEFAULT_AGENT_TOOLS_ENABLED),
+            None
+        );
     }
 
     #[test]
