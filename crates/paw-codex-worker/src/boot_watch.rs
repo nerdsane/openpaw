@@ -72,6 +72,17 @@ async fn claim_boot_queued_evaluation_runs(
     Ok(())
 }
 
+async fn claim_boot_queued_directed_evolution_work_items(
+    client: &reqwest::Client,
+    config: &Config,
+) -> Result<()> {
+    let ids = query_boot_entity_ids(client, config, "WorkItems", "Queued").await?;
+    for work_item_id in ids {
+        handle_queued_directed_evolution_work_item(client, config, &work_item_id).await?;
+    }
+    Ok(())
+}
+
 async fn query_boot_entity_ids(
     client: &reqwest::Client,
     config: &Config,

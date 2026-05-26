@@ -293,8 +293,31 @@ async fn post_entity_action(
     action: &str,
     body: Value,
 ) -> Result<()> {
+    post_entity_action_with_namespace(
+        client,
+        config,
+        entity_set,
+        entity_id,
+        "TemperPaw.Patrol",
+        action,
+        body,
+    )
+    .await
+}
+
+async fn post_entity_action_with_namespace(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    entity_id: &str,
+    namespace: &str,
+    action: &str,
+    body: Value,
+) -> Result<()> {
     let response = client
-        .post(config.entity_action_url(entity_set, entity_id, action))
+        .post(config.entity_action_url_with_namespace(
+            entity_set, entity_id, namespace, action,
+        ))
         .headers(headers(config)?)
         .header(CONTENT_TYPE, "application/json")
         .json(&body)
@@ -307,6 +330,34 @@ async fn post_entity_action(
         bail!("{entity_set}.{action} returned {status}: {text}");
     }
     Ok(())
+}
+
+async fn create_entity(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    body: Value,
+) -> Result<String> {
+    let response = client
+        .post(format!("{}/tdata/{}", config.temper_url, entity_set))
+        .headers(headers(config)?)
+        .header(CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .with_context(|| format!("create {entity_set}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        bail!("create {entity_set} returned {status}: {text}");
+    }
+    let value: Value = response.json().await.context("parse create entity response")?;
+    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+    if id.is_empty() {
+        bail!("create {entity_set} response was missing entity_id");
+    }
+    Ok(id)
 }
 
 fn worker_run_from_odata_value(value: Value) -> Result<WorkerRunState> {
@@ -436,6 +487,81 @@ fn evaluation_run_from_odata_value(value: Value) -> Result<EvaluationRunState> {
             &fields,
             &["required_checks", "RequiredChecks"],
             &["required_checks", "RequiredChecks"],
+        ),
+    })
+}
+
+async fn fetch_directed_evolution_work_item(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item_id: &str,
+) -> Result<DirectedEvolutionWorkItemState> {
+    let response = client
+        .get(config.entity_url("WorkItems", work_item_id))
+        .headers(headers(config)?)
+        .send()
+        .await
+        .context("fetch Directed Evolution WorkItem")?;
+    if !response.status().is_success() {
+        bail!("fetch WorkItem returned {}", response.status());
+    }
+    let body = response.json().await.context("parse WorkItem")?;
+    directed_evolution_work_item_from_odata_value(body)
+}
+
+fn directed_evolution_work_item_from_odata_value(
+    value: Value,
+) -> Result<DirectedEvolutionWorkItemState> {
+    let fields = value.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let id = first_string(&value, &fields, &["entity_id", "id", "Id"], &["id", "Id"]);
+    if id.is_empty() {
+        bail!("WorkItem response was missing entity_id");
+    }
+
+    Ok(DirectedEvolutionWorkItemState {
+        id,
+        status: first_string(
+            &value,
+            &fields,
+            &["status", "Status"],
+            &["status", "Status"],
+        ),
+        role: first_string(&value, &fields, &["role", "Role"], &["role", "Role"]),
+        target_entity_type: first_string(
+            &value,
+            &fields,
+            &["target_entity_type", "TargetEntityType"],
+            &["target_entity_type", "TargetEntityType"],
+        ),
+        target_entity_id: first_string(
+            &value,
+            &fields,
+            &["target_entity_id", "TargetEntityId"],
+            &["target_entity_id", "TargetEntityId"],
+        ),
+        prompt_ref: first_string(
+            &value,
+            &fields,
+            &["prompt_ref", "PromptRef"],
+            &["prompt_ref", "PromptRef"],
+        ),
+        context_ref: first_string(
+            &value,
+            &fields,
+            &["context_ref", "ContextRef"],
+            &["context_ref", "ContextRef"],
+        ),
+        output_schema_ref: first_string(
+            &value,
+            &fields,
+            &["output_schema_ref", "OutputSchemaRef"],
+            &["output_schema_ref", "OutputSchemaRef"],
+        ),
+        correlation_json: first_string(
+            &value,
+            &fields,
+            &["correlation_json", "CorrelationJson"],
+            &["correlation_json", "CorrelationJson"],
         ),
     })
 }
@@ -606,7 +732,7 @@ fn worker_capabilities() -> Vec<String> {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
-            "local_codex,repo_write,review,evaluation,datadog_query,github_query".to_string()
+            "local_codex,repo_write,review,evaluation,datadog_query,github_query,directed_evolution,variant_generation,simulated_user".to_string()
         })
         .split(',')
         .map(str::trim)
