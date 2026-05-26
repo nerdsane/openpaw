@@ -256,6 +256,40 @@ mod tests {
         assert!(!evolution_candidate_path_allowed("../evaluator/specs/trial.ioa.toml"));
     }
 
+    #[tokio::test]
+    async fn live_evolution_binds_releases_to_executed_validator_evidence() {
+        let _guard = ENV_LOCK.lock().await;
+        let path = unique_temp_dir().join("validator-evidence.json");
+        fs::create_dir_all(path.parent().expect("manifest parent")).expect("manifest parent");
+        fs::write(
+            &path,
+            r#"{"evaluator_ref":"owner/evaluator@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","records":[{"generation":"1","candidate_ref":"owner/app@1111111111111111111111111111111111111111","status":"Passed","evidence_locator":"temper://trial/g1/answer","result_summary":"generation one passed","resolved_questions":"1.0","answer_evidence":"observed"},{"generation":"2","candidate_ref":"owner/app@2222222222222222222222222222222222222222","status":"Passed","evidence_locator":"temper://trial/g2/answer","result_summary":"generation two passed","resolved_questions":"1.0","answer_evidence":"observed"}]}"#,
+        )
+        .expect("validator evidence fixture");
+        let _evidence = EnvOverride::set(
+            "EVOLUTION_VALIDATOR_EVIDENCE_PATH",
+            path.as_os_str().to_os_string(),
+        );
+        let records = load_evolution_validation_evidence(
+            "owner/evaluator@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &[
+                ("1", "owner/app@1111111111111111111111111111111111111111"),
+                ("2", "owner/app@2222222222222222222222222222222222222222"),
+            ],
+            true,
+        )
+        .expect("matching executed evidence");
+        assert_eq!(records[1].evidence_locator, "temper://trial/g2/answer");
+
+        let error = load_evolution_validation_evidence(
+            "owner/evaluator@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &[("2", "owner/app@3333333333333333333333333333333333333333")],
+            true,
+        )
+        .expect_err("unexecuted candidate must not release");
+        assert!(format!("{error:#}").contains("validator evidence missing generation 2"));
+    }
+
     #[test]
     fn launchd_plist_renders_concrete_worker_environment() {
         let config = Config {

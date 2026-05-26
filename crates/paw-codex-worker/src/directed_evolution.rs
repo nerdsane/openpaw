@@ -1,6 +1,23 @@
 const EVOLUTION_NAMESPACE: &str = "Genesis.Evolution";
 const EVALUATOR_NAMESPACE: &str = "Genesis.AgentAnswersEvaluation";
 
+#[derive(Debug, Clone, Deserialize)]
+struct EvolutionValidationManifest {
+    evaluator_ref: String,
+    records: Vec<EvolutionValidationEvidence>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct EvolutionValidationEvidence {
+    generation: String,
+    candidate_ref: String,
+    status: String,
+    evidence_locator: String,
+    result_summary: String,
+    resolved_questions: String,
+    answer_evidence: String,
+}
+
 async fn run_directed_evolution_demo(client: &reqwest::Client, config: &Config) -> Result<()> {
     let campaign_id = env::var("EVOLUTION_CAMPAIGN_ID")
         .unwrap_or_else(|_| format!("campaign-local-{}", generated_at_label()));
@@ -29,6 +46,11 @@ async fn run_directed_evolution_demo(client: &reqwest::Client, config: &Config) 
     let design_id = format!("{campaign_id}-selection-v1");
     let trial_suite_id = format!("{campaign_id}-trial-suite-v1");
     let now = generated_at_label();
+    let validation_evidence = load_evolution_validation_evidence(
+        &evaluator_ref,
+        &[(&"1", &generation_one_ref), (&"2", &generation_two_ref)],
+        require_pinned_refs,
+    )?;
 
     let brain_note = evolution_brain_note(config, &campaign_id, &subject_seed).await?;
     create_entity(client, config, "Campaigns", &campaign_id).await?;
@@ -71,8 +93,8 @@ async fn run_directed_evolution_demo(client: &reqwest::Client, config: &Config) 
     })).await?;
     post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Campaigns", &campaign_id, "Start", json!({})).await?;
 
-    run_evolution_generation(client, config, &campaign_id, "1", &subject_seed, &generation_one_ref, &design_id, &evaluator_ref, &trial_suite_id, "Answers referencing evidence resolved both controlled and browser questions.").await?;
-    run_evolution_generation(client, config, &campaign_id, "2", &generation_one_ref, &generation_two_ref, &design_id, &evaluator_ref, &trial_suite_id, "Successor traffic reused earlier validated answers with fewer failed attempts.").await?;
+    run_evolution_generation(client, config, &campaign_id, "1", &subject_seed, &generation_one_ref, &design_id, &evaluator_ref, &trial_suite_id, &validation_evidence[0]).await?;
+    run_evolution_generation(client, config, &campaign_id, "2", &generation_one_ref, &generation_two_ref, &design_id, &evaluator_ref, &trial_suite_id, &validation_evidence[1]).await?;
 
     let capability_id = format!("{campaign_id}-capability-evidence");
     create_entity(client, config, "EmergentCapabilities", &capability_id).await?;
@@ -99,7 +121,7 @@ async fn run_directed_evolution_mutation(config: &Config) -> Result<()> {
         bail!("EVOLUTION_CANDIDATE_DIR must be a Temper-native app bundle with app.toml and specs/");
     }
     let prompt = format!(
-        "You are the Codex v1 mutation brain for directed evolution. Edit the Temper-native app bundle in the current directory for generation {generation}, derived from {parent_ref}. Human direction: {direction}. Produce one small, coherent app improvement grounded in that direction. Only edit app-native files: app.toml, APP.md, specs/, policies/, wasm/, content/, seed-data/, and adrs/. Keep the app installable and update specs, CSDL, policies, and ADRs together when behavior changes. Do not edit evaluator files, create external crates, run git commands, or invent fitness results."
+        "You are the Codex v1 mutation brain for directed evolution. Edit the Temper-native app bundle in the current directory for generation {generation}, derived from {parent_ref}. Human direction: {direction}. Produce one small, coherent app improvement grounded in that direction. Only edit app-native files: app.toml, APP.md, specs/, policies/, wasm/, content/, seed-data/, and adrs/. Keep the app installable and preserve the existing Ask/Submit/RecordAnswer/Accept interaction contract so the frozen evaluator can execute it across generations; additive behavior is allowed. Update specs, CSDL, policies, and ADRs together when behavior changes. Do not edit evaluator files, create external crates, run git commands, or invent fitness results."
     );
     let output = run_codex_exec_command(config, &candidate_dir, prompt, "generate directed evolution candidate").await?;
     if !output.status.success() {
@@ -134,6 +156,57 @@ fn evolution_candidate_path_allowed(path: &str) -> bool {
         || ["specs/", "policies/", "wasm/", "content/", "seed-data/", "adrs/"]
             .iter()
             .any(|prefix| path.starts_with(prefix))
+}
+
+fn load_evolution_validation_evidence(
+    evaluator_ref: &str,
+    selected_refs: &[(&str, &str)],
+    required: bool,
+) -> Result<Vec<EvolutionValidationEvidence>> {
+    let path = match env::var("EVOLUTION_VALIDATOR_EVIDENCE_PATH") {
+        Ok(path) if !path.trim().is_empty() => path,
+        _ if required => {
+            bail!("live directed evolution requires EVOLUTION_VALIDATOR_EVIDENCE_PATH from executed frozen-evaluator trials")
+        }
+        _ => {
+            return Ok(selected_refs
+                .iter()
+                .map(|(generation, candidate_ref)| EvolutionValidationEvidence {
+                    generation: (*generation).to_string(),
+                    candidate_ref: (*candidate_ref).to_string(),
+                    status: "Passed".to_string(),
+                    evidence_locator: format!("temper://fixture/generation-{generation}"),
+                    result_summary: "Fixture-only protocol evidence.".to_string(),
+                    resolved_questions: "1.0".to_string(),
+                    answer_evidence: "fixture".to_string(),
+                })
+                .collect());
+        }
+    };
+    let manifest: EvolutionValidationManifest = serde_json::from_slice(
+        &fs::read(&path).with_context(|| format!("read validator evidence manifest {path}"))?,
+    )
+    .with_context(|| format!("parse validator evidence manifest {path}"))?;
+    if manifest.evaluator_ref != evaluator_ref {
+        bail!("validator evidence evaluator ref does not match the frozen evaluator ref");
+    }
+    let mut selected = Vec::with_capacity(selected_refs.len());
+    for (generation, candidate_ref) in selected_refs {
+        let evidence = manifest
+            .records
+            .iter()
+            .find(|record| record.generation == *generation && record.candidate_ref == *candidate_ref)
+            .with_context(|| format!("validator evidence missing generation {generation} candidate {candidate_ref}"))?;
+        if evidence.status != "Passed"
+            || evidence.evidence_locator.trim().is_empty()
+            || evidence.resolved_questions.trim().is_empty()
+            || evidence.answer_evidence.trim().is_empty()
+        {
+            bail!("generation {generation} has no passing executed validator evidence");
+        }
+        selected.push(evidence.clone());
+    }
+    Ok(selected)
 }
 
 async fn prepare_frozen_evaluator(
@@ -195,7 +268,7 @@ fn evolution_ref(key: &str, smoke_default: &str, require_pinned: bool) -> Result
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn run_evolution_generation(client: &reqwest::Client, config: &Config, campaign_id: &str, ordinal: &str, parent_ref: &str, winner_ref: &str, design_id: &str, evaluator_ref: &str, trial_suite_id: &str, reason: &str) -> Result<()> {
+async fn run_evolution_generation(client: &reqwest::Client, config: &Config, campaign_id: &str, ordinal: &str, parent_ref: &str, winner_ref: &str, design_id: &str, evaluator_ref: &str, trial_suite_id: &str, evidence: &EvolutionValidationEvidence) -> Result<()> {
     let generation_id = format!("{campaign_id}-generation-{ordinal}");
     let selected_id = format!("{campaign_id}-candidate-{ordinal}-selected");
     let rejected_id = format!("{campaign_id}-candidate-{ordinal}-baseline");
@@ -209,28 +282,27 @@ async fn run_evolution_generation(client: &reqwest::Client, config: &Config, cam
         post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Candidates", candidate_id, "Assess", json!({"assessment_json": format!(r#"{{"evidence":"validator-run","candidate":"{}","generation":"{}"}}"#, candidate_id, ordinal)})).await?;
     }
     let validator_id = format!("{campaign_id}-validator-{ordinal}-selected");
-    let validator_locator = format!("temper://ValidatorRuns('{validator_id}')");
     create_entity(client, config, "ValidatorRuns", &validator_id).await?;
     post_protocol_action(client, config, EVALUATOR_NAMESPACE, "ValidatorRuns", &validator_id, "Configure", json!({
         "trial_suite_id": trial_suite_id, "candidate_id": selected_id, "scenario_id": format!("generation-{ordinal}-mixed-traffic"), "validator_kind": "native_trial"
     })).await?;
     post_protocol_action(client, config, EVALUATOR_NAMESPACE, "ValidatorRuns", &validator_id, "Pass", json!({
-        "evidence_locator": validator_locator, "result_summary": reason
+        "evidence_locator": evidence.evidence_locator, "result_summary": evidence.result_summary
     })).await?;
     for (suffix, source, key, value, locator) in [
-        ("sim", "simulated", "resolved_questions", "1.0", validator_locator.as_str()),
-        ("real", "real", "answer_evidence", "observed", "temper://real-usage/accepted-answer"),
+        ("sim", "simulated", "resolved_questions", evidence.resolved_questions.as_str(), evidence.evidence_locator.as_str()),
+        ("real", "real", "answer_evidence", evidence.answer_evidence.as_str(), evidence.evidence_locator.as_str()),
         ("trace", "datadog_observation", "interaction_latency", "captured", "datadog://pending-local-ingestion"),
     ] {
         let measurement_id = format!("{campaign_id}-measurement-{ordinal}-{suffix}");
         create_entity(client, config, "Measurements", &measurement_id).await?;
-        post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Measurements", &measurement_id, "Record", json!({"campaign_id": campaign_id, "generation_id": generation_id, "candidate_id": selected_id, "traffic_source_id": format!("{campaign_id}-{}", if source == "real" { "real" } else { "simulated" }), "metric_key": key, "metric_value": value, "source_kind": source, "evidence_locator": locator, "evaluator_app_ref": evaluator_ref, "recorded_at": generated_at_label(), "notes": reason})).await?;
+        post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Measurements", &measurement_id, "Record", json!({"campaign_id": campaign_id, "generation_id": generation_id, "candidate_id": selected_id, "traffic_source_id": format!("{campaign_id}-{}", if source == "real" { "real" } else { "simulated" }), "metric_key": key, "metric_value": value, "source_kind": source, "evidence_locator": locator, "evaluator_app_ref": evaluator_ref, "recorded_at": generated_at_label(), "notes": evidence.result_summary})).await?;
     }
     post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Candidates", &rejected_id, "Eliminate", json!({"selection_reason": "Outperformed by assessed candidate under frozen design."})).await?;
-    post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Candidates", &selected_id, "Select", json!({"selection_reason": reason})).await?;
+    post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Candidates", &selected_id, "Select", json!({"selection_reason": evidence.result_summary})).await?;
     post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Candidates", &selected_id, "Release", json!({})).await?;
-    post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Generations", &generation_id, "SelectAndRelease", json!({"selected_candidate_id": selected_id, "released_app_ref": winner_ref, "selection_reason": reason})).await?;
-    post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Campaigns", campaign_id, "RecordRelease", json!({"current_release_ref": winner_ref, "previous_release_ref": parent_ref, "last_release_reason": reason})).await?;
+    post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Generations", &generation_id, "SelectAndRelease", json!({"selected_candidate_id": selected_id, "released_app_ref": winner_ref, "selection_reason": evidence.result_summary})).await?;
+    post_protocol_action(client, config, EVOLUTION_NAMESPACE, "Campaigns", campaign_id, "RecordRelease", json!({"current_release_ref": winner_ref, "previous_release_ref": parent_ref, "last_release_reason": evidence.result_summary})).await?;
     Ok(())
 }
 

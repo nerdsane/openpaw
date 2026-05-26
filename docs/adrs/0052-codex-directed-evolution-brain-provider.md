@@ -26,7 +26,10 @@ state or Evolution Studio.
 ## Evidence And Release Control
 
 The proof mode freezes evaluator-owned `TrialSuite` and `MetricDefinition`
-records, records a native `ValidatorRun` for each selected candidate, attaches
+records. A live run requires `EVOLUTION_VALIDATOR_EVIDENCE_PATH`, produced by
+executing the frozen scenario against the exact pinned candidate refs; a
+mismatched or absent record prevents release. The worker records a native
+`ValidatorRun` for each validated selected candidate and attaches
 simulated, real-traffic, and Datadog evidence locators, performs two automatic
 local releases, then pauses and rolls back. New local
 Datadog ingestion requires an execution-time `DD_API_KEY`; absent that key the
