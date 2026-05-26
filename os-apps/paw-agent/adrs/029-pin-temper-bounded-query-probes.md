@@ -6,12 +6,14 @@
   - Temper ADR-0119: Bound Query Projection Probes And Pages
   - TemperPaw ADR-028: Restore Prepared Context Inline Budget
   - Temper PR #273
+  - Temper PR #281
   - TemperPaw PR #328
 
 ## Context
 
-The OOM containment source fix landed in Temper commit
-`675e21381cd3b9f4afe1f37d89d022356e44a5dc`. TemperPaw production still pins
+The current Temper source fix set includes the OOM containment work and
+stack-safe Genesis policy recovery in Temper commit
+`7f7602680ae65953540f7b89bf249970fd74beac`. TemperPaw production still pins
 Temper crates and guest `temper-wasm-sdk` modules to the previous revision until
 we explicitly roll that dependency forward.
 
@@ -23,14 +25,14 @@ The incident evidence points at two source-side memory hazards:
   the requested observe limit.
 
 TemperPaw ADR-028 already removed the prepared-context inline memory amplifier.
-This ADR records the matching rollout pin that brings the source fix into the
+This ADR records the matching rollout pin that brings the source fixes into the
 server, Docker build, and checked-in guest WASM manifests.
 
 ## Decision
 
 Pin TemperPaw's Temper dependencies, Datadog pin contract, Docker build arg, and
 guest WASM SDK manifests to
-`675e21381cd3b9f4afe1f37d89d022356e44a5dc`.
+`7f7602680ae65953540f7b89bf249970fd74beac`.
 
 This keeps the runtime server crates and guest SDK contract aligned so deployed
 WASM modules compile against the same host boundary as the server that will run
@@ -42,6 +44,8 @@ Positive:
 
 - Production can receive the bounded query projection page API.
 - Replay parity probes use the store-level limited entity listing.
+- Genesis-sourced Katagami policy rows recover on restart without reloading a
+  duplicate multi-megabyte generated policy under thousands of synthetic names.
 - Datadog contract tests prevent a partial rollout with stale guest SDK pins.
 
 Tradeoffs:
