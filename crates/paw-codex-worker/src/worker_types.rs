@@ -28,6 +28,7 @@ enum WorkerCommand {
     Run,
     Doctor,
     LaunchdPlist,
+    DirectedEvolutionDemo,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +132,13 @@ impl Config {
         format!(
             "{}/tdata/{}('{}')/TemperPaw.Patrol.{}",
             self.temper_url, entity_set, id, action
+        )
+    }
+
+    fn namespaced_action_url(&self, namespace: &str, entity_set: &str, id: &str, action: &str) -> String {
+        format!(
+            "{}/tdata/{}('{}')/{}.{}",
+            self.temper_url, entity_set, id, namespace, action
         )
     }
 }

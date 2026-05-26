@@ -6,6 +6,9 @@ fn parse_worker_command(args: impl IntoIterator<Item = String>) -> WorkerCommand
                 return WorkerCommand::LaunchdPlist;
             }
             "run" | "--run" => return WorkerCommand::Run,
+            "directed-evolution-demo" | "--directed-evolution-demo" => {
+                return WorkerCommand::DirectedEvolutionDemo;
+            }
             _ => {}
         }
     }
@@ -48,4 +51,3 @@ fn value_as_bool(value: &Value) -> Option<bool> {
             .map(|value| value.eq_ignore_ascii_case("true"))
     })
 }
-

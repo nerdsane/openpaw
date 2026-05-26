@@ -226,6 +226,21 @@ mod tests {
             parse_worker_command(vec!["run".to_string()]),
             WorkerCommand::Run
         );
+        assert_eq!(
+            parse_worker_command(vec!["directed-evolution-demo".to_string()]),
+            WorkerCommand::DirectedEvolutionDemo
+        );
+    }
+
+    #[test]
+    fn live_evolution_requires_immutable_genesis_refs() {
+        assert_eq!(
+            evolution_ref("MISSING_REF", "demo/agent-answers@seed", false).expect("smoke ref"),
+            "demo/agent-answers@seed"
+        );
+        let error = evolution_ref("MISSING_REF", "demo/agent-answers@seed", true)
+            .expect_err("live evolution must reject a label ref");
+        assert!(format!("{error:#}").contains("immutable Genesis ref"));
     }
 
     #[test]

@@ -1,0 +1,33 @@
+# ADR 0052: Codex as the Directed-Evolution V1 Brain Provider
+
+## Status
+
+Accepted.
+
+## Decision
+
+V1 runs the directed-evolution brain through `paw-codex-worker`. The new
+`directed-evolution-demo` mode drives the native Genesis protocol and can call
+Codex for a selection-design rationale when `PAW_EVOLUTION_USE_CODEX=1`.
+Deterministic smoke mode exercises the protocol without an external model call.
+Live Codex mode requires the seed and both selected candidate versions to be
+immutable Genesis commit refs (`owner/app@hash`); it does not accept illustrative
+candidate labels as releases.
+
+The worker records Codex as a provider and communicates only through native
+campaign actions. It does not embed a fixed fitness vector or mutate the
+active evaluator while candidate trials are running. A future TemperPaw-native
+brain can issue the same actions and replace Codex without changing campaign
+state or Evolution Studio.
+
+## Evidence And Release Control
+
+The proof mode records simulated, real-traffic, and Datadog evidence locators,
+performs two automatic local releases, then pauses and rolls back. New local
+Datadog ingestion requires an execution-time `DD_API_KEY`; absent that key the
+Datadog locator remains explicitly pending instead of claiming ingestion.
+
+The paired Genesis lineage smoke publishes and installs two real Temper-native
+subject versions before these refs are handed to this runner. This separation
+keeps candidate bytes and installability in Genesis while campaign decisions and
+human direction remain native directed-evolution records.

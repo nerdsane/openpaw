@@ -47,6 +47,9 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if command == WorkerCommand::DirectedEvolutionDemo {
+        return run_directed_evolution_demo(&client, &config).await;
+    }
 
     info!(
         worker_id = %config.worker_id,
@@ -103,5 +106,6 @@ include!("codex_plan.rs");
 include!("code_evaluation.rs");
 include!("execution.rs");
 include!("http_headers.rs");
+include!("directed_evolution.rs");
 include!("tests.rs");
 include!("daily_brief_tests.rs");
