@@ -29,6 +29,7 @@ enum WorkerCommand {
     Doctor,
     LaunchdPlist,
     DirectedEvolutionDemo,
+    DirectedEvolutionMutate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

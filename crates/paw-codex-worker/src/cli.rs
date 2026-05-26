@@ -9,6 +9,9 @@ fn parse_worker_command(args: impl IntoIterator<Item = String>) -> WorkerCommand
             "directed-evolution-demo" | "--directed-evolution-demo" => {
                 return WorkerCommand::DirectedEvolutionDemo;
             }
+            "directed-evolution-mutate" | "--directed-evolution-mutate" => {
+                return WorkerCommand::DirectedEvolutionMutate;
+            }
             _ => {}
         }
     }

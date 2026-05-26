@@ -230,6 +230,10 @@ mod tests {
             parse_worker_command(vec!["directed-evolution-demo".to_string()]),
             WorkerCommand::DirectedEvolutionDemo
         );
+        assert_eq!(
+            parse_worker_command(vec!["directed-evolution-mutate".to_string()]),
+            WorkerCommand::DirectedEvolutionMutate
+        );
     }
 
     #[test]
@@ -241,6 +245,15 @@ mod tests {
         let error = evolution_ref("MISSING_REF", "demo/agent-answers@seed", true)
             .expect_err("live evolution must reject a label ref");
         assert!(format!("{error:#}").contains("immutable Genesis ref"));
+    }
+
+    #[test]
+    fn evolution_candidate_changes_are_limited_to_native_bundle_files() {
+        assert!(evolution_candidate_path_allowed("specs/answer.ioa.toml"));
+        assert!(evolution_candidate_path_allowed("wasm/validator/src/lib.rs"));
+        assert!(evolution_candidate_path_allowed("adrs/0002-evidence.md"));
+        assert!(!evolution_candidate_path_allowed("crates/random-helper/src/lib.rs"));
+        assert!(!evolution_candidate_path_allowed("../evaluator/specs/trial.ioa.toml"));
     }
 
     #[test]

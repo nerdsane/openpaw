@@ -10,6 +10,9 @@ V1 runs the directed-evolution brain through `paw-codex-worker`. The new
 `directed-evolution-demo` mode drives the native Genesis protocol and can call
 Codex for a selection-design rationale when `PAW_EVOLUTION_USE_CODEX=1`.
 Deterministic smoke mode exercises the protocol without an external model call.
+The `directed-evolution-mutate` mode asks Codex to edit a candidate workspace,
+then rejects any change outside the Temper-native subject app directories
+before Genesis publishes or installs that candidate.
 Live Codex mode requires the seed and both selected candidate versions to be
 immutable Genesis commit refs (`owner/app@hash`); it does not accept illustrative
 candidate labels as releases.
@@ -22,8 +25,10 @@ state or Evolution Studio.
 
 ## Evidence And Release Control
 
-The proof mode records simulated, real-traffic, and Datadog evidence locators,
-performs two automatic local releases, then pauses and rolls back. New local
+The proof mode freezes evaluator-owned `TrialSuite` and `MetricDefinition`
+records, records a native `ValidatorRun` for each selected candidate, attaches
+simulated, real-traffic, and Datadog evidence locators, performs two automatic
+local releases, then pauses and rolls back. New local
 Datadog ingestion requires an execution-time `DD_API_KEY`; absent that key the
 Datadog locator remains explicitly pending instead of claiming ingestion.
 
