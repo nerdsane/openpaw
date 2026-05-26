@@ -890,8 +890,9 @@ fn continue_with_new_session(
         conversation_file_id,
     )?;
 
+    let mut carry_prior_artifacts = true;
     let new_leaf_id = if !session_file_id.is_empty() {
-        Some(append_user_message_to_session(
+        match append_user_message_to_session(
             ctx,
             temper_api_url,
             tenant,
@@ -900,12 +901,25 @@ fn continue_with_new_session(
             session_file_id,
             prior_leaf_id,
             user_message,
-        )?)
+        ) {
+            Ok(leaf_id) => Some(leaf_id),
+            Err(err) if should_start_fresh_after_session_append_failure(&err) => {
+                carry_prior_artifacts = false;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "route_message: starting clean continuation after session tree append failed for prior session {prior_session_id}: {err}"
+                    ),
+                );
+                None
+            }
+            Err(err) => return Err(err),
+        }
     } else {
         None
     };
 
-    if new_leaf_id.is_none() && !conversation_file_id.is_empty() {
+    if carry_prior_artifacts && new_leaf_id.is_none() && !conversation_file_id.is_empty() {
         append_user_message_to_conversation(
             ctx,
             temper_api_url,
@@ -1020,7 +1034,12 @@ fn continue_with_new_session(
         effective_tools,
         effective_max_turns,
         &workspace_id,
-        new_leaf_id.as_deref().unwrap_or(prior_leaf_id),
+        if carry_prior_artifacts {
+            new_leaf_id.as_deref().unwrap_or(prior_leaf_id)
+        } else {
+            ""
+        },
+        carry_prior_artifacts,
         command,
         delivery_route,
         trace_context,
@@ -1086,6 +1105,7 @@ fn configure_session_from_prior(
     max_turns: &str,
     workspace_id: &str,
     session_leaf_id: &str,
+    carry_prior_artifacts: bool,
     command: &str,
     delivery_route: Option<&DeliveryRouteSnapshot>,
     trace_context: Option<&TraceContextFields>,
@@ -1100,12 +1120,15 @@ fn configure_session_from_prior(
     // Include resume-specific fields (workspace, conversation, session tree) in Configure
     // so they're stored as session fields before auto-Provision fires. The provision_sandbox
     // integration checks these to decide whether to restore an existing workspace or provision new.
-    let effective_workspace_id = if workspace_id.is_empty() {
+    let effective_workspace_id = if !carry_prior_artifacts {
+        ""
+    } else if workspace_id.is_empty() {
         str_field(fields, &["workspace_id", "WorkspaceId"]).unwrap_or("")
     } else {
         workspace_id
     };
-    let prepared_context_storage = continuation_prepared_context_storage(fields);
+    let prepared_context_storage =
+        continuation_prepared_context_storage(carry_prior_artifacts, fields);
 
     let mut configure_body = json!({
         "system_prompt": str_field(fields, &["system_prompt", "SystemPrompt"]).unwrap_or(""),
@@ -1133,9 +1156,9 @@ fn configure_session_from_prior(
         "heartbeat_timeout_seconds": str_field(fields, &["heartbeat_timeout_seconds", "HeartbeatTimeoutSeconds"]).unwrap_or("300"),
         // Resume fields — folded into Configure so auto-Provision can restore prior state.
         "workspace_id": effective_workspace_id,
-        "conversation_file_id": str_field(fields, &["conversation_file_id", "ConversationFileId"]).unwrap_or(""),
-        "file_manifest_id": str_field(fields, &["file_manifest_id", "FileManifestId"]).unwrap_or(""),
-        "session_file_id": str_field(fields, &["session_file_id", "SessionFileId"]).unwrap_or(""),
+        "conversation_file_id": carried_prior_field(carry_prior_artifacts, fields, &["conversation_file_id", "ConversationFileId"]),
+        "file_manifest_id": carried_prior_field(carry_prior_artifacts, fields, &["file_manifest_id", "FileManifestId"]),
+        "session_file_id": carried_prior_field(carry_prior_artifacts, fields, &["session_file_id", "SessionFileId"]),
         "session_leaf_id": session_leaf_id,
         "prepared_context_file_id": prepared_context_storage.file_id,
         "prepared_context_inline_json": prepared_context_storage.inline_json,
@@ -1172,7 +1195,29 @@ fn configure_session_from_prior(
     Ok(())
 }
 
-fn continuation_prepared_context_storage(fields: &Value) -> ContinuationPreparedContextStorage {
+fn carried_prior_field<'a>(
+    carry_prior_artifacts: bool,
+    fields: &'a Value,
+    keys: &[&str],
+) -> &'a str {
+    if carry_prior_artifacts {
+        str_field(fields, keys).unwrap_or("")
+    } else {
+        ""
+    }
+}
+
+fn continuation_prepared_context_storage(
+    carry_prior_artifacts: bool,
+    fields: &Value,
+) -> ContinuationPreparedContextStorage {
+    if !carry_prior_artifacts {
+        return ContinuationPreparedContextStorage {
+            file_id: String::new(),
+            inline_json: String::new(),
+        };
+    }
+
     ContinuationPreparedContextStorage {
         file_id: str_field(
             fields,
@@ -1182,6 +1227,13 @@ fn continuation_prepared_context_storage(fields: &Value) -> ContinuationPrepared
         .to_string(),
         inline_json: String::new(),
     }
+}
+
+fn should_start_fresh_after_session_append_failure(error: &str) -> bool {
+    error.contains("HTTP 423")
+        || error.contains("VerificationRequired")
+        || error.contains("SessionEntry creation failed")
+        || error.contains("session entries continuation missing parent leaf")
 }
 
 /// Update a ChannelSession to point to a new Session via the UpdateSession action.
@@ -1929,10 +1981,40 @@ mod tests {
             "prepared_context_inline_json": "large inline artifact"
         });
 
-        let storage = continuation_prepared_context_storage(&fields);
+        let storage = continuation_prepared_context_storage(true, &fields);
 
         assert_eq!(storage.file_id, "fl-prepared");
         assert_eq!(storage.inline_json, "");
+    }
+
+    #[test]
+    fn continuation_drops_prior_artifacts_when_session_tree_append_is_unrecoverable() {
+        let fields = json!({
+            "prepared_context_file_id": "fl-prepared",
+            "prepared_context_inline_json": "large inline artifact"
+        });
+
+        let storage = continuation_prepared_context_storage(false, &fields);
+
+        assert_eq!(storage.file_id, "");
+        assert_eq!(storage.inline_json, "");
+        assert_eq!(
+            carried_prior_field(false, &fields, &["prepared_context_file_id"]),
+            ""
+        );
+    }
+
+    #[test]
+    fn session_entry_verification_failure_starts_clean_continuation() {
+        assert!(should_start_fresh_after_session_append_failure(
+            "SessionEntry creation failed (HTTP 423): VerificationRequired"
+        ));
+        assert!(should_start_fresh_after_session_append_failure(
+            "session entries continuation missing parent leaf"
+        ));
+        assert!(!should_start_fresh_after_session_append_failure(
+            "create Session failed via http://127.0.0.1"
+        ));
     }
 
     #[test]
