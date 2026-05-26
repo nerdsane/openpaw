@@ -46,6 +46,9 @@ Positive:
 - Replay parity probes use the store-level limited entity listing.
 - Genesis-sourced Katagami policy rows recover on restart without reloading a
   duplicate multi-megabyte generated policy under thousands of synthetic names.
+- A stale or missing configured Genesis bootstrap ref no longer takes down an
+  existing database-backed Paw instance; startup logs the failure and continues
+  with durable installed-app recovery.
 - Datadog contract tests prevent a partial rollout with stale guest SDK pins.
 
 Tradeoffs:

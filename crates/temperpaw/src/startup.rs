@@ -467,7 +467,7 @@ async fn bootstrap_configured_genesis_apps(
             }
         }
 
-        install_genesis_app_from_registry(
+        match install_genesis_app_from_registry(
             state,
             GenesisRegistryInstallRequest {
                 tenant: tenant.to_string(),
@@ -477,10 +477,19 @@ async fn bootstrap_configured_genesis_apps(
             },
         )
         .await
-        .map_err(|error| {
-            anyhow::anyhow!("Genesis bootstrap install failed for {app_ref}: {error}")
-        })?;
-        installed += 1;
+        {
+            Ok(_) => {
+                installed += 1;
+            }
+            Err(error) => {
+                tracing::warn!(
+                    app = %app_name,
+                    app_ref = %app_ref,
+                    error = %error,
+                    "Genesis bootstrap install/reconcile failed; continuing startup with durable app recovery"
+                );
+            }
+        }
     }
 
     Ok(installed)
