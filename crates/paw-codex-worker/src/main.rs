@@ -50,6 +50,9 @@ async fn main() -> Result<()> {
     if command == WorkerCommand::DirectedEvolutionDemo {
         return run_directed_evolution_demo(&client, &config).await;
     }
+    if command == WorkerCommand::DirectedEvolutionRun {
+        return run_directed_evolution_run(&client, &config).await;
+    }
     if command == WorkerCommand::DirectedEvolutionMutate {
         return run_directed_evolution_mutation(&config).await;
     }

@@ -6,13 +6,21 @@ Accepted.
 
 ## Decision
 
-V1 runs the directed-evolution brain through `paw-codex-worker`. The new
-`directed-evolution-demo` mode drives the native Genesis protocol and can call
-Codex for a selection-design rationale when `PAW_EVOLUTION_USE_CODEX=1`.
+V1 runs the directed-evolution brain through `paw-codex-worker`. The
+`directed-evolution-run` mode consumes an `EVOLUTION_CAMPAIGN_PLAN_PATH`
+manifest so arbitrary Temper-native subjects can supply their own traffic,
+trial suite, metrics, capability decisions, generations and release controls.
+The plan also declares its evaluator namespace and entity-set names, so the
+runner does not depend on the Agent Answers evaluator namespace.
+The `directed-evolution-demo` mode remains an Agent Answers convenience entry
+point and can call Codex for a selection-design rationale when
+`PAW_EVOLUTION_USE_CODEX=1`.
 Deterministic smoke mode exercises the protocol without an external model call.
 The `directed-evolution-mutate` mode asks Codex to edit a candidate workspace,
 then rejects any change outside the Temper-native subject app directories
-before Genesis publishes or installs that candidate.
+before Genesis publishes or installs that candidate. Its frozen evaluator
+compatibility contract is campaign input, rather than a built-in dependency on
+the Agent Answers interaction model.
 Live Codex mode requires the seed and both selected candidate versions to be
 immutable Genesis commit refs (`owner/app@hash`); it does not accept illustrative
 candidate labels as releases.

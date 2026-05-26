@@ -29,6 +29,7 @@ enum WorkerCommand {
     Doctor,
     LaunchdPlist,
     DirectedEvolutionDemo,
+    DirectedEvolutionRun,
     DirectedEvolutionMutate,
 }
 
