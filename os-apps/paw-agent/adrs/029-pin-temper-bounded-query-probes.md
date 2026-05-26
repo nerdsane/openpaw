@@ -11,7 +11,7 @@
 ## Context
 
 The OOM containment source fix landed in Temper commit
-`be5b0d2a9d94cb8341f6a45751c3025af13dad36`. TemperPaw production still pins
+`675e21381cd3b9f4afe1f37d89d022356e44a5dc`. TemperPaw production still pins
 Temper crates and guest `temper-wasm-sdk` modules to the previous revision until
 we explicitly roll that dependency forward.
 
@@ -30,7 +30,7 @@ server, Docker build, and checked-in guest WASM manifests.
 
 Pin TemperPaw's Temper dependencies, Datadog pin contract, Docker build arg, and
 guest WASM SDK manifests to
-`be5b0d2a9d94cb8341f6a45751c3025af13dad36`.
+`675e21381cd3b9f4afe1f37d89d022356e44a5dc`.
 
 This keeps the runtime server crates and guest SDK contract aligned so deployed
 WASM modules compile against the same host boundary as the server that will run
