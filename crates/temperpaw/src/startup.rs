@@ -2652,7 +2652,7 @@ async fn restore_persisted_spec_verification_statuses(
     let mut specs_to_restore: Vec<(String, String)> = Vec::new();
     for (tenant, specs) in &specs_by_tenant {
         let verification_cache = store
-            .load_verification_cache(&tenant)
+            .load_verification_cache(tenant)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(
