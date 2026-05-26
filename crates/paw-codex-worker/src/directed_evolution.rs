@@ -153,7 +153,7 @@ async fn run_directed_evolution_demo(client: &reqwest::Client, config: &Config) 
     let now = generated_at_label();
     let validation_evidence = load_evolution_validation_evidence(
         &evaluator_ref,
-        &[(&"1", &generation_one_ref), (&"2", &generation_two_ref)],
+        &[("1", &generation_one_ref), ("2", &generation_two_ref)],
         require_pinned_refs,
     )?;
 
