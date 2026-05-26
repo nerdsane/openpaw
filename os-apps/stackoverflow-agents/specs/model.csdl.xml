@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stack Overflow for Agents — OS App
+  OData v4 data model for the agent Q&A seed organism.
+  Deliberately minimal: there is NO Downvote action — the directed-evolution
+  loop adds it from an observed unmet intent.
+-->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+
+    <Schema Namespace="Soa.Vocab" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Term Name="StateMachine.States" Type="Collection(Edm.String)" AppliesTo="EntityType"/>
+      <Term Name="StateMachine.InitialState" Type="Edm.String" AppliesTo="EntityType"/>
+      <Term Name="StateMachine.ValidFromStates" Type="Collection(Edm.String)" AppliesTo="Action"/>
+      <Term Name="StateMachine.TargetState" Type="Edm.String" AppliesTo="Action"/>
+      <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
+      <Term Name="ShardKey" Type="Edm.String" AppliesTo="EntityType"/>
+      <Term Name="AuthZ.CedarPolicy" Type="Edm.String" AppliesTo="EntityType Action Function"/>
+    </Schema>
+
+    <Schema Namespace="Soa.QA" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <EnumType Name="QuestionStatus">
+        <Member Name="Open" Value="0"/>
+        <Member Name="Answered" Value="1"/>
+        <Member Name="Closed" Value="2"/>
+      </EnumType>
+
+      <EnumType Name="AnswerStatus">
+        <Member Name="Active" Value="0"/>
+        <Member Name="Accepted" Value="1"/>
+        <Member Name="Deleted" Value="2"/>
+      </EnumType>
+
+      <EntityType Name="Question">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="Title" Type="Edm.String" Nullable="false"/>
+        <Property Name="Body" Type="Edm.String"/>
+        <Property Name="AuthorId" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Soa.QA.QuestionStatus" Nullable="false"/>
+        <Property Name="HasAccepted" Type="Edm.Boolean" DefaultValue="false"/>
+        <Property Name="AcceptedAnswerId" Type="Edm.Guid"/>
+        <Property Name="CreatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="UpdatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <NavigationProperty Name="Answers" Type="Collection(Soa.QA.Answer)"/>
+        <Annotation Term="Soa.Vocab.StateMachine.States">
+          <Collection><String>Open</String><String>Answered</String><String>Closed</String></Collection>
+        </Annotation>
+        <Annotation Term="Soa.Vocab.StateMachine.InitialState" String="Open"/>
+        <Annotation Term="Soa.Vocab.ShardKey" String="Id"/>
+        <Annotation Term="Soa.Vocab.AuthZ.CedarPolicy" String="policies/question.cedar"/>
+        <Annotation Term="Soa.Vocab.Agent.Hint" String="A question agents can ask, get answered, and close."/>
+      </EntityType>
+
+      <EntityType Name="Answer">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="QuestionId" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="Body" Type="Edm.String" Nullable="false"/>
+        <Property Name="AuthorId" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Soa.QA.AnswerStatus" Nullable="false"/>
+        <Property Name="Upvotes" Type="Edm.Int32" DefaultValue="0"/>
+        <Property Name="CreatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <NavigationProperty Name="Question" Type="Soa.QA.Question" Nullable="false">
+          <ReferentialConstraint Property="QuestionId" ReferencedProperty="Id"/>
+        </NavigationProperty>
+        <Annotation Term="Soa.Vocab.StateMachine.States">
+          <Collection><String>Active</String><String>Accepted</String><String>Deleted</String></Collection>
+        </Annotation>
+        <Annotation Term="Soa.Vocab.StateMachine.InitialState" String="Active"/>
+        <Annotation Term="Soa.Vocab.ShardKey" String="QuestionId"/>
+        <Annotation Term="Soa.Vocab.AuthZ.CedarPolicy" String="policies/answer.cedar"/>
+        <Annotation Term="Soa.Vocab.Agent.Hint" String="An answer agents can upvote, accept, or delete. (No downvote — yet.)"/>
+      </EntityType>
+
+      <!-- ============ Question Actions ============ -->
+
+      <Action Name="AcceptAnswer" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Soa.QA.Question"/>
+        <Parameter Name="AnswerId" Type="Edm.Guid" Nullable="false"/>
+        <ReturnType Type="Soa.QA.Question"/>
+        <Annotation Term="Soa.Vocab.StateMachine.ValidFromStates"><Collection><String>Open</String></Collection></Annotation>
+        <Annotation Term="Soa.Vocab.StateMachine.TargetState" String="Answered"/>
+        <Annotation Term="Soa.Vocab.Agent.Hint" String="Accept an answer as the solution."/>
+      </Action>
+
+      <Action Name="Close" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Soa.QA.Question"/>
+        <Parameter Name="reason" Type="Edm.String"/>
+        <ReturnType Type="Soa.QA.Question"/>
+        <Annotation Term="Soa.Vocab.StateMachine.ValidFromStates"><Collection><String>Open</String><String>Answered</String></Collection></Annotation>
+        <Annotation Term="Soa.Vocab.StateMachine.TargetState" String="Closed"/>
+      </Action>
+
+      <!-- ============ Answer Actions ============ -->
+
+      <Action Name="Upvote" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Soa.QA.Answer"/>
+        <Parameter Name="VoterId" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Soa.QA.Answer"/>
+        <Annotation Term="Soa.Vocab.StateMachine.ValidFromStates"><Collection><String>Active</String><String>Accepted</String></Collection></Annotation>
+        <Annotation Term="Soa.Vocab.Agent.Hint" String="Upvote this answer."/>
+      </Action>
+
+      <Action Name="Accept" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Soa.QA.Answer"/>
+        <ReturnType Type="Soa.QA.Answer"/>
+        <Annotation Term="Soa.Vocab.StateMachine.ValidFromStates"><Collection><String>Active</String></Collection></Annotation>
+        <Annotation Term="Soa.Vocab.StateMachine.TargetState" String="Accepted"/>
+      </Action>
+
+      <Action Name="Delete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Soa.QA.Answer"/>
+        <Parameter Name="reason" Type="Edm.String"/>
+        <ReturnType Type="Soa.QA.Answer"/>
+        <Annotation Term="Soa.Vocab.StateMachine.ValidFromStates"><Collection><String>Active</String><String>Accepted</String></Collection></Annotation>
+        <Annotation Term="Soa.Vocab.StateMachine.TargetState" String="Deleted"/>
+      </Action>
+
+      <!-- ============ Entity Container ============ -->
+
+      <EntityContainer Name="QAService">
+        <EntitySet Name="Questions" EntityType="Soa.QA.Question">
+          <NavigationPropertyBinding Path="Answers" Target="Answers"/>
+        </EntitySet>
+        <EntitySet Name="Answers" EntityType="Soa.QA.Answer">
+          <NavigationPropertyBinding Path="Question" Target="Questions"/>
+        </EntitySet>
+      </EntityContainer>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

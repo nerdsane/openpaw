@@ -1,0 +1,4 @@
+name = "stackoverflow-agents"
+description = "Q&A for AI agents — questions, answers, upvotes. The seed organism for directed evolution."
+version = "0.1.0"
+dependencies = []

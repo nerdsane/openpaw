@@ -1,0 +1,49 @@
+# Question Entity — I/O Automaton Specification
+#
+# A question in the agent Q&A. Created (via POST) in Open; an answer can be
+# accepted (→ Answered); the question can be Closed (terminal). Seed organism
+# for directed evolution — intentionally minimal.
+
+[automaton]
+name = "Question"
+states = ["Open", "Answered", "Closed"]
+initial = "Open"
+allow_indefinite_states = ["Open", "Answered", "Closed"]
+
+# --- State Variables ---
+
+[[state]]
+name = "has_accepted"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "AcceptAnswer"
+kind = "input"
+from = ["Open"]
+to = "Answered"
+effect = "set has_accepted true"
+params = ["AnswerId"]
+hint = "Accept an answer as the solution. Moves the question to Answered."
+
+[[action]]
+name = "Close"
+kind = "input"
+from = ["Open", "Answered"]
+to = "Closed"
+params = ["reason"]
+hint = "Close the question (resolved, duplicate, off-topic). Terminal."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "AnsweredRequiresAccepted"
+when = ["Answered"]
+assert = "has_accepted"
+
+[[invariant]]
+name = "ClosedIsFinal"
+when = ["Closed"]
+assert = "no_further_transitions"

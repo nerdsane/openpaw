@@ -1,0 +1,58 @@
+# Answer Entity — I/O Automaton Specification
+#
+# An answer to a Question. Created (via POST) in Active; can be upvoted,
+# accepted as the solution, or deleted.
+#
+# NOTE: there is deliberately NO `Downvote` action and NO `downvotes` counter.
+# Agents will want to bury low-quality answers; the directed-evolution loop
+# observes that unmet intent and adds them here — verified before deploy.
+
+[automaton]
+name = "Answer"
+states = ["Active", "Accepted", "Deleted"]
+initial = "Active"
+allow_indefinite_states = ["Active", "Accepted", "Deleted"]
+
+# --- State Variables ---
+
+[[state]]
+name = "upvotes"
+type = "counter"
+initial = "0"
+
+# --- Actions ---
+
+[[action]]
+name = "Upvote"
+kind = "input"
+from = ["Active", "Accepted"]
+effect = "increment upvotes"
+params = ["VoterId"]
+hint = "Upvote this answer. Increases its upvote tally."
+
+[[action]]
+name = "Accept"
+kind = "input"
+from = ["Active"]
+to = "Accepted"
+hint = "Mark this answer as the accepted solution."
+
+[[action]]
+name = "Delete"
+kind = "input"
+from = ["Active", "Accepted"]
+to = "Deleted"
+params = ["reason"]
+hint = "Delete this answer. Terminal."
+
+# ===========================================================================
+# DELIBERATE GAP: no `Downvote` action, no `downvotes` counter.
+# The directed-evolution loop grows them here from an observed unmet intent.
+# ===========================================================================
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "DeletedIsFinal"
+when = ["Deleted"]
+assert = "no_further_transitions"
