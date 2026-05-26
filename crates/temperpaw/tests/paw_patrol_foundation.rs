@@ -1968,6 +1968,23 @@ fn startup_rehydrates_os_app_verification_for_unchanged_apps() {
 }
 
 #[test]
+fn startup_rehydrates_persisted_verification_after_spec_restore() {
+    let root = repo_root();
+    let startup = read(root.join("crates/temperpaw/src/startup.rs"));
+
+    assert!(
+        startup.contains(
+            "restore_persisted_spec_verification_statuses(&state, platform_store).await?"
+        ),
+        "startup must rehydrate persisted verification statuses after restoring specs from storage"
+    );
+    assert!(
+        startup.contains("DurableVerificationCache"),
+        "rehydrated verification statuses should be identifiable in the registry"
+    );
+}
+
+#[test]
 fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
     let root = repo_root();
     temper_platform::os_apps::set_os_apps_dir(root.join("os-apps"));

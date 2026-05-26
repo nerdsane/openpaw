@@ -4,7 +4,7 @@
 //! The daemon boots the Temper platform, installs Paw OS apps, seeds souls,
 //! and starts the Discord transport.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -933,6 +933,14 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 backend = storage.backend_name(),
                 restored,
                 "Restored specs from storage"
+            );
+        }
+        let restored_verifications =
+            restore_persisted_spec_verification_statuses(&state, platform_store).await?;
+        if restored_verifications > 0 {
+            tracing::info!(
+                restored = restored_verifications,
+                "Restored persisted spec verification statuses"
             );
         }
     }
@@ -2619,6 +2627,85 @@ async fn restore_registry_guarded(
     restore_registry_from_platform_store(&mut registry, store)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to restore registry from platform store: {e}"))
+}
+
+async fn restore_persisted_spec_verification_statuses(
+    state: &PlatformState,
+    store: &dyn PlatformStore,
+) -> Result<usize> {
+    let rows = store
+        .load_specs()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load specs for verification restore: {e}"))?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    let mut specs_by_tenant: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for row in rows {
+        specs_by_tenant
+            .entry(row.tenant)
+            .or_default()
+            .push((row.entity_type, row.content_hash));
+    }
+
+    let mut specs_to_restore: Vec<(String, String)> = Vec::new();
+    for (tenant, specs) in &specs_by_tenant {
+        let verification_cache = store
+            .load_verification_cache(&tenant)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    tenant,
+                    error = %e,
+                    "Failed to load persisted spec verification cache during startup restore"
+                );
+                BTreeMap::new()
+            });
+        if verification_cache.is_empty() {
+            continue;
+        }
+
+        for (entity_type, content_hash) in specs {
+            let Some((cached_hash, verified)) = verification_cache.get(entity_type.as_str()) else {
+                continue;
+            };
+            if !*verified || cached_hash != content_hash {
+                continue;
+            }
+
+            specs_to_restore.push((tenant.clone(), entity_type.clone()));
+        }
+    }
+
+    let restored = specs_to_restore.len();
+    if restored == 0 {
+        return Ok(0);
+    }
+
+    let verified_at = sim_now().to_rfc3339();
+    {
+        let mut registry = state.registry.write().unwrap(); // ci-ok: infallible startup lock
+        for (tenant, entity_type) in specs_to_restore {
+            let tenant_id = TenantId::new(&tenant);
+            registry.set_verification_status(
+                &tenant_id,
+                &entity_type,
+                VerificationStatus::Completed(EntityVerificationResult {
+                    all_passed: true,
+                    levels: vec![EntityLevelSummary {
+                        level: "DurableVerificationCache".to_string(),
+                        passed: true,
+                        summary: "Restored from matching persisted verification cache".to_string(),
+                        details: None,
+                    }],
+                    verified_at: verified_at.clone(),
+                }),
+            );
+        }
+    }
+
+    Ok(restored)
 }
 
 /// Create or find an Agent entity by name.
