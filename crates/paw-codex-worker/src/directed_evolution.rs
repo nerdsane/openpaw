@@ -492,3 +492,4 @@ async fn recover_directed_evolution_variant_output(
 include!("directed_evolution/workdir.rs");
 include!("directed_evolution/prompt.rs");
 include!("directed_evolution/tests.rs");
+include!("directed_evolution/prompt_tests.rs");

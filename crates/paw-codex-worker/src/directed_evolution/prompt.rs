@@ -29,7 +29,8 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
         }
     };
     let output_contract = directed_evolution_output_contract(&work_item.role);
-    let prompt_body = literal_prompt_ref(&work_item.prompt_ref);
+    let prompt_body =
+        directed_evolution_worker_prompt_body(&work_item.role, &literal_prompt_ref(&work_item.prompt_ref));
     format!(
         r#"You are a Codex brain run executing a Directed Evolution WorkItem.
 
@@ -148,6 +149,47 @@ fn literal_prompt_ref(prompt_ref: &str) -> String {
         .unwrap_or(prompt_ref)
         .trim()
         .to_string()
+}
+
+fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> String {
+    if !matches!(role, "reviewer" | "simulated_user") {
+        return prompt_body.to_string();
+    }
+
+    let mut body = prompt_body.to_string();
+    if let Some(public_api_url) = directed_evolution_public_api_url() {
+        body = rewrite_temper_api_base(&body, &public_api_url);
+    }
+    body.push_str(
+        "\n\nRuntime execution discipline:\n\
+- Prefer the TemperApiBase URL above with the tenant parsed from RuntimeRef; do not assume localhost is the target runtime.\n\
+- Do not start a foreground long-lived server. If a local server is absolutely required, start it in the background, stop it before returning, and include the cleanup in evidence_scope.\n\
+- If runtime execution is unavailable, fail the stage with clear evidence instead of hanging.\n",
+    );
+    body
+}
+
+fn directed_evolution_public_api_url() -> Option<String> {
+    env::var("DIRECTED_EVOLUTION_PUBLIC_API_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(directed_evolution_genesis_url)
+}
+
+fn rewrite_temper_api_base(prompt_body: &str, public_api_url: &str) -> String {
+    prompt_body
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("TemperApiBase:")
+                && (line.contains("127.0.0.1") || line.contains("localhost"))
+            {
+                format!("TemperApiBase: {}", public_api_url.trim_end_matches('/'))
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn directed_evolution_summary(
