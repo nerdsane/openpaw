@@ -597,7 +597,7 @@ async fn install_directed_evolution_variant(
     );
     let response = client
         .post(&url)
-        .headers(headers_for_tenant(config, &registry_tenant)?)
+        .headers(headers_for_tenant(config, registry_tenant)?)
         .json(&json!({
             "TargetTenant": target_tenant,
             "AppRef": app.pinned_ref(),
