@@ -77,6 +77,28 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn evaluation_prompt_treats_required_datadog_as_mandatory() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-review".to_string(),
+            status: "Queued".to_string(),
+            role: "reviewer".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-1".to_string(),
+            prompt_ref: "literal:RequiredEvidence: [\"datadog_evidence_scope\"]".to_string(),
+            context_ref: "stage-result:sr-1".to_string(),
+            output_schema_ref: "schema-1".to_string(),
+            correlation_json: "{}".to_string(),
+        };
+
+        let prompt = directed_evolution_prompt(&work_item);
+
+        assert!(prompt.contains("authenticated Datadog MCP tools"));
+        assert!(prompt.contains("Datadog evidence is mandatory"));
+        assert!(prompt.contains("return passed=false"));
+        assert!(prompt.contains("do not pass with only local/runtime evidence"));
+    }
+
+    #[test]
     fn directed_evolution_codex_stdout_is_normalized_to_json() {
         let parsed = parse_codex_jsonish("codex\n{\"summary\":\"variant\",\"changed_files\":[\"app.ts\"]}\n")
             .expect("parse JSON from Codex output");

@@ -10,10 +10,10 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
             "Generate one bounded candidate variant for the target organism. Make the concrete app-bundle changes, avoid long exploratory verification, and return the concise JSON object immediately after the mutation is complete."
         }
         "simulated_user" => {
-            "Act as an AI simulated user against the target organism. Exercise the live runtime when a RuntimeRef is provided, inspect Datadog for errors or latency evidence tied to that tenant/app when available, and return goals attempted, observations, unmet intents, metrics, traces, and structured evidence_scope entries."
+            "Act as an AI simulated user against the target organism. Exercise the live runtime when a RuntimeRef is provided. If RequiredEvidence includes datadog_evidence_scope, use authenticated Datadog MCP tools to inspect errors or latency evidence tied to that tenant/app, include a Datadog URL in evidence_scope, and return passed=false with a clear failure_reason if Datadog cannot be queried. Return goals attempted, observations, unmet intents, metrics, traces, and structured evidence_scope entries."
         }
         "reviewer" => {
-            "Review a variant against the adaptation goal and viability constraints. Use live runtime evidence and Datadog evidence when available, then return pass/fail reasoning, metrics, structured evidence_scope entries, and risk notes."
+            "Review a variant against the adaptation goal and viability constraints. If RequiredEvidence includes datadog_evidence_scope, use authenticated Datadog MCP tools for logs, traces, or metrics evidence tied to the variant tenant/app, include a Datadog URL in evidence_scope, and return passed=false with a clear failure_reason if Datadog cannot be queried. Return pass/fail reasoning, metrics, structured evidence_scope entries, and risk notes."
         }
         "selector" => {
             "Select a winner from supplied evaluated-variant evidence without changing files, evaluators, or moving goalposts. Return winner, losers, scores, and selection rationale."
@@ -164,7 +164,8 @@ fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> Strin
         "\n\nRuntime execution discipline:\n\
 - Prefer the TemperApiBase URL above with the tenant parsed from RuntimeRef; do not assume localhost is the target runtime.\n\
 - Do not start a foreground long-lived server. If a local server is absolutely required, start it in the background, stop it before returning, and include the cleanup in evidence_scope.\n\
-- If runtime execution is unavailable, fail the stage with clear evidence instead of hanging.\n",
+- If runtime execution is unavailable, fail the stage with clear evidence instead of hanging.\n\
+- If RequiredEvidence includes datadog_evidence_scope, Datadog evidence is mandatory; do not pass with only local/runtime evidence.\n",
     );
     body
 }
