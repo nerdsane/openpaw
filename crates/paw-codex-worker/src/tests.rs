@@ -283,6 +283,10 @@ mod tests {
             !plist.contains("<key>WORKER_TOKEN</key>"),
             "launchd plist should keep WORKER_TOKEN in the 0600 env file, not in launchctl-visible environment"
         );
+        assert!(
+            !plist.contains("<key>PAW_CODEX_INHERIT_USER_CONFIG</key>"),
+            "tool profile opt-in should stay in the worker env file so launchd does not freeze a default"
+        );
     }
 
     #[test]
@@ -515,8 +519,11 @@ mod tests {
         assert!(summary.contains("Codex stdout"));
     }
 
-    #[test]
-    fn codex_exec_bypasses_sandbox_for_assigned_worktree() {
+    #[tokio::test]
+    async fn codex_exec_bypasses_sandbox_for_assigned_worktree() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("0"));
         let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
         let args = args
             .iter()
@@ -535,6 +542,93 @@ mod tests {
                 "--skip-git-repo-check",
                 "Create the proof file"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_exec_keeps_datadog_mcp_disabled_when_env_unset() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp = EnvOverride::remove("PAW_CODEX_ENABLE_DATADOG_MCP");
+        let _datadog_url = EnvOverride::remove("PAW_CODEX_DATADOG_MCP_URL");
+        let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(args[0], "exec");
+        assert_eq!(args[1], "--ignore-user-config");
+        assert!(!args.contains(&"-c".to_string()));
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.contains("mcp_servers.datadog.url"))
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_exec_can_enable_datadog_mcp_without_inheriting_user_config() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("1"));
+        let _datadog_url = EnvOverride::set(
+            "PAW_CODEX_DATADOG_MCP_URL",
+            OsString::from("https://mcp.datadoghq.test/mcp?toolsets=logs"),
+        );
+        let args = codex_exec_args(
+            Path::new("/tmp/paw-worktree"),
+            "Inspect Datadog evidence for the evolution direction",
+        );
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &args[0..4],
+            &[
+                "exec".to_string(),
+                "--ignore-user-config".to_string(),
+                "-c".to_string(),
+                "mcp_servers.datadog.url=\"https://mcp.datadoghq.test/mcp?toolsets=logs\""
+                    .to_string(),
+            ]
+        );
+        assert!(args.contains(&"--ephemeral".to_string()));
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(args.contains(&"--skip-git-repo-check".to_string()));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("Inspect Datadog evidence for the evolution direction")
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_exec_uses_default_datadog_mcp_url_when_enabled() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("1"));
+        let _datadog_url = EnvOverride::remove("PAW_CODEX_DATADOG_MCP_URL");
+        let args = codex_exec_args(
+            Path::new("/tmp/paw-worktree"),
+            "Inspect Datadog evidence for the evolution direction",
+        );
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(args.contains(
+            &"mcp_servers.datadog.url=\"https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=all\""
+                .to_string()
+        ));
+    }
+
+    #[test]
+    fn toml_basic_string_escapes_codex_config_values() {
+        assert_eq!(
+            toml_basic_string("https://mcp.example.test/a\"b\\c\n"),
+            "\"https://mcp.example.test/a\\\"b\\\\c\\n\""
         );
     }
 
@@ -772,6 +866,14 @@ REPO_HEALTH_PATROL_RESULT_JSON_END
             let previous = env::var_os(key);
             unsafe {
                 env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = env::var_os(key);
+            unsafe {
+                env::remove_var(key);
             }
             Self { key, previous }
         }
