@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use futures_util::StreamExt;
 use repo_health::{
     extract_repo_sweep_snapshot_id, parse_repo_health_agent_output, repo_health_agent_prompt,
@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::env;
 use std::fs;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -40,6 +41,16 @@ async fn main() -> Result<()> {
             "{}",
             render_launchd_plist(&config, &worker_bin, eval_commands.as_deref())
         );
+        return Ok(());
+    }
+    if let WorkerCommand::DirectedEvolutionStartEpisode { contract_path } = &command {
+        let result = run_directed_evolution_human_episode_command(
+            &client,
+            &config,
+            contract_path.as_deref(),
+        )
+        .await?;
+        println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(());
     }
 

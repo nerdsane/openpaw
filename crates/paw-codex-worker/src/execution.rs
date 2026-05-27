@@ -488,14 +488,63 @@ fn signal_process_group(pid: u32, signal: libc::c_int, label: &str, context: &st
 async fn terminate_process_group(_pid: u32, _context: &str) {}
 
 fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
-    vec![
-        "exec".into(),
+    let mut args = vec!["exec".into(), "--ignore-user-config".into()];
+    if let Some(datadog_mcp_url) = codex_datadog_mcp_url() {
+        args.extend([
+            "-c".into(),
+            format!(
+                "mcp_servers.datadog.url={}",
+                toml_basic_string(&datadog_mcp_url)
+            )
+            .into(),
+        ]);
+    }
+    args.extend([
+        "--ephemeral".into(),
         "--dangerously-bypass-approvals-and-sandbox".into(),
         "--cd".into(),
         workdir.as_os_str().to_os_string(),
         "--skip-git-repo-check".into(),
         prompt.into(),
-    ]
+    ]);
+    args
+}
+
+fn codex_datadog_mcp_url() -> Option<String> {
+    let enabled = env::var("PAW_CODEX_ENABLE_DATADOG_MCP")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+    Some(
+        env::var("PAW_CODEX_DATADOG_MCP_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=all".to_string()
+            }),
+    )
+}
+
+fn toml_basic_string(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                escaped.push_str(&format!("\\u{:04X}", character as u32));
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 fn codex_review_prompt(worker_run: &WorkerRunState, review_run: &ReviewRunState) -> String {

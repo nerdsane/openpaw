@@ -15,6 +15,7 @@ mod tests {
     include!("fake_codex_tests.rs");
     include!("codex_plan_tests.rs");
     include!("pull_request_tests.rs");
+    include!("repo_health_parser_tests.rs");
     include!("worker_http_tests.rs");
 
     static ENV_LOCK: Mutex<()> = Mutex::const_new(());
@@ -283,6 +284,10 @@ mod tests {
             !plist.contains("<key>WORKER_TOKEN</key>"),
             "launchd plist should keep WORKER_TOKEN in the 0600 env file, not in launchctl-visible environment"
         );
+        assert!(
+            !plist.contains("<key>PAW_CODEX_INHERIT_USER_CONFIG</key>"),
+            "tool profile opt-in should stay in the worker env file so launchd does not freeze a default"
+        );
     }
 
     #[test]
@@ -515,8 +520,11 @@ mod tests {
         assert!(summary.contains("Codex stdout"));
     }
 
-    #[test]
-    fn codex_exec_bypasses_sandbox_for_assigned_worktree() {
+    #[tokio::test]
+    async fn codex_exec_bypasses_sandbox_for_assigned_worktree() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("0"));
         let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
         let args = args
             .iter()
@@ -527,12 +535,101 @@ mod tests {
             args,
             vec![
                 "exec",
+                "--ignore-user-config",
+                "--ephemeral",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--cd",
                 "/tmp/paw-worktree",
                 "--skip-git-repo-check",
                 "Create the proof file"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_exec_keeps_datadog_mcp_disabled_when_env_unset() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp = EnvOverride::remove("PAW_CODEX_ENABLE_DATADOG_MCP");
+        let _datadog_url = EnvOverride::remove("PAW_CODEX_DATADOG_MCP_URL");
+        let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(args[0], "exec");
+        assert_eq!(args[1], "--ignore-user-config");
+        assert!(!args.contains(&"-c".to_string()));
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.contains("mcp_servers.datadog.url"))
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_exec_can_enable_datadog_mcp_without_inheriting_user_config() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("1"));
+        let _datadog_url = EnvOverride::set(
+            "PAW_CODEX_DATADOG_MCP_URL",
+            OsString::from("https://mcp.datadoghq.test/mcp?toolsets=logs"),
+        );
+        let args = codex_exec_args(
+            Path::new("/tmp/paw-worktree"),
+            "Inspect Datadog evidence for the evolution direction",
+        );
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &args[0..4],
+            &[
+                "exec".to_string(),
+                "--ignore-user-config".to_string(),
+                "-c".to_string(),
+                "mcp_servers.datadog.url=\"https://mcp.datadoghq.test/mcp?toolsets=logs\""
+                    .to_string(),
+            ]
+        );
+        assert!(args.contains(&"--ephemeral".to_string()));
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(args.contains(&"--skip-git-repo-check".to_string()));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("Inspect Datadog evidence for the evolution direction")
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_exec_uses_default_datadog_mcp_url_when_enabled() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("1"));
+        let _datadog_url = EnvOverride::remove("PAW_CODEX_DATADOG_MCP_URL");
+        let args = codex_exec_args(
+            Path::new("/tmp/paw-worktree"),
+            "Inspect Datadog evidence for the evolution direction",
+        );
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(args.contains(
+            &"mcp_servers.datadog.url=\"https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=all\""
+                .to_string()
+        ));
+    }
+
+    #[test]
+    fn toml_basic_string_escapes_codex_config_values() {
+        assert_eq!(
+            toml_basic_string("https://mcp.example.test/a\"b\\c\n"),
+            "\"https://mcp.example.test/a\\\"b\\\\c\\n\""
         );
     }
 
@@ -672,83 +769,6 @@ mod tests {
         assert!(work_cycle.review_passed);
     }
 
-    #[test]
-    fn repo_sweep_task_is_detected_from_worker_prompt() {
-        let task = "RepoGraphSnapshot: en-123\nWorkCycle: wc-456\nRequired loop:";
-
-        assert_eq!(
-            extract_repo_sweep_snapshot_id(task).as_deref(),
-            Some("en-123")
-        );
-    }
-
-    #[test]
-    fn repo_health_patrol_parser_requires_agent_evidence_surfaces() {
-        let output = r##"
-REPO_HEALTH_PATROL_RESULT_JSON_BEGIN
-{
-  "summary_markdown": "# Agent-led repo health",
-  "evidence_scope": [
-    {"surface":"codebase_graph","query_or_command":"rg --files","result_summary":"graph inspected"},
-    {"surface":"wasm_modules","query_or_command":"rg os-apps","result_summary":"wasm inspected"},
-    {"surface":"specs_policies","query_or_command":"rg cedar ioa","result_summary":"specs inspected"},
-    {"surface":"dependencies","query_or_command":"cargo metadata","result_summary":"dependencies inspected"},
-    {"surface":"tests_proofs","query_or_command":"cargo test --no-run","result_summary":"tests inspected"},
-    {"surface":"security_readability","query_or_command":"rg TODO HACK","result_summary":"readability inspected"}
-  ],
-  "quality_findings": [
-    {
-      "title": "Mixed-concern WASM module",
-      "severity": "warn",
-      "evidence": "os-apps/paw-agent/wasm/monty_repl/src/lib.rs mixes REPL, parsing, and orchestration.",
-      "affected_paths": ["./os-apps/paw-agent/wasm/monty_repl/src/lib.rs"]
-    }
-  ],
-  "security_findings": [
-    {
-      "title": "Broad Cedar policy needs review",
-      "severity": "critical",
-      "risk_lane": "l3",
-      "evidence": "policy permits a broad shape.",
-      "affected_paths": ["os-apps/demo/policies/demo.cedar"]
-    }
-  ],
-  "summary": {
-    "scanned_files": 120,
-    "scanned_lines": 44000,
-    "giant_modules": 1,
-    "todo_hack_hits": 4,
-    "duplicate_logic_candidates": 2,
-    "broad_cedar_policies": 1,
-    "dependency_risk_hits": 0,
-    "rust_orchestration_hits": 1,
-    "polling_loop_hits": 1,
-    "missing_test_coverage_hits": 3
-  },
-  "residual_risks": ["human should approve L3"],
-  "recommended_next_actions": ["split Monty REPL"]
-}
-REPO_HEALTH_PATROL_RESULT_JSON_END
-"##;
-
-        let parsed = parse_repo_health_agent_output(output).expect("parse agent output");
-
-        assert_eq!(parsed.graph.quality_findings.len(), 1);
-        assert_eq!(parsed.graph.security_findings.len(), 1);
-        assert_eq!(parsed.graph.quality_findings[0].severity, "low");
-        assert!(
-            parsed.graph.quality_findings[0]
-                .fingerprint
-                .starts_with("quality:")
-        );
-        assert_eq!(parsed.graph.security_findings[0].severity, "high");
-        assert_eq!(parsed.graph.security_findings[0].risk_lane, "L3");
-        assert_eq!(
-            parsed.graph.quality_findings[0].affected_paths,
-            vec!["os-apps/paw-agent/wasm/monty_repl/src/lib.rs"]
-        );
-    }
-
     fn unique_temp_dir() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -770,6 +790,14 @@ REPO_HEALTH_PATROL_RESULT_JSON_END
             let previous = env::var_os(key);
             unsafe {
                 env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = env::var_os(key);
+            unsafe {
+                env::remove_var(key);
             }
             Self { key, previous }
         }

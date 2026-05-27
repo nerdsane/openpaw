@@ -10,6 +10,8 @@ fn codex_plan_args_use_read_only_sandbox_without_bypass() {
         args,
         vec![
             "exec",
+            "--ignore-user-config",
+            "--ephemeral",
             "--sandbox",
             "read-only",
             "--cd",
