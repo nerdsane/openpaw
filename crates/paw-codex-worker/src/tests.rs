@@ -527,6 +527,8 @@ mod tests {
             args,
             vec![
                 "exec",
+                "--ignore-user-config",
+                "--ephemeral",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--cd",
                 "/tmp/paw-worktree",

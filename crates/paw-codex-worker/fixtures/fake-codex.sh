@@ -14,7 +14,7 @@ fi
 shift
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
-    --dangerously-bypass-approvals-and-sandbox)
+    --dangerously-bypass-approvals-and-sandbox|--ignore-user-config|--ephemeral)
       shift
       ;;
     --sandbox)

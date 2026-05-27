@@ -1,6 +1,8 @@
 fn codex_plan_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
     vec![
         "exec".into(),
+        "--ignore-user-config".into(),
+        "--ephemeral".into(),
         "--sandbox".into(),
         "read-only".into(),
         "--cd".into(),

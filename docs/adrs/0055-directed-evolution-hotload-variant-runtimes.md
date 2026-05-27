@@ -39,6 +39,9 @@ a hot-loaded Genesis runtime:
   target `StageResult` or `Variant` has already been eliminated. Generation can
   queue multiple stages up front, so late queued work must not waste background
   Codex runs or add confusing evidence after a candidate is dead.
+- Background Codex brain runs use isolated `codex exec` sessions
+  (`--ignore-user-config --ephemeral`) so tiny JSON-producing work items do not
+  inherit unrelated local MCP servers, hooks, or long-lived session state.
 
 This is an agent capability surface, not a hidden orchestration layer. The
 episode still advances through Directed Evolution entities and WASM transitions;
@@ -60,3 +63,6 @@ through the existing `WorkItem` and `BrainRun` actions.
   survive hot-load, simulated-user trials, review, selection, and promotion.
 - Stale work cancellation keeps evaluation throughput focused on live variants
   while preserving entity-level auditability through `CancelWorkItem`.
+- Isolated Codex invocation means background brain runs rely on the Codex auth
+  environment but not the operator's interactive config; any needed tool surface
+  must be provided explicitly by the worker prompt or execution environment.

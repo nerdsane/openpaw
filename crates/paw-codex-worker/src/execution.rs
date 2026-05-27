@@ -490,6 +490,8 @@ async fn terminate_process_group(_pid: u32, _context: &str) {}
 fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
     vec![
         "exec".into(),
+        "--ignore-user-config".into(),
+        "--ephemeral".into(),
         "--dangerously-bypass-approvals-and-sandbox".into(),
         "--cd".into(),
         workdir.as_os_str().to_os_string(),
