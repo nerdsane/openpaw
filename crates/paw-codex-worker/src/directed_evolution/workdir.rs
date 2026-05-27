@@ -220,6 +220,8 @@ async fn ensure_directed_evolution_worktree(
 }
 
 async fn finalize_directed_evolution_output(
+    client: &reqwest::Client,
+    config: &Config,
     work_item: &DirectedEvolutionWorkItemState,
     workdir: &DirectedEvolutionWorkdir,
     mut payload: Value,
@@ -266,7 +268,211 @@ async fn finalize_directed_evolution_output(
             json!(format!("git:{}:{commit}", workdir.branch_ref)),
         );
     }
+    if let Some(runtime) =
+        hotload_directed_evolution_variant(client, config, work_item, workdir, app_name, &commit)
+            .await?
+    {
+        apply_directed_evolution_variant_runtime(work_item, &mut payload, &runtime);
+    }
     Ok(payload)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DirectedEvolutionGenesisApp {
+    owner: String,
+    name: String,
+    hash: String,
+}
+
+impl DirectedEvolutionGenesisApp {
+    fn app_id(&self) -> String {
+        format!(
+            "app-{}-{}",
+            sanitize_id_component(&self.owner),
+            sanitize_id_component(&self.name)
+        )
+    }
+
+    fn pinned_ref(&self) -> String {
+        format!("{}/{}@{}", self.owner, self.name, self.hash)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DirectedEvolutionVariantRuntime {
+    app_ref: String,
+    tenant: String,
+    runtime_ref: String,
+}
+
+fn directed_evolution_genesis_app_from_ref(app_ref: &str) -> Result<DirectedEvolutionGenesisApp> {
+    let (path, hash) = app_ref
+        .split_once('@')
+        .filter(|(_, hash)| !hash.trim().is_empty())
+        .with_context(|| format!("Directed Evolution app_ref '{app_ref}' must be owner/name@hash"))?;
+    let (owner, name) = path
+        .split_once('/')
+        .filter(|(owner, name)| !owner.trim().is_empty() && !name.trim().is_empty())
+        .with_context(|| format!("Directed Evolution app_ref '{app_ref}' must be owner/name@hash"))?;
+    Ok(DirectedEvolutionGenesisApp {
+        owner: owner.to_string(),
+        name: name.to_string(),
+        hash: hash.trim().to_string(),
+    })
+}
+
+fn directed_evolution_variant_tenant(prefix: &str, work_item: &DirectedEvolutionWorkItemState) -> String {
+    let prefix = sanitize_id_component(prefix);
+    let suffix = sanitize_id_component(&work_item.id);
+    format!("{prefix}-{suffix}")
+}
+
+fn apply_directed_evolution_variant_runtime(
+    _work_item: &DirectedEvolutionWorkItemState,
+    payload: &mut Value,
+    runtime: &DirectedEvolutionVariantRuntime,
+) {
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("app_ref".to_string(), json!(runtime.app_ref));
+        object.insert("variant_tenant".to_string(), json!(runtime.tenant));
+        object.insert("runtime_ref".to_string(), json!(runtime.runtime_ref));
+        object.insert("hot_loaded".to_string(), json!(true));
+    }
+}
+
+async fn hotload_directed_evolution_variant(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    workdir: &DirectedEvolutionWorkdir,
+    app_name: &str,
+    commit: &str,
+) -> Result<Option<DirectedEvolutionVariantRuntime>> {
+    let Some(genesis_url) = directed_evolution_genesis_url() else {
+        return Ok(None);
+    };
+    if env_flag("PAW_DE_HOTLOAD_VARIANTS") == Some(false) {
+        return Ok(None);
+    }
+    let app_ref = format!("{app_name}@{commit}");
+    let app = directed_evolution_genesis_app_from_ref(&app_ref)?;
+    let branch = if workdir.branch_ref.trim().is_empty() {
+        directed_evolution_variant_branch(work_item)
+    } else {
+        workdir.branch_ref.clone()
+    };
+    let registry_tenant = directed_evolution_registry_tenant(config);
+    push_directed_evolution_variant_commit(&workdir.path, &genesis_url, &app, &branch, &registry_tenant)
+        .await?;
+    let tenant_prefix = env::var("DIRECTED_EVOLUTION_VARIANT_TENANT_PREFIX")
+        .unwrap_or_else(|_| "de-variant".to_string());
+    let tenant = directed_evolution_variant_tenant(&tenant_prefix, work_item);
+    install_directed_evolution_variant(client, config, &genesis_url, &app, &tenant, &registry_tenant)
+        .await?;
+    let pinned_ref = app.pinned_ref();
+    Ok(Some(DirectedEvolutionVariantRuntime {
+        runtime_ref: format!("temper://tenant/{tenant}/app/{pinned_ref}"),
+        app_ref: pinned_ref,
+        tenant,
+    }))
+}
+
+fn directed_evolution_genesis_url() -> Option<String> {
+    env::var("DIRECTED_EVOLUTION_GENESIS_URL")
+        .ok()
+        .or_else(|| env::var("GENESIS_URL").ok())
+        .map(|value| value.trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn push_directed_evolution_variant_commit(
+    workdir: &Path,
+    genesis_url: &str,
+    app: &DirectedEvolutionGenesisApp,
+    branch: &str,
+    registry_tenant: &str,
+) -> Result<()> {
+    git_capture_owned(
+        workdir,
+        directed_evolution_variant_push_args(genesis_url, app, branch, registry_tenant),
+    )
+    .await?;
+    Ok(())
+}
+
+fn directed_evolution_variant_push_args(
+    genesis_url: &str,
+    app: &DirectedEvolutionGenesisApp,
+    branch: &str,
+    registry_tenant: &str,
+) -> Vec<String> {
+    let remote = format!(
+        "{}/{}/{}.git",
+        genesis_url.trim_end_matches('/'),
+        app.owner,
+        app.name
+    );
+    let refspec = format!("HEAD:refs/heads/{}", sanitize_git_branch(branch));
+    vec![
+        "-c".to_string(),
+        format!("http.extraHeader=x-tenant-id: {registry_tenant}"),
+        "push".to_string(),
+        remote,
+        refspec,
+    ]
+}
+
+async fn install_directed_evolution_variant(
+    client: &reqwest::Client,
+    config: &Config,
+    genesis_url: &str,
+    app: &DirectedEvolutionGenesisApp,
+    target_tenant: &str,
+    registry_tenant: &str,
+) -> Result<()> {
+    let url = format!(
+        "{}/tdata/Apps('{}')/App.Install?await_integration=true",
+        genesis_url.trim_end_matches('/'),
+        app.app_id().replace('\'', "''")
+    );
+    let response = client
+        .post(&url)
+        .headers(headers_for_tenant(config, &registry_tenant)?)
+        .json(&json!({
+            "TargetTenant": target_tenant,
+            "AppRef": app.pinned_ref(),
+            "Installer": config.worker_id,
+        }))
+        .send()
+        .await
+        .with_context(|| format!("install Directed Evolution variant {}", app.pinned_ref()))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!(
+            "Directed Evolution variant install failed for {} into tenant {}: HTTP {} body={}",
+            app.pinned_ref(),
+            target_tenant,
+            status,
+            body
+        );
+    }
+    Ok(())
+}
+
+fn directed_evolution_registry_tenant(config: &Config) -> String {
+    env::var("DIRECTED_EVOLUTION_REGISTRY_TENANT").unwrap_or_else(|_| config.tenant.clone())
+}
+
+fn headers_for_tenant(config: &Config, tenant: &str) -> Result<HeaderMap> {
+    let mut request_headers = headers(config)?;
+    request_headers.insert(
+        "x-tenant-id",
+        HeaderValue::from_str(tenant).context("invalid Directed Evolution registry tenant")?,
+    );
+    request_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    request_headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    Ok(request_headers)
 }
 
 async fn git_changed_files(workdir: &Path) -> Result<Vec<String>> {
@@ -350,6 +556,26 @@ fn sanitize_path_component(value: &str) -> String {
             }
         })
         .collect()
+}
+
+fn sanitize_id_component(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
 }
 
 fn value_field_string(fields: &Value, keys: &[&str]) -> String {

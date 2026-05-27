@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use futures_util::StreamExt;
 use repo_health::{
     extract_repo_sweep_snapshot_id, parse_repo_health_agent_output, repo_health_agent_prompt,

@@ -7,7 +7,7 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
             "Frame human-legible directions from pressures. Return direction title, rationale, source signals, required human gate, and likely adaptation goals."
         }
         "variant_generator" => {
-            "Generate one candidate variant for the target organism. Return concrete changes made, affected files, expected behavior, and verification notes."
+            "Generate one bounded candidate variant for the target organism. Make the concrete app-bundle changes, avoid long exploratory verification, and return the concise JSON object immediately after the mutation is complete."
         }
         "simulated_user" => {
             "Act as an AI simulated user against the target organism. Return goals attempted, observations, unmet intents, traces, and evidence references."
