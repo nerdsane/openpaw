@@ -162,12 +162,6 @@ struct DirectedEvolutionEvaluationStagePlan {
     required_evidence: Vec<String>,
 }
 
-struct DirectedEvolutionSelectionInputs<'a> {
-    metric_ids: &'a [String],
-    elimination_rule_ids: &'a [String],
-    scoring_rule_ids: &'a [String],
-}
-
 fn directed_evolution_episode_plan_from_input(
     input: DirectedEvolutionHumanEpisodeInput,
     direction_fields: &Value,

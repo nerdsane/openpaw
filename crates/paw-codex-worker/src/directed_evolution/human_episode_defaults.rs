@@ -1,27 +1,3 @@
-fn metric_ids_for_rule(
-    explicit_metric_ids: &[String],
-    metric_names: &[String],
-    all_metric_ids: &[String],
-    metric_ids_by_name: &std::collections::BTreeMap<String, String>,
-) -> Vec<String> {
-    let mut ids = explicit_metric_ids
-        .iter()
-        .filter(|id| !id.trim().is_empty())
-        .cloned()
-        .collect::<Vec<_>>();
-    ids.extend(
-        metric_names
-            .iter()
-            .filter_map(|name| metric_ids_by_name.get(name).cloned()),
-    );
-    if ids.is_empty() {
-        ids.extend(all_metric_ids.iter().cloned());
-    }
-    ids.sort();
-    ids.dedup();
-    ids
-}
-
 fn metric_plan_from_input(
     metric: DirectedEvolutionMetricInput,
 ) -> Option<DirectedEvolutionMetricPlan> {

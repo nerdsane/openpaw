@@ -34,17 +34,16 @@ The command:
 
 - reads the contract produced by the human-Codex conversation;
 - fetches the selected Direction and Organism for missing defaults;
-- creates and activates MetricDefinition, AdaptationGoal,
-  ViabilityConstraint, EliminationRule, ScoringRule, SelectionPressure, and
-  EvaluationStage entities;
-- records the Episode contract;
-- dispatches `Direction.SelectDirection`; and
-- dispatches `Episode.StartEpisode`, letting the existing Directed Evolution
-  app trigger generation and worker brain runs.
+- creates one `EpisodeStartRequest`; and
+- dispatches `SubmitEpisodeStartRequest` with the normalized contract so the
+  Directed Evolution app owns MetricDefinition, AdaptationGoal,
+  ViabilityConstraint, EliminationRule, ScoringRule, SelectionPressure,
+  EvaluationStage, Direction, and Episode materialization.
 
 This command is not a brain. It does not choose the contract, silently approve
 fitness, or bypass the human-gated lane. It is the local agent hand that
-persists an already-negotiated contract through real Temper actions.
+persists an already-negotiated contract through a single real Temper app entry
+point.
 
 The command sends its Directed Evolution writes as a `codex` agent by default
 (`DIRECTED_EVOLUTION_DIRECTOR_AGENT_TYPE=codex`) because the worker daemon
@@ -67,8 +66,8 @@ for a specific run.
 
 ## Verification
 
-- Unit tests cover contract normalization, direction/organism defaults, metrics,
-  rule metric resolution, and required growth-stage defaults.
+- Unit tests cover contract normalization, direction/organism defaults,
+  request-body serialization, and required growth-stage defaults.
 - A live proof should take a proposed growth Direction, run this command with a
   human-Codex contract, and verify that Mission Control shows a Running episode
   with the recorded Adaptation Goal, Viability Constraints, Selection Pressure,

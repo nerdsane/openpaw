@@ -561,31 +561,50 @@ mod directed_evolution_tests {
     }
 
     #[test]
-    fn human_episode_metric_rules_resolve_metric_names() {
-        let mut ids_by_name = std::collections::BTreeMap::new();
-        ids_by_name.insert("goal_score".to_string(), "metric-goal".to_string());
-        ids_by_name.insert("regressions".to_string(), "metric-regression".to_string());
+    fn human_episode_request_body_submits_single_app_owned_contract() {
+        let input: DirectedEvolutionHumanEpisodeInput = serde_json::from_value(json!({
+            "DirectionId": "direction-growth",
+            "AdaptationGoal": "Improve answer comparison.",
+            "Metrics": [
+                {"MetricName": "goal_score", "MetricKind": "goal", "Unit": "score"}
+            ],
+            "EliminationRules": [
+                {"RuleStatement": "Eliminate failures.", "MetricNames": ["goal_score"]}
+            ],
+            "ScoringRules": [
+                {"RuleStatement": "Prefer highest goal score.", "MetricNames": ["goal_score"]}
+            ]
+        }))
+        .expect("contract input should parse");
+        let plan = directed_evolution_episode_plan_from_input(
+            input,
+            &json!({
+                "OrganismId": "org-agent-answers",
+                "ProposedAdaptationGoal": "Direction goal",
+            }),
+            &json!({ "ParentVersionId": "ov-parent" }),
+        )
+        .expect("episode plan should resolve");
 
-        let ids = metric_ids_for_rule(
-            &["metric-explicit".to_string()],
-            &["goal_score".to_string()],
-            &["metric-fallback".to_string()],
-            &ids_by_name,
+        let body = directed_evolution_episode_start_request_body(&plan);
+
+        assert_eq!(body["DirectionId"], "direction-growth");
+        assert_eq!(body["OrganismId"], "org-agent-answers");
+        assert_eq!(body["ParentVersionId"], "ov-parent");
+        assert_eq!(body["AdaptationGoal"], "Improve answer comparison.");
+        assert!(
+            body.get("MetricsJson")
+                .and_then(Value::as_str)
+                .unwrap()
+                .contains("goal_score")
         );
-
-        assert_eq!(ids, vec!["metric-explicit", "metric-goal"]);
-    }
-
-    #[test]
-    fn human_episode_metric_rules_default_to_all_metrics() {
-        let ids = metric_ids_for_rule(
-            &[],
-            &[],
-            &["metric-goal".to_string(), "metric-regression".to_string()],
-            &std::collections::BTreeMap::new(),
+        assert!(
+            body.get("EliminationRulesJson")
+                .and_then(Value::as_str)
+                .unwrap()
+                .contains("Eliminate failures.")
         );
-
-        assert_eq!(ids, vec!["metric-goal", "metric-regression"]);
+        assert_eq!(body["StartedBy"], "codex");
     }
 
     #[test]
