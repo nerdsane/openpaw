@@ -55,7 +55,8 @@ fn event_stream_queue_poll_interval() -> Duration {
 async fn claim_event_stream_backlog(client: &reqwest::Client, config: &Config) -> Result<()> {
     claim_boot_queued_runs(client, config).await?;
     claim_boot_requested_review_runs(client, config).await?;
-    claim_boot_queued_evaluation_runs(client, config).await
+    claim_boot_queued_evaluation_runs(client, config).await?;
+    claim_boot_queued_directed_evolution_work_items(client, config).await
 }
 
 async fn handle_event_payload(client: &reqwest::Client, config: &Config, data: &str) -> Result<()> {
@@ -76,6 +77,9 @@ async fn handle_event_payload(client: &reqwest::Client, config: &Config, data: &
         }
         ("EvaluationRun", "Queued") => {
             handle_queued_evaluation_run(client, config, &event.entity_id).await?;
+        }
+        ("WorkItem", "Queued") => {
+            handle_queued_directed_evolution_work_item(client, config, &event.entity_id).await?;
         }
         _ => {}
     }

@@ -1,0 +1,123 @@
+async fn record_directed_evolution_brain_evidence(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    brain_run_id: &str,
+    artifact_kind: &str,
+    output_json: &str,
+    summary: &str,
+) -> Result<String> {
+    let output_value = serde_json::from_str::<Value>(output_json).unwrap_or_else(|_| {
+        json!({
+            "raw": output_json,
+        })
+    });
+    let evidence_id = create_entity(client, config, "EvidenceArtifacts", json!({})).await?;
+    let uri = directed_evolution_evidence_uri(work_item, &output_value);
+    let correlation = json!({
+        "work_item_id": work_item.id,
+        "brain_run_id": brain_run_id,
+        "role": work_item.role,
+        "target_entity_type": work_item.target_entity_type,
+        "target_entity_id": work_item.target_entity_id,
+        "context_ref": work_item.context_ref,
+        "output_schema_ref": work_item.output_schema_ref,
+        "datadog": directed_evolution_datadog_context(work_item),
+        "output": output_value,
+    });
+    post_directed_evolution_action(
+        client,
+        config,
+        "EvidenceArtifacts",
+        &evidence_id,
+        "RecordEvidenceArtifact",
+        json!({
+            "ArtifactKind": artifact_kind,
+            "Uri": uri,
+            "Summary": summary,
+            "CorrelationJson": correlation.to_string(),
+            "Digest": directed_evolution_evidence_digest(output_json),
+        }),
+    )
+    .await?;
+    post_directed_evolution_action(
+        client,
+        config,
+        "EvidenceArtifacts",
+        &evidence_id,
+        "LinkEvidenceArtifact",
+        json!({
+            "TargetEntityType": "BrainRun",
+            "TargetEntityId": brain_run_id,
+        }),
+    )
+    .await?;
+    Ok(evidence_id)
+}
+
+fn directed_evolution_evidence_uri(
+    work_item: &DirectedEvolutionWorkItemState,
+    output: &Value,
+) -> String {
+    for key in [
+        "evidence_uri",
+        "evidenceRef",
+        "evidence_ref",
+        "diff_ref",
+        "diffRef",
+        "runtime_ref",
+        "runtimeRef",
+    ] {
+        if let Some(value) = output.get(key).and_then(Value::as_str)
+            && !value.trim().is_empty()
+        {
+            return value.trim().to_string();
+        }
+    }
+    if let Some(first) = output
+        .get("evidence_refs")
+        .or_else(|| output.get("evidenceRefs"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.iter().find_map(Value::as_str))
+        .filter(|value| !value.trim().is_empty())
+    {
+        return first.trim().to_string();
+    }
+    format!(
+        "temperpaw://directed-evolution/{}/{}",
+        sanitize_path_component(&work_item.role),
+        sanitize_path_component(&work_item.id)
+    )
+}
+
+fn directed_evolution_evidence_digest(output_json: &str) -> String {
+    format!("bytes:{}", output_json.len())
+}
+
+fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState) -> Value {
+    let service = env::var("DD_SERVICE").unwrap_or_else(|_| "temperpaw".to_string());
+    let env_name = env::var("DD_ENV").unwrap_or_else(|_| "local".to_string());
+    let site = env::var("DD_SITE").unwrap_or_else(|_| "datadoghq.com".to_string());
+    let query = format!("service:{service} env:{env_name} @work_item_id:{}", work_item.id);
+    json!({
+        "service": service,
+        "env": env_name,
+        "query": query,
+        "logs_url": format!(
+            "https://app.{site}/logs?query={}",
+            encode_url_component(&query)
+        ),
+    })
+}
+
+fn encode_url_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}

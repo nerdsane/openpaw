@@ -6,6 +6,7 @@ const EVALUATION_CLAIM_LABEL: &str = "EvaluationRun.Claim";
 const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";
 const EVALUATION_FAIL_LABEL: &str = "EvaluationRun.Fail";
+const DIRECTED_EVOLUTION_NAMESPACE: &str = "Temper.DirectedEvolution";
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -127,10 +128,16 @@ impl Config {
         format!("{}/tdata/{}('{}')", self.temper_url, entity_set, id)
     }
 
-    fn entity_action_url(&self, entity_set: &str, id: &str, action: &str) -> String {
+    fn entity_action_url_with_namespace(
+        &self,
+        entity_set: &str,
+        id: &str,
+        namespace: &str,
+        action: &str,
+    ) -> String {
         format!(
-            "{}/tdata/{}('{}')/TemperPaw.Patrol.{}",
-            self.temper_url, entity_set, id, action
+            "{}/tdata/{}('{}')/{}.{}",
+            self.temper_url, entity_set, id, namespace, action
         )
     }
 }
@@ -245,6 +252,28 @@ struct WorkCycleState {
     reviewer_run_id: String,
     #[serde(default, rename = "ReviewPassed")]
     review_passed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+struct DirectedEvolutionWorkItemState {
+    #[serde(default, rename = "Id")]
+    id: String,
+    #[serde(default, rename = "Status")]
+    status: String,
+    #[serde(default, rename = "Role")]
+    role: String,
+    #[serde(default, rename = "TargetEntityType")]
+    target_entity_type: String,
+    #[serde(default, rename = "TargetEntityId")]
+    target_entity_id: String,
+    #[serde(default, rename = "PromptRef")]
+    prompt_ref: String,
+    #[serde(default, rename = "ContextRef")]
+    context_ref: String,
+    #[serde(default, rename = "OutputSchemaRef")]
+    output_schema_ref: String,
+    #[serde(default, rename = "CorrelationJson")]
+    correlation_json: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
