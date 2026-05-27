@@ -26,6 +26,28 @@ The worker does five concrete jobs:
 It should be safe to leave running under launchd because it does not decide what
 work exists. Patrol does that by creating Temper entities and actions.
 
+## Directed Evolution Human-Gated Episodes
+
+For Directed Evolution growth lanes, the human and Codex negotiate the
+Adaptation Goal, Viability Constraints, metrics, evaluation stages, elimination
+rules, and scoring rules in chat. After that agreement exists, the worker can
+persist the contract into real Directed Evolution entities and start the normal
+generation pipeline:
+
+```sh
+TEMPER_URL=https://genesis-production-164d.up.railway.app \
+TEMPER_TENANT=de-control-tenant \
+WORKER_ID=codex-director \
+WORKER_TOKEN="$TEMPER_API_KEY" \
+cargo run -p paw-codex-worker -- directed-evolution-start-episode episode-contract.json
+```
+
+The command writes as `DIRECTED_EVOLUTION_DIRECTOR_AGENT_TYPE=codex` by default
+because the daemon's normal `worker` principal is not allowed to start
+human-gated growth. It does not choose the contract; it records the already
+negotiated contract and dispatches `Direction.SelectDirection` plus
+`Episode.StartEpisode`. Omit the path to read the JSON contract from stdin.
+
 ## Scripts Versus Rust Tests
 
 The files in `crates/paw-codex-worker/scripts/` are not one-off migration scripts.

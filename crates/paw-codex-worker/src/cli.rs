@@ -1,9 +1,20 @@
 fn parse_worker_command(args: impl IntoIterator<Item = String>) -> WorkerCommand {
-    for arg in args {
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "doctor" | "--doctor" => return WorkerCommand::Doctor,
             "launchd-plist" | "plist" | "--launchd-plist" => {
                 return WorkerCommand::LaunchdPlist;
+            }
+            "directed-evolution-start-episode" | "de-start-episode" => {
+                return WorkerCommand::DirectedEvolutionStartEpisode {
+                    contract_path: args.next(),
+                };
+            }
+            "--directed-evolution-start-episode" | "--de-start-episode" => {
+                return WorkerCommand::DirectedEvolutionStartEpisode {
+                    contract_path: args.next(),
+                };
             }
             "run" | "--run" => return WorkerCommand::Run,
             _ => {}
@@ -48,4 +59,3 @@ fn value_as_bool(value: &Value) -> Option<bool> {
             .map(|value| value.eq_ignore_ascii_case("true"))
     })
 }
-

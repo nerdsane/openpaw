@@ -492,4 +492,114 @@ mod directed_evolution_tests {
         assert_eq!(context["target_entity_id"], "sr-1");
         assert!(context["query"].as_str().unwrap().contains("@work_item_id:wi-dd"));
     }
+
+    #[test]
+    fn human_episode_contract_uses_direction_and_organism_defaults() {
+        let input: DirectedEvolutionHumanEpisodeInput = serde_json::from_value(json!({
+            "direction_id": "direction-growth",
+            "selection_statement": "Prefer variants with clearer answer comparison.",
+            "viability_constraints": [
+                {"statement": "Answer creation still works.", "kind": "baseline"}
+            ]
+        }))
+        .expect("contract input should parse");
+
+        let plan = directed_evolution_episode_plan_from_input(
+            input,
+            &json!({
+                "OrganismId": "org-agent-answers",
+                "AutonomyLane": "growth-human-gated",
+                "ProposedAdaptationGoal": "Humans compare candidate answers before acceptance.",
+                "ProposedViabilityConstraintsJson": "[\"Do not regress answer acceptance.\"]"
+            }),
+            &json!({
+                "OrganismVersionId": "ov-parent"
+            }),
+        )
+        .expect("episode plan should resolve");
+
+        assert_eq!(plan.direction_id, "direction-growth");
+        assert_eq!(plan.organism_id, "org-agent-answers");
+        assert_eq!(plan.parent_version_id, "ov-parent");
+        assert_eq!(plan.autonomy_lane, "growth-human-gated");
+        assert_eq!(
+            plan.adaptation_goal,
+            "Humans compare candidate answers before acceptance."
+        );
+        assert_eq!(plan.viability_constraints[0].statement, "Answer creation still works.");
+        assert_eq!(plan.metrics.len(), 2);
+        assert!(
+            plan.evaluation_stages
+                .iter()
+                .any(|stage| stage.kind == "simulated_user")
+        );
+    }
+
+    #[test]
+    fn human_episode_contract_falls_back_to_direction_constraints() {
+        let input: DirectedEvolutionHumanEpisodeInput = serde_json::from_value(json!({
+            "DirectionId": "direction-growth",
+            "AdaptationGoal": "Improve citation memory."
+        }))
+        .expect("contract input should parse");
+
+        let plan = directed_evolution_episode_plan_from_input(
+            input,
+            &json!({
+                "OrganismId": "org-agent-answers",
+                "ProposedViabilityConstraintsJson": "[\"Keep source fidelity.\",\"Do not increase answer latency.\"]"
+            }),
+            &json!({
+                "ParentVersionId": "ov-parent"
+            }),
+        )
+        .expect("episode plan should resolve");
+
+        assert_eq!(plan.viability_constraints.len(), 2);
+        assert_eq!(plan.viability_constraints[0].statement, "Keep source fidelity.");
+        assert_eq!(plan.viability_constraints[1].statement, "Do not increase answer latency.");
+    }
+
+    #[test]
+    fn human_episode_metric_rules_resolve_metric_names() {
+        let mut ids_by_name = std::collections::BTreeMap::new();
+        ids_by_name.insert("goal_score".to_string(), "metric-goal".to_string());
+        ids_by_name.insert("regressions".to_string(), "metric-regression".to_string());
+
+        let ids = metric_ids_for_rule(
+            &["metric-explicit".to_string()],
+            &["goal_score".to_string()],
+            &["metric-fallback".to_string()],
+            &ids_by_name,
+        );
+
+        assert_eq!(ids, vec!["metric-explicit", "metric-goal"]);
+    }
+
+    #[test]
+    fn human_episode_metric_rules_default_to_all_metrics() {
+        let ids = metric_ids_for_rule(
+            &[],
+            &[],
+            &["metric-goal".to_string(), "metric-regression".to_string()],
+            &std::collections::BTreeMap::new(),
+        );
+
+        assert_eq!(ids, vec!["metric-goal", "metric-regression"]);
+    }
+
+    #[test]
+    fn directed_evolution_start_episode_command_accepts_contract_path() {
+        let command = parse_worker_command([
+            "directed-evolution-start-episode".to_string(),
+            "episode.json".to_string(),
+        ]);
+
+        assert_eq!(
+            command,
+            WorkerCommand::DirectedEvolutionStartEpisode {
+                contract_path: Some("episode.json".to_string())
+            }
+        );
+    }
 }

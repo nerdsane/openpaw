@@ -24,11 +24,12 @@ struct Config {
     codex_exec_timeout: Duration,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum WorkerCommand {
     Run,
     Doctor,
     LaunchdPlist,
+    DirectedEvolutionStartEpisode { contract_path: Option<String> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
