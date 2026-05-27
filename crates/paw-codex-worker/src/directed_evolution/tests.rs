@@ -157,6 +157,44 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn stale_stage_work_terminalizes_running_stage_result() {
+        assert!(stale_stage_result_should_eliminate(&json!({
+            "Status": "Running"
+        })));
+        assert!(stale_stage_result_should_eliminate(&json!({
+            "Status": "Failed"
+        })));
+        assert!(!stale_stage_result_should_eliminate(&json!({
+            "Status": "Eliminated"
+        })));
+        assert!(!stale_stage_result_should_eliminate(&json!({
+            "Status": "Passed"
+        })));
+    }
+
+    #[test]
+    fn stale_stage_work_targets_only_evaluation_stage_results() {
+        let mut work_item = DirectedEvolutionWorkItemState {
+            id: "wi-review".to_string(),
+            status: "Queued".to_string(),
+            role: "reviewer".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-3".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{}".to_string(),
+        };
+
+        assert!(stale_stage_work_targets_stage_result(&work_item));
+        work_item.role = "variant_generator".to_string();
+        assert!(!stale_stage_work_targets_stage_result(&work_item));
+        work_item.role = "simulated_user".to_string();
+        work_item.target_entity_type = "Variant".to_string();
+        assert!(!stale_stage_work_targets_stage_result(&work_item));
+    }
+
+    #[test]
     fn directed_evolution_repo_mapping_accepts_app_ref_prefix() {
         let previous = env::var_os("DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON");
         unsafe {

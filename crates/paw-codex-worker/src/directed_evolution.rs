@@ -20,6 +20,8 @@ async fn handle_queued_directed_evolution_work_item(
     if let Some(reason) =
         stale_directed_evolution_work_item_reason(client, config, &work_item).await?
     {
+        eliminate_stale_directed_evolution_stage_result(client, config, &work_item, &reason)
+            .await?;
         post_directed_evolution_action(
             client,
             config,
@@ -222,14 +224,44 @@ async fn stale_directed_evolution_work_item_reason(
     ))
 }
 
+async fn eliminate_stale_directed_evolution_stage_result(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    reason: &str,
+) -> Result<()> {
+    if !stale_stage_work_targets_stage_result(work_item) {
+        return Ok(());
+    }
+
+    let stage_fields =
+        fetch_directed_evolution_entity_fields(client, config, "StageResults", &work_item.target_entity_id)
+            .await?;
+    if !stale_stage_result_should_eliminate(&stage_fields) {
+        return Ok(());
+    }
+
+    post_directed_evolution_action(
+        client,
+        config,
+        "StageResults",
+        &work_item.target_entity_id,
+        "EliminateStageResult",
+        json!({
+            "EliminationRuleId": "stale-after-variant-terminal",
+            "EvidenceArtifactId": value_field_string(&stage_fields, &["EvidenceArtifactId", "evidence_artifact_id"]),
+            "Reason": reason,
+        }),
+    )
+    .await
+}
+
 fn stale_directed_evolution_stage_work_reason(
     work_item: &DirectedEvolutionWorkItemState,
     stage_fields: &Value,
     variant_fields: &Value,
 ) -> Option<String> {
-    if !matches!(work_item.role.as_str(), "reviewer" | "simulated_user")
-        || work_item.target_entity_type != "StageResult"
-    {
+    if !stale_stage_work_targets_stage_result(work_item) {
         return None;
     }
     let stage_status = value_field_string(stage_fields, &["Status", "status"]);
@@ -250,6 +282,18 @@ fn stale_directed_evolution_stage_work_reason(
         ));
     }
     None
+}
+
+fn stale_stage_work_targets_stage_result(work_item: &DirectedEvolutionWorkItemState) -> bool {
+    matches!(work_item.role.as_str(), "reviewer" | "simulated_user")
+        && work_item.target_entity_type == "StageResult"
+}
+
+fn stale_stage_result_should_eliminate(stage_fields: &Value) -> bool {
+    matches!(
+        value_field_string(stage_fields, &["Status", "status"]).as_str(),
+        "Running" | "Failed"
+    )
 }
 
 
