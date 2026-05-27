@@ -251,6 +251,66 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_production_tenant_defaults_to_default() {
+        let previous = env::var_os("DIRECTED_EVOLUTION_PRODUCTION_TENANT");
+        unsafe {
+            env::remove_var("DIRECTED_EVOLUTION_PRODUCTION_TENANT");
+        }
+
+        assert_eq!(directed_evolution_production_tenant(), "default");
+
+        unsafe {
+            if let Some(value) = previous {
+                env::set_var("DIRECTED_EVOLUTION_PRODUCTION_TENANT", value);
+            }
+        }
+    }
+
+    #[test]
+    fn directed_evolution_canonical_push_targets_main_with_registry_tenant() {
+        let app = directed_evolution_genesis_app_from_ref("nerdsane/agent-answers@abc123")
+            .expect("app ref should parse");
+
+        let args = directed_evolution_canonical_push_args(
+            "https://genesis-production-164d.up.railway.app/",
+            &app,
+            "default",
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "-c",
+                "http.extraHeader=x-tenant-id: default",
+                "push",
+                "https://genesis-production-164d.up.railway.app/nerdsane/agent-answers.git",
+                "HEAD:refs/heads/main",
+            ]
+        );
+    }
+
+    #[test]
+    fn promotion_materialization_output_reports_runtime_ref() {
+        let materialization = DirectedEvolutionPromotionMaterialization {
+            canonical_app_ref: "nerdsane/agent-answers@abc123".to_string(),
+            production_tenant: "default".to_string(),
+            runtime_ref: "temper://tenant/default/app/nerdsane/agent-answers@abc123".to_string(),
+            summary: "Published and installed winner".to_string(),
+            digest: "abc123".to_string(),
+        };
+
+        let payload = directed_evolution_promotion_output(&materialization);
+
+        assert_eq!(payload["canonical_app_ref"], "nerdsane/agent-answers@abc123");
+        assert_eq!(payload["production_tenant"], "default");
+        assert_eq!(
+            payload["runtime_ref"],
+            "temper://tenant/default/app/nerdsane/agent-answers@abc123"
+        );
+        assert_eq!(payload["evidence_refs"][0], payload["runtime_ref"]);
+    }
+
+    #[test]
     fn directed_evolution_evidence_uri_prefers_agent_reference() {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-1".to_string(),

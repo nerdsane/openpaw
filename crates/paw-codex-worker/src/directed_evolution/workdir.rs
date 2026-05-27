@@ -82,6 +82,9 @@ async fn directed_evolution_work_item_context(
         ("variant_generator", "Generation") | ("selector", "Generation") => {
             directed_evolution_generation_context(client, config, &work_item.target_entity_id).await
         }
+        ("promoter", "Promotion") => {
+            directed_evolution_promotion_context(client, config, &work_item.target_entity_id).await
+        }
         ("reviewer", "StageResult") | ("simulated_user", "StageResult") => {
             let stage_result =
                 fetch_directed_evolution_entity_fields(client, config, "StageResults", &work_item.target_entity_id)
@@ -109,6 +112,59 @@ async fn directed_evolution_work_item_context(
         }
         _ => Ok(None),
     }
+}
+
+async fn directed_evolution_promotion_context(
+    client: &reqwest::Client,
+    config: &Config,
+    promotion_id: &str,
+) -> Result<Option<DirectedEvolutionWorkContext>> {
+    let promotion =
+        fetch_directed_evolution_entity_fields(client, config, "Promotions", promotion_id).await?;
+    let winning_variant_id =
+        value_field_string(&promotion, &["WinningVariantId", "winning_variant_id"]);
+    let promotion_app_ref = value_field_string(&promotion, &["AppRef", "app_ref"]);
+    if winning_variant_id.trim().is_empty() {
+        if promotion_app_ref.trim().is_empty() {
+            return Ok(None);
+        }
+        return Ok(Some(DirectedEvolutionWorkContext {
+            organism_id: String::new(),
+            app_ref: promotion_app_ref,
+            branch_ref: String::new(),
+        }));
+    }
+
+    let variant =
+        fetch_directed_evolution_entity_fields(client, config, "Variants", &winning_variant_id)
+            .await?;
+    let variant_app_ref = value_field_string(&variant, &["AppRef", "app_ref"]);
+    let branch_ref = value_field_string(&variant, &["BranchRef", "branch_ref"]);
+    let generation_id = value_field_string(&variant, &["GenerationId", "generation_id"]);
+    let mut context = if generation_id.trim().is_empty() {
+        DirectedEvolutionWorkContext {
+            organism_id: String::new(),
+            app_ref: promotion_app_ref.clone(),
+            branch_ref: String::new(),
+        }
+    } else {
+        directed_evolution_generation_context(client, config, &generation_id)
+            .await?
+            .unwrap_or(DirectedEvolutionWorkContext {
+                organism_id: String::new(),
+                app_ref: promotion_app_ref.clone(),
+                branch_ref: String::new(),
+            })
+    };
+    if !variant_app_ref.trim().is_empty() {
+        context.app_ref = variant_app_ref;
+    } else if !promotion_app_ref.trim().is_empty() {
+        context.app_ref = promotion_app_ref;
+    }
+    if !branch_ref.trim().is_empty() {
+        context.branch_ref = branch_ref;
+    }
+    Ok(Some(context))
 }
 
 async fn directed_evolution_generation_context(
@@ -377,6 +433,88 @@ async fn hotload_directed_evolution_variant(
     }))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DirectedEvolutionPromotionMaterialization {
+    canonical_app_ref: String,
+    production_tenant: String,
+    runtime_ref: String,
+    summary: String,
+    digest: String,
+}
+
+async fn materialize_directed_evolution_promotion(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+) -> Result<DirectedEvolutionPromotionMaterialization> {
+    let genesis_url = directed_evolution_genesis_url()
+        .context("DIRECTED_EVOLUTION_GENESIS_URL or GENESIS_URL is required for promoter WorkItems")?;
+    let promotion_fields = fetch_directed_evolution_entity_fields(
+        client,
+        config,
+        "Promotions",
+        &work_item.target_entity_id,
+    )
+    .await?;
+    let app_ref = value_field_string(&promotion_fields, &["AppRef", "app_ref"]);
+    let app = directed_evolution_genesis_app_from_ref(&app_ref)?;
+    let workdir = resolve_directed_evolution_workdir(client, config, work_item).await?;
+    let head = git_capture(&workdir.path, &["rev-parse", "HEAD"]).await?;
+    let head = head.trim();
+    if head != app.hash {
+        bail!(
+            "Directed Evolution promoter expected worktree {} at {}, found {}",
+            workdir.path.display(),
+            app.hash,
+            head
+        );
+    }
+
+    let registry_tenant = directed_evolution_registry_tenant(config);
+    push_directed_evolution_canonical_commit(&workdir.path, &genesis_url, &app, &registry_tenant)
+        .await?;
+    publish_directed_evolution_app_version(client, config, &genesis_url, &app, &registry_tenant)
+        .await?;
+    let production_tenant = directed_evolution_production_tenant();
+    install_directed_evolution_variant(
+        client,
+        config,
+        &genesis_url,
+        &app,
+        &production_tenant,
+        &registry_tenant,
+    )
+    .await?;
+
+    let canonical_app_ref = app.pinned_ref();
+    Ok(DirectedEvolutionPromotionMaterialization {
+        runtime_ref: format!("temper://tenant/{production_tenant}/app/{canonical_app_ref}"),
+        summary: format!(
+            "Published {} to Genesis main and hot-loaded it into tenant {}.",
+            canonical_app_ref, production_tenant
+        ),
+        digest: app.hash.clone(),
+        canonical_app_ref,
+        production_tenant,
+    })
+}
+
+fn directed_evolution_promotion_output(
+    materialization: &DirectedEvolutionPromotionMaterialization,
+) -> Value {
+    json!({
+        "status": "succeeded",
+        "canonical_app_ref": materialization.canonical_app_ref,
+        "app_ref": materialization.canonical_app_ref,
+        "production_tenant": materialization.production_tenant,
+        "runtime_ref": materialization.runtime_ref,
+        "summary": materialization.summary,
+        "digest": materialization.digest,
+        "evidence_refs": [materialization.runtime_ref],
+        "reasoning_summary": "The promoter materialized the selector-owned winning variant into the canonical Genesis runtime.",
+    })
+}
+
 fn directed_evolution_genesis_url() -> Option<String> {
     env::var("DIRECTED_EVOLUTION_GENESIS_URL")
         .ok()
@@ -398,6 +536,28 @@ async fn push_directed_evolution_variant_commit(
     )
     .await?;
     Ok(())
+}
+
+async fn push_directed_evolution_canonical_commit(
+    workdir: &Path,
+    genesis_url: &str,
+    app: &DirectedEvolutionGenesisApp,
+    registry_tenant: &str,
+) -> Result<()> {
+    git_capture_owned(
+        workdir,
+        directed_evolution_canonical_push_args(genesis_url, app, registry_tenant),
+    )
+    .await?;
+    Ok(())
+}
+
+fn directed_evolution_canonical_push_args(
+    genesis_url: &str,
+    app: &DirectedEvolutionGenesisApp,
+    registry_tenant: &str,
+) -> Vec<String> {
+    directed_evolution_variant_push_args(genesis_url, app, "main", registry_tenant)
 }
 
 fn directed_evolution_variant_push_args(
@@ -442,6 +602,8 @@ async fn install_directed_evolution_variant(
             "TargetTenant": target_tenant,
             "AppRef": app.pinned_ref(),
             "Installer": config.worker_id,
+            "RegistryUrl": genesis_url.trim_end_matches('/'),
+            "RegistryTenant": registry_tenant,
         }))
         .send()
         .await
@@ -460,8 +622,51 @@ async fn install_directed_evolution_variant(
     Ok(())
 }
 
+async fn publish_directed_evolution_app_version(
+    client: &reqwest::Client,
+    config: &Config,
+    genesis_url: &str,
+    app: &DirectedEvolutionGenesisApp,
+    registry_tenant: &str,
+) -> Result<()> {
+    let url = format!(
+        "{}/tdata/Apps('{}')/App.PublishNewVersion?await_integration=true",
+        genesis_url.trim_end_matches('/'),
+        app.app_id().replace('\'', "''")
+    );
+    let response = client
+        .post(&url)
+        .headers(headers_for_tenant(config, registry_tenant)?)
+        .json(&json!({
+            "NewHash": app.hash,
+            "RefName": "main",
+        }))
+        .send()
+        .await
+        .with_context(|| format!("publish Directed Evolution app version {}", app.pinned_ref()))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!(
+            "Directed Evolution app publish failed for {}: HTTP {} body={}",
+            app.pinned_ref(),
+            status,
+            body
+        );
+    }
+    Ok(())
+}
+
 fn directed_evolution_registry_tenant(config: &Config) -> String {
     env::var("DIRECTED_EVOLUTION_REGISTRY_TENANT").unwrap_or_else(|_| config.tenant.clone())
+}
+
+fn directed_evolution_production_tenant() -> String {
+    env::var("DIRECTED_EVOLUTION_PRODUCTION_TENANT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "default".to_string())
 }
 
 fn headers_for_tenant(config: &Config, tenant: &str) -> Result<HeaderMap> {

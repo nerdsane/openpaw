@@ -59,8 +59,8 @@ async fn handle_queued_directed_evolution_work_item(
         json!({
             "Role": work_item.role,
             "WorkItemId": work_item.id,
-            "AgentKind": "codex",
-            "Model": "codex-cli",
+            "AgentKind": directed_evolution_agent_kind_for_role(&work_item.role),
+            "Model": directed_evolution_model_for_role(&work_item.role),
             "ParentSessionId": env::var("CODEX_SESSION_ID").unwrap_or_default(),
             "CorrelationJson": work_item.correlation_json,
         }),
@@ -302,6 +302,12 @@ async fn run_directed_evolution_codex_role(
         }))
             .context("serialize Directed Evolution dry-run output");
     }
+    if work_item.role == "promoter" {
+        let materialization =
+            materialize_directed_evolution_promotion(client, config, work_item).await?;
+        return serde_json::to_string(&directed_evolution_promotion_output(&materialization))
+            .context("serialize Directed Evolution promoter output");
+    }
 
     let workdir = resolve_directed_evolution_workdir(client, config, work_item).await?;
     let readonly_status_before = if directed_evolution_role_may_write_repo(&work_item.role) {
@@ -375,6 +381,22 @@ async fn run_directed_evolution_codex_role(
     }
     serde_json::to_string(&payload)
     .context("serialize Directed Evolution Codex output")
+}
+
+fn directed_evolution_agent_kind_for_role(role: &str) -> &'static str {
+    if role == "promoter" {
+        "temperpaw-worker"
+    } else {
+        "codex"
+    }
+}
+
+fn directed_evolution_model_for_role(role: &str) -> &'static str {
+    if role == "promoter" {
+        "deterministic-worker"
+    } else {
+        "codex-cli"
+    }
 }
 
 async fn recover_directed_evolution_variant_output(

@@ -18,6 +18,9 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
         "selector" => {
             "Select a winner from supplied evaluated-variant evidence without changing files, evaluators, or moving goalposts. Return winner, losers, scores, and selection rationale."
         }
+        "promoter" => {
+            "Materialize an already-selected promotion into the canonical Genesis runtime. Do not choose a winner; publish and hot-load the selected app ref."
+        }
         "narrator" => {
             "Explain the episode outcome for Mission Control. Return concise human-facing narrative, lineage impact, and evidence links."
         }
@@ -109,6 +112,18 @@ fn directed_evolution_output_contract(role: &str) -> &'static str {
   "evidence_uri": "...",
   "digest": "...",
   "tradeoffs": ["..."],
+  "reasoning_summary": "..."
+}"#
+        }
+        "promoter" => {
+            r#"{
+  "status": "succeeded|failed",
+  "canonical_app_ref": "owner/app@hash",
+  "production_tenant": "default",
+  "runtime_ref": "temper://tenant/default/app/owner/app@hash",
+  "summary": "...",
+  "evidence_refs": ["..."],
+  "digest": "...",
   "reasoning_summary": "..."
 }"#
         }
