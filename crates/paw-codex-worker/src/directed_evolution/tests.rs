@@ -55,6 +55,28 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn observer_prompt_requires_datadog_evidence_scope() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-observer".to_string(),
+            status: "Queued".to_string(),
+            role: "observer".to_string(),
+            target_entity_type: "Signal".to_string(),
+            target_entity_id: "sig-1".to_string(),
+            prompt_ref: "literal:Source: datadog\nSummary: p95 latency climbed".to_string(),
+            context_ref: "signal:sig-1".to_string(),
+            output_schema_ref: "schema-1".to_string(),
+            correlation_json: "{\"source\":\"datadog\"}".to_string(),
+        };
+
+        let prompt = directed_evolution_prompt(&work_item);
+
+        assert!(prompt.contains("Datadog MCP"));
+        assert!(prompt.contains("evidence_scope"));
+        assert!(prompt.contains("datadog_url"));
+        assert!(prompt.contains("Do not treat the signal summary as proof"));
+    }
+
+    #[test]
     fn directed_evolution_codex_stdout_is_normalized_to_json() {
         let parsed = parse_codex_jsonish("codex\n{\"summary\":\"variant\",\"changed_files\":[\"app.ts\"]}\n")
             .expect("parse JSON from Codex output");
@@ -335,6 +357,72 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_evidence_uri_prefers_datadog_scope_url() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-logs".to_string(),
+            status: "Queued".to_string(),
+            role: "observer".to_string(),
+            target_entity_type: "Signal".to_string(),
+            target_entity_id: "sig-1".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: String::new(),
+        };
+
+        let uri = directed_evolution_evidence_uri(
+            &work_item,
+            &json!({
+                "evidence_scope": [
+                    {
+                        "surface": "logs",
+                        "query": "service:temperpaw",
+                        "result_summary": "no errors",
+                        "datadog_url": "https://app.datadoghq.com/logs?query=service%3Atemperpaw"
+                    }
+                ]
+            }),
+        );
+
+        assert_eq!(
+            uri,
+            "https://app.datadoghq.com/logs?query=service%3Atemperpaw"
+        );
+    }
+
+    #[test]
+    fn directed_evolution_evidence_uri_accepts_datadog_site_hosts() {
+        assert!(is_datadog_app_url("https://app.datadoghq.com/logs"));
+        assert!(is_datadog_app_url("https://app.us3.datadoghq.com/apm/traces"));
+        assert!(is_datadog_app_url("https://app.datadoghq.eu/metric/explorer"));
+        assert!(is_datadog_app_url("https://app.ap2.datadoghq.com/dashboard"));
+        assert!(!is_datadog_app_url("https://example.com/logs"));
+    }
+
+    #[test]
+    fn directed_evolution_summary_uses_agent_summary_when_available() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-review".to_string(),
+            status: "Queued".to_string(),
+            role: "reviewer".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-1".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: String::new(),
+        };
+
+        let summary = directed_evolution_summary(
+            &work_item,
+            r#"{"summary":"Variant preserved baseline actions and showed no live OData errors."}"#,
+        );
+
+        assert!(summary.contains("reviewer"));
+        assert!(summary.contains("Variant preserved baseline actions"));
+    }
+
+    #[test]
     fn directed_evolution_datadog_url_encodes_work_item_query() {
         let encoded = encode_url_component("service:temperpaw env:local @work_item_id:wi-1");
 
@@ -342,5 +430,28 @@ mod directed_evolution_tests {
             encoded,
             "service%3Atemperpaw%20env%3Alocal%20%40work_item_id%3Awi-1"
         );
+    }
+
+    #[test]
+    fn directed_evolution_datadog_context_carries_join_fields() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-dd".to_string(),
+            status: "Queued".to_string(),
+            role: "simulated_user".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-1".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: String::new(),
+        };
+
+        let context = directed_evolution_datadog_context(&work_item);
+
+        assert_eq!(context["work_item_id"], "wi-dd");
+        assert_eq!(context["role"], "simulated_user");
+        assert_eq!(context["target_entity_type"], "StageResult");
+        assert_eq!(context["target_entity_id"], "sr-1");
+        assert!(context["query"].as_str().unwrap().contains("@work_item_id:wi-dd"));
     }
 }

@@ -59,6 +59,9 @@ fn directed_evolution_evidence_uri(
     work_item: &DirectedEvolutionWorkItemState,
     output: &Value,
 ) -> String {
+    if let Some(url) = first_datadog_evidence_url(output) {
+        return url;
+    }
     for key in [
         "evidence_uri",
         "evidenceRef",
@@ -90,6 +93,43 @@ fn directed_evolution_evidence_uri(
     )
 }
 
+fn first_datadog_evidence_url(output: &Value) -> Option<String> {
+    for key in ["evidence_scope", "evidenceScope"] {
+        let Some(items) = output.get(key).and_then(Value::as_array) else {
+            continue;
+        };
+        for item in items {
+            let Some(url) = item
+                .get("datadog_url")
+                .or_else(|| item.get("datadogUrl"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            if is_datadog_app_url(url) {
+                return Some(url.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn is_datadog_app_url(url: &str) -> bool {
+    [
+        "https://app.datadoghq.com",
+        "https://app.us3.datadoghq.com",
+        "https://app.us5.datadoghq.com",
+        "https://app.datadoghq.eu",
+        "https://app.ap1.datadoghq.com",
+        "https://app.ap2.datadoghq.com",
+        "https://app.ddog-gov.com",
+    ]
+    .iter()
+    .any(|prefix| url.starts_with(prefix))
+}
+
 fn directed_evolution_evidence_digest(output_json: &str) -> String {
     format!("bytes:{}", output_json.len())
 }
@@ -102,12 +142,21 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
     json!({
         "service": service,
         "env": env_name,
+        "work_item_id": work_item.id,
+        "role": work_item.role,
+        "target_entity_type": work_item.target_entity_type,
+        "target_entity_id": work_item.target_entity_id,
+        "control_tenant": config_tenant_label(),
         "query": query,
         "logs_url": format!(
             "https://app.{site}/logs?query={}",
             encode_url_component(&query)
         ),
     })
+}
+
+fn config_tenant_label() -> String {
+    env::var("TEMPER_TENANT").unwrap_or_else(|_| "default".to_string())
 }
 
 fn encode_url_component(value: &str) -> String {
