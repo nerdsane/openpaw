@@ -18,6 +18,15 @@ permit(
     context.module == "workspace_fs"
 };
 
+// Allow artifact_batch_apply to make HTTP calls (direct multi-file ArtifactBatch writes)
+permit(
+    principal is Agent,
+    action == Action::"http_call",
+    resource is HttpEndpoint
+) when {
+    context.module == "artifact_batch_apply"
+};
+
 // Allow workspace_fs to access secrets (temper_api_url)
 permit(
     principal is Agent,
@@ -25,6 +34,15 @@ permit(
     resource is Secret
 ) when {
     context.module == "workspace_fs"
+};
+
+// Allow artifact_batch_apply to access secrets (temper_api_url)
+permit(
+    principal is Agent,
+    action == Action::"access_secret",
+    resource is Secret
+) when {
+    context.module == "artifact_batch_apply"
 };
 
 // Allow blob_adapter to access secrets (blob_endpoint, blob_bucket)

@@ -43,6 +43,18 @@
         <Member Name="Superseded" Value="1"/>
       </EnumType>
 
+      <EnumType Name="ArtifactBatchStatus">
+        <Member Name="Submitted" Value="0"/>
+        <Member Name="Applying" Value="1"/>
+        <Member Name="Completed" Value="2"/>
+        <Member Name="Failed" Value="3"/>
+      </EnumType>
+
+      <EnumType Name="WorkspaceUsageBucketStatus">
+        <Member Name="Active" Value="0"/>
+        <Member Name="Sealed" Value="1"/>
+      </EnumType>
+
       <!-- ============ Entity Types ============ -->
 
       <EntityType Name="Workspace">
@@ -155,6 +167,46 @@
         <Annotation Term="Paw.Vocab.StateMachine.InitialState" String="Current"/>
         <Annotation Term="Paw.Vocab.ShardKey" String="FileId"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/file_version.cedar"/>
+      </EntityType>
+
+      <EntityType Name="ArtifactBatch">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="Status" Type="Paw.FS.ArtifactBatchStatus" Nullable="false"/>
+        <Property Name="WorkspaceId" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="FilesManifest" Type="Edm.String"/>
+        <Property Name="FileCount" Type="Edm.Int32" DefaultValue="0"/>
+        <Property Name="AppliedCount" Type="Edm.Int32" DefaultValue="0"/>
+        <Property Name="FailedCount" Type="Edm.Int32" DefaultValue="0"/>
+        <Property Name="TotalBytes" Type="Edm.Int64" DefaultValue="0"/>
+        <Property Name="LastError" Type="Edm.String"/>
+        <Property Name="CreatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="UpdatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Annotation Term="Paw.Vocab.StateMachine.States">
+          <Collection><String>Submitted</String><String>Applying</String><String>Completed</String><String>Failed</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.StateMachine.InitialState" String="Submitted"/>
+        <Annotation Term="Paw.Vocab.ShardKey" String="WorkspaceId"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/artifact_batch.cedar"/>
+      </EntityType>
+
+      <EntityType Name="WorkspaceUsageBucket">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="Status" Type="Paw.FS.WorkspaceUsageBucketStatus" Nullable="false"/>
+        <Property Name="WorkspaceId" Type="Edm.Guid" Nullable="false"/>
+        <Property Name="BucketKey" Type="Edm.String" Nullable="false"/>
+        <Property Name="ArtifactBatchId" Type="Edm.Guid"/>
+        <Property Name="BytesDelta" Type="Edm.Int64" DefaultValue="0"/>
+        <Property Name="FileDelta" Type="Edm.Int64" DefaultValue="0"/>
+        <Property Name="CreatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="UpdatedAt" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Annotation Term="Paw.Vocab.StateMachine.States">
+          <Collection><String>Active</String><String>Sealed</String></Collection>
+        </Annotation>
+        <Annotation Term="Paw.Vocab.StateMachine.InitialState" String="Active"/>
+        <Annotation Term="Paw.Vocab.ShardKey" String="WorkspaceId"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/workspace_usage_bucket.cedar"/>
       </EntityType>
 
       <!-- ============ Bound Actions ============ -->
@@ -377,6 +429,64 @@
         <Annotation Term="Paw.Vocab.StateMachine.TargetState" String="Superseded"/>
       </Action>
 
+      <!-- ArtifactBatch Actions -->
+      <Action Name="Submit" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.ArtifactBatch"/>
+        <Parameter Name="workspace_id" Type="Edm.Guid" Nullable="false"/>
+        <Parameter Name="files_manifest" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="submitted_by" Type="Edm.String"/>
+        <Parameter Name="file_count" Type="Edm.Int32"/>
+        <ReturnType Type="Paw.FS.ArtifactBatch"/>
+      </Action>
+
+      <Action Name="Apply" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.ArtifactBatch"/>
+        <ReturnType Type="Paw.FS.ArtifactBatch"/>
+      </Action>
+
+      <Action Name="RecordFileApplied" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.ArtifactBatch"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="file_id" Type="Edm.Guid" Nullable="false"/>
+        <Parameter Name="size_bytes" Type="Edm.Int64" Nullable="false"/>
+        <ReturnType Type="Paw.FS.ArtifactBatch"/>
+      </Action>
+
+      <Action Name="RecordFileFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.ArtifactBatch"/>
+        <Parameter Name="path" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="error" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.ArtifactBatch"/>
+      </Action>
+
+      <Action Name="Complete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.ArtifactBatch"/>
+        <Parameter Name="usage_bucket_id" Type="Edm.Guid"/>
+        <ReturnType Type="Paw.FS.ArtifactBatch"/>
+      </Action>
+
+      <Action Name="Fail" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.ArtifactBatch"/>
+        <Parameter Name="error" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Paw.FS.ArtifactBatch"/>
+      </Action>
+
+      <!-- WorkspaceUsageBucket Actions -->
+      <Action Name="ApplyDelta" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.WorkspaceUsageBucket"/>
+        <Parameter Name="workspace_id" Type="Edm.Guid" Nullable="false"/>
+        <Parameter Name="bucket_key" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="artifact_batch_id" Type="Edm.Guid"/>
+        <Parameter Name="bytes_delta" Type="Edm.Int64" Nullable="false"/>
+        <Parameter Name="file_delta" Type="Edm.Int64" Nullable="false"/>
+        <ReturnType Type="Paw.FS.WorkspaceUsageBucket"/>
+      </Action>
+
+      <Action Name="Seal" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Paw.FS.WorkspaceUsageBucket"/>
+        <ReturnType Type="Paw.FS.WorkspaceUsageBucket"/>
+      </Action>
+
       <!-- ============ Entity Container ============ -->
 
       <EntityContainer Name="TemperFSService">
@@ -400,6 +510,8 @@
           <NavigationPropertyBinding Path="File" Target="Files"/>
           <NavigationPropertyBinding Path="PreviousVersion" Target="FileVersions"/>
         </EntitySet>
+        <EntitySet Name="ArtifactBatches" EntityType="Paw.FS.ArtifactBatch"/>
+        <EntitySet Name="WorkspaceUsageBuckets" EntityType="Paw.FS.WorkspaceUsageBucket"/>
       </EntityContainer>
 
     </Schema>

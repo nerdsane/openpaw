@@ -50,20 +50,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let op_result = match operation.as_str() {
             "mkdir" => ops::mkdir(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "create_file" => {
-                let mime_type = ctx
-                    .trigger_params
-                    .get("mime_type")
-                    .and_then(|v| v.as_str());
+                let mime_type = ctx.trigger_params.get("mime_type").and_then(|v| v.as_str());
                 ops::create_file(&ctx, &api_url, &tenant, &ws_id, raw_path, mime_type)
             }
             "resolve_path" => ops::resolve_path(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "list_dir" => ops::list_dir(&ctx, &api_url, &tenant, &ws_id, raw_path),
             "delete_file" => ops::delete_file(&ctx, &api_url, &tenant, &ws_id, raw_path),
-            "rename" => match ctx
-                    .trigger_params
-                    .get("new_path")
-                    .and_then(|v| v.as_str())
-            {
+            "rename" => match ctx.trigger_params.get("new_path").and_then(|v| v.as_str()) {
                 Some(new_path) => ops::rename(&ctx, &api_url, &tenant, &ws_id, raw_path, new_path),
                 None => Err("workspace_fs: missing new_path parameter".to_string()),
             },
@@ -128,13 +121,8 @@ mod tests {
 
     #[test]
     fn fs_observability_fields_expose_workspace_context() {
-        let fields = build_fs_observability_fields(
-            "rename",
-            "workspace-7",
-            "/old.md",
-            "/new.md",
-            &Ok(()),
-        );
+        let fields =
+            build_fs_observability_fields("rename", "workspace-7", "/old.md", "/new.md", &Ok(()));
 
         assert_eq!(fields["observability_event"], json!("temperpaw.fs"));
         assert_eq!(fields["workspace_id"], json!("workspace-7"));

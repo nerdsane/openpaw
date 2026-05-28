@@ -337,6 +337,21 @@ fn dockerignore_excludes_local_runtime_state_from_production_images() {
 }
 
 #[test]
+fn temperpaw_runtime_uses_bounded_large_stack_workers_for_wasm_loopback_io() {
+    let main_rs =
+        fs::read_to_string(repo_root().join("crates/temperpaw/src/main.rs")).expect("read main.rs");
+
+    assert!(
+        main_rs.contains("TOKIO_WORKER_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024"),
+        "TemperPaw must keep Tokio worker stack size explicit and bounded for WASM loopback OData requests"
+    );
+    assert!(
+        main_rs.contains(".thread_stack_size(TOKIO_WORKER_THREAD_STACK_BYTES)"),
+        "TemperPaw must build the Tokio runtime with the bounded worker stack instead of using the default macro runtime"
+    );
+}
+
+#[test]
 fn dockerfile_prunes_wasm_build_outputs_before_runtime_copy() {
     let dockerfile =
         fs::read_to_string(repo_root().join("Dockerfile")).expect("Dockerfile should be readable");

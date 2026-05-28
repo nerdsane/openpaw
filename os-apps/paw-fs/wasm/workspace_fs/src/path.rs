@@ -79,8 +79,5 @@ pub fn mime_from_ext(path: &str) -> &'static str {
 /// - `"/"` → `vec![]`
 /// - `"/wiki/grammar"` → `vec!["wiki", "grammar"]`
 pub fn dir_segments(dir_path: &str) -> Vec<&str> {
-    dir_path
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect()
+    dir_path.split('/').filter(|s| !s.is_empty()).collect()
 }
