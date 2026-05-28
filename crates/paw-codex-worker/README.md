@@ -31,8 +31,10 @@ work exists. Patrol does that by creating Temper entities and actions.
 For Directed Evolution growth lanes, the human and Codex negotiate the
 Adaptation Goal, Viability Constraints, metrics, evaluation stages, elimination
 rules, and scoring rules in chat. After that agreement exists, the worker
-submits one `EpisodeStartRequest` to the Directed Evolution app. The app-owned
-WASM materializes the contract into the episode graph and starts the normal
+authors the agreed semantic Temper entities directly: `Episode`,
+`AdaptationGoal`, `ViabilityConstraint`, `MetricDefinition`,
+`EvaluationStage`, `SimulatedUserPlan`, and `SelectionProtocol`.
+`Episode.StartEpisode` then links that frozen graph and starts the normal
 generation pipeline:
 
 ```sh
@@ -46,9 +48,8 @@ cargo run -p paw-codex-worker -- directed-evolution-start-episode episode-contra
 The command writes as `DIRECTED_EVOLUTION_DIRECTOR_AGENT_TYPE=codex` by default
 because the daemon's normal `worker` principal is not allowed to start
 human-gated growth. It does not choose the contract; it records the already
-negotiated contract as one governed request and lets Directed Evolution perform
-Direction selection, contract entity creation, and `Episode.StartEpisode`. Omit
-the path to read the JSON contract from stdin.
+negotiated contract as first-class entities and calls `Episode.PlanEpisode` then
+`Episode.StartEpisode`. Omit the path to read the JSON contract from stdin.
 
 ## Scripts Versus Rust Tests
 

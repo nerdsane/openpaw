@@ -85,11 +85,43 @@ async fn directed_evolution_work_item_context(
         ("promoter", "Promotion") => {
             directed_evolution_promotion_context(client, config, &work_item.target_entity_id).await
         }
-        ("reviewer", "StageResult") | ("simulated_user", "StageResult") => {
+        (
+            "reviewer"
+            | "viability_evaluator"
+            | "state_verifier"
+            | "telemetry_evaluator"
+            | "wasm_evaluator",
+            "StageResult",
+        ) => {
             let stage_result =
                 fetch_directed_evolution_entity_fields(client, config, "StageResults", &work_item.target_entity_id)
                     .await?;
             let variant_id = value_field_string(&stage_result, &["VariantId", "variant_id"]);
+            if variant_id.trim().is_empty() {
+                return Ok(None);
+            }
+            let variant =
+                fetch_directed_evolution_entity_fields(client, config, "Variants", &variant_id).await?;
+            let app_ref = value_field_string(&variant, &["AppRef", "app_ref"]);
+            let generation_id = value_field_string(&variant, &["GenerationId", "generation_id"]);
+            let mut context = if generation_id.trim().is_empty() {
+                None
+            } else {
+                directed_evolution_generation_context(client, config, &generation_id).await?
+            };
+            if let Some(context) = context.as_mut() {
+                if !app_ref.trim().is_empty() {
+                    context.app_ref = app_ref;
+                }
+                context.branch_ref = value_field_string(&variant, &["BranchRef", "branch_ref"]);
+            }
+            Ok(context)
+        }
+        ("simulated_user", "Trial") => {
+            let trial =
+                fetch_directed_evolution_entity_fields(client, config, "Trials", &work_item.target_entity_id)
+                    .await?;
+            let variant_id = value_field_string(&trial, &["VariantId", "variant_id"]);
             if variant_id.trim().is_empty() {
                 return Ok(None);
             }

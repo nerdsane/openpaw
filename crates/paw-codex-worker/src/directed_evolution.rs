@@ -83,7 +83,7 @@ async fn handle_queued_directed_evolution_work_item(
         role = %work_item.role,
         target_entity_type = %work_item.target_entity_type,
         target_entity_id = %work_item.target_entity_id,
-        "started Directed Evolution Codex brain run"
+        "started Directed Evolution worker run"
     );
 
     match run_directed_evolution_codex_role(client, config, &work_item).await {
@@ -200,7 +200,7 @@ async fn stale_directed_evolution_work_item_reason(
     config: &Config,
     work_item: &DirectedEvolutionWorkItemState,
 ) -> Result<Option<String>> {
-    if !matches!(work_item.role.as_str(), "reviewer" | "simulated_user")
+    if !directed_evolution_stage_evaluator_role(&work_item.role)
         || work_item.target_entity_type != "StageResult"
     {
         return Ok(None);
@@ -285,8 +285,19 @@ fn stale_directed_evolution_stage_work_reason(
 }
 
 fn stale_stage_work_targets_stage_result(work_item: &DirectedEvolutionWorkItemState) -> bool {
-    matches!(work_item.role.as_str(), "reviewer" | "simulated_user")
+    directed_evolution_stage_evaluator_role(&work_item.role)
         && work_item.target_entity_type == "StageResult"
+}
+
+fn directed_evolution_stage_evaluator_role(role: &str) -> bool {
+    matches!(
+        role,
+        "reviewer"
+            | "viability_evaluator"
+            | "state_verifier"
+            | "telemetry_evaluator"
+            | "wasm_evaluator"
+    )
 }
 
 fn stale_stage_result_should_eliminate(stage_fields: &Value) -> bool {
@@ -348,6 +359,11 @@ async fn run_directed_evolution_codex_role(
             "prompt_preview": truncate_middle(&prompt, 1200),
         }))
             .context("serialize Directed Evolution dry-run output");
+    }
+    if directed_evolution_mechanical_evaluator_role(&work_item.role) {
+        let payload = run_directed_evolution_mechanical_evaluator(client, config, work_item).await?;
+        return serde_json::to_string(&payload)
+            .context("serialize Directed Evolution mechanical evaluator output");
     }
     if work_item.role == "promoter" {
         let materialization =
@@ -431,7 +447,7 @@ async fn run_directed_evolution_codex_role(
 }
 
 fn directed_evolution_agent_kind_for_role(role: &str) -> &'static str {
-    if role == "promoter" {
+    if matches!(role, "promoter" | "state_verifier" | "wasm_evaluator") {
         "temperpaw-worker"
     } else {
         "codex"
@@ -439,7 +455,7 @@ fn directed_evolution_agent_kind_for_role(role: &str) -> &'static str {
 }
 
 fn directed_evolution_model_for_role(role: &str) -> &'static str {
-    if role == "promoter" {
+    if matches!(role, "promoter" | "state_verifier" | "wasm_evaluator") {
         "deterministic-worker"
     } else {
         "codex-cli"
@@ -493,6 +509,7 @@ async fn recover_directed_evolution_variant_output(
 
 
 include!("directed_evolution/workdir.rs");
+include!("directed_evolution/mechanical_evaluator.rs");
 include!("directed_evolution/prompt.rs");
 include!("directed_evolution/tests.rs");
 include!("directed_evolution/prompt_tests.rs");

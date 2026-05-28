@@ -54,104 +54,397 @@ async fn start_directed_evolution_human_episode(
     let plan =
         directed_evolution_episode_plan_from_input(input, &direction_fields, &organism_fields)?;
 
-    let request_id = create_directed_evolution_entity_with_headers(
+    let episode_id = create_directed_evolution_entity_with_headers(
         client,
         config,
         &request_headers,
-        "EpisodeStartRequests",
+        "Episodes",
+    )
+    .await?;
+    let adaptation_goal_id = create_directed_evolution_entity_with_headers(
+        client,
+        config,
+        &request_headers,
+        "AdaptationGoals",
     )
     .await?;
     post_directed_evolution_action_with_headers(
         client,
         config,
         &request_headers,
-        "EpisodeStartRequests",
-        &request_id,
-        "SubmitEpisodeStartRequest",
-        directed_evolution_episode_start_request_body(&plan),
+        "AdaptationGoals",
+        &adaptation_goal_id,
+        "ActivateAdaptationGoal",
+        json!({
+            "EpisodeId": episode_id,
+            "GoalStatement": plan.adaptation_goal,
+            "CreatedByBrainRunId": plan.created_by_brain_run_id,
+            "HumanNotes": plan.human_notes,
+        }),
     )
     .await?;
-    let request_fields = fetch_directed_evolution_entity_fields_with_headers(
+
+    let mut metric_ids = Vec::new();
+    let mut metric_name_to_id = std::collections::BTreeMap::new();
+    for metric in &plan.metrics {
+        let metric_id = create_directed_evolution_entity_with_headers(
+            client,
+            config,
+            &request_headers,
+            "MetricDefinitions",
+        )
+        .await?;
+        post_directed_evolution_action_with_headers(
+            client,
+            config,
+            &request_headers,
+            "MetricDefinitions",
+            &metric_id,
+            "ActivateMetricDefinitionWithProvenance",
+            json!({
+                "EpisodeId": episode_id,
+                "MetricName": metric.name,
+                "MetricKind": metric.kind,
+                "Unit": metric.unit,
+                "HigherIsBetter": metric.higher_is_better.to_string(),
+                "Description": metric.description,
+                "ProvenanceKind": metric.provenance_kind,
+                "EvaluatorRef": metric.evaluator_ref,
+                "EvaluatorModule": metric.evaluator_module,
+                "Interpretation": metric.interpretation,
+                "HardConstraint": metric.hard_constraint.to_string(),
+            }),
+        )
+        .await?;
+        metric_name_to_id.insert(metric.name.clone(), metric_id.clone());
+        metric_ids.push(metric_id);
+    }
+
+    let mut viability_constraint_ids = Vec::new();
+    for constraint in &plan.viability_constraints {
+        let constraint_id = create_directed_evolution_entity_with_headers(
+            client,
+            config,
+            &request_headers,
+            "ViabilityConstraints",
+        )
+        .await?;
+        post_directed_evolution_action_with_headers(
+            client,
+            config,
+            &request_headers,
+            "ViabilityConstraints",
+            &constraint_id,
+            "ActivateViabilityConstraint",
+            json!({
+                "EpisodeId": episode_id,
+                "ConstraintStatement": constraint.statement,
+                "ConstraintKind": constraint.kind,
+                "CreatedByBrainRunId": plan.created_by_brain_run_id,
+            }),
+        )
+        .await?;
+        viability_constraint_ids.push(constraint_id);
+    }
+
+    let mut evaluation_stage_ids = Vec::new();
+    for (index, stage) in plan.evaluation_stages.iter().enumerate() {
+        let stage_id = create_directed_evolution_entity_with_headers(
+            client,
+            config,
+            &request_headers,
+            "EvaluationStages",
+        )
+        .await?;
+        post_directed_evolution_action_with_headers(
+            client,
+            config,
+            &request_headers,
+            "EvaluationStages",
+            &stage_id,
+            "ActivateEvaluationStageWithEvaluator",
+            json!({
+                "EpisodeId": episode_id,
+                "StageName": stage.name,
+                "StageKind": stage.kind,
+                "SequenceIndex": (index + 1).to_string(),
+                "RequiredEvidenceJson": json!(stage.required_evidence).to_string(),
+                "ExecutorKind": stage.executor,
+                "MeasurementProvenance": stage.measurement_provenance,
+                "EvaluatorRef": stage.evaluator_ref,
+                "EvaluatorModule": stage.evaluator_module,
+                "DecisionAuthority": stage.decision_authority,
+            }),
+        )
+        .await?;
+        evaluation_stage_ids.push(stage_id);
+    }
+
+    let mut elimination_rule_ids = Vec::new();
+    for rule in &plan.elimination_rules {
+        let metric_ids_for_rule = rule_metric_ids(rule.metric_ids.clone(), &rule.metric_names, &metric_name_to_id);
+        let rule_id = create_directed_evolution_entity_with_headers(
+            client,
+            config,
+            &request_headers,
+            "EliminationRules",
+        )
+        .await?;
+        post_directed_evolution_action_with_headers(
+            client,
+            config,
+            &request_headers,
+            "EliminationRules",
+            &rule_id,
+            "ActivateEliminationRule",
+            json!({
+                "EpisodeId": episode_id,
+                "RuleStatement": rule.statement,
+                "MetricIdsJson": json!(metric_ids_for_rule).to_string(),
+                "ThresholdJson": rule.threshold.to_string(),
+                "CreatedByBrainRunId": plan.created_by_brain_run_id,
+            }),
+        )
+        .await?;
+        elimination_rule_ids.push(rule_id);
+    }
+
+    let mut scoring_rule_ids = Vec::new();
+    for rule in &plan.scoring_rules {
+        let metric_ids_for_rule = rule_metric_ids(rule.metric_ids.clone(), &rule.metric_names, &metric_name_to_id);
+        let rule_id = create_directed_evolution_entity_with_headers(
+            client,
+            config,
+            &request_headers,
+            "ScoringRules",
+        )
+        .await?;
+        post_directed_evolution_action_with_headers(
+            client,
+            config,
+            &request_headers,
+            "ScoringRules",
+            &rule_id,
+            "ActivateScoringRule",
+            json!({
+                "EpisodeId": episode_id,
+                "RuleStatement": rule.statement,
+                "MetricIdsJson": json!(metric_ids_for_rule).to_string(),
+                "Weight": rule.weight,
+                "CreatedByBrainRunId": plan.created_by_brain_run_id,
+            }),
+        )
+        .await?;
+        scoring_rule_ids.push(rule_id);
+    }
+
+    let simulated_user_plan_id = create_directed_evolution_entity_with_headers(
         client,
         config,
         &request_headers,
-        "EpisodeStartRequests",
-        &request_id,
+        "SimulatedUserPlans",
     )
-    .await
-    .unwrap_or_else(|_| json!({}));
-    let episode_id = value_field_string(&request_fields, &["EpisodeId", "episode_id"]);
+    .await?;
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        &request_headers,
+        "SimulatedUserPlans",
+        &simulated_user_plan_id,
+        "ActivateSimulatedUserPlan",
+        json!({
+            "EpisodeId": episode_id,
+            "UsersPerVariant": plan.simulated_user_plan.users_per_variant.to_string(),
+            "RunsPerPersona": plan.simulated_user_plan.runs_per_persona.to_string(),
+            "PersonasJson": json!(plan.simulated_user_plan.personas).to_string(),
+            "GoalsJson": json!(plan.simulated_user_plan.goals).to_string(),
+            "CreatedBy": plan.selected_by,
+            "HumanDecisionSummary": plan.simulated_user_plan.human_decision_summary,
+        }),
+    )
+    .await?;
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        &request_headers,
+        "SimulatedUserPlans",
+        &simulated_user_plan_id,
+        "FreezeSimulatedUserPlan",
+        json!({
+            "FrozenBy": plan.selected_by,
+            "Reason": "Frozen before Episode.Start so simulated-user count cannot drift mid-generation.",
+        }),
+    )
+    .await?;
+
+    let selection_protocol_id = create_directed_evolution_entity_with_headers(
+        client,
+        config,
+        &request_headers,
+        "SelectionProtocols",
+    )
+    .await?;
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        &request_headers,
+        "SelectionProtocols",
+        &selection_protocol_id,
+        "ActivateSelectionProtocol",
+        json!({
+            "EpisodeId": episode_id,
+            "SelectionStatement": plan.selection_statement,
+            "MetricIdsJson": json!(metric_ids).to_string(),
+            "EliminationRuleIdsJson": json!(elimination_rule_ids).to_string(),
+            "ScoringRuleIdsJson": json!(scoring_rule_ids).to_string(),
+            "EvaluatorRef": plan.evaluator_ref,
+            "DecisionPolicy": plan.selection_notes,
+            "CreatedByBrainRunId": plan.created_by_brain_run_id,
+        }),
+    )
+    .await?;
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        &request_headers,
+        "SelectionProtocols",
+        &selection_protocol_id,
+        "FreezeSelectionProtocol",
+        json!({
+            "FrozenBy": plan.selected_by,
+            "Reason": "Frozen before Episode.Start so variants cannot move the goalposts.",
+        }),
+    )
+    .await?;
+
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        &request_headers,
+        "Episodes",
+        &episode_id,
+        "PlanEpisode",
+        json!({
+            "DirectionId": plan.direction_id,
+            "OrganismId": plan.organism_id,
+            "ParentVersionId": plan.parent_version_id,
+            "AutonomyLane": plan.autonomy_lane,
+            "AdaptationGoalId": adaptation_goal_id,
+            "ViabilityConstraintIdsJson": json!(viability_constraint_ids).to_string(),
+            "MetricDefinitionIdsJson": json!(metric_ids).to_string(),
+            "EvaluationStageIdsJson": json!(evaluation_stage_ids).to_string(),
+            "EliminationRuleIdsJson": json!(elimination_rule_ids).to_string(),
+            "ScoringRuleIdsJson": json!(scoring_rule_ids).to_string(),
+            "SimulatedUserPlanId": simulated_user_plan_id,
+            "SelectionProtocolId": selection_protocol_id,
+            "EvaluatorRef": plan.evaluator_ref,
+            "OrganismParentRef": plan.parent_version_id,
+            "PlannedBy": plan.selected_by,
+            "PlanSummary": plan.human_notes,
+        }),
+    )
+    .await?;
+    select_directed_evolution_direction_for_episode(
+        client,
+        config,
+        &request_headers,
+        &plan.direction_id,
+        &episode_id,
+        &plan.selected_by,
+        &plan.selection_notes,
+    )
+    .await?;
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        &request_headers,
+        "Episodes",
+        &episode_id,
+        "StartEpisode",
+        json!({
+            "StartedBy": plan.started_by,
+            "Reason": plan.start_reason,
+        }),
+    )
+    .await?;
 
     Ok(json!({
-        "status": if episode_id.trim().is_empty() { "submitted" } else { "started" },
-        "episode_start_request_id": request_id,
+        "status": "started",
         "episode_id": episode_id,
         "direction_id": plan.direction_id,
         "organism_id": plan.organism_id,
         "parent_version_id": plan.parent_version_id,
         "autonomy_lane": plan.autonomy_lane,
-        "app_owned_materialization": true,
+        "adaptation_goal_id": adaptation_goal_id,
+        "metric_definition_ids": metric_ids,
+        "viability_constraint_ids": viability_constraint_ids,
+        "evaluation_stage_ids": evaluation_stage_ids,
+        "elimination_rule_ids": elimination_rule_ids,
+        "scoring_rule_ids": scoring_rule_ids,
+        "simulated_user_plan_id": simulated_user_plan_id,
+        "selection_protocol_id": selection_protocol_id,
+        "semantic_temper_entities": true,
     }))
 }
 
-fn directed_evolution_episode_start_request_body(plan: &DirectedEvolutionEpisodePlan) -> Value {
-    json!({
-        "DirectionId": plan.direction_id,
-        "OrganismId": plan.organism_id,
-        "ParentVersionId": plan.parent_version_id,
-        "AutonomyLane": plan.autonomy_lane,
-        "RequestedBy": plan.created_by_brain_run_id,
-        "AdaptationGoal": plan.adaptation_goal,
-        "HumanNotes": plan.human_notes,
-        "ViabilityConstraintsJson": json!(plan.viability_constraints.iter().map(|constraint| {
-            json!({
-                "statement": constraint.statement,
-                "kind": constraint.kind,
-            })
-        }).collect::<Vec<_>>()).to_string(),
-        "MetricsJson": json!(plan.metrics.iter().map(|metric| {
-            json!({
-                "name": metric.name,
-                "kind": metric.kind,
-                "unit": metric.unit,
-                "higher_is_better": metric.higher_is_better.to_string(),
-                "description": metric.description,
-            })
-        }).collect::<Vec<_>>()).to_string(),
-        "EvaluationStagesJson": json!(plan.evaluation_stages.iter().map(|stage| {
-            json!({
-                "name": stage.name,
-                "kind": stage.kind,
-                "executor": stage.executor,
-                "required_evidence": stage.required_evidence,
-            })
-        }).collect::<Vec<_>>()).to_string(),
-        "EliminationRulesJson": json!(plan.elimination_rules.iter().map(|rule| {
-            json!({
-                "statement": rule.statement,
-                "metric_names": rule.metric_names,
-                "metric_ids": rule.metric_ids,
-                "threshold": rule.threshold,
-            })
-        }).collect::<Vec<_>>()).to_string(),
-        "ScoringRulesJson": json!(plan.scoring_rules.iter().map(|rule| {
-            json!({
-                "statement": rule.statement,
-                "metric_names": rule.metric_names,
-                "metric_ids": rule.metric_ids,
-                "weight": rule.weight,
-            })
-        }).collect::<Vec<_>>()).to_string(),
-        "SelectionStatement": plan.selection_statement,
-        "ContractJson": json!({
-            "contract_version": "directed-evolution.episode-start-request.v1",
-            "selected_by": plan.selected_by,
-            "selection_notes": plan.selection_notes,
-            "source": "temperpaw-codex-worker",
-        }).to_string(),
-        "StartedBy": plan.started_by,
-        "Reason": plan.start_reason,
-    })
+async fn select_directed_evolution_direction_for_episode(
+    client: &reqwest::Client,
+    config: &Config,
+    request_headers: &HeaderMap,
+    direction_id: &str,
+    episode_id: &str,
+    selected_by: &str,
+    selection_notes: &str,
+) -> Result<()> {
+    let direction = fetch_directed_evolution_entity_with_headers(
+        client,
+        config,
+        request_headers,
+        "Directions",
+        direction_id,
+    )
+    .await?;
+    let direction_fields = direction.get("fields").cloned().unwrap_or_else(|| json!({}));
+    let status = first_string(
+        &direction,
+        &direction_fields,
+        &["status", "Status"],
+        &["status", "Status"],
+    );
+    if status == "Selected" {
+        return Ok(());
+    }
+    post_directed_evolution_action_with_headers(
+        client,
+        config,
+        request_headers,
+        "Directions",
+        direction_id,
+        "SelectDirection",
+        json!({
+            "EpisodeId": episode_id,
+            "SelectedBy": selected_by,
+            "SelectionNotes": selection_notes,
+        }),
+    )
+    .await
+}
+
+fn rule_metric_ids(
+    explicit_metric_ids: Vec<String>,
+    metric_names: &[String],
+    metric_name_to_id: &std::collections::BTreeMap<String, String>,
+) -> Vec<String> {
+    let mut ids = explicit_metric_ids
+        .into_iter()
+        .filter(|id| !id.trim().is_empty())
+        .collect::<Vec<_>>();
+    for name in metric_names {
+        if let Some(metric_id) = metric_name_to_id.get(name) {
+            ids.push(metric_id.clone());
+        }
+    }
+    ids
 }
 
 async fn create_directed_evolution_entity_with_headers(
@@ -212,6 +505,33 @@ async fn fetch_directed_evolution_entity_fields_with_headers(
     Ok(body.get("fields").cloned().unwrap_or_else(|| json!({})))
 }
 
+async fn fetch_directed_evolution_entity_with_headers(
+    client: &reqwest::Client,
+    config: &Config,
+    request_headers: &HeaderMap,
+    entity_set: &str,
+    entity_id: &str,
+) -> Result<Value> {
+    let response = client
+        .get(config.entity_url(entity_set, entity_id))
+        .headers(request_headers.clone())
+        .send()
+        .await
+        .with_context(|| format!("fetch Directed Evolution {entity_set}('{entity_id}')"))?;
+    if !response.status().is_success() {
+        bail!(
+            "fetch Directed Evolution {}('{}') returned {}",
+            entity_set,
+            entity_id,
+            response.status()
+        );
+    }
+    response
+        .json()
+        .await
+        .context("parse Directed Evolution entity")
+}
+
 async fn post_directed_evolution_action_with_headers(
     client: &reqwest::Client,
     config: &Config,
@@ -221,15 +541,12 @@ async fn post_directed_evolution_action_with_headers(
     action: &str,
     body: Value,
 ) -> Result<()> {
-    let mut url = config.entity_action_url_with_namespace(
+    let url = config.entity_action_url_with_namespace(
         entity_set,
         entity_id,
         DIRECTED_EVOLUTION_NAMESPACE,
         action,
     );
-    if action == "SubmitEpisodeStartRequest" {
-        url.push_str("?await_integration=true");
-    }
     let response = client
         .post(url)
         .headers(request_headers.clone())

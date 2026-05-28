@@ -7,6 +7,11 @@ fn metric_plan_from_input(
         unit: nonempty(metric.unit, "score".to_string()),
         higher_is_better: metric.higher_is_better.unwrap_or(true),
         description: nonempty(metric.description, "Human-Codex negotiated metric.".to_string()),
+        provenance_kind: nonempty(metric.provenance_kind, "brain-judged".to_string()),
+        evaluator_ref: metric.evaluator_ref,
+        evaluator_module: metric.evaluator_module,
+        interpretation: metric.interpretation,
+        hard_constraint: metric.hard_constraint.unwrap_or(false),
     })
 }
 
@@ -63,6 +68,10 @@ fn evaluation_stage_plan_from_input(
         kind: nonempty(stage.kind, "reviewer".to_string()),
         executor: nonempty(stage.executor, "codex".to_string()),
         required_evidence: stage.required_evidence,
+        measurement_provenance: nonempty(stage.measurement_provenance, "brain-judged".to_string()),
+        evaluator_ref: stage.evaluator_ref,
+        evaluator_module: stage.evaluator_module,
+        decision_authority: nonempty(stage.decision_authority, "codex-evaluator".to_string()),
     })
 }
 
@@ -74,6 +83,11 @@ fn default_human_episode_metrics() -> Vec<DirectedEvolutionMetricPlan> {
             unit: "score".to_string(),
             higher_is_better: true,
             description: "How well the variant satisfies the negotiated Adaptation Goal.".to_string(),
+            provenance_kind: "brain-judged".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: String::new(),
+            interpretation: "Codex evaluator judges against the Adaptation Goal from recorded evidence.".to_string(),
+            hard_constraint: false,
         },
         DirectedEvolutionMetricPlan {
             name: "viability_regression_count".to_string(),
@@ -81,6 +95,35 @@ fn default_human_episode_metrics() -> Vec<DirectedEvolutionMetricPlan> {
             unit: "count".to_string(),
             higher_is_better: false,
             description: "Number of negotiated Viability Constraints regressed by the variant.".to_string(),
+            provenance_kind: "state-verified".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: "state-verifier".to_string(),
+            interpretation: "State/spec evaluator counts regressions against pinned Viability Constraints.".to_string(),
+            hard_constraint: true,
+        },
+        DirectedEvolutionMetricPlan {
+            name: "simulated_user_friction".to_string(),
+            kind: "journey".to_string(),
+            unit: "count".to_string(),
+            higher_is_better: false,
+            description: "Observed friction points across AI simulated-user journeys.".to_string(),
+            provenance_kind: "agent-observed".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: String::new(),
+            interpretation: "Simulated users record observations; evaluator decides whether friction is acceptable.".to_string(),
+            hard_constraint: false,
+        },
+        DirectedEvolutionMetricPlan {
+            name: "runtime_error_count".to_string(),
+            kind: "telemetry".to_string(),
+            unit: "count".to_string(),
+            higher_is_better: false,
+            description: "Runtime errors observed for the variant during evaluation.".to_string(),
+            provenance_kind: "datadog-measured".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: String::new(),
+            interpretation: "Telemetry evaluator records the Datadog query/window/result count and interprets whether errors are acceptable.".to_string(),
+            hard_constraint: true,
         },
     ]
 }
@@ -143,6 +186,10 @@ fn default_human_episode_evaluation_stages() -> Vec<DirectedEvolutionEvaluationS
                 "verification_notes".to_string(),
                 "viability_constraints".to_string(),
             ],
+            measurement_provenance: "brain-judged".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: String::new(),
+            decision_authority: "codex-reviewer".to_string(),
         },
         DirectedEvolutionEvaluationStagePlan {
             name: "AI simulated user growth trial".to_string(),
@@ -151,10 +198,69 @@ fn default_human_episode_evaluation_stages() -> Vec<DirectedEvolutionEvaluationS
             required_evidence: vec![
                 "simulated_user_trace".to_string(),
                 "unmet_intent_observations".to_string(),
-                "datadog_evidence_scope".to_string(),
+                "journey_observations".to_string(),
             ],
+            measurement_provenance: "agent-observed".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: String::new(),
+            decision_authority: "codex-viability-evaluator-after-trials".to_string(),
+        },
+        DirectedEvolutionEvaluationStagePlan {
+            name: "Runtime telemetry evidence".to_string(),
+            kind: "telemetry".to_string(),
+            executor: "telemetry_evaluator".to_string(),
+            required_evidence: vec![
+                "datadog_query_summary".to_string(),
+                "runtime_logs_or_metrics".to_string(),
+                "zero_result_meaning".to_string(),
+            ],
+            measurement_provenance: "datadog-measured".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: String::new(),
+            decision_authority: "codex-telemetry-evaluator".to_string(),
+        },
+        DirectedEvolutionEvaluationStagePlan {
+            name: "State and spec invariant verification".to_string(),
+            kind: "state_verified".to_string(),
+            executor: "state_verifier".to_string(),
+            required_evidence: vec![
+                "ioa_transition_check".to_string(),
+                "csdl_field_alignment".to_string(),
+            ],
+            measurement_provenance: "state-verified".to_string(),
+            evaluator_ref: "genesis://nerdsane/agent-answers-evaluation@frozen".to_string(),
+            evaluator_module: "state-verifier".to_string(),
+            decision_authority: "deterministic-state-verifier".to_string(),
         },
     ]
+}
+
+fn default_simulated_user_personas() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "answer seeker",
+            "goal_style": "asks a practical question and needs a usable accepted answer",
+        }),
+        json!({
+            "name": "careful reviewer",
+            "goal_style": "checks whether citations and constraints remain understandable",
+        }),
+        json!({
+            "name": "returning maintainer",
+            "goal_style": "uses prior context and expects answer state to remain consistent",
+        }),
+    ]
+}
+
+fn default_simulated_user_goals() -> Vec<Value> {
+    vec![
+        "Ask a question, inspect generated answers, and identify whether one can be accepted with understandable evidence.",
+        "Review an answer for citation readability and decide whether the app gives enough context to trust it.",
+        "Return to an existing question and verify the accepted answer remains visible and usable.",
+    ]
+    .into_iter()
+    .map(Value::from)
+    .collect()
 }
 
 fn parse_json_string_array(raw: &str) -> Vec<String> {

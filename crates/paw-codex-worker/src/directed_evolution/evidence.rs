@@ -25,18 +25,25 @@ async fn record_directed_evolution_brain_evidence(
         "datadog": directed_evolution_datadog_context(work_item),
         "output": output_value,
     });
+    let evidence_summary = directed_evolution_first_evidence_scope_summary(&output_value);
     post_directed_evolution_action(
         client,
         config,
         "EvidenceArtifacts",
         &evidence_id,
-        "RecordEvidenceArtifact",
+        "RecordEvidenceSummary",
         json!({
             "ArtifactKind": artifact_kind,
             "Uri": uri,
             "Summary": summary,
             "CorrelationJson": correlation.to_string(),
             "Digest": directed_evolution_evidence_digest(output_json),
+            "Query": evidence_summary.query,
+            "TimeWindow": evidence_summary.time_window,
+            "ResultCount": evidence_summary.result_count,
+            "Interpretation": evidence_summary.interpretation,
+            "ZeroResultMeaning": evidence_summary.zero_result_meaning,
+            "EvidenceProvenance": directed_evolution_evidence_provenance(&work_item.role, &output_value),
         }),
     )
     .await?;
@@ -53,6 +60,75 @@ async fn record_directed_evolution_brain_evidence(
     )
     .await?;
     Ok(evidence_id)
+}
+
+#[derive(Default)]
+struct DirectedEvolutionEvidenceScopeSummary {
+    query: String,
+    time_window: String,
+    result_count: String,
+    interpretation: String,
+    zero_result_meaning: String,
+}
+
+fn directed_evolution_first_evidence_scope_summary(
+    output: &Value,
+) -> DirectedEvolutionEvidenceScopeSummary {
+    let Some(items) = output
+        .get("evidence_scope")
+        .or_else(|| output.get("evidenceScope"))
+        .and_then(Value::as_array)
+    else {
+        return DirectedEvolutionEvidenceScopeSummary::default();
+    };
+    let Some(first) = items.first() else {
+        return DirectedEvolutionEvidenceScopeSummary::default();
+    };
+    DirectedEvolutionEvidenceScopeSummary {
+        query: value_field_string(first, &["query", "Query"]),
+        time_window: value_field_string(first, &["time_window", "timeWindow", "TimeWindow"]),
+        result_count: value_field_string(first, &["result_count", "resultCount", "count"]),
+        interpretation: value_field_string(
+            first,
+            &[
+                "interpretation",
+                "Interpretation",
+                "result_summary",
+                "resultSummary",
+            ],
+        ),
+        zero_result_meaning: value_field_string(
+            first,
+            &[
+                "zero_result_meaning",
+                "zeroResultMeaning",
+                "ZeroResultMeaning",
+            ],
+        ),
+    }
+}
+
+fn directed_evolution_evidence_provenance(role: &str, output: &Value) -> String {
+    let fallback = match role {
+        "simulated_user" => "agent-observed",
+        "state_verifier" => "state-verified",
+        "telemetry_evaluator" => "datadog-measured",
+        "wasm_evaluator" => "wasm-computed",
+        "reviewer" | "viability_evaluator" => "brain-judged",
+        _ => "agent-observed",
+    };
+    nonempty(
+        value_field_string(
+            output,
+            &[
+                "provenance_kind",
+                "provenanceKind",
+                "EvidenceProvenance",
+                "evidence_provenance",
+            ],
+        ),
+        fallback.to_string(),
+    )
 }
 
 fn directed_evolution_evidence_uri(
