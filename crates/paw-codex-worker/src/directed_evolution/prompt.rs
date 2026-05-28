@@ -10,10 +10,19 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
             "Generate one bounded candidate variant for the target organism. Make the concrete app-bundle changes, avoid long exploratory verification, and return the concise JSON object immediately after the mutation is complete."
         }
         "simulated_user" => {
-            "Act as an AI simulated user against the target organism. Exercise the live runtime when a RuntimeRef is provided. If RequiredEvidence includes datadog_evidence_scope, use authenticated Datadog MCP tools to inspect errors or latency evidence tied to that tenant/app, include a Datadog URL in evidence_scope, and return passed=false with a clear failure_reason if Datadog cannot be queried. Return goals attempted, observations, unmet intents, metrics, traces, and structured evidence_scope entries."
+            "Act as an AI simulated user against the target organism. Exercise the live runtime when a RuntimeRef is provided. Do not judge viability, do not pass/fail the variant, and do not select a winner. Return journeys, observations, friction, unmet intents, user-visible measurements, and evidence_scope entries from the app interaction only."
         }
-        "reviewer" => {
-            "Review a variant against the adaptation goal and viability constraints. If RequiredEvidence includes datadog_evidence_scope, use authenticated Datadog MCP tools for logs, traces, or metrics evidence tied to the variant tenant/app, include a Datadog URL in evidence_scope, and return passed=false with a clear failure_reason if Datadog cannot be queried. Return pass/fail reasoning, metrics, structured evidence_scope entries, and risk notes."
+        "reviewer" | "viability_evaluator" => {
+            "Evaluate a variant against the Adaptation Goal, Viability Constraints, Selection Protocol, and recorded evidence. Use authenticated Datadog MCP tools only when the stage requires telemetry evidence. Return pass/fail reasoning, explicit provenance_kind, metrics, structured evidence_scope entries, and risk notes."
+        }
+        "state_verifier" => {
+            "Run deterministic state/spec verification against the variant. Use specs, CSDL, Cedar, runtime state, and transition checks rather than subjective judgment. Return pass/fail, provenance_kind=state-verified, metrics, decision_basis, and concrete evidence."
+        }
+        "telemetry_evaluator" => {
+            "Evaluate Datadog or runtime telemetry evidence for the variant. Query logs, traces, metrics, or monitors when available. Return pass/fail, provenance_kind=datadog-measured or runtime-measured, metrics, query summaries, result counts, zero-result meaning, and Datadog URLs when available."
+        }
+        "wasm_evaluator" => {
+            "Run or inspect the pinned deterministic evaluator bundle for this stage. Do not let the variant alter the evaluator judging it. Return pass/fail, provenance_kind=wasm-computed, metrics, evaluator inputs, and evidence."
         }
         "selector" => {
             "Select a winner from supplied evaluated-variant evidence without changing files, evaluators, or moving goalposts. Return winner, losers, scores, and selection rationale."
@@ -94,15 +103,34 @@ fn directed_evolution_output_contract(role: &str) -> &'static str {
   "reasoning_summary": "..."
 }"#
         }
-        "simulated_user" | "reviewer" => {
+        "simulated_user" => {
+            r#"{
+  "status": "observed|blocked",
+  "summary": "...",
+  "journey": [{"step":"...","result":"..."}],
+  "observations": {"what_happened":"...","unmet_intents":["..."]},
+  "intent_satisfied": "yes|partial|no",
+  "friction": ["..."],
+  "metrics": {"observed_latency_ms":{"value":0,"unit":"ms","provenance_kind":"agent-observed"}},
+  "evidence_scope": [{"surface":"runtime|app","query":"...","result_summary":"..."}],
+  "evidence_refs": ["..."],
+  "blocker": "",
+  "reasoning_summary": "..."
+}"#
+        }
+        "reviewer" | "viability_evaluator" | "state_verifier" | "telemetry_evaluator" | "wasm_evaluator" => {
             r#"{
   "passed": true,
   "status": "passed|failed",
   "summary": "...",
-  "metrics": {"metric_name": 0},
-  "evidence_scope": [{"surface":"runtime|logs|traces|metrics","query":"...","result_summary":"...","datadog_url":"https://app.datadoghq.com/..."}],
-  "evidence_refs": ["..."],
   "failure_reason": "",
+  "evaluator_role": "reviewer|viability_evaluator|state_verifier|telemetry_evaluator|wasm_evaluator",
+  "provenance_kind": "brain-judged|state-verified|wasm-computed|runtime-measured|datadog-measured",
+  "metrics": {"metric_name":{"value":0,"unit":"score","provenance_kind":"...","interpretation":"..."}},
+  "decision_basis": {"why":"...","tradeoffs":["..."]},
+  "inputs": {"observations":["..."],"telemetry":["..."],"state":["..."]},
+  "evidence_scope": [{"surface":"runtime|logs|traces|metrics|state|wasm","query":"...","time_window":"...","result_count":0,"interpretation":"...","zero_result_meaning":"success|failure|neutral","datadog_url":"https://app.datadoghq.com/..."}],
+  "evidence_refs": ["..."],
   "reasoning_summary": "..."
 }"#
         }
@@ -152,7 +180,15 @@ fn literal_prompt_ref(prompt_ref: &str) -> String {
 }
 
 fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> String {
-    if !matches!(role, "reviewer" | "simulated_user") {
+    if !matches!(
+        role,
+        "reviewer"
+            | "simulated_user"
+            | "viability_evaluator"
+            | "state_verifier"
+            | "telemetry_evaluator"
+            | "wasm_evaluator"
+    ) {
         return prompt_body.to_string();
     }
 
@@ -165,7 +201,8 @@ fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> Strin
 - Prefer the TemperApiBase URL above with the tenant parsed from RuntimeRef; do not assume localhost is the target runtime.\n\
 - Do not start a foreground long-lived server. If a local server is absolutely required, start it in the background, stop it before returning, and include the cleanup in evidence_scope.\n\
 - If runtime execution is unavailable, fail the stage with clear evidence instead of hanging.\n\
-- If RequiredEvidence includes datadog_evidence_scope, Datadog evidence is mandatory; do not pass with only local/runtime evidence.\n",
+- Simulated-user roles must only report observations and must not include passed, failed, viable, score, winner, or selection fields.\n\
+- Evaluator roles may pass/fail only from recorded observations, deterministic checks, runtime measurements, or telemetry evidence with explicit provenance_kind.\n",
     );
     body
 }

@@ -81,7 +81,7 @@ mod directed_evolution_tests {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-review".to_string(),
             status: "Queued".to_string(),
-            role: "reviewer".to_string(),
+            role: "telemetry_evaluator".to_string(),
             target_entity_type: "StageResult".to_string(),
             target_entity_id: "sr-1".to_string(),
             prompt_ref: "literal:RequiredEvidence: [\"datadog_evidence_scope\"]".to_string(),
@@ -92,10 +92,10 @@ mod directed_evolution_tests {
 
         let prompt = directed_evolution_prompt(&work_item);
 
-        assert!(prompt.contains("authenticated Datadog MCP tools"));
-        assert!(prompt.contains("Datadog evidence is mandatory"));
-        assert!(prompt.contains("return passed=false"));
-        assert!(prompt.contains("do not pass with only local/runtime evidence"));
+        assert!(prompt.contains("Query logs, traces, metrics, or monitors"));
+        assert!(prompt.contains("provenance_kind=datadog-measured"));
+        assert!(prompt.contains("result_count"));
+        assert!(prompt.contains("zero_result_meaning"));
     }
 
     #[test]
@@ -136,7 +136,7 @@ mod directed_evolution_tests {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-user".to_string(),
             status: "Queued".to_string(),
-            role: "simulated_user".to_string(),
+            role: "viability_evaluator".to_string(),
             target_entity_type: "StageResult".to_string(),
             target_entity_id: "sr-2".to_string(),
             prompt_ref: String::new(),
@@ -214,6 +214,123 @@ mod directed_evolution_tests {
         work_item.role = "simulated_user".to_string();
         work_item.target_entity_type = "Variant".to_string();
         assert!(!stale_stage_work_targets_stage_result(&work_item));
+    }
+
+    #[test]
+    fn mechanical_state_verifier_passes_bounded_agent_answers_mutation() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-state".to_string(),
+            status: "Running".to_string(),
+            role: "state_verifier".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-1".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{}".to_string(),
+        };
+
+        let output = directed_evolution_state_verifier_output(
+            &work_item,
+            &json!({ "VariantId": "var-1", "EvaluationStageId": "stage-1" }),
+            &json!({ "MutationId": "mut-1" }),
+            &json!({
+                "ChangedFilesJson": "[\"apps/agent-answers/specs/question.ioa.toml\",\"apps/agent-answers/APP.md\"]"
+            }),
+            &json!({
+                "EvaluatorRef": "genesis://nerdsane/agent-answers-evaluation@abc",
+                "EvaluatorModule": "state-verifier"
+            }),
+        );
+
+        assert_eq!(output["passed"], true);
+        assert_eq!(output["provenance_kind"], "state-verified");
+        assert_eq!(output["metrics"]["viability_regression_count"]["value"], 0);
+        assert_eq!(output["metrics"]["mutation_file_count"]["value"], 2);
+    }
+
+    #[test]
+    fn mechanical_state_verifier_passes_canonical_app_root_mutation() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-state".to_string(),
+            status: "Running".to_string(),
+            role: "state_verifier".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-root".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{}".to_string(),
+        };
+
+        let output = directed_evolution_state_verifier_output(
+            &work_item,
+            &json!({ "VariantId": "var-root", "EvaluationStageId": "stage-root" }),
+            &json!({ "MutationId": "mut-root" }),
+            &json!({
+                "ChangedFilesJson": "[\"APP.md\",\"adrs/0005-question-intent-context.md\",\"policies/agent_answers.cedar\",\"specs/model.csdl.xml\",\"specs/question.ioa.toml\"]"
+            }),
+            &json!({
+                "EvaluatorRef": "genesis://nerdsane/agent-answers-evaluation@abc",
+                "EvaluatorModule": "state-verifier"
+            }),
+        );
+
+        assert_eq!(output["passed"], true);
+        assert_eq!(output["metrics"]["viability_regression_count"]["value"], 0);
+        assert_eq!(output["metrics"]["mutation_file_count"]["value"], 5);
+    }
+
+    #[test]
+    fn mechanical_state_verifier_rejects_evaluator_mutation() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-state".to_string(),
+            status: "Running".to_string(),
+            role: "state_verifier".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-2".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{}".to_string(),
+        };
+
+        let output = directed_evolution_state_verifier_output(
+            &work_item,
+            &json!({ "VariantId": "var-2", "EvaluationStageId": "stage-2" }),
+            &json!({ "MutationId": "mut-2" }),
+            &json!({
+                "ChangedFilesJson": "[\"apps/agent-answers-evaluation/wasm/state_verifier/src/lib.rs\"]"
+            }),
+            &json!({}),
+        );
+
+        assert_eq!(output["passed"], false);
+        assert_eq!(
+            output["metrics"]["evaluator_boundary_violation_count"]["value"],
+            1
+        );
+        assert!(
+            output["failure_reason"]
+                .as_str()
+                .unwrap()
+                .contains("pinned evaluator files")
+        );
+    }
+
+    #[test]
+    fn mechanical_evaluator_roles_are_not_codex_brains() {
+        assert!(directed_evolution_mechanical_evaluator_role("state_verifier"));
+        assert!(directed_evolution_mechanical_evaluator_role("wasm_evaluator"));
+        assert_eq!(
+            directed_evolution_agent_kind_for_role("state_verifier"),
+            "temperpaw-worker"
+        );
+        assert_eq!(
+            directed_evolution_model_for_role("wasm_evaluator"),
+            "deterministic-worker"
+        );
+        assert!(!directed_evolution_mechanical_evaluator_role("simulated_user"));
     }
 
     #[test]
@@ -549,7 +666,9 @@ mod directed_evolution_tests {
             "Humans compare candidate answers before acceptance."
         );
         assert_eq!(plan.viability_constraints[0].statement, "Answer creation still works.");
-        assert_eq!(plan.metrics.len(), 2);
+        assert_eq!(plan.metrics.len(), 4);
+        assert_eq!(plan.simulated_user_plan.users_per_variant, 3);
+        assert_eq!(plan.simulated_user_plan.runs_per_persona, 2);
         assert!(
             plan.evaluation_stages
                 .iter()
@@ -583,7 +702,7 @@ mod directed_evolution_tests {
     }
 
     #[test]
-    fn human_episode_request_body_submits_single_app_owned_contract() {
+    fn human_episode_plan_authors_semantic_entities_directly() {
         let input: DirectedEvolutionHumanEpisodeInput = serde_json::from_value(json!({
             "DirectionId": "direction-growth",
             "AdaptationGoal": "Improve answer comparison.",
@@ -608,25 +727,15 @@ mod directed_evolution_tests {
         )
         .expect("episode plan should resolve");
 
-        let body = directed_evolution_episode_start_request_body(&plan);
-
-        assert_eq!(body["DirectionId"], "direction-growth");
-        assert_eq!(body["OrganismId"], "org-agent-answers");
-        assert_eq!(body["ParentVersionId"], "ov-parent");
-        assert_eq!(body["AdaptationGoal"], "Improve answer comparison.");
-        assert!(
-            body.get("MetricsJson")
-                .and_then(Value::as_str)
-                .unwrap()
-                .contains("goal_score")
-        );
-        assert!(
-            body.get("EliminationRulesJson")
-                .and_then(Value::as_str)
-                .unwrap()
-                .contains("Eliminate failures.")
-        );
-        assert_eq!(body["StartedBy"], "codex");
+        assert_eq!(plan.direction_id, "direction-growth");
+        assert_eq!(plan.organism_id, "org-agent-answers");
+        assert_eq!(plan.parent_version_id, "ov-parent");
+        assert_eq!(plan.metrics[0].name, "goal_score");
+        assert_eq!(plan.metrics[0].provenance_kind, "brain-judged");
+        assert_eq!(plan.elimination_rules[0].statement, "Eliminate failures.");
+        assert_eq!(plan.scoring_rules[0].statement, "Prefer highest goal score.");
+        assert_eq!(plan.simulated_user_plan.personas.len(), 3);
+        assert!(!plan.evaluator_ref.trim().is_empty());
     }
 
     #[test]

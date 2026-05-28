@@ -14,6 +14,8 @@ struct DirectedEvolutionHumanEpisodeInput {
     human_notes: String,
     #[serde(default, alias = "CreatedByBrainRunId", alias = "createdByBrainRunId")]
     created_by_brain_run_id: String,
+    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
+    evaluator_ref: String,
     #[serde(default, alias = "Metrics", alias = "metricDefinitions")]
     metrics: Vec<DirectedEvolutionMetricInput>,
     #[serde(default, alias = "ViabilityConstraints", alias = "viabilityConstraints")]
@@ -26,6 +28,14 @@ struct DirectedEvolutionHumanEpisodeInput {
     scoring_rules: Vec<DirectedEvolutionScoringRuleInput>,
     #[serde(default, alias = "EvaluationStages", alias = "evaluationStages")]
     evaluation_stages: Vec<DirectedEvolutionEvaluationStageInput>,
+    #[serde(default, alias = "UsersPerVariant", alias = "usersPerVariant")]
+    users_per_variant: Option<u64>,
+    #[serde(default, alias = "RunsPerPersona", alias = "runsPerPersona")]
+    runs_per_persona: Option<u64>,
+    #[serde(default, alias = "Personas", alias = "personas")]
+    personas: Vec<Value>,
+    #[serde(default, alias = "SimulatedUserGoals", alias = "simulatedUserGoals")]
+    simulated_user_goals: Vec<Value>,
     #[serde(default, alias = "SelectedBy", alias = "selectedBy")]
     selected_by: String,
     #[serde(default, alias = "SelectionNotes", alias = "selectionNotes")]
@@ -60,6 +70,16 @@ struct DirectedEvolutionMetricInput {
     higher_is_better: Option<bool>,
     #[serde(default, alias = "Description")]
     description: String,
+    #[serde(default, alias = "ProvenanceKind", alias = "provenanceKind")]
+    provenance_kind: String,
+    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
+    evaluator_ref: String,
+    #[serde(default, alias = "EvaluatorModule", alias = "evaluatorModule")]
+    evaluator_module: String,
+    #[serde(default, alias = "Interpretation")]
+    interpretation: String,
+    #[serde(default, alias = "HardConstraint", alias = "hardConstraint")]
+    hard_constraint: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -100,6 +120,14 @@ struct DirectedEvolutionEvaluationStageInput {
     executor: String,
     #[serde(default, alias = "RequiredEvidence", alias = "requiredEvidence")]
     required_evidence: Vec<String>,
+    #[serde(default, alias = "MeasurementProvenance", alias = "measurementProvenance")]
+    measurement_provenance: String,
+    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
+    evaluator_ref: String,
+    #[serde(default, alias = "EvaluatorModule", alias = "evaluatorModule")]
+    evaluator_module: String,
+    #[serde(default, alias = "DecisionAuthority", alias = "decisionAuthority")]
+    decision_authority: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,12 +139,14 @@ struct DirectedEvolutionEpisodePlan {
     adaptation_goal: String,
     human_notes: String,
     created_by_brain_run_id: String,
+    evaluator_ref: String,
     metrics: Vec<DirectedEvolutionMetricPlan>,
     viability_constraints: Vec<DirectedEvolutionConstraintPlan>,
     selection_statement: String,
     elimination_rules: Vec<DirectedEvolutionEliminationRulePlan>,
     scoring_rules: Vec<DirectedEvolutionScoringRulePlan>,
     evaluation_stages: Vec<DirectedEvolutionEvaluationStagePlan>,
+    simulated_user_plan: DirectedEvolutionSimulatedUserPlan,
     selected_by: String,
     selection_notes: String,
     started_by: String,
@@ -130,6 +160,11 @@ struct DirectedEvolutionMetricPlan {
     unit: String,
     higher_is_better: bool,
     description: String,
+    provenance_kind: String,
+    evaluator_ref: String,
+    evaluator_module: String,
+    interpretation: String,
+    hard_constraint: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +195,19 @@ struct DirectedEvolutionEvaluationStagePlan {
     kind: String,
     executor: String,
     required_evidence: Vec<String>,
+    measurement_provenance: String,
+    evaluator_ref: String,
+    evaluator_module: String,
+    decision_authority: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DirectedEvolutionSimulatedUserPlan {
+    users_per_variant: u64,
+    runs_per_persona: u64,
+    personas: Vec<Value>,
+    goals: Vec<Value>,
+    human_decision_summary: String,
 }
 
 fn directed_evolution_episode_plan_from_input(
@@ -280,8 +328,12 @@ fn directed_evolution_episode_plan_from_input(
             "Human and Codex agreed to this episode contract in chat.".to_string(),
         ),
         created_by_brain_run_id: nonempty(
-            input.created_by_brain_run_id,
+            input.created_by_brain_run_id.clone(),
             env::var("CODEX_SESSION_ID").unwrap_or_else(|_| "chat-codex".to_string()),
+        ),
+        evaluator_ref: nonempty(
+            input.evaluator_ref,
+            "genesis://nerdsane/agent-answers-evaluation@frozen".to_string(),
         ),
         metrics,
         viability_constraints,
@@ -292,6 +344,21 @@ fn directed_evolution_episode_plan_from_input(
         elimination_rules,
         scoring_rules,
         evaluation_stages,
+        simulated_user_plan: DirectedEvolutionSimulatedUserPlan {
+            users_per_variant: input.users_per_variant.unwrap_or(3).max(1).min(12),
+            runs_per_persona: input.runs_per_persona.unwrap_or(2).max(1).min(12),
+            personas: if input.personas.is_empty() {
+                default_simulated_user_personas()
+            } else {
+                input.personas
+            },
+            goals: if input.simulated_user_goals.is_empty() {
+                default_simulated_user_goals()
+            } else {
+                input.simulated_user_goals
+            },
+            human_decision_summary: "Codex-as-director explicitly chose simulated-user coverage in chat; V1 proof uses AI agents, not scripts.".to_string(),
+        },
         selected_by: nonempty(input.selected_by, "human+codex-chat".to_string()),
         selection_notes: nonempty(
             input.selection_notes,
