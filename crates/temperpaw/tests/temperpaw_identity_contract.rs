@@ -478,6 +478,9 @@ fn manual_railway_redeploy_workflow_is_secret_backed_and_version_proven() {
         "TEMPER_API_KEY",
         "/paw/version",
         "expected_sha",
+        "run_artifact_batch_e2e",
+        "scripts/production_artifact_batch_e2e.sh",
+        "PACKAGED_WASM_PATH",
     ] {
         assert!(
             workflow.contains(required),

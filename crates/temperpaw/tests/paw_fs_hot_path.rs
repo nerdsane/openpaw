@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_TEMPER_REV: &str = "d15c614ee04613a9ccb9b361bd96dc265a53032c";
-const OLD_TEMPER_REV: &str = "d4797f0bc9e22cf8cc075e18e5a00926a391faf1";
+const EXPECTED_TEMPER_REV: &str = "5ee4429f45d8f2bcf48f1269e377ef79b2c5544c";
+const OLD_TEMPER_REV: &str = "d15c614ee04613a9ccb9b361bd96dc265a53032c";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -209,16 +209,16 @@ fn packaged_wasm_sdk_pins_match_temper_dependency_revision() {
     for manifest in manifests {
         let source = fs::read_to_string(&manifest)
             .unwrap_or_else(|e| panic!("read {}: {e}", manifest.display()));
-        if source.contains("temper-wasm-sdk") {
-            if source.contains(OLD_TEMPER_REV) || !source.contains(EXPECTED_TEMPER_REV) {
-                stale.push(
-                    manifest
-                        .strip_prefix(&root)
-                        .unwrap_or(&manifest)
-                        .display()
-                        .to_string(),
-                );
-            }
+        if source.contains("temper-wasm-sdk")
+            && (source.contains(OLD_TEMPER_REV) || !source.contains(EXPECTED_TEMPER_REV))
+        {
+            stale.push(
+                manifest
+                    .strip_prefix(&root)
+                    .unwrap_or(&manifest)
+                    .display()
+                    .to_string(),
+            );
         }
     }
 
