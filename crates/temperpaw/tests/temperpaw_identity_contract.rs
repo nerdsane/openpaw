@@ -484,6 +484,18 @@ fn railway_redeploy_uses_current_deployment_api() {
         setup_api.contains("skipDeploys"),
         "setup API must upsert IMAGE_TAG without triggering an extra variable-change deployment"
     );
+    for required in [
+        "build_sha",
+        "BUILD_SHA",
+        "BUILD_VERSION",
+        "DD_VERSION",
+        "deployment_runtime_vars",
+    ] {
+        assert!(
+            setup_api.contains(required),
+            "setup API redeploy must keep Railway runtime version variables aligned with the selected image: {required}"
+        );
+    }
     assert!(
         !setup_api.contains("serviceInstanceRedeploy"),
         "setup API must not use Railway's removed serviceInstanceRedeploy mutation"
@@ -509,6 +521,10 @@ fn manual_railway_redeploy_workflow_is_secret_backed_and_version_proven() {
         "TEMPER_API_KEY",
         "/paw/version",
         "expected_sha",
+        "BUILD_SHA",
+        "BUILD_VERSION",
+        "DD_VERSION",
+        "sha-${EXPECTED_SHA:0:8}",
         "run_artifact_batch_e2e",
         "scripts/production_artifact_batch_e2e.sh",
         "PACKAGED_WASM_PATH",

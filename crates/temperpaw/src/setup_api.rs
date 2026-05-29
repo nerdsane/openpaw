@@ -2507,6 +2507,9 @@ struct RedeployRequest {
     /// Optional image tag to deploy. "edge" for latest main build, "latest" for latest release.
     /// If omitted, redeploys with the current configuration (no tag change).
     image_tag: Option<String>,
+    /// Optional full git SHA for the selected image. When present, Railway runtime version
+    /// variables are aligned before redeploy so /paw/version proves the running build.
+    build_sha: Option<String>,
 }
 
 async fn railway_redeploy(
@@ -2517,10 +2520,22 @@ async fn railway_redeploy(
     if let Some(ref tag) = req.image_tag
         && tag != "latest"
         && tag != "edge"
+        && !is_sha_image_tag(tag)
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "image_tag must be 'latest' or 'edge'" })),
+            Json(serde_json::json!({ "error": "image_tag must be 'latest', 'edge', or 'sha-*'" })),
+        )
+            .into_response();
+    }
+    if let Some(ref build_sha) = req.build_sha
+        && (build_sha.len() != 40 || !build_sha.chars().all(|c| c.is_ascii_hexdigit()))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "build_sha must be a full 40-character hex git SHA" }),
+            ),
         )
             .into_response();
     }
@@ -2559,26 +2574,36 @@ async fn railway_redeploy(
     // If an image_tag was requested, set it as a Railway variable first.
     // The deploy Dockerfile uses `ARG IMAGE_TAG=latest` so this controls which image is pulled.
     if let Some(ref tag) = req.image_tag {
-        let var_query = serde_json::json!({
-            "query": "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
-            "variables": {
-                "input": {
-                    "projectId": project,
-                    "environmentId": env,
-                    "serviceId": svc,
-                    "name": "IMAGE_TAG",
-                    "value": tag,
-                    "skipDeploys": true,
-                }
-            }
-        });
+        let image_tag_result =
+            railway_upsert_variable(&client, &token, &project, &env, &svc, "IMAGE_TAG", tag).await;
+        if let Err(error) = image_tag_result {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+                .into_response();
+        }
+    }
 
+    let build_version = req
+        .build_sha
+        .as_ref()
+        .map(|build_sha| format!("sha-{}", &build_sha[..8]));
+    let deployment_runtime_vars = match (&req.build_sha, &build_version) {
+        (Some(build_sha), Some(build_version)) => vec![
+            ("BUILD_SHA", build_sha.clone()),
+            ("BUILD_VERSION", build_version.clone()),
+            ("DD_VERSION", build_version.clone()),
+        ],
+        _ => Vec::new(),
+    };
+    for (name, value) in deployment_runtime_vars {
         if let Err(error) =
-            railway_graphql(&client, railway_url, &token, var_query, "set IMAGE_TAG").await
+            railway_upsert_variable(&client, &token, &project, &env, &svc, name, &value).await
         {
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({ "error": error })),
+                Json(serde_json::json!({ "error": error.to_string() })),
             )
                 .into_response();
         }
@@ -2607,6 +2632,7 @@ async fn railway_redeploy(
             Json(serde_json::json!({
                 "triggered": true,
                 "image_tag": req.image_tag.as_deref().unwrap_or("current"),
+                "build_sha": req.build_sha.as_deref(),
                 "deployment_id": deployment_id,
                 "redeploy": body.get("data").and_then(|data| data.get("deploymentRedeploy")).cloned(),
             })),
@@ -2618,6 +2644,13 @@ async fn railway_redeploy(
         )
             .into_response(),
     }
+}
+
+fn is_sha_image_tag(tag: &str) -> bool {
+    let Some(sha) = tag.strip_prefix("sha-") else {
+        return false;
+    };
+    !sha.is_empty() && sha.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 async fn railway_graphql(
