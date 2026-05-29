@@ -7,7 +7,9 @@
 ## Branch / Commit
 
 - Temper: merged PR #287 to `main` at `5ee4429f45d8f2bcf48f1269e377ef79b2c5544c`
-- TemperPaw: `codex/infinite-history-bounded-actors-main`, local working tree pending final commit/deploy
+- TemperPaw implementation: merged PR #348 to `main` at `ec02343441d643de848da2e1a6a03e2c523591d2`
+- TemperPaw deploy-version fix: merged PR #350 to `main` at `702f42693fc567c03c0c2e049a86a4d3dab611e7`
+- Production image: `ghcr.io/nerdsane/temperpaw:sha-702f426`
 
 ## What Was Done
 
@@ -20,6 +22,7 @@
 - Added `artifact_batch_apply` WASM for multi-file direct Directory/File/FileVersion writes plus one usage-bucket delta.
 - Added bounded 16 MiB Tokio worker stacks in TemperPaw so WASM loopback OData requests do not overflow the default worker stack.
 - Added direct-entity read/list Cedar permits for PawFS hot-path agents.
+- Added deploy/runtime version variable proof so Railway `BUILD_SHA`, `BUILD_VERSION`, and `DD_VERSION` match the deployed image.
 - Added ADRs for segmented platform history and PawFS hot-path ownership.
 
 ## Local Verification Results
@@ -116,6 +119,7 @@ ArtifactBatch events:
 - The direct ArtifactBatch WASM path created directories, files, file versions, and a usage bucket without Workspace file IO events.
 - Snapshot-tail metadata is visible in OData entity responses as `events_since_snapshot` and `last_snapshot_sequence_nr`.
 - The platform segment tables are present and populated in local Turso.
+- Production survived restart with the durable `ArtifactBatch` spec, `artifact_batch_apply` module, and PawFS Cedar policies intact.
 
 ## Issues Found And Fixed During E2E
 
@@ -124,10 +128,62 @@ ArtifactBatch events:
 - The proof harness originally assumed top-level `Id`; OData entity read models expose `entity_id` and nested `fields.Id`, so the verifier now checks those shapes.
 - The deploy verifier needs both mutation and observe privileges. It now uses an `agent/system` principal for OData actions and an `admin` principal for `/observe` module/hash/history proof.
 - GitHub CI exposed that merged Temper SDK host functions must remain unresolved imports during standalone WASM linking. Fixed all os-app build scripts to source `os-apps/wasm-build-env.sh`, which applies `-C link-arg=--allow-undefined`, and added a static regression test.
+- First Railway deploy proved the image had changed but `/paw/version` was stale because Railway service variables still held the previous `BUILD_SHA` and `BUILD_VERSION`. Fixed the setup API and manual redeploy workflow to set `IMAGE_TAG`, `BUILD_SHA`, `BUILD_VERSION`, and `DD_VERSION` together.
+- GitHub `Railway Redeploy` workflow run `26617570543` could not execute because the repository/environment secrets `RAILWAY_TOKEN`, `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_SERVICE_ID`, and `TEMPER_API_KEY` were not configured. Deployment and verification were completed with the authenticated local Railway CLI against the checked-in production project/service IDs.
+- Production genesis bootstrap still pins `temperpaw/paw-fs@65f3ee9659500d11a54c22b9e5519d52dd0db1d4`, and the current Genesis smart HTTP route returned `{"error":"no route matches","path":"/temperpaw/paw-fs.git/info/refs"}`. Production was repaired through Temper's supported spec/WASM/policy hotload APIs; follow-up is to publish the new PawFS app ref through Genesis once that route or an equivalent registry path is restored.
+- After the first production hotload, `ArtifactBatch` specs and WASM survived restart but Cedar grants did not because the inline spec load activated policies in memory. Fixed production by persisting the PawFS policy bundle as named tenant policy rows.
 
 ## Deployment Verification
 
-Pending merge/deploy.
+| Step | Expected | Actual | Status |
+|------|----------|--------|--------|
+| Temper PR | Platform implementation merged | PR #287 merged with GitHub CI green | PASS |
+| TemperPaw PR | PawFS/ArtifactBatch implementation merged | PR #348 merged with GitHub CI green | PASS |
+| Deploy-version PR | Railway version variables stay aligned | PR #350 merged with GitHub CI and Docker build green | PASS |
+| Docker image | Image built from deployed SHA | `ghcr.io/nerdsane/temperpaw:sha-702f426`, digest `sha256:95c0be0e9ee1ac837f951302d01a6025fc6543d2e819b15e404b50faf137a442` | PASS |
+| Railway deploy | Production runs final image | Deployment `26754ae2-ed21-4c10-997c-4a08451957fd` pulled `sha-702f426` | PASS |
+| Runtime version | `/paw/version` reports deployed SHA | `version=sha-702f4269`, `sha=702f42693fc567c03c0c2e049a86a4d3dab611e7` | PASS |
+| PawFS spec hotload | Production has `ArtifactBatch` and `WorkspaceUsageBucket` specs | `/api/specs/load-inline` verification passed all PawFS entities | PASS |
+| WASM hotload | Production module hash matches packaged file | `artifact_batch_apply` hash `4b3b6f5ea2b6bf0d4dab46a9e17a6d286b82f2014ad07a7b3059df62ed4fba23` | PASS |
+| Production E2E | Multi-file batch completes without Workspace hot-path events | `prod-20260529-final-702f426b` completed, files readable, usage bucket updated, Workspace events `["Created"]` | PASS |
+| Policy persistence | PawFS Cedar grants survive restart | Six named PawFS policy rows persisted under tenant `default` | PASS |
+| Restart proof | Deployed process restarts on same image | Railway redeploy `69b2d082-d0c4-4920-9e5c-f835ec904dbc` returned ready | PASS |
+| Post-restart E2E | Same multi-file batch completes after restart | `prod-20260529-restart-policy-702f426` completed, files readable, usage bucket updated, Workspace events `["Created"]` | PASS |
+
+## Production E2E Artifacts
+
+```text
+Production base URL: https://openpaw-production.up.railway.app
+Final deployed SHA: 702f42693fc567c03c0c2e049a86a4d3dab611e7
+Final deployed version: sha-702f4269
+Production image: ghcr.io/nerdsane/temperpaw:sha-702f426
+Image digest: sha256:95c0be0e9ee1ac837f951302d01a6025fc6543d2e819b15e404b50faf137a442
+Deployment id: 26754ae2-ed21-4c10-997c-4a08451957fd
+Restart proof deployment id: 69b2d082-d0c4-4920-9e5c-f835ec904dbc
+
+WASM module:
+- module_name=artifact_batch_apply
+- sha256_hash=4b3b6f5ea2b6bf0d4dab46a9e17a6d286b82f2014ad07a7b3059df62ed4fba23
+- packaged_hash=4b3b6f5ea2b6bf0d4dab46a9e17a6d286b82f2014ad07a7b3059df62ed4fba23
+- persisted after restart: yes
+
+Post-policy production run:
+- Workspace: ws-artifact-batch-e2e-prod-20260529-policy-702f426
+- ArtifactBatch: ab-artifact-batch-e2e-prod-20260529-policy-702f426
+- UsageBucket: en-019e7230-ff38-7732-97d8-d41cbc0aa1fb
+- Workspace events: Created only
+
+Post-restart production run:
+- Workspace: ws-artifact-batch-e2e-prod-20260529-restart-policy-702f426
+- ArtifactBatch: ab-artifact-batch-e2e-prod-20260529-restart-policy-702f426
+- UsageBucket: en-019e7231-d9cb-7651-beee-550d607af307
+- Readbacks:
+  - /katagami/deploy-e2e/prod-20260529-restart-policy-702f426/language.md: 48 bytes
+  - /katagami/deploy-e2e/prod-20260529-restart-policy-702f426/tokens.json: 43 bytes
+  - /katagami/deploy-e2e/prod-20260529-restart-policy-702f426/review.txt: 38 bytes
+- Usage delta: bytes_delta=129, file_delta=3
+- Workspace events: Created only
+```
 
 ## Architecture Diagram
 
