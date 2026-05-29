@@ -99,8 +99,9 @@ async fn investigate_datadog_with_codex(
 
     let workdir = ensure_worktree(config, worker_run).await?;
     let prompt = datadog_mcp_patrol_prompt(patrol_run_id, worker_run);
-    let output = run_codex_exec_command(config, &workdir, prompt, "run Codex Datadog MCP Patrol")
-        .await?;
+    let output =
+        run_codex_exec_command_with_datadog_mcp(config, &workdir, prompt, "run Codex Datadog MCP Patrol")
+            .await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

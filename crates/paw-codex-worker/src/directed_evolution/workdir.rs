@@ -260,6 +260,13 @@ fn directed_evolution_repo_from_mapping(organism_id: &str, app_ref: &str) -> Opt
         if let Some(path) = mapping.get(key).and_then(Value::as_str) {
             return Some(PathBuf::from(path));
         }
+        if let Some(path) = mapping
+            .get(key)
+            .and_then(|value| value.get("path"))
+            .and_then(Value::as_str)
+        {
+            return Some(PathBuf::from(path));
+        }
     }
     None
 }
@@ -286,6 +293,9 @@ async fn ensure_directed_evolution_worktree(
     if worktree.join(".git").exists() {
         return Ok(worktree);
     }
+    if let Some(existing) = existing_directed_evolution_worktree_for_branch(base_repo, &branch).await? {
+        return Ok(existing);
+    }
     fs::create_dir_all(worktree.parent().unwrap_or(&config.workspace_root))
         .with_context(|| format!("create {}", worktree.display()))?;
     let inside = git_capture(base_repo, &["rev-parse", "--is-inside-work-tree"]).await?;
@@ -307,6 +317,32 @@ async fn ensure_directed_evolution_worktree(
     Ok(worktree)
 }
 
+async fn existing_directed_evolution_worktree_for_branch(
+    base_repo: &Path,
+    branch: &str,
+) -> Result<Option<PathBuf>> {
+    let list = git_capture(base_repo, &["worktree", "list", "--porcelain"]).await?;
+    let expected_ref = format!("refs/heads/{branch}");
+    let mut current_path: Option<PathBuf> = None;
+
+    for line in list.lines().chain(std::iter::once("")) {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = Some(PathBuf::from(path));
+            continue;
+        }
+        if let Some(active_branch) = line.strip_prefix("branch ") {
+            if active_branch == expected_ref {
+                return Ok(current_path);
+            }
+        }
+        if line.trim().is_empty() {
+            current_path = None;
+        }
+    }
+
+    Ok(None)
+}
+
 async fn finalize_directed_evolution_output(
     client: &reqwest::Client,
     config: &Config,
@@ -326,6 +362,7 @@ async fn finalize_directed_evolution_output(
         );
     }
     git_capture(&workdir.path, &["add", "-A"]).await?;
+    let diff_patch = git_capture(&workdir.path, &["diff", "--cached", "--binary"]).await?;
     git_capture_owned(
         &workdir.path,
         vec![
@@ -355,6 +392,7 @@ async fn finalize_directed_evolution_output(
             "diff_ref".to_string(),
             json!(format!("git:{}:{commit}", workdir.branch_ref)),
         );
+        object.insert("diff_patch".to_string(), json!(diff_patch));
     }
     if let Some(runtime) =
         hotload_directed_evolution_variant(client, config, work_item, workdir, app_name, &commit)
@@ -452,6 +490,8 @@ async fn hotload_directed_evolution_variant(
     let registry_tenant = directed_evolution_registry_tenant(config);
     push_directed_evolution_variant_commit(&workdir.path, &genesis_url, &app, &branch, &registry_tenant)
         .await?;
+    publish_directed_evolution_app_version(client, config, &genesis_url, &app, &registry_tenant, &branch)
+        .await?;
     let tenant_prefix = env::var("DIRECTED_EVOLUTION_VARIANT_TENANT_PREFIX")
         .unwrap_or_else(|_| "de-variant".to_string());
     let tenant = directed_evolution_variant_tenant(&tenant_prefix, work_item);
@@ -503,10 +543,20 @@ async fn materialize_directed_evolution_promotion(
     }
 
     let registry_tenant = directed_evolution_registry_tenant(config);
-    push_directed_evolution_canonical_commit(&workdir.path, &genesis_url, &app, &registry_tenant)
-        .await?;
-    publish_directed_evolution_app_version(client, config, &genesis_url, &app, &registry_tenant)
-        .await?;
+    let ref_name = if workdir.branch_ref.trim().is_empty() {
+        directed_evolution_variant_branch(work_item)
+    } else {
+        workdir.branch_ref.clone()
+    };
+    publish_directed_evolution_app_version(
+        client,
+        config,
+        &genesis_url,
+        &app,
+        &registry_tenant,
+        &ref_name,
+    )
+    .await?;
     let production_tenant = directed_evolution_production_tenant();
     install_directed_evolution_variant(
         client,
@@ -522,8 +572,8 @@ async fn materialize_directed_evolution_promotion(
     Ok(DirectedEvolutionPromotionMaterialization {
         runtime_ref: format!("temper://tenant/{production_tenant}/app/{canonical_app_ref}"),
         summary: format!(
-            "Published {} to Genesis main and hot-loaded it into tenant {}.",
-            canonical_app_ref, production_tenant
+            "Published {} from winner ref {} and hot-loaded it into tenant {}.",
+            canonical_app_ref, ref_name, production_tenant
         ),
         digest: app.hash.clone(),
         canonical_app_ref,
@@ -568,28 +618,6 @@ async fn push_directed_evolution_variant_commit(
     )
     .await?;
     Ok(())
-}
-
-async fn push_directed_evolution_canonical_commit(
-    workdir: &Path,
-    genesis_url: &str,
-    app: &DirectedEvolutionGenesisApp,
-    registry_tenant: &str,
-) -> Result<()> {
-    git_capture_owned(
-        workdir,
-        directed_evolution_canonical_push_args(genesis_url, app, registry_tenant),
-    )
-    .await?;
-    Ok(())
-}
-
-fn directed_evolution_canonical_push_args(
-    genesis_url: &str,
-    app: &DirectedEvolutionGenesisApp,
-    registry_tenant: &str,
-) -> Vec<String> {
-    directed_evolution_variant_push_args(genesis_url, app, "main", registry_tenant)
 }
 
 fn directed_evolution_variant_push_args(
@@ -643,6 +671,14 @@ async fn install_directed_evolution_variant(
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     if !status.is_success() {
+        if status == reqwest::StatusCode::CONFLICT && body.contains("state 'Installed'") {
+            tracing::info!(
+                app_ref = %app.pinned_ref(),
+                target_tenant,
+                "Directed Evolution install already materialized; treating Installed conflict as success"
+            );
+            return Ok(());
+        }
         bail!(
             "Directed Evolution variant install failed for {} into tenant {}: HTTP {} body={}",
             app.pinned_ref(),
@@ -660,6 +696,7 @@ async fn publish_directed_evolution_app_version(
     genesis_url: &str,
     app: &DirectedEvolutionGenesisApp,
     registry_tenant: &str,
+    ref_name: &str,
 ) -> Result<()> {
     let url = format!(
         "{}/tdata/Apps('{}')/App.PublishNewVersion?await_integration=true",
@@ -671,7 +708,7 @@ async fn publish_directed_evolution_app_version(
         .headers(headers_for_tenant(config, registry_tenant)?)
         .json(&json!({
             "NewHash": app.hash,
-            "RefName": "main",
+            "RefName": ref_name,
         }))
         .send()
         .await
@@ -689,8 +726,8 @@ async fn publish_directed_evolution_app_version(
     Ok(())
 }
 
-fn directed_evolution_registry_tenant(config: &Config) -> String {
-    env::var("DIRECTED_EVOLUTION_REGISTRY_TENANT").unwrap_or_else(|_| config.tenant.clone())
+fn directed_evolution_registry_tenant(_config: &Config) -> String {
+    env::var("DIRECTED_EVOLUTION_REGISTRY_TENANT").unwrap_or_else(|_| "default".to_string())
 }
 
 fn directed_evolution_production_tenant() -> String {
@@ -817,9 +854,15 @@ fn sanitize_id_component(value: &str) -> String {
 
 fn value_field_string(fields: &Value, keys: &[&str]) -> String {
     keys.iter()
-        .find_map(|key| fields.get(*key).and_then(Value::as_str))
-        .unwrap_or("")
-        .to_string()
+        .find_map(|key| {
+            fields.get(*key).and_then(|value| match value {
+                Value::String(value) => Some(value.clone()),
+                Value::Number(value) => Some(value.to_string()),
+                Value::Bool(value) => Some(value.to_string()),
+                _ => None,
+            })
+        })
+        .unwrap_or_default()
 }
 
 fn env_flag(key: &str) -> Option<bool> {

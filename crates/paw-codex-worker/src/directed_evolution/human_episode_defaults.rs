@@ -114,6 +114,18 @@ fn default_human_episode_metrics() -> Vec<DirectedEvolutionMetricPlan> {
             hard_constraint: false,
         },
         DirectedEvolutionMetricPlan {
+            name: "simulated_user_app_blocker_count".to_string(),
+            kind: "journey".to_string(),
+            unit: "trials".to_string(),
+            higher_is_better: false,
+            description: "Simulated-user blockers classified as app behavior rather than runtime access.".to_string(),
+            provenance_kind: "state-verified".to_string(),
+            evaluator_ref: String::new(),
+            evaluator_module: "trial-state-verifier".to_string(),
+            interpretation: "The router counts terminal Trial entities and only hard-eliminates app-behavior blockers; runtime-access blockers remain visible evidence.".to_string(),
+            hard_constraint: true,
+        },
+        DirectedEvolutionMetricPlan {
             name: "runtime_error_count".to_string(),
             kind: "telemetry".to_string(),
             unit: "count".to_string(),
@@ -162,6 +174,8 @@ fn default_human_episode_elimination_rules() -> Vec<DirectedEvolutionElimination
         metric_ids: Vec::new(),
         threshold: json!({
             "viability_regression_count": 0,
+            "simulated_user_app_blocker_count": 0,
+            "runtime_error_count": 0,
         }),
     }]
 }

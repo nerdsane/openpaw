@@ -76,6 +76,9 @@ async fn claim_boot_queued_directed_evolution_work_items(
     client: &reqwest::Client,
     config: &Config,
 ) -> Result<()> {
+    if let Err(error) = recover_pending_directed_evolution_stage_results(client, config).await {
+        warn!(%error, "Directed Evolution stage-result recovery pass failed");
+    }
     let ids = query_boot_entity_ids(client, config, "WorkItems", "Queued").await?;
     for work_item_id in ids {
         handle_queued_directed_evolution_work_item(client, config, &work_item_id).await?;

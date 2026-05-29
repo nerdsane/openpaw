@@ -605,6 +605,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_exec_can_force_datadog_mcp_for_telemetry_roles() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("0"));
+        let _datadog_url = EnvOverride::set(
+            "PAW_CODEX_DATADOG_MCP_URL",
+            OsString::from("https://mcp.datadoghq.test/mcp?toolsets=logs"),
+        );
+        let args = codex_exec_args_with_datadog_mcp(
+            Path::new("/tmp/paw-worktree"),
+            "Evaluate Datadog telemetry",
+        );
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &args[0..4],
+            &[
+                "exec".to_string(),
+                "--ignore-user-config".to_string(),
+                "-c".to_string(),
+                "mcp_servers.datadog.url=\"https://mcp.datadoghq.test/mcp?toolsets=logs\""
+                    .to_string(),
+            ]
+        );
+        assert_eq!(args.last().map(String::as_str), Some("Evaluate Datadog telemetry"));
+    }
+
+    #[tokio::test]
     async fn codex_exec_uses_default_datadog_mcp_url_when_enabled() {
         let _guard = ENV_LOCK.lock().await;
         let _datadog_mcp =

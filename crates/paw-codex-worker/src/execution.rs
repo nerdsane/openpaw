@@ -378,6 +378,21 @@ async fn run_codex_exec_command(
         .await
 }
 
+async fn run_codex_exec_command_with_datadog_mcp(
+    config: &Config,
+    workdir: &Path,
+    prompt: String,
+    context_label: &str,
+) -> Result<Output> {
+    run_codex_exec_command_with_args(
+        config,
+        workdir,
+        codex_exec_args_with_datadog_mcp(workdir, &prompt),
+        context_label,
+    )
+    .await
+}
+
 async fn run_codex_exec_command_with_args(
     config: &Config,
     workdir: &Path,
@@ -488,8 +503,20 @@ fn signal_process_group(pid: u32, signal: libc::c_int, label: &str, context: &st
 async fn terminate_process_group(_pid: u32, _context: &str) {}
 
 fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
+    codex_exec_args_with_datadog_option(workdir, prompt, false)
+}
+
+fn codex_exec_args_with_datadog_mcp(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
+    codex_exec_args_with_datadog_option(workdir, prompt, true)
+}
+
+fn codex_exec_args_with_datadog_option(
+    workdir: &Path,
+    prompt: &str,
+    force_datadog_mcp: bool,
+) -> Vec<std::ffi::OsString> {
     let mut args = vec!["exec".into(), "--ignore-user-config".into()];
-    if let Some(datadog_mcp_url) = codex_datadog_mcp_url() {
+    if let Some(datadog_mcp_url) = codex_datadog_mcp_url(force_datadog_mcp) {
         args.extend([
             "-c".into(),
             format!(
@@ -510,11 +537,11 @@ fn codex_exec_args(workdir: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
     args
 }
 
-fn codex_datadog_mcp_url() -> Option<String> {
+fn codex_datadog_mcp_url(force_enabled: bool) -> Option<String> {
     let enabled = env::var("PAW_CODEX_ENABLE_DATADOG_MCP")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-    if !enabled {
+    if !force_enabled && !enabled {
         return None;
     }
     Some(

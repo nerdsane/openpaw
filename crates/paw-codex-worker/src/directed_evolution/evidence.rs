@@ -214,7 +214,20 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
     let service = env::var("DD_SERVICE").unwrap_or_else(|_| "temperpaw".to_string());
     let env_name = env::var("DD_ENV").unwrap_or_else(|_| "local".to_string());
     let site = env::var("DD_SITE").unwrap_or_else(|_| "datadoghq.com".to_string());
-    let query = format!("service:{service} env:{env_name} @work_item_id:{}", work_item.id);
+    let correlation = serde_json::from_str::<Value>(&work_item.correlation_json)
+        .unwrap_or_else(|_| json!({}));
+    let join_fields = directed_evolution_datadog_join_fields(work_item, &correlation);
+    let mut query_parts = vec![
+        format!("service:{service}"),
+        format!("env:{env_name}"),
+        format!("@work_item_id:{}", work_item.id),
+    ];
+    for (key, value) in &join_fields {
+        if !value.trim().is_empty() {
+            query_parts.push(format!("@{key}:{value}"));
+        }
+    }
+    let query = query_parts.join(" ");
     json!({
         "service": service,
         "env": env_name,
@@ -223,12 +236,47 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
         "target_entity_type": work_item.target_entity_type,
         "target_entity_id": work_item.target_entity_id,
         "control_tenant": config_tenant_label(),
+        "join_fields": join_fields,
         "query": query,
         "logs_url": format!(
             "https://app.{site}/logs?query={}",
             encode_url_component(&query)
         ),
     })
+}
+
+fn directed_evolution_datadog_join_fields(
+    work_item: &DirectedEvolutionWorkItemState,
+    correlation: &Value,
+) -> BTreeMap<String, String> {
+    let mut fields = BTreeMap::new();
+    for key in [
+        "episode_id",
+        "direction_id",
+        "generation_id",
+        "variant_id",
+        "evaluation_stage_id",
+        "stage_result_id",
+        "trial_id",
+        "simulated_user_plan_id",
+        "persona_index",
+        "run_index",
+        "runtime_ref",
+        "app_ref",
+    ] {
+        let value = correlation
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| correlation.get(key).map(Value::to_string))
+            .unwrap_or_default();
+        if !value.trim().is_empty() {
+            fields.insert(key.to_string(), value);
+        }
+    }
+    fields.insert("work_item_id".to_string(), work_item.id.clone());
+    fields.insert("role".to_string(), work_item.role.clone());
+    fields
 }
 
 fn config_tenant_label() -> String {

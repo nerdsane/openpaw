@@ -20,9 +20,18 @@ async fn handle_queued_directed_evolution_work_item(
     if let Some(reason) =
         stale_directed_evolution_work_item_reason(client, config, &work_item).await?
     {
-        eliminate_stale_directed_evolution_stage_result(client, config, &work_item, &reason)
-            .await?;
-        post_directed_evolution_action(
+        if let Err(error) =
+            eliminate_stale_directed_evolution_stage_result(client, config, &work_item, &reason)
+                .await
+        {
+            warn!(
+                work_item_id = %work_item.id,
+                role = %work_item.role,
+                %error,
+                "stale Directed Evolution WorkItem cleanup could not mutate StageResult; cancelling WorkItem only"
+            );
+        }
+        if let Err(error) = post_directed_evolution_action(
             client,
             config,
             "WorkItems",
@@ -30,7 +39,12 @@ async fn handle_queued_directed_evolution_work_item(
             "CancelWorkItem",
             json!({ "Reason": reason }),
         )
-        .await?;
+        .await
+        {
+            if !error.to_string().contains("not valid from state 'Cancelled'") {
+                return Err(error);
+            }
+        }
         info!(
             work_item_id = %work_item.id,
             role = %work_item.role,
@@ -39,8 +53,7 @@ async fn handle_queued_directed_evolution_work_item(
         return Ok(());
     }
 
-    let brain_run_id = create_entity(client, config, "BrainRuns", json!({})).await?;
-    post_directed_evolution_action(
+    if let Err(error) = post_directed_evolution_action(
         client,
         config,
         "WorkItems",
@@ -51,7 +64,30 @@ async fn handle_queued_directed_evolution_work_item(
             "ClaimedBy": config.worker_id,
         }),
     )
-    .await?;
+    .await
+    {
+        let message = error.to_string();
+        if directed_evolution_claim_conflict_message(&message) {
+            let current = fetch_directed_evolution_work_item(client, config, &work_item.id).await?;
+            info!(
+                work_item_id = %work_item.id,
+                role = %work_item.role,
+                status = %current.status,
+                "Directed Evolution WorkItem claim lost to another worker"
+            );
+            if current.status != "Queued" {
+                return Ok(());
+            }
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "claim Directed Evolution WorkItem {} as {}",
+                work_item.id, config.worker_id
+            )
+        });
+    }
+
+    let brain_run_id = create_entity(client, config, "BrainRuns", json!({})).await?;
     post_directed_evolution_action(
         client,
         config,
@@ -193,6 +229,11 @@ async fn handle_queued_directed_evolution_work_item(
             Ok(())
         }
     }
+}
+
+fn directed_evolution_claim_conflict_message(message: &str) -> bool {
+    message.contains("WorkItems.ClaimWorkItem returned 409")
+        && message.contains("not valid from state")
 }
 
 async fn stale_directed_evolution_work_item_reason(
@@ -378,14 +419,18 @@ async fn run_directed_evolution_codex_role(
     } else {
         directed_evolution_git_status_snapshot(&workdir.path).await?
     };
-    let output = match run_codex_exec_command(
-        config,
-        &workdir.path,
-        prompt,
-        "run Directed Evolution Codex role",
-    )
-    .await
-    {
+    let output = match if work_item.role == "telemetry_evaluator" {
+        run_codex_exec_command_with_datadog_mcp(
+            config,
+            &workdir.path,
+            prompt,
+            "run Directed Evolution Datadog telemetry evaluator",
+        )
+        .await
+    } else {
+        run_codex_exec_command(config, &workdir.path, prompt, "run Directed Evolution Codex role")
+            .await
+    } {
         Ok(output) => output,
         Err(error) => {
             return recover_directed_evolution_variant_output(
@@ -509,6 +554,7 @@ async fn recover_directed_evolution_variant_output(
 
 
 include!("directed_evolution/workdir.rs");
+include!("directed_evolution/recovery.rs");
 include!("directed_evolution/mechanical_evaluator.rs");
 include!("directed_evolution/prompt.rs");
 include!("directed_evolution/tests.rs");

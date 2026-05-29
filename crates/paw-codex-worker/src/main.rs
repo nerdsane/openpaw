@@ -7,6 +7,7 @@ use repo_health::{
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, Read};

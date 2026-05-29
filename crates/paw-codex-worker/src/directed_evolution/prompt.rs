@@ -10,16 +10,16 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
             "Generate one bounded candidate variant for the target organism. Make the concrete app-bundle changes, avoid long exploratory verification, and return the concise JSON object immediately after the mutation is complete."
         }
         "simulated_user" => {
-            "Act as an AI simulated user against the target organism. Exercise the live runtime when a RuntimeRef is provided. Do not judge viability, do not pass/fail the variant, and do not select a winner. Return journeys, observations, friction, unmet intents, user-visible measurements, and evidence_scope entries from the app interaction only."
+            "Act as an AI simulated user against the target organism. Exercise the live runtime when a RuntimeRef is provided. Start with /tdata and /tdata/$metadata for the parsed runtime tenant; a 404 from / or decorative app routes is not a blocker when OData works. Do not judge viability, do not pass/fail the variant, and do not select a winner. Return journeys, observations, friction, unmet intents, user-visible measurements, blocker_kind, and evidence_scope entries from the app interaction only."
         }
         "reviewer" | "viability_evaluator" => {
-            "Evaluate a variant against the Adaptation Goal, Viability Constraints, Selection Protocol, and recorded evidence. Use authenticated Datadog MCP tools only when the stage requires telemetry evidence. Return pass/fail reasoning, explicit provenance_kind, metrics, structured evidence_scope entries, and risk notes."
+            "Evaluate a variant against the Adaptation Goal, Viability Constraints, Selection Protocol, and recorded evidence. This is not a telemetry role by default: do not fail because Datadog runtime-request logs are absent unless the literal stage prompt explicitly says the stage is Datadog-measured. Return pass/fail reasoning, explicit non-telemetry provenance_kind, metrics, structured evidence_scope entries, and risk notes."
         }
         "state_verifier" => {
             "Run deterministic state/spec verification against the variant. Use specs, CSDL, Cedar, runtime state, and transition checks rather than subjective judgment. Return pass/fail, provenance_kind=state-verified, metrics, decision_basis, and concrete evidence."
         }
         "telemetry_evaluator" => {
-            "Evaluate Datadog or runtime telemetry evidence for the variant. Query logs, traces, metrics, or monitors when available. Return pass/fail, provenance_kind=datadog-measured or runtime-measured, metrics, query summaries, result counts, zero-result meaning, and Datadog URLs when available."
+            "Evaluate Datadog telemetry evidence for the variant. Datadog is the primary judging surface: query logs for service:temper-platform \"directed evolution runtime request\" scoped by directed_evolution.episode_id, directed_evolution.variant_id, and the runtime tenant parsed from RuntimeRef. Do not require directed_evolution.runtime_ref unless Datadog field discovery proves it is indexed for these logs. Return top-level provenance_kind=datadog-measured. The first evidence_scope item must include surface=logs, the exact Datadog query, time_window, result_count, interpretation, zero_result_meaning, and a Datadog URL. Zero matching runtime-request logs is failure for this stage; runtime OData probes may be supporting evidence but must not replace Datadog."
         }
         "wasm_evaluator" => {
             "Run or inspect the pinned deterministic evaluator bundle for this stage. Do not let the variant alter the evaluator judging it. Return pass/fail, provenance_kind=wasm-computed, metrics, evaluator inputs, and evidence."
@@ -99,6 +99,7 @@ fn directed_evolution_output_contract(role: &str) -> &'static str {
   "runtime_ref": "runnable variant URL or local ref",
   "changed_files": ["..."],
   "diff_ref": "...",
+  "diff_patch": "unified diff patch if available",
   "verification_notes": "...",
   "reasoning_summary": "..."
 }"#
@@ -115,17 +116,34 @@ fn directed_evolution_output_contract(role: &str) -> &'static str {
   "evidence_scope": [{"surface":"runtime|app","query":"...","result_summary":"..."}],
   "evidence_refs": ["..."],
   "blocker": "",
+  "blocker_kind": "none|runtime-access|app-behavior|ambiguous",
   "reasoning_summary": "..."
 }"#
         }
-        "reviewer" | "viability_evaluator" | "state_verifier" | "telemetry_evaluator" | "wasm_evaluator" => {
+        "telemetry_evaluator" => {
+            r#"{
+  "passed": true,
+  "status": "passed|failed",
+  "summary": "...",
+  "failure_reason": "",
+  "evaluator_role": "telemetry_evaluator",
+  "provenance_kind": "datadog-measured",
+  "metrics": {"runtime_request_log_count":{"value":0,"unit":"logs","provenance_kind":"datadog-measured","interpretation":"..."}},
+  "decision_basis": {"why":"Datadog query result is the pass/fail source; runtime OData probes are supporting only.","tradeoffs":["Do not over-scope by runtime_ref unless field discovery shows it is indexed."]},
+  "inputs": {"telemetry":["Datadog logs query scoped by directed_evolution episode, variant, and tenant fields"],"observations":[],"state":[]},
+  "evidence_scope": [{"surface":"logs","query":"service:temper-platform \"directed evolution runtime request\" ...","time_window":"...","result_count":1,"interpretation":"...","zero_result_meaning":"failure","datadog_url":"https://app.datadoghq.com/logs?query=..."}],
+  "evidence_refs": ["..."],
+  "reasoning_summary": "..."
+}"#
+        }
+        "reviewer" | "viability_evaluator" | "state_verifier" | "wasm_evaluator" => {
             r#"{
   "passed": true,
   "status": "passed|failed",
   "summary": "...",
   "failure_reason": "",
   "evaluator_role": "reviewer|viability_evaluator|state_verifier|telemetry_evaluator|wasm_evaluator",
-  "provenance_kind": "brain-judged|state-verified|wasm-computed|runtime-measured|datadog-measured",
+  "provenance_kind": "brain-judged|state-verified|wasm-computed|runtime-measured",
   "metrics": {"metric_name":{"value":0,"unit":"score","provenance_kind":"...","interpretation":"..."}},
   "decision_basis": {"why":"...","tradeoffs":["..."]},
   "inputs": {"observations":["..."],"telemetry":["..."],"state":["..."]},
@@ -202,7 +220,8 @@ fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> Strin
 - Do not start a foreground long-lived server. If a local server is absolutely required, start it in the background, stop it before returning, and include the cleanup in evidence_scope.\n\
 - If runtime execution is unavailable, fail the stage with clear evidence instead of hanging.\n\
 - Simulated-user roles must only report observations and must not include passed, failed, viable, score, winner, or selection fields.\n\
-- Evaluator roles may pass/fail only from recorded observations, deterministic checks, runtime measurements, or telemetry evidence with explicit provenance_kind.\n",
+- Evaluator roles may pass/fail only from recorded observations, deterministic checks, runtime measurements, or telemetry evidence with explicit provenance_kind.\n\
+- For reviewer, viability_evaluator, state_verifier, and wasm_evaluator roles, Datadog absence is not a failure unless the literal stage prompt names Datadog as required evidence.\n",
     );
     body
 }

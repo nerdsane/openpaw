@@ -137,6 +137,15 @@ fn directed_evolution_state_verifier_output(
         ));
     }
 
+    let missing_required_changed_files =
+        directed_evolution_missing_required_changed_files(evaluation_stage, &changed_files);
+    if !missing_required_changed_files.is_empty() {
+        findings.push(format!(
+            "Variant did not change required file(s): {}",
+            missing_required_changed_files.join(", ")
+        ));
+    }
+
     let passed = findings.is_empty();
     let viability_regression_count = if passed { 0 } else { findings.len() };
     let summary = if passed {
@@ -181,6 +190,12 @@ fn directed_evolution_state_verifier_output(
                 "unit": "files",
                 "provenance_kind": provenance,
                 "interpretation": "Number of changed files under the pinned evaluator bundle."
+            },
+            "required_changed_file_missing_count": {
+                "value": missing_required_changed_files.len(),
+                "unit": "files",
+                "provenance_kind": provenance,
+                "interpretation": "Number of stage RequiredEvidence changed_file:<path> requirements not present on the Mutation."
             }
         },
         "decision_basis": {
@@ -245,6 +260,32 @@ fn directed_evolution_changed_files(fields: &Value) -> Option<Vec<String>> {
             .map(str::to_string)
             .collect(),
     )
+}
+
+fn directed_evolution_missing_required_changed_files(
+    evaluation_stage: &Value,
+    changed_files: &[String],
+) -> Vec<String> {
+    parse_json_string_array(&value_field_string(
+        evaluation_stage,
+        &["RequiredEvidenceJson", "required_evidence_json"],
+    ))
+    .into_iter()
+    .filter_map(|requirement| {
+        requirement
+            .strip_prefix("changed_file:")
+            .or_else(|| requirement.strip_prefix("changed-path:"))
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+    })
+    .filter(|required_path| {
+        !changed_files.iter().any(|changed_path| {
+            let normalized = changed_path.trim_start_matches("./");
+            normalized == required_path || normalized.ends_with(&format!("/{required_path}"))
+        })
+    })
+    .collect()
 }
 
 fn directed_evolution_evaluator_path(path: &str) -> bool {

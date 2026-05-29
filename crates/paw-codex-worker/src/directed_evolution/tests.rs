@@ -92,7 +92,8 @@ mod directed_evolution_tests {
 
         let prompt = directed_evolution_prompt(&work_item);
 
-        assert!(prompt.contains("Query logs, traces, metrics, or monitors"));
+        assert!(prompt.contains("Datadog is the primary judging surface"));
+        assert!(prompt.contains("directed_evolution.variant_id"));
         assert!(prompt.contains("provenance_kind=datadog-measured"));
         assert!(prompt.contains("result_count"));
         assert!(prompt.contains("zero_result_meaning"));
@@ -319,6 +320,45 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn mechanical_state_verifier_rejects_missing_required_changed_file() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-state".to_string(),
+            status: "Running".to_string(),
+            role: "state_verifier".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-required-file".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{}".to_string(),
+        };
+
+        let output = directed_evolution_state_verifier_output(
+            &work_item,
+            &json!({ "VariantId": "var-required-file", "EvaluationStageId": "stage-required-file" }),
+            &json!({ "MutationId": "mut-required-file" }),
+            &json!({
+                "ChangedFilesJson": "[\"APP.md\",\"specs/question.ioa.toml\",\"specs/model.csdl.xml\"]"
+            }),
+            &json!({
+                "RequiredEvidenceJson": "[\"changed_file:specs/answer.ioa.toml\",\"no_evaluator_mutation\"]"
+            }),
+        );
+
+        assert_eq!(output["passed"], false);
+        assert_eq!(
+            output["metrics"]["required_changed_file_missing_count"]["value"],
+            1
+        );
+        assert!(
+            output["failure_reason"]
+                .as_str()
+                .unwrap()
+                .contains("specs/answer.ioa.toml")
+        );
+    }
+
+    #[test]
     fn mechanical_evaluator_roles_are_not_codex_brains() {
         assert!(directed_evolution_mechanical_evaluator_role("state_verifier"));
         assert!(directed_evolution_mechanical_evaluator_role("wasm_evaluator"));
@@ -348,6 +388,30 @@ mod directed_evolution_tests {
             "arni-labs/agent-answers@abc123",
         )
         .expect("repo should resolve");
+
+        assert_eq!(path, PathBuf::from("/tmp/agent-answers"));
+        unsafe {
+            if let Some(value) = previous {
+                env::set_var("DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON", value);
+            } else {
+                env::remove_var("DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON");
+            }
+        }
+    }
+
+    #[test]
+    fn directed_evolution_repo_mapping_accepts_object_path() {
+        let previous = env::var_os("DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON");
+        unsafe {
+            env::set_var(
+                "DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON",
+                r#"{"org-agent-answers":{"path":"/tmp/agent-answers","owner":"arni-labs","app":"agent-answers"}}"#,
+            );
+        }
+
+        let path =
+            directed_evolution_repo_from_mapping("org-agent-answers", "arni-labs/agent-answers@abc123")
+                .expect("repo should resolve from object path");
 
         assert_eq!(path, PathBuf::from("/tmp/agent-answers"));
         unsafe {
@@ -466,26 +530,34 @@ mod directed_evolution_tests {
     }
 
     #[test]
-    fn directed_evolution_canonical_push_targets_main_with_registry_tenant() {
-        let app = directed_evolution_genesis_app_from_ref("nerdsane/agent-answers@abc123")
-            .expect("app ref should parse");
+    fn directed_evolution_registry_tenant_defaults_to_default() {
+        let previous = env::var_os("DIRECTED_EVOLUTION_REGISTRY_TENANT");
+        unsafe {
+            env::remove_var("DIRECTED_EVOLUTION_REGISTRY_TENANT");
+        }
 
-        let args = directed_evolution_canonical_push_args(
-            "https://genesis-production-164d.up.railway.app/",
-            &app,
-            "default",
-        );
+        let config = Config {
+            temper_url: "http://temper.test".to_string(),
+            tenant: "de-control".to_string(),
+            worker_id: "worker".to_string(),
+            worker_token: None,
+            workspace_root: PathBuf::from("/tmp/workspaces"),
+            repo_root: PathBuf::from("/tmp/repo"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(60),
+        };
 
-        assert_eq!(
-            args,
-            vec![
-                "-c",
-                "http.extraHeader=x-tenant-id: default",
-                "push",
-                "https://genesis-production-164d.up.railway.app/nerdsane/agent-answers.git",
-                "HEAD:refs/heads/main",
-            ]
-        );
+        assert_eq!(directed_evolution_registry_tenant(&config), "default");
+
+        unsafe {
+            if let Some(value) = previous {
+                env::set_var("DIRECTED_EVOLUTION_REGISTRY_TENANT", value);
+            }
+        }
     }
 
     #[test]
@@ -577,6 +649,26 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_evidence_summary_preserves_numeric_result_count() {
+        let summary = directed_evolution_first_evidence_scope_summary(&json!({
+            "evidence_scope": [
+                {
+                    "surface": "logs",
+                    "query": "service:temper-platform",
+                    "time_window": "2026-05-28T00:00:00Z to 2026-05-29T23:59:59Z",
+                    "result_count": 78,
+                    "interpretation": "Datadog returned matching runtime-request logs.",
+                    "zero_result_meaning": "failure"
+                }
+            ]
+        }));
+
+        assert_eq!(summary.query, "service:temper-platform");
+        assert_eq!(summary.result_count, "78");
+        assert_eq!(summary.zero_result_meaning, "failure");
+    }
+
+    #[test]
     fn directed_evolution_summary_uses_agent_summary_when_available() {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-review".to_string(),
@@ -633,6 +725,17 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_claim_conflict_is_benign_race_signature() {
+        let message =
+            "WorkItems.ClaimWorkItem returned 409 Conflict: Action 'ClaimWorkItem' not valid from state 'Running'";
+
+        assert!(directed_evolution_claim_conflict_message(message));
+        assert!(!directed_evolution_claim_conflict_message(
+            "WorkItems.StartWorkItem returned 409 Conflict: Action 'StartWorkItem' not valid from state 'Queued'"
+        ));
+    }
+
+    #[test]
     fn human_episode_contract_uses_direction_and_organism_defaults() {
         let input: DirectedEvolutionHumanEpisodeInput = serde_json::from_value(json!({
             "direction_id": "direction-growth",
@@ -666,7 +769,7 @@ mod directed_evolution_tests {
             "Humans compare candidate answers before acceptance."
         );
         assert_eq!(plan.viability_constraints[0].statement, "Answer creation still works.");
-        assert_eq!(plan.metrics.len(), 4);
+        assert_eq!(plan.metrics.len(), 5);
         assert_eq!(plan.simulated_user_plan.users_per_variant, 3);
         assert_eq!(plan.simulated_user_plan.runs_per_persona, 2);
         assert!(
@@ -736,6 +839,77 @@ mod directed_evolution_tests {
         assert_eq!(plan.scoring_rules[0].statement, "Prefer highest goal score.");
         assert_eq!(plan.simulated_user_plan.personas.len(), 3);
         assert!(!plan.evaluator_ref.trim().is_empty());
+    }
+
+    #[test]
+    fn human_episode_contract_accepts_snake_case_semantics() {
+        let input: DirectedEvolutionHumanEpisodeInput = serde_json::from_value(json!({
+            "direction_id": "direction-growth",
+            "adaptation_goal": "Improve answer comparison.",
+            "metrics": [
+                {
+                    "metric_name": "required_changed_file_missing_count",
+                    "metric_kind": "state",
+                    "unit": "files",
+                    "higher_is_better": false,
+                    "provenance_kind": "state-verified",
+                    "evaluator_ref": "genesis://nerdsane/agent-answers-evaluation@frozen",
+                    "evaluator_module": "state-verifier",
+                    "hard_constraint": true
+                }
+            ],
+            "viability_constraints": [
+                {
+                    "constraint_statement": "Answer spec must change.",
+                    "constraint_kind": "state-verified"
+                }
+            ],
+            "elimination_rules": [
+                {
+                    "rule_statement": "Eliminate missing answer spec mutation.",
+                    "metric_names": ["required_changed_file_missing_count"],
+                    "threshold": { "max": 0 }
+                }
+            ],
+            "scoring_rules": [
+                {
+                    "rule_statement": "Prefer exact answer-spec fit.",
+                    "metric_names": ["required_changed_file_missing_count"],
+                    "weight": "0.20"
+                }
+            ],
+            "evaluation_stages": [
+                {
+                    "stage_name": "Deterministic state verification",
+                    "stage_kind": "state_verification",
+                    "executor_kind": "state_verifier",
+                    "required_evidence": ["changed_file:specs/answer.ioa.toml"],
+                    "measurement_provenance": "state-verified",
+                    "evaluator_ref": "genesis://nerdsane/agent-answers-evaluation@frozen",
+                    "evaluator_module": "state-verifier",
+                    "decision_authority": "mechanical"
+                }
+            ]
+        }))
+        .expect("contract input should parse");
+
+        let plan = directed_evolution_episode_plan_from_input(
+            input,
+            &json!({
+                "OrganismId": "org-agent-answers",
+                "ProposedAdaptationGoal": "Direction goal",
+            }),
+            &json!({ "ParentVersionId": "ov-parent" }),
+        )
+        .expect("episode plan should resolve");
+
+        assert_eq!(plan.metrics[0].name, "required_changed_file_missing_count");
+        assert_eq!(plan.metrics[0].higher_is_better, false);
+        assert_eq!(plan.metrics[0].hard_constraint, true);
+        assert_eq!(plan.viability_constraints[0].statement, "Answer spec must change.");
+        assert_eq!(plan.elimination_rules[0].metric_names[0], "required_changed_file_missing_count");
+        assert_eq!(plan.scoring_rules[0].weight, "0.20");
+        assert_eq!(plan.evaluation_stages[0].required_evidence[0], "changed_file:specs/answer.ioa.toml");
     }
 
     #[test]

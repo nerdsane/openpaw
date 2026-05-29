@@ -51,44 +51,74 @@ struct DirectedEvolutionHumanEpisodeInput {
 enum DirectedEvolutionConstraintInput {
     Text(String),
     Object {
-        #[serde(default, alias = "ConstraintStatement", alias = "constraintStatement")]
+        #[serde(
+            default,
+            alias = "ConstraintStatement",
+            alias = "constraintStatement",
+            alias = "constraint_statement"
+        )]
         statement: String,
-        #[serde(default, alias = "ConstraintKind", alias = "constraintKind")]
+        #[serde(
+            default,
+            alias = "ConstraintKind",
+            alias = "constraintKind",
+            alias = "constraint_kind"
+        )]
         kind: String,
     },
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct DirectedEvolutionMetricInput {
-    #[serde(default, alias = "MetricName", alias = "metricName")]
+    #[serde(default, alias = "MetricName", alias = "metricName", alias = "metric_name")]
     name: String,
-    #[serde(default, alias = "MetricKind", alias = "metricKind")]
+    #[serde(default, alias = "MetricKind", alias = "metricKind", alias = "metric_kind")]
     kind: String,
-    #[serde(default, alias = "Unit")]
+    #[serde(default, alias = "Unit", alias = "unit")]
     unit: String,
-    #[serde(default, alias = "HigherIsBetter", alias = "higherIsBetter")]
+    #[serde(
+        default,
+        alias = "HigherIsBetter",
+        alias = "higherIsBetter",
+        alias = "higher_is_better"
+    )]
     higher_is_better: Option<bool>,
-    #[serde(default, alias = "Description")]
+    #[serde(default, alias = "Description", alias = "description")]
     description: String,
-    #[serde(default, alias = "ProvenanceKind", alias = "provenanceKind")]
+    #[serde(
+        default,
+        alias = "ProvenanceKind",
+        alias = "provenanceKind",
+        alias = "provenance_kind"
+    )]
     provenance_kind: String,
-    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
+    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef", alias = "evaluator_ref")]
     evaluator_ref: String,
-    #[serde(default, alias = "EvaluatorModule", alias = "evaluatorModule")]
+    #[serde(
+        default,
+        alias = "EvaluatorModule",
+        alias = "evaluatorModule",
+        alias = "evaluator_module"
+    )]
     evaluator_module: String,
-    #[serde(default, alias = "Interpretation")]
+    #[serde(default, alias = "Interpretation", alias = "interpretation")]
     interpretation: String,
-    #[serde(default, alias = "HardConstraint", alias = "hardConstraint")]
+    #[serde(
+        default,
+        alias = "HardConstraint",
+        alias = "hardConstraint",
+        alias = "hard_constraint"
+    )]
     hard_constraint: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct DirectedEvolutionEliminationRuleInput {
-    #[serde(default, alias = "RuleStatement", alias = "ruleStatement")]
+    #[serde(default, alias = "RuleStatement", alias = "ruleStatement", alias = "rule_statement")]
     statement: String,
-    #[serde(default, alias = "MetricNames", alias = "metricNames")]
+    #[serde(default, alias = "MetricNames", alias = "metricNames", alias = "metric_names")]
     metric_names: Vec<String>,
-    #[serde(default, alias = "MetricIds", alias = "metricIds")]
+    #[serde(default, alias = "MetricIds", alias = "metricIds", alias = "metric_ids")]
     metric_ids: Vec<String>,
     #[serde(
         default = "empty_directed_evolution_json_object",
@@ -100,33 +130,53 @@ struct DirectedEvolutionEliminationRuleInput {
 
 #[derive(Clone, Debug, Deserialize)]
 struct DirectedEvolutionScoringRuleInput {
-    #[serde(default, alias = "RuleStatement", alias = "ruleStatement")]
+    #[serde(default, alias = "RuleStatement", alias = "ruleStatement", alias = "rule_statement")]
     statement: String,
-    #[serde(default, alias = "MetricNames", alias = "metricNames")]
+    #[serde(default, alias = "MetricNames", alias = "metricNames", alias = "metric_names")]
     metric_names: Vec<String>,
-    #[serde(default, alias = "MetricIds", alias = "metricIds")]
+    #[serde(default, alias = "MetricIds", alias = "metricIds", alias = "metric_ids")]
     metric_ids: Vec<String>,
-    #[serde(default, alias = "Weight")]
+    #[serde(default, alias = "Weight", alias = "weight")]
     weight: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct DirectedEvolutionEvaluationStageInput {
-    #[serde(default, alias = "StageName", alias = "stageName")]
+    #[serde(default, alias = "StageName", alias = "stageName", alias = "stage_name")]
     name: String,
-    #[serde(default, alias = "StageKind", alias = "stageKind")]
+    #[serde(default, alias = "StageKind", alias = "stageKind", alias = "stage_kind")]
     kind: String,
-    #[serde(default, alias = "ExecutorKind", alias = "executorKind")]
+    #[serde(default, alias = "ExecutorKind", alias = "executorKind", alias = "executor_kind")]
     executor: String,
-    #[serde(default, alias = "RequiredEvidence", alias = "requiredEvidence")]
+    #[serde(
+        default,
+        alias = "RequiredEvidence",
+        alias = "requiredEvidence",
+        alias = "required_evidence"
+    )]
     required_evidence: Vec<String>,
-    #[serde(default, alias = "MeasurementProvenance", alias = "measurementProvenance")]
+    #[serde(
+        default,
+        alias = "MeasurementProvenance",
+        alias = "measurementProvenance",
+        alias = "measurement_provenance"
+    )]
     measurement_provenance: String,
-    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
+    #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef", alias = "evaluator_ref")]
     evaluator_ref: String,
-    #[serde(default, alias = "EvaluatorModule", alias = "evaluatorModule")]
+    #[serde(
+        default,
+        alias = "EvaluatorModule",
+        alias = "evaluatorModule",
+        alias = "evaluator_module"
+    )]
     evaluator_module: String,
-    #[serde(default, alias = "DecisionAuthority", alias = "decisionAuthority")]
+    #[serde(
+        default,
+        alias = "DecisionAuthority",
+        alias = "decisionAuthority",
+        alias = "decision_authority"
+    )]
     decision_authority: String,
 }
 
