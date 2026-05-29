@@ -76,7 +76,9 @@ fn find_directory(
     );
     let resp = http_get(ctx, &url, tenant)?;
     let items = resp.get("value").and_then(|v| v.as_array());
-    Ok(items.and_then(|arr| arr.first()).and_then(|v| extract_id(v)))
+    Ok(items
+        .and_then(|arr| arr.first())
+        .and_then(|v| extract_id(v)))
 }
 
 /// Find a file by Path + WorkspaceId.
@@ -93,7 +95,9 @@ fn find_file(
     );
     let resp = http_get(ctx, &url, tenant)?;
     let items = resp.get("value").and_then(|v| v.as_array());
-    Ok(items.and_then(|arr| arr.first()).and_then(|v| extract_id(v)))
+    Ok(items
+        .and_then(|arr| arr.first())
+        .and_then(|v| extract_id(v)))
 }
 
 /// Resolve or create the directory hierarchy for a given dir_path.
@@ -147,19 +151,19 @@ fn ensure_dirs(
                         "WorkspaceId": ws_id,
                     }),
                 )?;
-                let new_id =
-                    extract_id(&resp).ok_or("mkdir: dir created but no Id returned")?;
+                let new_id = extract_id(&resp).ok_or("mkdir: dir created but no Id returned")?;
 
                 // AddChild on parent.
                 if let Err(e) = http_post(
                     ctx,
-                    &format!(
-                        "{api_url}/tdata/Directories('{parent_id}')/Temper.AddChild"
-                    ),
+                    &format!("{api_url}/tdata/Directories('{parent_id}')/Temper.AddChild"),
                     tenant,
                     &json!({}),
                 ) {
-                    ctx.log("warn", &format!("mkdir: AddChild failed on {parent_id}: {e}"));
+                    ctx.log(
+                        "warn",
+                        &format!("mkdir: AddChild failed on {parent_id}: {e}"),
+                    );
                 }
 
                 parent_id = new_id;
@@ -239,17 +243,10 @@ pub fn create_file(
         tenant,
         &json!({}),
     ) {
-        ctx.log("warn", &format!("create_file: AddChild failed on dir {dir_id}: {e}"));
-    }
-
-    // IncrementFileCount on workspace.
-    if let Err(e) = http_post(
-        ctx,
-        &format!("{api_url}/tdata/Workspaces('{ws_id}')/Temper.IncrementFileCount"),
-        tenant,
-        &json!({}),
-    ) {
-        ctx.log("warn", &format!("create_file: IncrementFileCount failed on ws {ws_id}: {e}"));
+        ctx.log(
+            "warn",
+            &format!("create_file: AddChild failed on dir {dir_id}: {e}"),
+        );
     }
 
     set_success_result(
@@ -359,11 +356,7 @@ pub fn delete_file(
     )?;
 
     // Get file metadata to find parent directory.
-    let file_resp = http_get(
-        ctx,
-        &format!("{api_url}/tdata/Files('{file_id}')"),
-        tenant,
-    )?;
+    let file_resp = http_get(ctx, &format!("{api_url}/tdata/Files('{file_id}')"), tenant)?;
     let dir_id = file_resp
         .get("DirectoryId")
         .and_then(|v| v.as_str())
@@ -377,18 +370,11 @@ pub fn delete_file(
             tenant,
             &json!({}),
         ) {
-            ctx.log("warn", &format!("delete_file: RemoveChild failed on dir {dir_id}: {e}"));
+            ctx.log(
+                "warn",
+                &format!("delete_file: RemoveChild failed on dir {dir_id}: {e}"),
+            );
         }
-    }
-
-    // DecrementFileCount on workspace.
-    if let Err(e) = http_post(
-        ctx,
-        &format!("{api_url}/tdata/Workspaces('{ws_id}')/Temper.DecrementFileCount"),
-        tenant,
-        &json!({}),
-    ) {
-        ctx.log("warn", &format!("delete_file: DecrementFileCount failed on ws {ws_id}: {e}"));
     }
 
     set_success_result(
@@ -415,11 +401,7 @@ pub fn rename(
         .ok_or_else(|| format!("file not found: {old_normalized}"))?;
 
     // Get current file metadata for the old directory.
-    let file_resp = http_get(
-        ctx,
-        &format!("{api_url}/tdata/Files('{file_id}')"),
-        tenant,
-    )?;
+    let file_resp = http_get(ctx, &format!("{api_url}/tdata/Files('{file_id}')"), tenant)?;
     let old_dir_id = file_resp
         .get("DirectoryId")
         .and_then(|v| v.as_str())
@@ -462,7 +444,10 @@ pub fn rename(
                 tenant,
                 &json!({}),
             ) {
-                ctx.log("warn", &format!("rename: RemoveChild failed on dir {old_dir_id}: {e}"));
+                ctx.log(
+                    "warn",
+                    &format!("rename: RemoveChild failed on dir {old_dir_id}: {e}"),
+                );
             }
         }
 
@@ -473,7 +458,10 @@ pub fn rename(
             tenant,
             &json!({}),
         ) {
-            ctx.log("warn", &format!("rename: AddChild failed on dir {new_dir_id}: {e}"));
+            ctx.log(
+                "warn",
+                &format!("rename: AddChild failed on dir {new_dir_id}: {e}"),
+            );
         }
     }
 

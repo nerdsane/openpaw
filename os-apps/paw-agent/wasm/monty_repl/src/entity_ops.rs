@@ -511,6 +511,294 @@ pub fn write_with_sandbox(
     }))
 }
 
+pub fn write_many(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    write_many_with_sandbox(ctx, api_url, tenant, "", args)
+}
+
+pub fn write_many_with_sandbox(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    sandbox_url: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = write_many_input(args)?;
+    let ws_id = resolve_workspace_id(ctx, api_url, tenant, &input.opts, true)?;
+    let eid = ctx_entity_id(ctx);
+
+    let manifest_files = input
+        .files
+        .iter()
+        .map(|file| {
+            json!({
+                "path": file.path,
+                "mime_type": file.opts.get("mime_type").and_then(Value::as_str).unwrap_or(""),
+            })
+        })
+        .collect::<Vec<_>>();
+    let files_manifest = serde_json::to_string(&manifest_files)
+        .map_err(|error| format!("temper.write_many(): manifest serialization failed: {error}"))?;
+
+    let batch_resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        "/tdata/ArtifactBatches",
+        &json!({
+            "WorkspaceId": ws_id,
+            "FilesManifest": files_manifest,
+            "FileCount": input.files.len(),
+        }),
+    )?;
+    let batch_id = pawfs_entity_id(&batch_resp)
+        .ok_or_else(|| "temper.write_many(): ArtifactBatch created but no Id returned".to_string())?
+        .to_string();
+
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/ArtifactBatches('{batch_id}')/Temper.Submit"),
+        &json!({
+            "workspace_id": ws_id,
+            "files_manifest": files_manifest,
+            "submitted_by": eid,
+            "file_count": input.files.len(),
+        }),
+    )?;
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/ArtifactBatches('{batch_id}')/Temper.Apply?await_integration=true"),
+        &json!({}),
+    )?;
+
+    let mut results = Vec::with_capacity(input.files.len());
+    let mut total_bytes: usize = 0;
+    for file_input in input.files {
+        match upload_write_many_file(ctx, api_url, tenant, eid, sandbox_url, &ws_id, file_input) {
+            Ok(applied) => {
+                total_bytes = total_bytes.saturating_add(applied.size_bytes);
+                http_post(
+                    ctx,
+                    api_url,
+                    tenant,
+                    eid,
+                    &format!("/tdata/ArtifactBatches('{batch_id}')/Temper.RecordFileApplied"),
+                    &json!({
+                        "path": applied.path,
+                        "file_id": applied.file_id,
+                        "size_bytes": applied.size_bytes,
+                    }),
+                )?;
+                results.push(json!({
+                    "path": applied.path,
+                    "file_id": applied.file_id,
+                    "size_bytes": applied.size_bytes,
+                }));
+            }
+            Err(error) => {
+                let _ = http_post(
+                    ctx,
+                    api_url,
+                    tenant,
+                    eid,
+                    &format!("/tdata/ArtifactBatches('{batch_id}')/Temper.Fail"),
+                    &json!({"error": error.clone()}),
+                );
+                return Err(error);
+            }
+        }
+    }
+
+    let bucket_key = format!("artifact_batch:{batch_id}");
+    let bucket_resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        "/tdata/WorkspaceUsageBuckets",
+        &json!({
+            "WorkspaceId": ws_id,
+            "BucketKey": bucket_key,
+            "ArtifactBatchId": batch_id,
+        }),
+    )?;
+    let usage_bucket_id = pawfs_entity_id(&bucket_resp)
+        .ok_or_else(|| {
+            "temper.write_many(): WorkspaceUsageBucket created but no Id returned".to_string()
+        })?
+        .to_string();
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/WorkspaceUsageBuckets('{usage_bucket_id}')/Temper.ApplyDelta"),
+        &json!({
+            "workspace_id": ws_id,
+            "bucket_key": bucket_key,
+            "artifact_batch_id": batch_id,
+            "bytes_delta": total_bytes,
+            "file_delta": results.len(),
+        }),
+    )?;
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        eid,
+        &format!("/tdata/ArtifactBatches('{batch_id}')/Temper.Complete"),
+        &json!({"usage_bucket_id": usage_bucket_id}),
+    )?;
+
+    Ok(json!({
+        "batch_id": batch_id,
+        "workspace_id": ws_id,
+        "usage_bucket_id": usage_bucket_id,
+        "files": results,
+    }))
+}
+
+#[derive(Debug, Clone)]
+struct WriteManyInput {
+    files: Vec<WriteInput>,
+    opts: Value,
+}
+
+#[derive(Debug, Clone)]
+struct AppliedWriteManyFile {
+    path: String,
+    file_id: String,
+    size_bytes: usize,
+}
+
+fn write_many_input(args: &[Value]) -> Result<WriteManyInput, String> {
+    if let Some(input) = args.first().filter(|value| value.is_object()) {
+        let files = input
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "temper.write_many(): missing 'files' array".to_string())?;
+        let opts = input
+            .get("opts")
+            .filter(|value| value.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let mut parsed = Vec::with_capacity(files.len());
+        for file in files {
+            let mut write_input = write_input(&[file.clone()])?;
+            write_input.opts = merge_write_many_opts(&opts, &write_input.opts);
+            parsed.push(write_input);
+        }
+        return Ok(WriteManyInput {
+            files: parsed,
+            opts,
+        });
+    }
+
+    let files = args
+        .first()
+        .and_then(Value::as_array)
+        .ok_or_else(|| "temper.write_many(): first argument must be a files array".to_string())?;
+    let opts = obj_arg_or_empty(args, 1);
+    let mut parsed = Vec::with_capacity(files.len());
+    for file in files {
+        let mut write_input = write_input(&[file.clone()])?;
+        write_input.opts = merge_write_many_opts(&opts, &write_input.opts);
+        parsed.push(write_input);
+    }
+    Ok(WriteManyInput {
+        files: parsed,
+        opts,
+    })
+}
+
+fn merge_write_many_opts(batch_opts: &Value, file_opts: &Value) -> Value {
+    let mut merged = batch_opts.as_object().cloned().unwrap_or_default();
+    if let Some(file_map) = file_opts.as_object() {
+        for (key, value) in file_map {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(merged)
+}
+
+fn upload_write_many_file(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    sandbox_url: &str,
+    ws_id: &str,
+    input: WriteInput,
+) -> Result<AppliedWriteManyFile, String> {
+    let upload = write_upload_from_value(&input.path, &input.content, &input.opts)?;
+    let upload = resolve_sandbox_upload(ctx, sandbox_url, upload)?;
+    let mime_type = upload.mime_type.clone();
+    let file = ensure_pawfs_file(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        ws_id,
+        &input.path,
+        &mime_type,
+    )?;
+
+    let url = format!("{api_url}/tdata/Files('{}')/$value", file.id);
+    let headers = vec![
+        ("X-Tenant-Id".to_string(), tenant.to_string()),
+        ("Content-Type".to_string(), mime_type),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        (
+            "x-temper-principal-id".to_string(),
+            principal_id.to_string(),
+        ),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
+    ];
+    let size_bytes = match upload.content {
+        WriteUploadContent::Text(content) => {
+            let size_bytes = content.len();
+            let resp = ctx.http_call("PUT", &url, &headers, &content)?;
+            if resp.status >= 400 {
+                return Err(format!(
+                    "temper.write_many(): content upload failed for '{}' (HTTP {})",
+                    input.path, resp.status
+                ));
+            }
+            size_bytes
+        }
+        WriteUploadContent::BrowserImageBytes(bytes) => {
+            let size_bytes = bytes.len();
+            put_file_value_stream(&url, &headers, &bytes).map_err(|error| {
+                format!(
+                    "temper.write_many(): image content upload failed for '{}': {error}",
+                    input.path
+                )
+            })?;
+            size_bytes
+        }
+        WriteUploadContent::SandboxImageSource(_) => {
+            return Err("temper.write_many(): sandbox image source was not resolved".to_string());
+        }
+    };
+
+    Ok(AppliedWriteManyFile {
+        path: file.path,
+        file_id: file.id,
+        size_bytes,
+    })
+}
+
 #[derive(Debug, Clone)]
 struct WriteInput {
     path: String,

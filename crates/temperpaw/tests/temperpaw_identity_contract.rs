@@ -337,6 +337,21 @@ fn dockerignore_excludes_local_runtime_state_from_production_images() {
 }
 
 #[test]
+fn temperpaw_runtime_uses_bounded_large_stack_workers_for_wasm_loopback_io() {
+    let main_rs =
+        fs::read_to_string(repo_root().join("crates/temperpaw/src/main.rs")).expect("read main.rs");
+
+    assert!(
+        main_rs.contains("TOKIO_WORKER_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024"),
+        "TemperPaw must keep Tokio worker stack size explicit and bounded for WASM loopback OData requests"
+    );
+    assert!(
+        main_rs.contains(".thread_stack_size(TOKIO_WORKER_THREAD_STACK_BYTES)"),
+        "TemperPaw must build the Tokio runtime with the bounded worker stack instead of using the default macro runtime"
+    );
+}
+
+#[test]
 fn dockerfile_prunes_wasm_build_outputs_before_runtime_copy() {
     let dockerfile =
         fs::read_to_string(repo_root().join("Dockerfile")).expect("Dockerfile should be readable");
@@ -377,6 +392,37 @@ fn app_required_wasm_build_scripts_publish_module_local_artifacts() {
             script.contains(&format!("\"$SCRIPT_DIR/{module}.wasm\""))
                 || script.contains(&format!("\"$(dirname \"$0\")/{module}.wasm\"")),
             "{script_path} must copy {module}.wasm into the module directory so production target pruning does not remove the only discoverable artifact"
+        );
+    }
+}
+
+#[test]
+fn os_app_wasm_build_scripts_preserve_temper_host_imports() {
+    let root = repo_root();
+    let build_env = fs::read_to_string(root.join("os-apps/wasm-build-env.sh"))
+        .expect("shared os-app WASM build environment should be readable");
+    assert!(
+        build_env.contains("link-arg=--allow-undefined"),
+        "Temper WASM guest builds must preserve unresolved host functions as imports"
+    );
+
+    for script_path in [
+        "os-apps/paw-agent/wasm/build.sh",
+        "os-apps/paw-channels/wasm/build.sh",
+        "os-apps/paw-fs/wasm/artifact_batch_apply/build.sh",
+        "os-apps/paw-fs/wasm/blob_adapter/build.sh",
+        "os-apps/paw-fs/wasm/workspace_fs/build.sh",
+        "os-apps/paw-ingest/wasm/build.sh",
+        "os-apps/paw-managed-agents/wasm/build.sh",
+        "os-apps/paw-patrol/wasm/build.sh",
+        "os-apps/paw-research/wasm/build.sh",
+        "os-apps/paw-skills/wasm/build.sh",
+    ] {
+        let script = fs::read_to_string(root.join(script_path))
+            .unwrap_or_else(|err| panic!("failed to read {script_path}: {err}"));
+        assert!(
+            script.contains("wasm-build-env.sh"),
+            "{script_path} must source os-apps/wasm-build-env.sh so Temper host imports link in CI and deployment builds"
         );
     }
 }
@@ -463,6 +509,9 @@ fn manual_railway_redeploy_workflow_is_secret_backed_and_version_proven() {
         "TEMPER_API_KEY",
         "/paw/version",
         "expected_sha",
+        "run_artifact_batch_e2e",
+        "scripts/production_artifact_batch_e2e.sh",
+        "PACKAGED_WASM_PATH",
     ] {
         assert!(
             workflow.contains(required),

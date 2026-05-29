@@ -16,6 +16,8 @@ mod transport_manager;
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
 
+const TOKIO_WORKER_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
+
 #[derive(Parser)]
 #[command(name = "temperpaw-server", about = "Temper Paw — agent server")]
 struct Cli {
@@ -31,8 +33,15 @@ enum Command {
     Doctor,
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(TOKIO_WORKER_THREAD_STACK_BYTES)
+        .build()?
+        .block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mut config = config::Config::from_env()?;
 

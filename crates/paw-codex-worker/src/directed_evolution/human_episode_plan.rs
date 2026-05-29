@@ -345,8 +345,8 @@ fn directed_evolution_episode_plan_from_input(
         scoring_rules,
         evaluation_stages,
         simulated_user_plan: DirectedEvolutionSimulatedUserPlan {
-            users_per_variant: input.users_per_variant.unwrap_or(3).max(1).min(12),
-            runs_per_persona: input.runs_per_persona.unwrap_or(2).max(1).min(12),
+            users_per_variant: input.users_per_variant.unwrap_or(3).clamp(1, 12),
+            runs_per_persona: input.runs_per_persona.unwrap_or(2).clamp(1, 12),
             personas: if input.personas.is_empty() {
                 default_simulated_user_personas()
             } else {
