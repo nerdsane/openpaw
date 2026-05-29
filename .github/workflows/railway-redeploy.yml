@@ -90,6 +90,10 @@ jobs:
             echo "TEMPER_API_KEY secret is required when expected_sha is provided" >&2
             exit 65
           fi
+          if [ -n "${EXPECTED_SHA}" ] && ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha must be a full 40-character lowercase git SHA" >&2
+            exit 64
+          fi
           case "${RUN_ARTIFACT_BATCH_E2E}" in
             true|false)
               ;;
@@ -116,36 +120,50 @@ jobs:
               ;;
           esac
 
-      - name: Set Railway IMAGE_TAG without implicit deploy
+      - name: Set Railway deployment variables without implicit deploy
         run: |
           set -euo pipefail
 
-          response="$(jq -n \
-            --arg projectId "${RAILWAY_PROJECT_ID}" \
-            --arg environmentId "${RAILWAY_ENVIRONMENT_ID}" \
-            --arg serviceId "${RAILWAY_SERVICE_ID}" \
-            --arg value "${IMAGE_TAG}" \
-            '{
-              query: "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
-              variables: {
-                input: {
-                  projectId: $projectId,
-                  environmentId: $environmentId,
-                  serviceId: $serviceId,
-                  name: "IMAGE_TAG",
-                  value: $value,
-                  skipDeploys: true
-                }
-              }
-            }' | curl -fsS \
-              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
-              -H "Content-Type: application/json" \
-              --data @- \
-              "${RAILWAY_GRAPHQL_URL}")"
+          upsert_var() {
+            local name="$1"
+            local value="$2"
 
-          if jq -e '.errors' >/dev/null <<<"${response}"; then
-            jq -r '.errors[0].message // "Railway variableUpsert failed"' <<<"${response}" >&2
-            exit 1
+            response="$(jq -n \
+              --arg projectId "${RAILWAY_PROJECT_ID}" \
+              --arg environmentId "${RAILWAY_ENVIRONMENT_ID}" \
+              --arg serviceId "${RAILWAY_SERVICE_ID}" \
+              --arg name "${name}" \
+              --arg value "${value}" \
+              '{
+                query: "mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }",
+                variables: {
+                  input: {
+                    projectId: $projectId,
+                    environmentId: $environmentId,
+                    serviceId: $serviceId,
+                    name: $name,
+                    value: $value,
+                    skipDeploys: true
+                  }
+                }
+              }' | curl -fsS \
+                -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+                -H "Content-Type: application/json" \
+                --data @- \
+                "${RAILWAY_GRAPHQL_URL}")"
+
+            if jq -e '.errors' >/dev/null <<<"${response}"; then
+              jq -r '.errors[0].message // "Railway variableUpsert failed"' <<<"${response}" >&2
+              exit 1
+            fi
+          }
+
+          upsert_var IMAGE_TAG "${IMAGE_TAG}"
+          if [ -n "${EXPECTED_SHA}" ]; then
+            build_version="sha-${EXPECTED_SHA:0:8}"
+            upsert_var BUILD_SHA "${EXPECTED_SHA}"
+            upsert_var BUILD_VERSION "${build_version}"
+            upsert_var DD_VERSION "${build_version}"
           fi
 
       - name: Find current Railway deployment
