@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/../../../wasm-build-env.sh"
 cd "$SCRIPT_DIR"
 cargo build --target wasm32-unknown-unknown --release
 

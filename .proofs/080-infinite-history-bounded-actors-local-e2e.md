@@ -39,6 +39,7 @@
 | `cargo test --manifest-path os-apps/paw-agent/wasm/monty_repl/Cargo.toml --lib` | Agent-facing PawFS tools pass | 69 tests passed | PASS |
 | `os-apps/paw-fs/wasm/artifact_batch_apply/build.sh` | WASM builds | Built `artifact_batch_apply.wasm` | PASS |
 | `os-apps/paw-fs/wasm/workspace_fs/build.sh` | WASM builds | Built `workspace_fs.wasm` | PASS |
+| CI-style os-app WASM build sweep | Runtime WASM modules link against merged Temper SDK | All CI-listed os-app build scripts passed locally with shared host-import linker env | PASS |
 | Local ready check | Server ready | `/readyz` returned `{"status":"ready"}` | PASS |
 | Production verifier script, local target | Same script planned for Railway works locally | `scripts/production_artifact_batch_e2e.sh` passed against `http://127.0.0.1:4792` | PASS |
 | ArtifactBatch apply | Batch completes | `ArtifactBatch` `ab-artifact-batch-e2e-local-merged-20260529c` reached `Completed` | PASS |
@@ -122,6 +123,7 @@ ArtifactBatch events:
 - ArtifactBatch agents could apply workflow actions but could not read/list the direct PawFS entities they needed to query. Fixed Cedar policies for Directory, ArtifactBatch, and WorkspaceUsageBucket.
 - The proof harness originally assumed top-level `Id`; OData entity read models expose `entity_id` and nested `fields.Id`, so the verifier now checks those shapes.
 - The deploy verifier needs both mutation and observe privileges. It now uses an `agent/system` principal for OData actions and an `admin` principal for `/observe` module/hash/history proof.
+- GitHub CI exposed that merged Temper SDK host functions must remain unresolved imports during standalone WASM linking. Fixed all os-app build scripts to source `os-apps/wasm-build-env.sh`, which applies `-C link-arg=--allow-undefined`, and added a static regression test.
 
 ## Deployment Verification
 

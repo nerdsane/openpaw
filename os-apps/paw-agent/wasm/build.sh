@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/../../wasm-build-env.sh"
 
 # Standard modules (wasm32-unknown-unknown)
 # Build failures are non-fatal — some modules may not compile on all targets.
