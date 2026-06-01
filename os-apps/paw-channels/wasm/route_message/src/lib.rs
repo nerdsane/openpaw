@@ -1357,7 +1357,7 @@ fn append_user_message_to_session_entries(
 ) -> Result<String, String> {
     let session_id = session_id_from_entries_ref(session_file_id)
         .ok_or("session entries reference missing Session id")?;
-    let latest = latest_session_entry(ctx, temper_api_url, tenant, session_id)?;
+    let latest = latest_session_entry(ctx, temper_api_url, tenant, session_id, session_leaf_id)?;
     // Trust the database, not the entity field. The Session.session_leaf_id
     // field can drift past the actual db tip when an upstream writer
     // advances the field but its SessionEntry POST didn't durably land
@@ -1415,17 +1415,42 @@ fn latest_session_entry(
     temper_api_url: &str,
     tenant: &str,
     session_id: &str,
+    session_leaf_id: &str,
 ) -> Result<Option<(String, i64)>, String> {
     let escaped = session_id.replace('\'', "''");
-    let url = format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped}'&$orderby=Sequence desc&$top=1"
-    );
-    let entry = list_entities(ctx, &url, tenant)?.into_iter().next();
-    Ok(entry.and_then(|entry| {
-        let entry_id = nested_str_field(&entry, &["EntryId", "entry_id"])?.to_string();
-        let sequence = nested_i64_field(&entry, &["Sequence", "sequence"]).unwrap_or(0);
-        Some((entry_id, sequence))
-    }))
+    if !session_leaf_id.is_empty() {
+        let leaf_url = session_entry_lookup_url(temper_api_url, session_id, session_leaf_id);
+        if let Some(entry) = list_entities(ctx, &leaf_url, tenant)?.into_iter().next() {
+            return Ok(session_entry_identity(&entry));
+        }
+        ctx.log(
+            "warn",
+            &format!(
+                "append_user_message: Session.session_leaf_id={session_leaf_id} missing for SessionId={session_id}; falling back to bounded unordered SessionEntry scan"
+            ),
+        );
+    }
+
+    let url =
+        format!("{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped}'&$top=1000");
+    Ok(list_entities(ctx, &url, tenant)?
+        .into_iter()
+        .filter_map(|entry| session_entry_identity(&entry))
+        .max_by_key(|(_, sequence)| *sequence))
+}
+
+fn session_entry_identity(entry: &Value) -> Option<(String, i64)> {
+    let entry_id = nested_str_field(entry, &["EntryId", "entry_id"])?.to_string();
+    let sequence = nested_i64_field(entry, &["Sequence", "sequence"]).unwrap_or(0);
+    Some((entry_id, sequence))
+}
+
+fn session_entry_lookup_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
+    let escaped_session = session_id.replace('\'', "''");
+    let escaped_entry = entry_id.replace('\'', "''");
+    format!(
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped_session}' and EntryId eq '{escaped_entry}'&$top=1"
+    )
 }
 
 fn append_externalized_user_message(
@@ -2214,5 +2239,19 @@ mod tests {
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].content_file_id.as_deref(), Some("file-123"));
         assert_eq!(refs[0].content_file_version_id.as_deref(), Some("ver-456"));
+    }
+
+    #[test]
+    fn session_entry_lookup_uses_leaf_without_ordered_scan() {
+        let url = session_entry_lookup_url("http://127.0.0.1:8080", "ss-1", "a-2");
+
+        assert_eq!(
+            url,
+            "http://127.0.0.1:8080/tdata/SessionEntries?$filter=SessionId eq 'ss-1' and EntryId eq 'a-2'&$top=1"
+        );
+        assert!(
+            !url.contains("$orderby"),
+            "route_message must not use the production-failing ordered SessionEntries scan"
+        );
     }
 }
