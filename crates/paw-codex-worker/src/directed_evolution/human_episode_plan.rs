@@ -15,9 +15,7 @@ struct DirectedEvolutionHumanEpisodeInput {
     #[serde(
         default,
         alias = "CreatedByWorkerRunId",
-        alias = "createdByWorkerRunId",
-        alias = "CreatedByBrainRunId",
-        alias = "createdByBrainRunId"
+        alias = "createdByWorkerRunId"
     )]
     created_by_worker_run_id: String,
     #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
