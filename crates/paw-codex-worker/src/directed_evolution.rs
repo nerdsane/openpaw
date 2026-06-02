@@ -64,10 +64,9 @@ async fn handle_queued_directed_evolution_work_item(
             json!({ "Reason": reason }),
         )
         .await
+            && !error.to_string().contains("not valid from state 'Cancelled'")
         {
-            if !error.to_string().contains("not valid from state 'Cancelled'") {
-                return Err(error);
-            }
+            return Err(error);
         }
         info!(
             work_item_id = %work_item.id,

@@ -58,18 +58,18 @@ async fn recover_pending_directed_evolution_stage_results(
             "WorkItems",
         )
         .await?;
-        let prompt = recovered_stage_prompt(
-            &role,
-            &episode_id,
-            &generation_id,
-            &variant_id,
-            &stage_id,
-            &stage_result_id,
-            &work_item_id,
-            &stage_fields,
-            &variant_fields,
-            &trials,
-        );
+        let prompt = recovered_stage_prompt(RecoveredStagePrompt {
+            role: &role,
+            episode_id: &episode_id,
+            generation_id: &generation_id,
+            variant_id: &variant_id,
+            stage_id: &stage_id,
+            stage_result_id: &stage_result_id,
+            work_item_id: &work_item_id,
+            stage_fields: &stage_fields,
+            variant_fields: &variant_fields,
+            trials: &trials,
+        });
         if let Err(error) = post_directed_evolution_action_with_headers(
             client,
             config,
@@ -182,7 +182,7 @@ fn directed_evolution_trials_terminal_for_stage(trials: &[Value], stage_result_i
             ) == stage_result_id
         })
         .collect::<Vec<_>>();
-    !matching.is_empty() && matching.iter().all(|trial| directed_evolution_trial_terminal(trial))
+    !matching.is_empty() && matching.iter().all(directed_evolution_trial_terminal)
 }
 
 fn directed_evolution_trials_terminal_for_variant(trials: &[Value], variant_id: &str) -> bool {
@@ -195,7 +195,7 @@ fn directed_evolution_trials_terminal_for_variant(trials: &[Value], variant_id: 
             ) == variant_id
         })
         .collect::<Vec<_>>();
-    !matching.is_empty() && matching.iter().all(|trial| directed_evolution_trial_terminal(trial))
+    !matching.is_empty() && matching.iter().all(directed_evolution_trial_terminal)
 }
 
 fn directed_evolution_trial_terminal(trial: &&Value) -> bool {
@@ -228,72 +228,111 @@ async fn recovered_stage_work_item_exists(
     }))
 }
 
-fn recovered_stage_prompt(
-    role: &str,
-    episode_id: &str,
-    generation_id: &str,
-    variant_id: &str,
-    stage_id: &str,
-    stage_result_id: &str,
-    work_item_id: &str,
-    stage_fields: &Value,
-    variant_fields: &Value,
-    trials: &[Value],
-) -> String {
-    let stage_name = value_field_string(stage_fields, &["StageName", "stage_name"]);
-    let stage_kind = value_field_string(stage_fields, &["StageKind", "stage_kind"]);
-    let app_ref = value_field_string(variant_fields, &["AppRef", "app_ref"]);
-    let runtime_ref = value_field_string(variant_fields, &["RuntimeRef", "runtime_ref"]);
-    let variant_summary = value_field_string(variant_fields, &["Summary", "summary"]);
-    let trial_context = recovered_trial_context(trials, variant_id);
+struct RecoveredStagePrompt<'a> {
+    role: &'a str,
+    episode_id: &'a str,
+    generation_id: &'a str,
+    variant_id: &'a str,
+    stage_id: &'a str,
+    stage_result_id: &'a str,
+    work_item_id: &'a str,
+    stage_fields: &'a Value,
+    variant_fields: &'a Value,
+    trials: &'a [Value],
+}
+
+fn recovered_stage_prompt(args: RecoveredStagePrompt<'_>) -> String {
+    let stage_name = value_field_string(args.stage_fields, &["StageName", "stage_name"]);
+    let stage_kind = value_field_string(args.stage_fields, &["StageKind", "stage_kind"]);
+    let app_ref = value_field_string(args.variant_fields, &["AppRef", "app_ref"]);
+    let runtime_ref = value_field_string(args.variant_fields, &["RuntimeRef", "runtime_ref"]);
+    let variant_summary = value_field_string(args.variant_fields, &["Summary", "summary"]);
+    let trial_context = recovered_trial_context(args.trials, args.variant_id);
     let header_block = format!(
-        "x-de-episode-id: {episode_id}\n\
-x-de-generation-id: {generation_id}\n\
-x-de-variant-id: {variant_id}\n\
-x-de-stage-id: {stage_id}\n\
-x-de-stage-result-id: {stage_result_id}\n\
-x-de-work-item-id: {work_item_id}\n\
-x-de-runtime-ref: {runtime_ref}\n\
-x-de-app-ref: {app_ref}"
+        concat!(
+            "x-de-episode-id: {episode_id}\n",
+            "x-de-generation-id: {generation_id}\n",
+            "x-de-variant-id: {variant_id}\n",
+            "x-de-stage-id: {stage_id}\n",
+            "x-de-stage-result-id: {stage_result_id}\n",
+            "x-de-work-item-id: {work_item_id}\n",
+            "x-de-runtime-ref: {runtime_ref}\n",
+            "x-de-app-ref: {app_ref}",
+        ),
+        episode_id = args.episode_id,
+        generation_id = args.generation_id,
+        variant_id = args.variant_id,
+        stage_id = args.stage_id,
+        stage_result_id = args.stage_result_id,
+        work_item_id = args.work_item_id,
+        runtime_ref = runtime_ref,
+        app_ref = app_ref
     );
 
-    if role == "telemetry_evaluator" {
+    if args.role == "telemetry_evaluator" {
         return format!(
-            "Evaluate Directed Evolution Datadog telemetry after simulated users completed.\n\
-EpisodeId: {episode_id}\n\
-GenerationId: {generation_id}\n\
-VariantId: {variant_id}\n\
-EvaluationStageId: {stage_id}\n\
-StageResultId: {stage_result_id}\n\
-StageName: {stage_name}\n\
-StageKind: {stage_kind}\n\
-TemperApiBase: {base}\n\
-AppRef: {app_ref}\n\
-RuntimeRef: {runtime_ref}\n\
-VariantSummary: {variant_summary}\n\n\
-RecordedTrialEvidence:\n{trial_context}\n\n\
-DirectedEvolutionHeaders:\n{header_block}\n\n\
-This is a Datadog-measured telemetry stage. Use Datadog MCP aggregate/SQL evidence over brittle log-explorer field syntax: filter for \"directed evolution runtime request\", select directed_evolution.episode_id, directed_evolution.variant_id, and tenant, and count rows for this exact episode, variant, and runtime tenant parsed from RuntimeRef. Return provenance_kind=datadog-measured. The first evidence_scope item must include query, time_window, result_count, interpretation, zero_result_meaning, and datadog_url. Zero matching runtime-request logs is failure; runtime probes may support but must not replace Datadog. Return exactly one concise JSON object with passed/status/summary/failure_reason/evaluator_role/provenance_kind/metrics/decision_basis/inputs/evidence_scope/evidence_refs/reasoning_summary.",
+            concat!(
+                "Evaluate Directed Evolution Datadog telemetry after simulated users completed.\n",
+                "EpisodeId: {episode_id}\n",
+                "GenerationId: {generation_id}\n",
+                "VariantId: {variant_id}\n",
+                "EvaluationStageId: {stage_id}\n",
+                "StageResultId: {stage_result_id}\n",
+                "StageName: {stage_name}\n",
+                "StageKind: {stage_kind}\n",
+                "TemperApiBase: {base}\n",
+                "AppRef: {app_ref}\n",
+                "RuntimeRef: {runtime_ref}\n",
+                "VariantSummary: {variant_summary}\n\n",
+                "RecordedTrialEvidence:\n{trial_context}\n\n",
+                "DirectedEvolutionHeaders:\n{header_block}\n\n",
+                "This is a Datadog-measured telemetry stage. Use Datadog MCP aggregate/SQL evidence over brittle log-explorer field syntax: filter for \"directed evolution runtime request\", select directed_evolution.episode_id, directed_evolution.variant_id, and tenant, and count rows for this exact episode, variant, and runtime tenant parsed from RuntimeRef. Return provenance_kind=datadog-measured. The first evidence_scope item must include query, time_window, result_count, interpretation, zero_result_meaning, and datadog_url. Zero matching runtime-request logs is failure; runtime probes may support but must not replace Datadog. Return exactly one concise JSON object with passed/status/summary/failure_reason/evaluator_role/provenance_kind/metrics/decision_basis/inputs/evidence_scope/evidence_refs/reasoning_summary.",
+            ),
             base = configless_public_temper_api_base(),
+            episode_id = args.episode_id,
+            generation_id = args.generation_id,
+            variant_id = args.variant_id,
+            stage_id = args.stage_id,
+            stage_result_id = args.stage_result_id,
+            stage_name = stage_name,
+            stage_kind = stage_kind,
+            app_ref = app_ref,
+            runtime_ref = runtime_ref,
+            variant_summary = variant_summary,
+            trial_context = trial_context,
+            header_block = header_block
         );
     }
 
     format!(
-        "Evaluate the completed simulated-user trial observations for a Directed Evolution variant.\n\
-EpisodeId: {episode_id}\n\
-GenerationId: {generation_id}\n\
-VariantId: {variant_id}\n\
-EvaluationStageId: {stage_id}\n\
-StageResultId: {stage_result_id}\n\
-StageName: {stage_name}\n\
-StageKind: {stage_kind}\n\
-TemperApiBase: {base}\n\
-AppRef: {app_ref}\n\
-RuntimeRef: {runtime_ref}\n\
-VariantSummary: {variant_summary}\n\n\
-RecordedTrialEvidence:\n{trial_context}\n\n\
-Use only recorded simulated-user observations, blockers, friction, and live-runtime evidence. Do not query Datadog for this non-telemetry stage, do not select a winner, and do not modify files or evaluators. Return exactly one concise JSON object with passed/status/summary/failure_reason/evaluator_role=viability_evaluator/provenance_kind=brain-judged/metrics/decision_basis/inputs/evidence_scope/evidence_refs/reasoning_summary.",
+        concat!(
+            "Evaluate the completed simulated-user trial observations for a Directed Evolution variant.\n",
+            "EpisodeId: {episode_id}\n",
+            "GenerationId: {generation_id}\n",
+            "VariantId: {variant_id}\n",
+            "EvaluationStageId: {stage_id}\n",
+            "StageResultId: {stage_result_id}\n",
+            "StageName: {stage_name}\n",
+            "StageKind: {stage_kind}\n",
+            "TemperApiBase: {base}\n",
+            "AppRef: {app_ref}\n",
+            "RuntimeRef: {runtime_ref}\n",
+            "VariantSummary: {variant_summary}\n\n",
+            "RecordedTrialEvidence:\n{trial_context}\n\n",
+            "Use only recorded simulated-user observations, blockers, friction, and live-runtime evidence. Do not query Datadog for this non-telemetry stage, do not select a winner, and do not modify files or evaluators. Return exactly one concise JSON object with passed/status/summary/failure_reason/evaluator_role=viability_evaluator/provenance_kind=brain-judged/metrics/decision_basis/inputs/evidence_scope/evidence_refs/reasoning_summary.",
+        ),
         base = configless_public_temper_api_base(),
+        episode_id = args.episode_id,
+        generation_id = args.generation_id,
+        variant_id = args.variant_id,
+        stage_id = args.stage_id,
+        stage_result_id = args.stage_result_id,
+        stage_name = stage_name,
+        stage_kind = stage_kind,
+        app_ref = app_ref,
+        runtime_ref = runtime_ref,
+        variant_summary = variant_summary,
+        trial_context = trial_context
     )
 }
 

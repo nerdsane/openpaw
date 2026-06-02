@@ -1221,8 +1221,8 @@ mod directed_evolution_tests {
         .expect("episode plan should resolve");
 
         assert_eq!(plan.metrics[0].name, "required_changed_file_missing_count");
-        assert_eq!(plan.metrics[0].higher_is_better, false);
-        assert_eq!(plan.metrics[0].hard_constraint, true);
+        assert!(!plan.metrics[0].higher_is_better);
+        assert!(plan.metrics[0].hard_constraint);
         assert_eq!(plan.viability_constraints[0].statement, "Answer spec must change.");
         assert_eq!(plan.elimination_rules[0].metric_names[0], "required_changed_file_missing_count");
         assert_eq!(plan.scoring_rules[0].weight, "0.20");

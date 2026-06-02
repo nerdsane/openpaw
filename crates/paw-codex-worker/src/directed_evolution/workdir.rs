@@ -45,17 +45,16 @@ async fn resolve_directed_evolution_workdir(
             canonical_genesis_bundle: false,
         });
     }
-    if !context.branch_ref.trim().is_empty() {
-        if let Some(worktree) =
+    if !context.branch_ref.trim().is_empty()
+        && let Some(worktree) =
             directed_evolution_existing_workspace_worktree(config, &context.branch_ref).await?
-        {
-            return Ok(DirectedEvolutionWorkdir {
-                path: worktree,
-                app_ref: context.app_ref,
-                branch_ref: context.branch_ref,
-                canonical_genesis_bundle: false,
-            });
-        }
+    {
+        return Ok(DirectedEvolutionWorkdir {
+            path: worktree,
+            app_ref: context.app_ref,
+            branch_ref: context.branch_ref,
+            canonical_genesis_bundle: false,
+        });
     }
     if let Some(path) =
         directed_evolution_repo_from_genesis_bundle(client, config, &context.app_ref, &work_item.id)
@@ -533,10 +532,10 @@ async fn existing_directed_evolution_worktree_for_branch(
             current_path = Some(PathBuf::from(path));
             continue;
         }
-        if let Some(active_branch) = line.strip_prefix("branch ") {
-            if active_branch == expected_ref {
-                return Ok(current_path);
-            }
+        if let Some(active_branch) = line.strip_prefix("branch ")
+            && active_branch == expected_ref
+        {
+            return Ok(current_path);
         }
         if line.trim().is_empty() {
             current_path = None;
