@@ -19,7 +19,7 @@ const MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS: usize = 16 * 1024;
 /// Tools available in plan mode (ADR-004). Blocks sandbox mutation (write, edit)
 /// and governance writes. Allows read ops, research, memory, Plan CRUD, and
 /// TemperFS writes (for plan documents).
-pub const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_ls,temper_grep,temper_glob,temper_search_history,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
+pub const PLAN_MODE_TOOLS: &str = "temper_create,temper_get,temper_list,temper_action,temper_specs,temper_show_spec,temper_save_memory,temper_recall_memory,temper_read,temper_write,temper_write_many,temper_ls,temper_grep,temper_glob,temper_search_history,temper_web_search,temper_web_fetch,temper_get_trajectories,temper_get_insights,read,bash";
 
 // Thread-local storage for the done signal. When an agent calls
 // temper.done(result), the result is stored here. After all tool
@@ -689,6 +689,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "save_memory" => Some("temper_save_memory"),
         "recall_memory" => Some("temper_recall_memory"),
         "write" => Some("temper_write"),
+        "write_many" => Some("temper_write_many"),
         "read" => Some("temper_read"),
         "ls" => Some("temper_ls"),
         "grep" => Some("temper_grep"),
@@ -902,6 +903,9 @@ fn dispatch_temper(
         "save_memory" => super::entity_ops::save_memory(ctx, api_url, tenant, args),
         "recall_memory" => super::entity_ops::recall_memory(ctx, api_url, tenant, args),
         "write" => super::entity_ops::write_with_sandbox(ctx, api_url, tenant, sandbox_url, args),
+        "write_many" => {
+            super::entity_ops::write_many_with_sandbox(ctx, api_url, tenant, sandbox_url, args)
+        }
         "read" => super::entity_ops::read(ctx, api_url, tenant, args),
         "ls" => super::entity_ops::ls(ctx, api_url, tenant, args),
         "grep" => super::entity_ops::grep(ctx, api_url, tenant, args),

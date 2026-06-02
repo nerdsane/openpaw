@@ -212,6 +212,19 @@ fn literal_prompt_ref(prompt_ref: &str) -> String {
 }
 
 fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> String {
+    let public_api_url = directed_evolution_public_api_url();
+    directed_evolution_worker_prompt_body_with_public_api_url(
+        role,
+        prompt_body,
+        public_api_url.as_deref(),
+    )
+}
+
+fn directed_evolution_worker_prompt_body_with_public_api_url(
+    role: &str,
+    prompt_body: &str,
+    public_api_url: Option<&str>,
+) -> String {
     if !matches!(
         role,
         "reviewer"
@@ -225,8 +238,8 @@ fn directed_evolution_worker_prompt_body(role: &str, prompt_body: &str) -> Strin
     }
 
     let mut body = prompt_body.to_string();
-    if let Some(public_api_url) = directed_evolution_public_api_url() {
-        body = rewrite_temper_api_base(&body, &public_api_url);
+    if let Some(public_api_url) = public_api_url {
+        body = rewrite_temper_api_base(&body, public_api_url);
     }
     body.push_str(
         "\n\nRuntime execution discipline:\n\

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/../../wasm-build-env.sh"
 FAILED_MODULES=""
 
 copy_artifact() {

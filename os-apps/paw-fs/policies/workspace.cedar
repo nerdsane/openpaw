@@ -3,7 +3,7 @@
 // Agents can create workspaces
 permit(
     principal is Agent,
-    action == Action::"Create",
+    action in [Action::"Create", Action::"create"],
     resource is Workspace
 );
 
@@ -40,7 +40,7 @@ permit(
 // Agents can manage directories (addchild, create, rename)
 permit(
     principal is Agent,
-    action in [Action::"Create", Action::"AddChild", Action::"RemoveChild", Action::"DirectoryRename", Action::"DirectoryArchive"],
+    action in [Action::"read", Action::"list", Action::"Create", Action::"create", Action::"AddChild", Action::"RemoveChild", Action::"DirectoryRename", Action::"DirectoryArchive"],
     resource is Directory
 );
 
