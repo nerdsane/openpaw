@@ -1,7 +1,7 @@
 fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> String {
     let role_contract = match work_item.role.as_str() {
         "observer" => {
-            "Observe real signals and infer pressures. If the signal source or correlation mentions Datadog, use authenticated Datadog MCP tools to inspect the relevant logs, traces, metrics, monitors, or dashboards. Do not treat the signal summary as proof. Return candidate pressures, rejected interpretations, structured evidence_scope entries with datadog_url values when available, and confidence."
+            "Observe real signals and infer pressures. Datadog inspection is mandatory: use authenticated Datadog MCP tools to inspect relevant logs, traces, metrics, monitors, or dashboards alongside Temper runtime evidence and Genesis/app history. Do not treat the signal summary as proof. Return multiple candidate pressures or directions when evidence supports them, rejected interpretations, structured evidence_scope entries with query, time_window, result_count, interpretation, zero_result_meaning, datadog_url, and confidence. If usable Datadog evidence is unavailable, return actionable=false and explain the missing evidence."
         }
         "direction_framer" => {
             "Frame human-legible directions from pressures. Return direction title, rationale, source signals, required human gate, and likely adaptation goals."
@@ -34,14 +34,14 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
             "Explain the episode outcome for Mission Control. Return concise human-facing narrative, lineage impact, and evidence links."
         }
         _ => {
-            "Execute the Directed Evolution brain role described by this WorkItem. Return structured evidence and next-state recommendations."
+            "Execute the Directed Evolution worker role described by this WorkItem. Return structured evidence and next-state recommendations."
         }
     };
     let output_contract = directed_evolution_output_contract(&work_item.role);
     let prompt_body =
         directed_evolution_worker_prompt_body(&work_item.role, &literal_prompt_ref(&work_item.prompt_ref));
     format!(
-        r#"You are a Codex brain run executing a Directed Evolution WorkItem.
+        r#"You are a Codex WorkerRun executing a Directed Evolution WorkItem.
 
 Role: {role}
 WorkItemId: {work_item_id}
@@ -79,14 +79,28 @@ fn directed_evolution_output_contract(role: &str) -> &'static str {
         "observer" => {
             r#"{
   "actionable": true,
-  "pressure_class": "growth|repair|performance|policy|ux",
-  "pressure_summary": "...",
-  "title": "...",
-  "direction_summary": "...",
-  "autonomy_lane": "human-approval|repair-auto",
-  "proposed_adaptation_goal": "...",
-  "proposed_viability_constraints": ["..."],
-  "evidence_scope": [{"surface":"logs|traces|metrics|monitors|runtime","query":"...","result_summary":"...","datadog_url":"https://app.datadoghq.com/..."}],
+  "directions": [
+    {
+      "pressure_class": "growth|repair|performance|policy|ux",
+      "pressure_summary": "...",
+      "title": "...",
+      "direction_summary": "...",
+      "autonomy_lane": "human-approval|repair-auto",
+      "proposed_adaptation_goal": "...",
+      "proposed_viability_constraints": ["..."]
+    },
+    {
+      "pressure_class": "growth|repair|performance|policy|ux",
+      "pressure_summary": "...",
+      "title": "...",
+      "direction_summary": "...",
+      "autonomy_lane": "human-approval|repair-auto",
+      "proposed_adaptation_goal": "...",
+      "proposed_viability_constraints": ["..."]
+    }
+  ],
+  "rejected_interpretations": [{"interpretation":"...","why_rejected":"..."}],
+  "evidence_scope": [{"surface":"logs|traces|metrics|monitors|runtime|genesis","query":"...","time_window":"...","result_count":0,"interpretation":"...","zero_result_meaning":"success|failure|neutral","datadog_url":"https://app.datadoghq.com/..."}],
   "evidence_refs": ["..."],
   "reasoning_summary": "..."
 }"#

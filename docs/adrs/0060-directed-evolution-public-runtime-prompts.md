@@ -15,7 +15,7 @@ Evaluation work items carried a `RuntimeRef` for a hot-loaded Genesis tenant, bu
 their prompt still said `TemperApiBase: http://127.0.0.1:8080` when the app
 tenant did not have a resolved `temper_public_api_url` secret. One simulated-user
 agent compensated by starting `temper serve` locally and leaving it in the
-foreground, which stalled the brain run until the local server process was
+foreground, which stalled the worker run until the local server process was
 terminated.
 
 The local worker already knows the public Genesis URL used for hot-loading.

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
+use base64::Engine;
 use futures_util::StreamExt;
 use repo_health::{
     extract_repo_sweep_snapshot_id, parse_repo_health_agent_output, repo_health_agent_prompt,
@@ -44,6 +45,11 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if command == WorkerCommand::RegisterWorkerAgent {
+        ensure_worker_agent_registered(&client, &config).await?;
+        report_worker_heartbeat(&client, &config).await?;
+        return Ok(());
+    }
     if let WorkerCommand::DirectedEvolutionStartEpisode { contract_path } = &command {
         let result = run_directed_evolution_human_episode_command(
             &client,
@@ -64,6 +70,9 @@ async fn main() -> Result<()> {
         worker_capabilities = %worker_capabilities().join(","),
         "paw-codex-worker starting"
     );
+    if let Err(error) = ensure_worker_agent_registered(&client, &config).await {
+        warn!(%error, "failed to ensure WorkerAgent registration");
+    }
     if let Err(error) = report_worker_heartbeat(&client, &config).await {
         warn!(%error, "failed to report WorkerAgent heartbeat");
     }

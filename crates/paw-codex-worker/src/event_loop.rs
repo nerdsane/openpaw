@@ -197,7 +197,7 @@ async fn handle_requested_review_run(
         worker_run_id = %worker_run.id,
         "claiming ReviewRun for local Codex reviewer"
     );
-    post_entity_action(
+    if let Err(error) = post_entity_action(
         client,
         config,
         "ReviewRuns",
@@ -205,7 +205,20 @@ async fn handle_requested_review_run(
         "Claim",
         json!({ "reviewer_id": config.worker_id }),
     )
-    .await?;
+    .await
+    {
+        let message = error.to_string();
+        if action_conflict_message(&message) {
+            info!(
+                review_run_id,
+                worker_run_id = %worker_run.id,
+                worker_id = %config.worker_id,
+                "ReviewRun claim lost to another worker"
+            );
+            return Ok(());
+        }
+        return Err(error);
+    }
     post_entity_action(
         client,
         config,
@@ -348,7 +361,18 @@ async fn handle_queued_evaluation_run(
         return Ok(());
     }
 
-    claim_evaluation_run(client, config, evaluation_run_id).await?;
+    if let Err(error) = claim_evaluation_run(client, config, evaluation_run_id).await {
+        let message = error.to_string();
+        if action_conflict_message(&message) {
+            info!(
+                evaluation_run_id,
+                worker_id = %config.worker_id,
+                "EvaluationRun claim lost to another worker"
+            );
+            return Ok(());
+        }
+        return Err(error);
+    }
 
     if !is_repo_sweep {
         return run_code_change_evaluation(client, config, evaluation_run_id, &worker_run).await;
@@ -416,7 +440,21 @@ async fn fail_terminal_queued_evaluation_if_needed(
     };
 
     if evaluation_run_is_claimable_by_worker(evaluation_run, &config.worker_id) {
-        fail_queued_evaluation_run(client, config, evaluation_run_id, &blocker).await?;
+        if let Err(error) =
+            fail_queued_evaluation_run(client, config, evaluation_run_id, &blocker).await
+        {
+            let message = error.to_string();
+            if action_conflict_message(&message) {
+                info!(
+                    evaluation_run_id,
+                    worker_id = %config.worker_id,
+                    failure_classification = %blocker.failure_classification,
+                    "EvaluationRun terminal claim lost to another worker"
+                );
+                return Ok(true);
+            }
+            return Err(error);
+        }
     } else {
         warn!(
             evaluation_run_id,

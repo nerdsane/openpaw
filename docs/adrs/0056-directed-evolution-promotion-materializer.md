@@ -12,7 +12,7 @@ the live proof showed a gap: advancing the canonical Genesis ref, publishing
 the app version, and hot-loading the winner into the production tenant still
 required manual operator commands.
 
-Promotion materialization is not a reasoning task. The selector brain already
+Promotion materialization is not a reasoning task. The selector worker already
 chooses the winner from evaluated evidence. The worker needs to execute bounded
 external side effects and report evidence back through Directed Evolution
 entities.
@@ -35,7 +35,7 @@ deterministic materialization role:
   `runtime_ref`, evidence, and digest so the Directed Evolution app can record
   materialization on the `Promotion`.
 
-This role runs through the same WorkItem/BrainRun reporting path as other
+This role runs through the same WorkItem/WorkerRun reporting path as other
 Directed Evolution worker roles, but it does not launch a background Codex
 session.
 

@@ -7,6 +7,11 @@ const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";
 const EVALUATION_FAIL_LABEL: &str = "EvaluationRun.Fail";
 const DIRECTED_EVOLUTION_NAMESPACE: &str = "Temper.DirectedEvolution";
+const PAW_ORCHESTRATION_NAMESPACE: &str = "Temper.PawOrchestration";
+
+fn action_conflict_message(message: &str) -> bool {
+    message.contains(" returned 409") || message.contains("409 Conflict")
+}
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -29,6 +34,7 @@ enum WorkerCommand {
     Run,
     Doctor,
     LaunchdPlist,
+    RegisterWorkerAgent,
     DirectedEvolutionStartEpisode { contract_path: Option<String> },
 }
 
@@ -67,6 +73,7 @@ impl Config {
         let max_concurrent_runs = env::var("MAX_CONCURRENT_RUNS")
             .ok()
             .and_then(|value| value.parse().ok())
+            .filter(|value| *value > 0)
             .unwrap_or(1);
         let enable_execution = env::var("PAW_CODEX_ENABLE_EXECUTION")
             .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -83,10 +90,6 @@ impl Config {
             .filter(|seconds| *seconds > 0)
             .map(Duration::from_secs)
             .unwrap_or_else(|| Duration::from_secs(20 * 60));
-
-        if max_concurrent_runs != 1 {
-            bail!("MAX_CONCURRENT_RUNS must be 1 in v1 so WorkerRun review remains simple");
-        }
 
         Ok(Self {
             temper_url,

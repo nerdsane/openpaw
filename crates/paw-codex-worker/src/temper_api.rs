@@ -157,19 +157,129 @@ async fn claim_worker_run(
 }
 
 async fn report_worker_heartbeat(client: &reqwest::Client, config: &Config) -> Result<()> {
-    post_entity_action(
+    let body = json!({
+        "last_seen_at": generated_at_label(),
+        "status_summary": "paw-codex-worker running under openclaw launchd",
+        "capabilities": worker_capabilities().join(","),
+    });
+    match post_entity_action_with_namespace(
         client,
         config,
         "WorkerAgents",
         &config.worker_id,
+        PAW_ORCHESTRATION_NAMESPACE,
         "ReportHeartbeat",
-        json!({
-            "last_seen_at": generated_at_label(),
-            "status_summary": "paw-codex-worker running under openclaw launchd",
-            "capabilities": worker_capabilities().join(","),
-        }),
+        body.clone(),
     )
     .await
+    {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            warn!(
+                %error,
+                worker_id = %config.worker_id,
+                "WorkerAgent heartbeat via PawOrchestration failed; falling back to installed Patrol namespace"
+            );
+            post_entity_action(
+                client,
+                config,
+                "WorkerAgents",
+                &config.worker_id,
+                "ReportHeartbeat",
+                body,
+            )
+            .await
+        }
+    }
+}
+
+async fn ensure_worker_agent_registered(client: &reqwest::Client, config: &Config) -> Result<()> {
+    if worker_agent_is_registered(client, config).await? {
+        return Ok(());
+    }
+    let id = match create_entity(
+        client,
+        config,
+        "WorkerAgents",
+        worker_agent_registration_body(config),
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(error) => {
+            if action_conflict_message(&error.to_string())
+                && worker_agent_is_registered(client, config).await?
+            {
+                return Ok(());
+            }
+            return Err(error);
+        }
+    };
+    if id != config.worker_id {
+        bail!(
+            "WorkerAgent registration returned unexpected id {id}; expected {}",
+            config.worker_id
+        );
+    }
+    Ok(())
+}
+
+async fn worker_agent_is_registered(client: &reqwest::Client, config: &Config) -> Result<bool> {
+    let response = client
+        .get(config.entity_url("WorkerAgents", &config.worker_id))
+        .headers(headers(config)?)
+        .send()
+        .await
+        .with_context(|| format!("fetch WorkerAgent {}", config.worker_id))?;
+    if response.status().is_success() {
+        return Ok(true);
+    }
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    bail!(
+        "fetch WorkerAgent {} returned {}: {}",
+        config.worker_id,
+        status,
+        text
+    )
+}
+
+fn worker_agent_registration_body(config: &Config) -> Value {
+    json!({
+        "id": config.worker_id,
+        "Id": config.worker_id,
+        "worker_id": config.worker_id,
+        "WorkerId": config.worker_id,
+        "provider_id": worker_provider_id(),
+        "ProviderId": worker_provider_id(),
+        "display_name": config.worker_id,
+        "DisplayName": config.worker_id,
+        "capabilities": worker_capabilities().join(","),
+        "Capabilities": worker_capabilities().join(","),
+        "host": worker_host_label(),
+        "Host": worker_host_label(),
+        "worktree_root": path_str(&config.workspace_root),
+        "WorktreeRoot": path_str(&config.workspace_root),
+    })
+}
+
+fn worker_provider_id() -> String {
+    env::var("WORKER_PROVIDER_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "local-codex".to_string())
+}
+
+fn worker_host_label() -> String {
+    env::var("HOSTNAME")
+        .or_else(|_| env::var("COMPUTERNAME"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "local".to_string())
 }
 
 async fn start_local_worker_run(

@@ -6,6 +6,9 @@ fn parse_worker_command(args: impl IntoIterator<Item = String>) -> WorkerCommand
             "launchd-plist" | "plist" | "--launchd-plist" => {
                 return WorkerCommand::LaunchdPlist;
             }
+            "register-worker-agent" | "--register-worker-agent" => {
+                return WorkerCommand::RegisterWorkerAgent;
+            }
             "directed-evolution-start-episode" | "de-start-episode" => {
                 return WorkerCommand::DirectedEvolutionStartEpisode {
                     contract_path: args.next(),

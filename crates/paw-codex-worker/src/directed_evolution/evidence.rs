@@ -1,8 +1,8 @@
-async fn record_directed_evolution_brain_evidence(
+async fn record_directed_evolution_worker_evidence(
     client: &reqwest::Client,
     config: &Config,
     work_item: &DirectedEvolutionWorkItemState,
-    brain_run_id: &str,
+    worker_run_id: &str,
     artifact_kind: &str,
     output_json: &str,
     summary: &str,
@@ -16,7 +16,7 @@ async fn record_directed_evolution_brain_evidence(
     let uri = directed_evolution_evidence_uri(work_item, &output_value);
     let correlation = json!({
         "work_item_id": work_item.id,
-        "brain_run_id": brain_run_id,
+        "worker_run_id": worker_run_id,
         "role": work_item.role,
         "target_entity_type": work_item.target_entity_type,
         "target_entity_id": work_item.target_entity_id,
@@ -54,8 +54,8 @@ async fn record_directed_evolution_brain_evidence(
         &evidence_id,
         "LinkEvidenceArtifact",
         json!({
-            "TargetEntityType": "BrainRun",
-            "TargetEntityId": brain_run_id,
+            "TargetEntityType": "WorkerRun",
+            "TargetEntityId": worker_run_id,
         }),
     )
     .await?;
@@ -81,7 +81,11 @@ fn directed_evolution_first_evidence_scope_summary(
     else {
         return DirectedEvolutionEvidenceScopeSummary::default();
     };
-    let Some(first) = items.first() else {
+    let Some(first) = items
+        .iter()
+        .find(|item| directed_evolution_scope_satisfies_datadog_contract(item))
+        .or_else(|| items.first())
+    else {
         return DirectedEvolutionEvidenceScopeSummary::default();
     };
     DirectedEvolutionEvidenceScopeSummary {
@@ -106,6 +110,65 @@ fn directed_evolution_first_evidence_scope_summary(
             ],
         ),
     }
+}
+
+fn ensure_directed_evolution_required_datadog_evidence(
+    work_item: &DirectedEvolutionWorkItemState,
+    output: &Value,
+) -> Result<()> {
+    if !directed_evolution_work_item_requires_datadog_evidence(work_item) {
+        return Ok(());
+    }
+    let role = work_item.role.as_str();
+    let Some(items) = output
+        .get("evidence_scope")
+        .or_else(|| output.get("evidenceScope"))
+        .and_then(Value::as_array)
+    else {
+        bail!("{role} output missing mandatory Datadog evidence_scope");
+    };
+    if items
+        .iter()
+        .any(directed_evolution_scope_satisfies_datadog_contract)
+    {
+        return Ok(());
+    }
+    bail!("{role} output missing complete Datadog evidence_scope entry")
+}
+
+fn directed_evolution_scope_satisfies_datadog_contract(scope: &Value) -> bool {
+    let required = [
+        ("query", &["query", "Query"][..]),
+        ("time_window", &["time_window", "timeWindow", "TimeWindow"][..]),
+        (
+            "result_count",
+            &["result_count", "resultCount", "ResultCount", "count"][..],
+        ),
+        ("interpretation", &["interpretation", "Interpretation"][..]),
+        (
+            "zero_result_meaning",
+            &[
+                "zero_result_meaning",
+                "zeroResultMeaning",
+                "ZeroResultMeaning",
+            ][..],
+        ),
+    ];
+    for (_, aliases) in required {
+        if value_field_string(scope, aliases).trim().is_empty() {
+            return false;
+        }
+    }
+    let Some(url) = scope
+        .get("datadog_url")
+        .or_else(|| scope.get("datadogUrl"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    is_datadog_app_url(url)
 }
 
 fn directed_evolution_evidence_provenance(role: &str, output: &Value) -> String {

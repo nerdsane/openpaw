@@ -103,7 +103,16 @@ async fn query_boot_entity_ids(
         .await
         .with_context(|| format!("query {entity_set} with status {status} on boot"))?;
     if !response.status().is_success() {
-        warn!(entity_set, status, http_status = %response.status(), "boot query failed");
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            debug!(
+                entity_set,
+                status,
+                http_status = %response.status(),
+                "optional boot query entity set is not installed"
+            );
+        } else {
+            warn!(entity_set, status, http_status = %response.status(), "boot query failed");
+        }
         return Ok(Vec::new());
     }
 

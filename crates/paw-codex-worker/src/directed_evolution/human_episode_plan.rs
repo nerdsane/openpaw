@@ -12,8 +12,14 @@ struct DirectedEvolutionHumanEpisodeInput {
     adaptation_goal: String,
     #[serde(default, alias = "HumanNotes", alias = "humanNotes")]
     human_notes: String,
-    #[serde(default, alias = "CreatedByBrainRunId", alias = "createdByBrainRunId")]
-    created_by_brain_run_id: String,
+    #[serde(
+        default,
+        alias = "CreatedByWorkerRunId",
+        alias = "createdByWorkerRunId",
+        alias = "CreatedByBrainRunId",
+        alias = "createdByBrainRunId"
+    )]
+    created_by_worker_run_id: String,
     #[serde(default, alias = "EvaluatorRef", alias = "evaluatorRef")]
     evaluator_ref: String,
     #[serde(default, alias = "Metrics", alias = "metricDefinitions")]
@@ -188,7 +194,7 @@ struct DirectedEvolutionEpisodePlan {
     autonomy_lane: String,
     adaptation_goal: String,
     human_notes: String,
-    created_by_brain_run_id: String,
+    created_by_worker_run_id: String,
     evaluator_ref: String,
     metrics: Vec<DirectedEvolutionMetricPlan>,
     viability_constraints: Vec<DirectedEvolutionConstraintPlan>,
@@ -377,8 +383,8 @@ fn directed_evolution_episode_plan_from_input(
             input.human_notes,
             "Human and Codex agreed to this episode contract in chat.".to_string(),
         ),
-        created_by_brain_run_id: nonempty(
-            input.created_by_brain_run_id.clone(),
+        created_by_worker_run_id: nonempty(
+            input.created_by_worker_run_id.clone(),
             env::var("CODEX_SESSION_ID").unwrap_or_else(|_| "chat-codex".to_string()),
         ),
         evaluator_ref: nonempty(
@@ -412,7 +418,7 @@ fn directed_evolution_episode_plan_from_input(
         selected_by: nonempty(input.selected_by, "human+codex-chat".to_string()),
         selection_notes: nonempty(
             input.selection_notes,
-            "Selected after human-brain negotiation in Codex chat.".to_string(),
+            "Selected after human-agent negotiation in Codex chat.".to_string(),
         ),
         started_by: nonempty(input.started_by, "codex".to_string()),
         start_reason: nonempty(

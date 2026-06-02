@@ -516,6 +516,9 @@ fn codex_exec_args_with_datadog_option(
     force_datadog_mcp: bool,
 ) -> Vec<std::ffi::OsString> {
     let mut args = vec!["exec".into(), "--ignore-user-config".into()];
+    if let Some(model) = codex_exec_model() {
+        args.extend(["--model".into(), model.into()]);
+    }
     if let Some(datadog_mcp_url) = codex_datadog_mcp_url(force_datadog_mcp) {
         args.extend([
             "-c".into(),
@@ -535,6 +538,13 @@ fn codex_exec_args_with_datadog_option(
         prompt.into(),
     ]);
     args
+}
+
+fn codex_exec_model() -> Option<String> {
+    env::var("PAW_CODEX_MODEL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn codex_datadog_mcp_url(force_enabled: bool) -> Option<String> {

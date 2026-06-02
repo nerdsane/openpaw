@@ -359,7 +359,7 @@ mod directed_evolution_tests {
     }
 
     #[test]
-    fn mechanical_evaluator_roles_are_not_codex_brains() {
+    fn mechanical_evaluator_roles_do_not_spawn_codex_agents() {
         assert!(directed_evolution_mechanical_evaluator_role("state_verifier"));
         assert!(directed_evolution_mechanical_evaluator_role("wasm_evaluator"));
         assert_eq!(
@@ -433,6 +433,108 @@ mod directed_evolution_tests {
         assert_eq!(app.hash, "abc123");
         assert_eq!(app.app_id(), "app-nerdsane-agent-answers");
         assert_eq!(app.pinned_ref(), "nerdsane/agent-answers@abc123");
+    }
+
+    #[test]
+    fn directed_evolution_genesis_bundle_url_targets_pinned_version() {
+        let app = directed_evolution_genesis_app_from_ref("nerdsane/agent-answers@abc123")
+            .expect("app ref should parse");
+
+        let url = directed_evolution_genesis_bundle_url(
+            "https://genesis-production-164d.up.railway.app/",
+            &app,
+        );
+
+        assert_eq!(
+            url,
+            "https://genesis-production-164d.up.railway.app/api/genesis/apps/nerdsane/agent-answers/versions/abc123/bundle"
+        );
+    }
+
+    #[test]
+    fn directed_evolution_bundle_path_rejects_traversal() {
+        assert!(safe_directed_evolution_bundle_path("specs/answer.ioa.toml").is_ok());
+        assert!(safe_directed_evolution_bundle_path("../answer.ioa.toml").is_err());
+        assert!(safe_directed_evolution_bundle_path("/tmp/answer.ioa.toml").is_err());
+        assert!(safe_directed_evolution_bundle_path(".git/config").is_err());
+        assert!(safe_directed_evolution_bundle_path(".Git/config").is_err());
+        assert!(safe_directed_evolution_bundle_path("specs/.git/config").is_err());
+        assert!(safe_directed_evolution_bundle_path("specs/.GIT/config").is_err());
+    }
+
+    #[tokio::test]
+    async fn directed_evolution_bundle_materializes_git_repo() {
+        let repo = env::temp_dir().join(format!(
+            "paw-codex-worker-bundle-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let app = directed_evolution_genesis_app_from_ref("nerdsane/agent-answers@abc123")
+            .expect("app ref should parse");
+        let bundle = json!({
+            "apps": [{
+                "files": [
+                    {
+                        "path": "APP.md",
+                        "content_base64": "IyBBZ2VudCBBbnN3ZXJzCg=="
+                    },
+                    {
+                        "path": "specs/answer.ioa.toml",
+                        "content_base64": "W2F1dG9tYXRvbl0KbmFtZSA9ICJBbnN3ZXIiCg=="
+                    },
+                    {
+                        "path": ".gitignore",
+                        "content_base64": "ZGlzdC8K"
+                    },
+                    {
+                        "path": "dist/app.wasm",
+                        "content_base64": "AAECAw=="
+                    }
+                ]
+            }]
+        });
+
+        materialize_directed_evolution_bundle_repo(&repo, &app, &bundle)
+            .await
+            .expect("bundle materializes");
+
+        assert!(repo.join(".git").exists());
+        assert_eq!(
+            fs::read_to_string(repo.join("APP.md")).expect("read APP.md"),
+            "# Agent Answers\n"
+        );
+        let head = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("run git");
+        assert!(
+            head.status.success(),
+            "git rev-parse failed: {}",
+            String::from_utf8_lossy(&head.stderr)
+        );
+        assert!(!String::from_utf8_lossy(&head.stdout).trim().is_empty());
+        let listed = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["ls-files", "--", "dist/app.wasm"])
+            .output()
+            .expect("run git ls-files");
+        assert!(
+            listed.status.success(),
+            "git ls-files failed: {}",
+            String::from_utf8_lossy(&listed.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&listed.stdout).trim(),
+            "dist/app.wasm",
+            "forced bundle materialization should commit files ignored by bundled .gitignore"
+        );
+        fs::remove_dir_all(repo).ok();
     }
 
     #[test]
@@ -669,6 +771,149 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_evidence_summary_prefers_complete_datadog_scope() {
+        let summary = directed_evolution_first_evidence_scope_summary(&json!({
+            "evidence_scope": [
+                {
+                    "surface": "genesis",
+                    "query": "app history",
+                    "result_summary": "Found prior changes."
+                },
+                {
+                    "surface": "logs",
+                    "query": "service:temper-platform @directed_evolution.variant_id:v3",
+                    "time_window": "2026-06-02T14:00:00Z/2026-06-02T15:00:00Z",
+                    "result_count": 31,
+                    "interpretation": "Runtime logs were present for v3.",
+                    "zero_result_meaning": "failure",
+                    "datadog_url": "https://app.datadoghq.com/logs?query=v3"
+                }
+            ]
+        }));
+
+        assert_eq!(
+            summary.query,
+            "service:temper-platform @directed_evolution.variant_id:v3"
+        );
+        assert_eq!(summary.result_count, "31");
+        assert_eq!(summary.interpretation, "Runtime logs were present for v3.");
+    }
+
+    #[test]
+    fn directed_evolution_datadog_roles_require_structured_evidence() {
+        fn work_item(role: &str, prompt_ref: &str) -> DirectedEvolutionWorkItemState {
+            DirectedEvolutionWorkItemState {
+                id: format!("wi-{role}"),
+                status: "Queued".to_string(),
+                role: role.to_string(),
+                target_entity_type: "StageResult".to_string(),
+                target_entity_id: "sr-1".to_string(),
+                prompt_ref: prompt_ref.to_string(),
+                context_ref: "stage-result:sr-1".to_string(),
+                output_schema_ref: "schema-1".to_string(),
+                correlation_json: "{}".to_string(),
+            }
+        }
+        let observer = work_item("observer", "literal:observe");
+        let telemetry = work_item("telemetry_evaluator", "literal:evaluate telemetry");
+        let plain_reviewer = work_item("reviewer", "literal:review without Datadog gate");
+        let datadog_reviewer = work_item(
+            "reviewer",
+            "literal:RequiredEvidence: [\"datadog_evidence_scope\"]",
+        );
+        let datadog_viability = work_item(
+            "viability_evaluator",
+            "literal:RequiredEvidence: [\"datadog_evidence_scope\"]",
+        );
+
+        assert!(directed_evolution_work_item_requires_datadog_evidence(
+            &observer
+        ));
+        assert!(directed_evolution_work_item_requires_datadog_evidence(
+            &telemetry
+        ));
+        assert!(!directed_evolution_work_item_requires_datadog_evidence(
+            &plain_reviewer
+        ));
+        assert!(directed_evolution_work_item_requires_datadog_evidence(
+            &datadog_reviewer
+        ));
+        assert!(directed_evolution_work_item_requires_datadog_evidence(
+            &datadog_viability
+        ));
+
+        assert!(
+            ensure_directed_evolution_required_datadog_evidence(
+                &observer,
+                &json!({
+                    "evidence_scope": [
+                        {
+                            "surface": "genesis",
+                            "query": "app history",
+                            "result_summary": "Found prior answer changes."
+                        },
+                        {
+                            "surface": "logs",
+                            "query": "service:temper-platform",
+                            "time_window": "2026-06-02T14:00:00Z/2026-06-02T15:00:00Z",
+                            "result_count": 12,
+                            "interpretation": "Runtime request logs were present.",
+                            "zero_result_meaning": "failure",
+                            "datadog_url": "https://app.datadoghq.com/logs?query=service%3Atemper-platform"
+                        }
+                    ]
+                })
+            )
+            .is_ok()
+        );
+        assert!(
+            ensure_directed_evolution_required_datadog_evidence(
+                &telemetry,
+                &json!({
+                    "evidence_scope": [{
+                        "query": "service:temper-platform",
+                        "time_window": "2026-06-02T14:00:00Z/2026-06-02T15:00:00Z",
+                        "result_count": 0,
+                        "interpretation": "No runtime logs were present.",
+                        "zero_result_meaning": "failure"
+                    }]
+                })
+            )
+            .is_err()
+        );
+        assert!(
+            ensure_directed_evolution_required_datadog_evidence(
+                &plain_reviewer,
+                &json!({"summary": "Reviewer evidence can be non-Datadog."})
+            )
+            .is_ok()
+        );
+        assert!(
+            ensure_directed_evolution_required_datadog_evidence(
+                &datadog_reviewer,
+                &json!({"summary": "Reviewer prompt required Datadog but omitted it."})
+            )
+            .is_err()
+        );
+        assert!(
+            ensure_directed_evolution_required_datadog_evidence(
+                &datadog_viability,
+                &json!({
+                    "evidence_scope": [{
+                        "query": "service:temper-platform @directed_evolution.variant_id:v2",
+                        "time_window": "2026-06-02T14:00:00Z/2026-06-02T15:00:00Z",
+                        "result_count": 4,
+                        "interpretation": "Viability Datadog check returned runtime logs.",
+                        "zero_result_meaning": "failure",
+                        "datadog_url": "https://app.datadoghq.com/logs?query=v2"
+                    }]
+                })
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
     fn directed_evolution_summary_uses_agent_summary_when_available() {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-review".to_string(),
@@ -733,6 +978,78 @@ mod directed_evolution_tests {
         assert!(!directed_evolution_claim_conflict_message(
             "WorkItems.StartWorkItem returned 409 Conflict: Action 'StartWorkItem' not valid from state 'Queued'"
         ));
+    }
+
+    #[test]
+    fn directed_evolution_exclusive_key_conflict_detects_active_peer() {
+        let rows = vec![
+            json!({
+                "entity_id": "wi-selector-current",
+                "fields": {"Status": "Queued"}
+            }),
+            json!({
+                "entity_id": "wi-selector-active",
+                "fields": {"Status": "Running"}
+            }),
+            json!({
+                "entity_id": "wi-selector-done",
+                "fields": {"Status": "Succeeded"}
+            }),
+        ];
+
+        assert_eq!(
+            directed_evolution_exclusive_key_conflict_from_rows(
+                "wi-selector-current",
+                &rows,
+                ExclusiveKeyConflictPolicy::AnyActivePeer,
+            )
+            .as_deref(),
+            Some("wi-selector-active")
+        );
+        assert_eq!(
+            directed_evolution_exclusive_key_conflict_from_rows(
+                "wi-selector-active",
+                &rows,
+                ExclusiveKeyConflictPolicy::AnyActivePeer,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn directed_evolution_post_claim_conflict_lets_lowest_active_work_item_win() {
+        let rows = vec![
+            json!({
+                "entity_id": "wi-selector-003",
+                "fields": {"Status": "Claimed"}
+            }),
+            json!({
+                "entity_id": "wi-selector-001",
+                "fields": {"Status": "Claimed"}
+            }),
+            json!({
+                "entity_id": "wi-selector-004",
+                "fields": {"Status": "Running"}
+            }),
+        ];
+
+        assert_eq!(
+            directed_evolution_exclusive_key_conflict_from_rows(
+                "wi-selector-003",
+                &rows,
+                ExclusiveKeyConflictPolicy::LowerActivePeer,
+            )
+            .as_deref(),
+            Some("wi-selector-001")
+        );
+        assert_eq!(
+            directed_evolution_exclusive_key_conflict_from_rows(
+                "wi-selector-001",
+                &rows,
+                ExclusiveKeyConflictPolicy::LowerActivePeer,
+            ),
+            None
+        );
     }
 
     #[test]

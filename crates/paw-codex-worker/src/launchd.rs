@@ -10,6 +10,11 @@ fn launchd_worker_binary_path() -> PathBuf {
 }
 
 fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Option<&str>) -> String {
+    let launchd_label = env::var("PAW_CODEX_LAUNCHD_LABEL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "com.temperpaw.paw-codex-worker".to_string());
+    let max_concurrent_runs = config.max_concurrent_runs.to_string();
     let mut env_vars = vec![
         ("TEMPER_URL", config.temper_url.as_str()),
         ("TEMPER_TENANT", config.tenant.as_str()),
@@ -18,7 +23,7 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
         ("REPO_ROOT", path_str(&config.repo_root)),
         ("CODEX_BIN", config.codex_bin.as_str()),
         ("PATH", launchd_path().leak()),
-        ("MAX_CONCURRENT_RUNS", "1"),
+        ("MAX_CONCURRENT_RUNS", max_concurrent_runs.as_str()),
         (
             "PAW_CODEX_ENABLE_EXECUTION",
             if config.enable_execution { "1" } else { "0" },
@@ -86,6 +91,11 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
     if let Some(commands) = eval_commands.filter(|value| !value.trim().is_empty()) {
         env_vars.push(("PAW_CODEX_EVAL_COMMANDS", commands));
     }
+    if let Ok(model) = env::var("PAW_CODEX_MODEL")
+        && !model.trim().is_empty()
+    {
+        env_vars.push(("PAW_CODEX_MODEL", model.leak()));
+    }
 
     let environment = env_vars
         .into_iter()
@@ -105,7 +115,7 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.temperpaw.paw-codex-worker</string>
+  <string>{}</string>
   <key>ProgramArguments</key>
   <array>
     <string>{}</string>
@@ -120,13 +130,16 @@ fn render_launchd_plist(config: &Config, worker_bin: &Path, eval_commands: Optio
 {}
   </dict>
   <key>StandardOutPath</key>
-  <string>/tmp/paw-codex-worker.out.log</string>
+  <string>/tmp/{}.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/paw-codex-worker.err.log</string>
+  <string>/tmp/{}.err.log</string>
 </dict>
 </plist>"#,
+        escape_plist(&launchd_label),
         escape_plist(&worker_bin.display().to_string()),
-        environment
+        environment,
+        escape_plist(&launchd_label),
+        escape_plist(&launchd_label)
     )
 }
 

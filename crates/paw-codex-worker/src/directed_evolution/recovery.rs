@@ -89,7 +89,7 @@ async fn recover_pending_directed_evolution_stage_results(
         {
             let cancel_reason =
                 format!("recovery skipped StageResult start because it changed state: {error}");
-            if let Err(cancel_error) = post_directed_evolution_action_with_headers(
+            if let Err(cancel_error) = post_paw_orchestration_action_with_headers(
                 client,
                 config,
                 &director_headers,
@@ -116,7 +116,7 @@ async fn recover_pending_directed_evolution_stage_results(
             );
             continue;
         }
-        post_directed_evolution_action_with_headers(
+        post_paw_orchestration_action_with_headers(
             client,
             config,
             &director_headers,

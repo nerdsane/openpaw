@@ -5,9 +5,9 @@
 
 ## Context
 
-Directed Evolution needs many brain instances: observer, direction framer,
+Directed Evolution needs many worker-backed agent instances: observer, direction framer,
 variant generator, simulated user, reviewer, selector, and narrator. The human
-facing director brain remains the live Codex chat session, but the background
+facing director remains the live Codex chat session, but the background
 roles must run as bounded jobs and write structured results back to Temper.
 
 Deployed Genesis or Railway services should not run Codex directly in v1.
@@ -20,14 +20,14 @@ entities, while TemperPaw claims explicit work and self-reports completion.
 
 Add a Directed Evolution worker path to the managed-agent layer. The worker
 claims `WorkItem` entities from the Directed Evolution control plane, starts a
-bounded Codex session for the requested brain role, captures evidence and
+bounded Codex session for the requested worker role, captures evidence and
 observability metadata, and records results back through entity actions.
 
 The worker does not own the Directed Evolution state machine. It only moves
-state by dispatching explicit actions on `WorkItem`, `BrainRun`, `Variant`,
+state by dispatching explicit actions on shared `WorkItem`, `WorkerRun`, `Variant`,
 `StageResult`, `Trial`, `Direction`, `Episode`, or `Promotion` entities.
 
-### Brain Roles
+### Worker Roles
 
 The worker supports role-specific prompts and output schemas for:
 
@@ -55,7 +55,7 @@ winning behavior.
 Every claimed work item records:
 
 - `work_item_id`
-- `brain_run_id`
+- `worker_run_id`
 - role
 - parent session id, if any
 - target entity ids
@@ -79,7 +79,7 @@ entities accept the selection and dispatch the promotion action.
   becoming a second orchestration engine.
 - The same Codex-session machinery can run variant generation, simulated
   users, review, selection, and narration.
-- Mission Control can link brain output to entity state and observability
+- Mission Control can link worker output to entity state and observability
   evidence.
 
 ## Verification

@@ -42,6 +42,11 @@ continues to readiness using the installed state already present in the
 database; operators can repair the pinned Genesis app version and redeploy
 without any database reset.
 
-## Optional Datadog
+## Datadog
 
 Deploy the collector config in `scripts/otel-collector-railway.yaml` as a second Railway service and point `OTEL_EXPORTER_OTLP_ENDPOINT` at the collector's internal hostname.
+
+Datadog is mandatory for Directed Evolution observer and telemetry-evaluator
+roles. Those roles must record the query, time window, result count,
+interpretation, zero-result meaning, and Datadog URL before they can propose a
+direction or pass a telemetry stage.

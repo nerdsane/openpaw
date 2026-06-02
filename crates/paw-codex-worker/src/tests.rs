@@ -224,13 +224,19 @@ mod tests {
             WorkerCommand::LaunchdPlist
         );
         assert_eq!(
+            parse_worker_command(vec!["register-worker-agent".to_string()]),
+            WorkerCommand::RegisterWorkerAgent
+        );
+        assert_eq!(
             parse_worker_command(vec!["run".to_string()]),
             WorkerCommand::Run
         );
     }
 
-    #[test]
-    fn launchd_plist_renders_concrete_worker_environment() {
+    #[tokio::test]
+    async fn launchd_plist_renders_concrete_worker_environment() {
+        let _guard = ENV_LOCK.lock().await;
+        let _model = EnvOverride::set("PAW_CODEX_MODEL", OsString::from("gpt-5-codex"));
         let config = Config {
             temper_url: "https://temperpaw.example.test".to_string(),
             tenant: "prod".to_string(),
@@ -277,6 +283,8 @@ mod tests {
             "<key>PAW_CODEX_FORBIDDEN_DONE_PATHS</key>",
             "<key>PAW_CODEX_EVAL_COMMANDS</key>",
             "<string>cargo test -p temperpaw --test paw_patrol_foundation</string>",
+            "<key>PAW_CODEX_MODEL</key>",
+            "<string>gpt-5-codex</string>",
         ] {
             assert!(plist.contains(needle), "plist should contain {needle}");
         }
@@ -525,6 +533,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().await;
         let _datadog_mcp =
             EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("0"));
+        let _model = EnvOverride::remove("PAW_CODEX_MODEL");
         let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
         let args = args
             .iter()
@@ -547,10 +556,207 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn config_accepts_multiple_concurrent_runs_for_process_pool_slots() {
+        let _guard = ENV_LOCK.lock().await;
+        let _temper_url = EnvOverride::set("TEMPER_URL", OsString::from("http://127.0.0.1:3000"));
+        let _worker_id = EnvOverride::set("WORKER_ID", OsString::from("local-codex-slot-1"));
+        let _max_concurrent_runs = EnvOverride::set("MAX_CONCURRENT_RUNS", OsString::from("4"));
+
+        let config = Config::from_env().expect("worker config should parse");
+
+        assert_eq!(config.max_concurrent_runs, 4);
+    }
+
+    #[tokio::test]
+    async fn worker_agent_registration_body_uses_slot_identity() {
+        let _guard = ENV_LOCK.lock().await;
+        let _provider = EnvOverride::set("WORKER_PROVIDER_ID", OsString::from("local-codex"));
+        let _host = EnvOverride::set("HOSTNAME", OsString::from("worker-host"));
+        let config = Config {
+            temper_url: "https://temperpaw.example.test".to_string(),
+            tenant: "prod".to_string(),
+            worker_id: "mac-mini-codex-prod-slot-02".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: PathBuf::from("/Users/me/Development/temperpaw-worktrees"),
+            repo_root: PathBuf::from("/Users/me/Development/temperpaw"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(90),
+        };
+
+        let body = worker_agent_registration_body(&config);
+
+        assert_eq!(body["id"], "mac-mini-codex-prod-slot-02");
+        assert_eq!(body["worker_id"], "mac-mini-codex-prod-slot-02");
+        assert_eq!(body["provider_id"], "local-codex");
+        assert_eq!(body["host"], "worker-host");
+        assert_eq!(
+            body["worktree_root"],
+            "/Users/me/Development/temperpaw-worktrees"
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_agent_registration_is_idempotent_when_slot_exists() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let requests = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+        let captured = requests.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let requests = captured.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0_u8; 4096];
+                    let n = socket.read(&mut buf).await.expect("read request");
+                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                    requests.lock().await.push(request.clone());
+                    let body = if request.starts_with(
+                        "GET /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')",
+                    ) {
+                        r#"{"entity_id":"mac-mini-codex-prod-slot-02","fields":{"Id":"mac-mini-codex-prod-slot-02","Status":"Registered"}}"#
+                    } else {
+                        r#"{"error":"unexpected request"}"#
+                    };
+                    let status = if request.starts_with(
+                        "GET /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')",
+                    ) {
+                        "200 OK"
+                    } else {
+                        "500 Internal Server Error"
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write response");
+                });
+            }
+        });
+        let config = Config {
+            temper_url: format!("http://{addr}"),
+            tenant: "prod".to_string(),
+            worker_id: "mac-mini-codex-prod-slot-02".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: PathBuf::from("/Users/me/Development/temperpaw-worktrees"),
+            repo_root: PathBuf::from("/Users/me/Development/temperpaw"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(90),
+        };
+        let client = reqwest::Client::new();
+
+        ensure_worker_agent_registered(&client, &config)
+            .await
+            .expect("existing WorkerAgent should satisfy registration");
+
+        server.abort();
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 1, "registration should not POST when the slot exists");
+        assert!(requests[0].starts_with(
+            "GET /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')"
+        ));
+    }
+
+    #[tokio::test]
+    async fn worker_agent_heartbeat_falls_back_to_installed_patrol_namespace() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let requests = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+        let captured = requests.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let requests = captured.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0_u8; 4096];
+                    let n = socket.read(&mut buf).await.expect("read request");
+                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                    requests.lock().await.push(request.clone());
+                    let new_namespace = request.starts_with(
+                        "POST /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')/Temper.PawOrchestration.ReportHeartbeat",
+                    );
+                    let legacy_namespace = request.starts_with(
+                        "POST /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')/TemperPaw.Patrol.ReportHeartbeat",
+                    );
+                    let (status, body) = if new_namespace {
+                        ("404 Not Found", r#"{"error":"action not installed yet"}"#)
+                    } else if legacy_namespace {
+                        ("200 OK", r#"{"ok":true}"#)
+                    } else {
+                        ("500 Internal Server Error", r#"{"error":"unexpected request"}"#)
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write response");
+                });
+            }
+        });
+        let config = Config {
+            temper_url: format!("http://{addr}"),
+            tenant: "prod".to_string(),
+            worker_id: "mac-mini-codex-prod-slot-02".to_string(),
+            worker_token: Some("secret".to_string()),
+            workspace_root: PathBuf::from("/Users/me/Development/temperpaw-worktrees"),
+            repo_root: PathBuf::from("/Users/me/Development/temperpaw"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(90),
+        };
+        let client = reqwest::Client::new();
+
+        report_worker_heartbeat(&client, &config)
+            .await
+            .expect("legacy installed Patrol heartbeat namespace should still work");
+
+        server.abort();
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2, "heartbeat should retry once via Patrol");
+        assert!(requests[0].starts_with(
+            "POST /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')/Temper.PawOrchestration.ReportHeartbeat"
+        ));
+        assert!(requests[1].starts_with(
+            "POST /tdata/WorkerAgents('mac-mini-codex-prod-slot-02')/TemperPaw.Patrol.ReportHeartbeat"
+        ));
+    }
+
+    #[tokio::test]
     async fn codex_exec_keeps_datadog_mcp_disabled_when_env_unset() {
         let _guard = ENV_LOCK.lock().await;
         let _datadog_mcp = EnvOverride::remove("PAW_CODEX_ENABLE_DATADOG_MCP");
         let _datadog_url = EnvOverride::remove("PAW_CODEX_DATADOG_MCP_URL");
+        let _model = EnvOverride::remove("PAW_CODEX_MODEL");
         let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
         let args = args
             .iter()
@@ -560,6 +766,7 @@ mod tests {
         assert_eq!(args[0], "exec");
         assert_eq!(args[1], "--ignore-user-config");
         assert!(!args.contains(&"-c".to_string()));
+        assert!(!args.contains(&"--model".to_string()));
         assert!(
             !args
                 .iter()
@@ -572,6 +779,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().await;
         let _datadog_mcp =
             EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("1"));
+        let _model = EnvOverride::remove("PAW_CODEX_MODEL");
         let _datadog_url = EnvOverride::set(
             "PAW_CODEX_DATADOG_MCP_URL",
             OsString::from("https://mcp.datadoghq.test/mcp?toolsets=logs"),
@@ -609,6 +817,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().await;
         let _datadog_mcp =
             EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("0"));
+        let _model = EnvOverride::remove("PAW_CODEX_MODEL");
         let _datadog_url = EnvOverride::set(
             "PAW_CODEX_DATADOG_MCP_URL",
             OsString::from("https://mcp.datadoghq.test/mcp?toolsets=logs"),
@@ -641,6 +850,7 @@ mod tests {
         let _datadog_mcp =
             EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("1"));
         let _datadog_url = EnvOverride::remove("PAW_CODEX_DATADOG_MCP_URL");
+        let _model = EnvOverride::remove("PAW_CODEX_MODEL");
         let args = codex_exec_args(
             Path::new("/tmp/paw-worktree"),
             "Inspect Datadog evidence for the evolution direction",
@@ -654,6 +864,29 @@ mod tests {
             &"mcp_servers.datadog.url=\"https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=all\""
                 .to_string()
         ));
+    }
+
+    #[tokio::test]
+    async fn codex_exec_can_pin_worker_model_from_env() {
+        let _guard = ENV_LOCK.lock().await;
+        let _datadog_mcp =
+            EnvOverride::set("PAW_CODEX_ENABLE_DATADOG_MCP", OsString::from("0"));
+        let _model = EnvOverride::set("PAW_CODEX_MODEL", OsString::from("gpt-5-codex"));
+        let args = codex_exec_args(Path::new("/tmp/paw-worktree"), "Create the proof file");
+        let args = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &args[0..4],
+            &[
+                "exec".to_string(),
+                "--ignore-user-config".to_string(),
+                "--model".to_string(),
+                "gpt-5-codex".to_string(),
+            ]
+        );
     }
 
     #[test]

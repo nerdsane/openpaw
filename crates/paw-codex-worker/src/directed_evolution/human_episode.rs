@@ -78,7 +78,7 @@ async fn start_directed_evolution_human_episode(
         json!({
             "EpisodeId": episode_id,
             "GoalStatement": plan.adaptation_goal,
-            "CreatedByBrainRunId": plan.created_by_brain_run_id,
+            "CreatedByWorkerRunId": plan.created_by_worker_run_id,
             "HumanNotes": plan.human_notes,
         }),
     )
@@ -140,7 +140,7 @@ async fn start_directed_evolution_human_episode(
                 "EpisodeId": episode_id,
                 "ConstraintStatement": constraint.statement,
                 "ConstraintKind": constraint.kind,
-                "CreatedByBrainRunId": plan.created_by_brain_run_id,
+                "CreatedByWorkerRunId": plan.created_by_worker_run_id,
             }),
         )
         .await?;
@@ -202,7 +202,7 @@ async fn start_directed_evolution_human_episode(
                 "RuleStatement": rule.statement,
                 "MetricIdsJson": json!(metric_ids_for_rule).to_string(),
                 "ThresholdJson": rule.threshold.to_string(),
-                "CreatedByBrainRunId": plan.created_by_brain_run_id,
+                "CreatedByWorkerRunId": plan.created_by_worker_run_id,
             }),
         )
         .await?;
@@ -231,7 +231,7 @@ async fn start_directed_evolution_human_episode(
                 "RuleStatement": rule.statement,
                 "MetricIdsJson": json!(metric_ids_for_rule).to_string(),
                 "Weight": rule.weight,
-                "CreatedByBrainRunId": plan.created_by_brain_run_id,
+                "CreatedByWorkerRunId": plan.created_by_worker_run_id,
             }),
         )
         .await?;
@@ -299,7 +299,7 @@ async fn start_directed_evolution_human_episode(
             "ScoringRuleIdsJson": json!(scoring_rule_ids).to_string(),
             "EvaluatorRef": plan.evaluator_ref,
             "DecisionPolicy": plan.selection_notes,
-            "CreatedByBrainRunId": plan.created_by_brain_run_id,
+            "CreatedByWorkerRunId": plan.created_by_worker_run_id,
         }),
     )
     .await?;

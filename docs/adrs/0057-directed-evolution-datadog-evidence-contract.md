@@ -7,13 +7,13 @@
 ## Context
 
 Directed Evolution worker roles already record `EvidenceArtifact` entities for
-Codex brain runs, but the evidence can be too generic. The artifact URI falls
+Codex worker runs, but the evidence can be too generic. The artifact URI falls
 back to a TemperPaw-local placeholder unless the agent happens to return a
 single `evidence_uri`, and the role prompts do not require a structured
 Datadog evidence scope.
 
 That is not enough for the Directed Evolution product contract. Observer,
-reviewer, and simulated-user brains must be able to explain what they learned
+reviewer, and simulated-user workers must be able to explain what they learned
 from production telemetry and live variant execution. Mission Control should
 show evidence that can be inspected, not just summaries.
 
@@ -39,9 +39,9 @@ environment, and the Datadog query used to find matching worker telemetry.
 
 ## Consequences
 
-- Directed Evolution evidence becomes Datadog-inspectable when a brain used
+- Directed Evolution evidence becomes Datadog-inspectable when a worker used
   Datadog, rather than only locally summarized.
-- Mission Control can surface a real observability URL for a variant or brain
+- Mission Control can surface a real observability URL for a variant or worker
   result without inventing UI state.
 - The contract stays backward-compatible with existing worker outputs.
 

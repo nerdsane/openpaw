@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-Directed Evolution now creates real `WorkItem` brain runs and can generate
+Directed Evolution now creates real `paw-orchestration.WorkItem`s and can generate
 candidate app changes in local Codex worktrees. That is not enough for the
 intended pipeline: simulated users and reviewers must evaluate running
 variants, not just inspect local diffs. Railway deployments are costly and
@@ -39,14 +39,14 @@ a hot-loaded Genesis runtime:
   target `StageResult` or `Variant` has already been eliminated. Generation can
   queue multiple stages up front, so late queued work must not waste background
   Codex runs or add confusing evidence after a candidate is dead.
-- Background Codex brain runs use isolated `codex exec` sessions
+- Background Codex worker runs use isolated `codex exec` sessions
   (`--ignore-user-config --ephemeral`) so tiny JSON-producing work items do not
   inherit unrelated local MCP servers, hooks, or long-lived session state.
 
 This is an agent capability surface, not a hidden orchestration layer. The
 episode still advances through Directed Evolution entities and WASM transitions;
 the worker only supplies the external agent work product and self-reports it
-through the existing `WorkItem` and `BrainRun` actions.
+through shared `WorkItem` and `WorkerRun` actions.
 
 ## Consequences
 
@@ -63,6 +63,6 @@ through the existing `WorkItem` and `BrainRun` actions.
   survive hot-load, simulated-user trials, review, selection, and promotion.
 - Stale work cancellation keeps evaluation throughput focused on live variants
   while preserving entity-level auditability through `CancelWorkItem`.
-- Isolated Codex invocation means background brain runs rely on the Codex auth
+- Isolated Codex invocation means background worker runs rely on the Codex auth
   environment but not the operator's interactive config; any needed tool surface
   must be provided explicitly by the worker prompt or execution environment.

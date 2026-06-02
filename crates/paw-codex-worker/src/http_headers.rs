@@ -12,6 +12,9 @@ fn extract_sse_data(frame: &str) -> Option<String> {
 
 fn headers(config: &Config) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
+    let principal_kind =
+        env::var("PAW_CODEX_PRINCIPAL_KIND").unwrap_or_else(|_| "agent".to_string());
+    let agent_type = env::var("PAW_CODEX_AGENT_TYPE").unwrap_or_else(|_| "worker".to_string());
     headers.insert(
         "x-tenant-id",
         HeaderValue::from_str(&config.tenant).context("invalid TEMPER_TENANT")?,
@@ -20,8 +23,14 @@ fn headers(config: &Config) -> Result<HeaderMap> {
         "x-temper-principal-id",
         HeaderValue::from_str(&config.worker_id).context("invalid WORKER_ID")?,
     );
-    headers.insert("x-temper-principal-kind", HeaderValue::from_static("agent"));
-    headers.insert("x-temper-agent-type", HeaderValue::from_static("worker"));
+    headers.insert(
+        "x-temper-principal-kind",
+        HeaderValue::from_str(&principal_kind).context("invalid PAW_CODEX_PRINCIPAL_KIND")?,
+    );
+    headers.insert(
+        "x-temper-agent-type",
+        HeaderValue::from_str(&agent_type).context("invalid PAW_CODEX_AGENT_TYPE")?,
+    );
     headers.insert(
         "x-agent-id",
         HeaderValue::from_str(&config.worker_id).context("invalid WORKER_ID")?,
@@ -59,4 +68,3 @@ fn event_stream_headers(config: &Config) -> Result<HeaderMap> {
 fn required_env(key: &str) -> Result<String> {
     env::var(key).with_context(|| format!("{key} is required"))
 }
-

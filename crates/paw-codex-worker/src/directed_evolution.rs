@@ -14,7 +14,31 @@ async fn handle_queued_directed_evolution_work_item(
         return Ok(());
     }
     if work_item.role.trim().is_empty() {
-        debug!(work_item_id, "Directed Evolution WorkItem has no brain role yet");
+        debug!(work_item_id, "Directed Evolution WorkItem has no worker role yet");
+        return Ok(());
+    }
+    if let Some(conflict) =
+        directed_evolution_exclusive_key_conflict(client, config, &work_item).await?
+    {
+        let reason = format!(
+            "Exclusive key {} is already active on WorkItem {}; cancelling duplicate {} work",
+            conflict.exclusive_key, conflict.active_work_item_id, work_item.role
+        );
+        post_paw_orchestration_action(
+            client,
+            config,
+            "WorkItems",
+            &work_item.id,
+            "CancelWorkItem",
+            json!({ "Reason": reason }),
+        )
+        .await?;
+        info!(
+            work_item_id = %work_item.id,
+            active_work_item_id = %conflict.active_work_item_id,
+            exclusive_key = %conflict.exclusive_key,
+            "cancelled duplicate exclusive Directed Evolution WorkItem"
+        );
         return Ok(());
     }
     if let Some(reason) =
@@ -31,7 +55,7 @@ async fn handle_queued_directed_evolution_work_item(
                 "stale Directed Evolution WorkItem cleanup could not mutate StageResult; cancelling WorkItem only"
             );
         }
-        if let Err(error) = post_directed_evolution_action(
+        if let Err(error) = post_paw_orchestration_action(
             client,
             config,
             "WorkItems",
@@ -53,7 +77,7 @@ async fn handle_queued_directed_evolution_work_item(
         return Ok(());
     }
 
-    if let Err(error) = post_directed_evolution_action(
+    if let Err(error) = post_paw_orchestration_action(
         client,
         config,
         "WorkItems",
@@ -86,36 +110,63 @@ async fn handle_queued_directed_evolution_work_item(
             )
         });
     }
+    if let Some(conflict) =
+        directed_evolution_exclusive_key_post_claim_conflict(client, config, &work_item).await?
+    {
+        let reason = format!(
+            "Exclusive key {} is already claimed by lower-priority WorkItem {}; cancelling duplicate {} work before WorkerRun start",
+            conflict.exclusive_key, conflict.active_work_item_id, work_item.role
+        );
+        post_paw_orchestration_action(
+            client,
+            config,
+            "WorkItems",
+            &work_item.id,
+            "CancelWorkItem",
+            json!({ "Reason": reason }),
+        )
+        .await?;
+        info!(
+            work_item_id = %work_item.id,
+            active_work_item_id = %conflict.active_work_item_id,
+            exclusive_key = %conflict.exclusive_key,
+            "cancelled duplicate exclusive Directed Evolution WorkItem after claim"
+        );
+        return Ok(());
+    }
 
-    let brain_run_id = create_entity(client, config, "BrainRuns", json!({})).await?;
-    post_directed_evolution_action(
+    let worker_run_id = create_entity(client, config, "WorkerRuns", json!({})).await?;
+    post_paw_orchestration_action(
         client,
         config,
-        "BrainRuns",
-        &brain_run_id,
-        "StartBrainRun",
+        "WorkerRuns",
+        &worker_run_id,
+        "StartWorkerRun",
         json!({
             "Role": work_item.role,
             "WorkItemId": work_item.id,
+            "WorkerId": config.worker_id,
+            "ProviderId": directed_evolution_worker_provider_id(),
             "AgentKind": directed_evolution_agent_kind_for_role(&work_item.role),
             "Model": directed_evolution_model_for_role(&work_item.role),
+            "SessionId": "",
             "ParentSessionId": env::var("CODEX_SESSION_ID").unwrap_or_default(),
             "CorrelationJson": work_item.correlation_json,
         }),
     )
     .await?;
-    post_directed_evolution_action(
+    post_paw_orchestration_action(
         client,
         config,
         "WorkItems",
         &work_item.id,
         "StartWorkItem",
-        json!({ "BrainRunId": brain_run_id }),
+        json!({ "WorkerRunId": worker_run_id }),
     )
     .await?;
     info!(
         work_item_id = %work_item.id,
-        brain_run_id = %brain_run_id,
+        worker_run_id = %worker_run_id,
         role = %work_item.role,
         target_entity_type = %work_item.target_entity_type,
         target_entity_id = %work_item.target_entity_id,
@@ -125,22 +176,22 @@ async fn handle_queued_directed_evolution_work_item(
     match run_directed_evolution_codex_role(client, config, &work_item).await {
         Ok(output_json) => {
             let summary = directed_evolution_summary(&work_item, &output_json);
-            let evidence_artifact_id = record_directed_evolution_brain_evidence(
+            let evidence_artifact_id = record_directed_evolution_worker_evidence(
                 client,
                 config,
                 &work_item,
-                &brain_run_id,
-                "codex_brain_run",
+                &worker_run_id,
+                "codex_worker_run",
                 &output_json,
                 &summary,
             )
             .await?;
-            post_directed_evolution_action(
+            post_paw_orchestration_action(
                 client,
                 config,
-                "BrainRuns",
-                &brain_run_id,
-                "SucceedBrainRun",
+                "WorkerRuns",
+                &worker_run_id,
+                "SucceedWorkerRun",
                 json!({
                     "OutputJson": output_json,
                     "EvidenceArtifactId": evidence_artifact_id,
@@ -148,7 +199,43 @@ async fn handle_queued_directed_evolution_work_item(
                 }),
             )
             .await?;
-            post_directed_evolution_action(
+            if let Err(route_error) = route_directed_evolution_work_item_success(
+                client,
+                config,
+                &work_item,
+                &worker_run_id,
+                &output_json,
+                &evidence_artifact_id,
+                &summary,
+            )
+            .await
+            {
+                let failure_reason = format!(
+                    "Directed Evolution receipt routing failed after WorkerRun success: {route_error}"
+                );
+                warn!(
+                    work_item_id = %work_item.id,
+                    worker_run_id = %worker_run_id,
+                    role = %work_item.role,
+                    evidence_artifact_id = %evidence_artifact_id,
+                    %route_error,
+                    "Directed Evolution WorkItem receipt routing failed after WorkerRun success"
+                );
+                post_paw_orchestration_action(
+                    client,
+                    config,
+                    "WorkItems",
+                    &work_item.id,
+                    "FailWorkItem",
+                    json!({
+                        "FailureReason": failure_reason,
+                        "EvidenceArtifactId": evidence_artifact_id,
+                    }),
+                )
+                .await?;
+                return Ok(());
+            }
+            post_paw_orchestration_action(
                 client,
                 config,
                 "WorkItems",
@@ -163,21 +250,21 @@ async fn handle_queued_directed_evolution_work_item(
             .await?;
             info!(
                 work_item_id = %work_item.id,
-                brain_run_id = %brain_run_id,
+                worker_run_id = %worker_run_id,
                 role = %work_item.role,
                 evidence_artifact_id = %evidence_artifact_id,
-                "completed Directed Evolution Codex brain run"
+                "completed Directed Evolution Codex worker run"
             );
             Ok(())
         }
         Err(error) => {
             let failure_reason = format!("Directed Evolution Codex role failed: {error}");
-            let evidence_artifact_id = match record_directed_evolution_brain_evidence(
+            let evidence_artifact_id = match record_directed_evolution_worker_evidence(
                 client,
                 config,
                 &work_item,
-                &brain_run_id,
-                "codex_brain_run_failure",
+                &worker_run_id,
+                "codex_worker_run_failure",
                 &serde_json::to_string(&json!({
                     "status": "failed",
                     "failure_reason": failure_reason,
@@ -188,16 +275,16 @@ async fn handle_queued_directed_evolution_work_item(
             {
                 Ok(id) => id,
                 Err(report_error) => {
-                    warn!(%report_error, work_item_id, brain_run_id, "failed to record Directed Evolution failure evidence");
+                    warn!(%report_error, work_item_id, worker_run_id, "failed to record Directed Evolution failure evidence");
                     String::new()
                 }
             };
-            if let Err(report_error) = post_directed_evolution_action(
+            if let Err(report_error) = post_paw_orchestration_action(
                 client,
                 config,
-                "BrainRuns",
-                &brain_run_id,
-                "FailBrainRun",
+                "WorkerRuns",
+                &worker_run_id,
+                "FailWorkerRun",
                 json!({
                     "FailureReason": failure_reason,
                     "EvidenceArtifactId": evidence_artifact_id,
@@ -205,9 +292,28 @@ async fn handle_queued_directed_evolution_work_item(
             )
             .await
             {
-                warn!(%report_error, work_item_id, brain_run_id, "failed to report BrainRun failure");
+                warn!(%report_error, work_item_id, worker_run_id, "failed to report WorkerRun failure");
             }
-            post_directed_evolution_action(
+            if let Err(route_error) = route_directed_evolution_work_item_failure(
+                client,
+                config,
+                &work_item,
+                &worker_run_id,
+                &failure_reason,
+                &evidence_artifact_id,
+            )
+            .await
+            {
+                warn!(
+                    work_item_id = %work_item.id,
+                    worker_run_id = %worker_run_id,
+                    role = %work_item.role,
+                    evidence_artifact_id = %evidence_artifact_id,
+                    %route_error,
+                    "Directed Evolution failure receipt routing failed; failing WorkItem anyway"
+                );
+            }
+            post_paw_orchestration_action(
                 client,
                 config,
                 "WorkItems",
@@ -221,10 +327,10 @@ async fn handle_queued_directed_evolution_work_item(
             .await?;
             warn!(
                 work_item_id = %work_item.id,
-                brain_run_id = %brain_run_id,
+                worker_run_id = %worker_run_id,
                 role = %work_item.role,
                 evidence_artifact_id = %evidence_artifact_id,
-                "failed Directed Evolution Codex brain run"
+                "failed Directed Evolution Codex worker run"
             );
             Ok(())
         }
@@ -234,6 +340,105 @@ async fn handle_queued_directed_evolution_work_item(
 fn directed_evolution_claim_conflict_message(message: &str) -> bool {
     message.contains("WorkItems.ClaimWorkItem returned 409")
         && message.contains("not valid from state")
+}
+
+struct DirectedEvolutionExclusiveKeyConflict {
+    exclusive_key: String,
+    active_work_item_id: String,
+}
+
+async fn directed_evolution_exclusive_key_conflict(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+) -> Result<Option<DirectedEvolutionExclusiveKeyConflict>> {
+    directed_evolution_exclusive_key_conflict_with_policy(
+        client,
+        config,
+        work_item,
+        ExclusiveKeyConflictPolicy::AnyActivePeer,
+    )
+    .await
+}
+
+async fn directed_evolution_exclusive_key_post_claim_conflict(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+) -> Result<Option<DirectedEvolutionExclusiveKeyConflict>> {
+    directed_evolution_exclusive_key_conflict_with_policy(
+        client,
+        config,
+        work_item,
+        ExclusiveKeyConflictPolicy::LowerActivePeer,
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+enum ExclusiveKeyConflictPolicy {
+    AnyActivePeer,
+    LowerActivePeer,
+}
+
+async fn directed_evolution_exclusive_key_conflict_with_policy(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    policy: ExclusiveKeyConflictPolicy,
+) -> Result<Option<DirectedEvolutionExclusiveKeyConflict>> {
+    let fields =
+        fetch_directed_evolution_entity_fields(client, config, "WorkItems", &work_item.id).await?;
+    let exclusive_key = value_field_string(&fields, &["ExclusiveKey", "exclusive_key"]);
+    if exclusive_key.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let escaped_key = exclusive_key.replace('\'', "''");
+    let rows = query_directed_evolution_rows(
+        client,
+        config,
+        "WorkItems",
+        &format!("ExclusiveKey eq '{escaped_key}'"),
+        100,
+    )
+    .await?;
+    if let Some(active_work_item_id) =
+        directed_evolution_exclusive_key_conflict_from_rows(&work_item.id, &rows, policy)
+    {
+        return Ok(Some(DirectedEvolutionExclusiveKeyConflict {
+            exclusive_key,
+            active_work_item_id,
+        }));
+    }
+
+    Ok(None)
+}
+
+fn directed_evolution_exclusive_key_conflict_from_rows(
+    work_item_id: &str,
+    rows: &[Value],
+    policy: ExclusiveKeyConflictPolicy,
+) -> Option<String> {
+    let mut active_ids = Vec::new();
+    for row in rows {
+        let row_fields = directed_evolution_row_fields(row);
+        let row_id = directed_evolution_row_id(row);
+        if row_id == work_item_id {
+            continue;
+        }
+        let status = value_field_string(&row_fields, &["Status", "status"]);
+        if matches!(status.as_str(), "Claimed" | "Running") {
+            active_ids.push(row_id);
+        }
+    }
+    active_ids.sort();
+    match policy {
+        ExclusiveKeyConflictPolicy::AnyActivePeer => active_ids.into_iter().next(),
+        ExclusiveKeyConflictPolicy::LowerActivePeer => active_ids
+            .into_iter()
+            .find(|active_id| active_id.as_str() < work_item_id),
+    }
 }
 
 async fn stale_directed_evolution_work_item_reason(
@@ -374,6 +579,116 @@ async fn post_directed_evolution_action(
     .await
 }
 
+async fn post_paw_orchestration_action(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    entity_id: &str,
+    action: &str,
+    body: Value,
+) -> Result<()> {
+    post_entity_action_with_namespace(
+        client,
+        config,
+        entity_set,
+        entity_id,
+        PAW_ORCHESTRATION_NAMESPACE,
+        action,
+        body,
+    )
+    .await
+}
+
+async fn post_paw_orchestration_action_with_headers(
+    client: &reqwest::Client,
+    config: &Config,
+    request_headers: &HeaderMap,
+    entity_set: &str,
+    entity_id: &str,
+    action: &str,
+    body: Value,
+) -> Result<()> {
+    let url = config.entity_action_url_with_namespace(
+        entity_set,
+        entity_id,
+        PAW_ORCHESTRATION_NAMESPACE,
+        action,
+    );
+    let response = client
+        .post(url)
+        .headers(request_headers.clone())
+        .json(&body)
+        .send()
+        .await
+        .with_context(|| format!("dispatch PawOrchestration {entity_set}.{action}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        bail!("PawOrchestration {entity_set}.{action} returned {status}: {text}");
+    }
+    Ok(())
+}
+
+async fn route_directed_evolution_work_item_success(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
+    output_json: &str,
+    evidence_artifact_id: &str,
+    summary: &str,
+) -> Result<()> {
+    let receipt_id = create_entity(client, config, "WorkItemReceipts", json!({})).await?;
+    post_directed_evolution_action(
+        client,
+        config,
+        "WorkItemReceipts",
+        &receipt_id,
+        "RouteSucceededWorkItem",
+        json!({
+            "WorkItemId": work_item.id,
+            "Role": work_item.role,
+            "TargetEntityType": work_item.target_entity_type,
+            "TargetEntityId": work_item.target_entity_id,
+            "WorkerRunId": worker_run_id,
+            "ResultJson": output_json,
+            "EvidenceArtifactId": evidence_artifact_id,
+            "Summary": summary,
+            "CorrelationJson": work_item.correlation_json,
+        }),
+    )
+    .await
+}
+
+async fn route_directed_evolution_work_item_failure(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
+    failure_reason: &str,
+    evidence_artifact_id: &str,
+) -> Result<()> {
+    let receipt_id = create_entity(client, config, "WorkItemReceipts", json!({})).await?;
+    post_directed_evolution_action(
+        client,
+        config,
+        "WorkItemReceipts",
+        &receipt_id,
+        "RouteFailedWorkItem",
+        json!({
+            "WorkItemId": work_item.id,
+            "Role": work_item.role,
+            "TargetEntityType": work_item.target_entity_type,
+            "TargetEntityId": work_item.target_entity_id,
+            "WorkerRunId": worker_run_id,
+            "FailureReason": failure_reason,
+            "EvidenceArtifactId": evidence_artifact_id,
+            "CorrelationJson": work_item.correlation_json,
+        }),
+    )
+    .await
+}
+
 async fn run_directed_evolution_codex_role(
     client: &reqwest::Client,
     config: &Config,
@@ -389,6 +704,12 @@ async fn run_directed_evolution_codex_role(
         "executing Directed Evolution Codex role"
     );
     if !config.enable_execution {
+        if directed_evolution_work_item_requires_datadog_evidence(work_item) {
+            bail!(
+                "Directed Evolution role {} requires live Codex execution and Datadog evidence",
+                work_item.role
+            );
+        }
         return serde_json::to_string(&json!({
             "status": "dry_run",
             "role": work_item.role,
@@ -419,12 +740,12 @@ async fn run_directed_evolution_codex_role(
     } else {
         directed_evolution_git_status_snapshot(&workdir.path).await?
     };
-    let output = match if work_item.role == "telemetry_evaluator" {
+    let output = match if directed_evolution_work_item_requires_datadog_evidence(work_item) {
         run_codex_exec_command_with_datadog_mcp(
             config,
             &workdir.path,
             prompt,
-            "run Directed Evolution Datadog telemetry evaluator",
+            "run Directed Evolution Datadog-backed role",
         )
         .await
     } else {
@@ -487,6 +808,7 @@ async fn run_directed_evolution_codex_role(
             })
         });
     }
+    ensure_directed_evolution_required_datadog_evidence(work_item, &payload)?;
     serde_json::to_string(&payload)
     .context("serialize Directed Evolution Codex output")
 }
@@ -499,12 +821,44 @@ fn directed_evolution_agent_kind_for_role(role: &str) -> &'static str {
     }
 }
 
-fn directed_evolution_model_for_role(role: &str) -> &'static str {
+fn directed_evolution_role_requires_datadog_mcp(role: &str) -> bool {
+    matches!(role, "observer" | "telemetry_evaluator")
+}
+
+fn directed_evolution_work_item_requires_datadog_evidence(
+    work_item: &DirectedEvolutionWorkItemState,
+) -> bool {
+    directed_evolution_role_requires_datadog_mcp(&work_item.role)
+        || directed_evolution_text_requires_datadog_evidence(&work_item.prompt_ref)
+        || directed_evolution_text_requires_datadog_evidence(&work_item.context_ref)
+        || directed_evolution_text_requires_datadog_evidence(&work_item.output_schema_ref)
+        || directed_evolution_text_requires_datadog_evidence(&work_item.correlation_json)
+}
+
+fn directed_evolution_text_requires_datadog_evidence(value: &str) -> bool {
+    value
+        .to_ascii_lowercase()
+        .contains("datadog_evidence_scope")
+}
+
+fn directed_evolution_worker_provider_id() -> String {
+    worker_provider_id()
+}
+
+fn directed_evolution_model_for_role(role: &str) -> String {
     if matches!(role, "promoter" | "state_verifier" | "wasm_evaluator") {
-        "deterministic-worker"
+        "deterministic-worker".to_string()
     } else {
-        "codex-cli"
+        directed_evolution_codex_model_label()
     }
+}
+
+fn directed_evolution_codex_model_label() -> String {
+    env::var("PAW_CODEX_MODEL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "codex-cli".to_string())
 }
 
 async fn recover_directed_evolution_variant_output(
@@ -540,7 +894,7 @@ async fn recover_directed_evolution_variant_output(
         "verification_notes": format!(
             "Codex produced repository changes but did not finish the structured response: {error_summary}. Later evaluation stages must validate the hot-loaded runtime before selection."
         ),
-        "reasoning_summary": "The worker recovered concrete file mutations left by the variant-generator brain and will publish them as a candidate for downstream evaluation.",
+        "reasoning_summary": "The worker recovered concrete file mutations left by the variant-generator worker run and will publish them as a candidate for downstream evaluation.",
         "recovery": {
             "reason": "codex_exec_error_after_file_changes",
             "error": error_summary,
