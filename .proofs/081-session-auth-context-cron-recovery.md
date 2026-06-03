@@ -10,6 +10,7 @@ Investigated and fixed the production failures behind:
 - Session context appearing reset / empty.
 - Katagami/CronJob Sessions spawning with empty `user_message`, `model`, or `provider`.
 - Provider failures involving unresolved `{secret:openai_api_key}` placeholders.
+- Active CronJobs whose `schedule_at` timers were lost across deploy because startup recovery populated indexes/projections without hydrating scheduled actors.
 
 ## Production Evidence
 
@@ -53,6 +54,8 @@ After the first Railway image deploy, production still invoked stale Genesis-pin
 - Temper spawn `copy_fields` precedence now preserves explicit callback params over stale copied parent fields.
 - Temper trajectory request-body truncation now stores either the original small JSON
   or a valid `_temper_truncated` envelope under 4096 bytes.
+- Temper startup schedule recovery now scans only entity types whose specs declare `schedule_at`, force-hydrates those scheduled actors, and re-arms timers using the hydrated current-state event history. Recovered timers are deduped by tenant/entity/action/sequence.
+- TemperPaw startup runs that schedule recovery phase before marking `/readyz` ready.
 - paw-agent `app.toml` now declares spec-triggered WASM modules including cron, OpenAI Codex auth, approval handlers, and workspace restoration.
 - Provider credential selection skips unresolved `{secret:...}` templates before choosing API-key fallbacks.
 
@@ -67,6 +70,8 @@ Red tests observed before implementation:
 - `spawn_initial_params_keep_explicit_action_params_over_copied_fields` failed before the Temper merge helper existed.
 - `trajectory_request_body_truncation_preserves_valid_json` failed with
   `EOF while parsing a string` at column 4096 before Temper's truncation envelope.
+- `startup_schedule_at_recovery_rearms_timer_types_without_full_hydration` failed to compile before Temper exposed startup `schedule_at` recovery.
+- `schedule_at_recovery_runs_before_startup_readiness` was added to lock the TemperPaw startup ordering contract.
 - `paw_agent_manifest_declares_hot_session_wasm_startup_policy` failed on missing `sandbox_provisioner` manifest registration.
 - `paw_agent_specs_map_cron_spawn_session_config` failed with `spawn_initial_action_params_unmapped` before CronJob declared and copied the optional Session config fields.
 - `api_key_resolution_skips_unresolved_secret_templates` failed by selecting `{secret:openai_api_key}` over a real fallback.
@@ -82,6 +87,7 @@ Green checks:
 - `cargo test -p temperpaw --test session_turn_architecture`: 22 passed.
 - `cargo test -p temperpaw --test datadog_observability_contract`: 32 passed.
 - `cargo test -p temperpaw --test paw_fs_hot_path`: 12 passed.
+- `cargo test -p temperpaw schedule_at_recovery_runs_before_startup_readiness`: passed.
 - Targeted paw-patrol schedule-boundary tests: passed.
 - `cargo build -p temperpaw`: passed.
 - `bash os-apps/paw-agent/wasm/build.sh`: all paw-agent WASM modules built.
@@ -91,6 +97,8 @@ Temper platform checks:
 - `cargo test -p temper-server spawn_initial_params_keep_explicit_action_params_over_copied_fields`: passed.
 - `cargo test -p temper-server test_spawn_with_copy_fields`: passed.
 - `cargo test -p temper-server trajectory_request_body`: 2 passed.
+- `cargo test -p temper-server schedule_at -- --nocapture`: passed, including startup `schedule_at` recovery.
+- `cargo test -p temper-server --test schedule_at_hydration -- --nocapture`: 4 passed.
 - `cargo test -p temper-jit test_spawn_with_copy_fields_passes_through`: passed.
 - `cargo test -p temper-spec parse_spawn_effect`: passed.
 - `cargo build -p temper-server`: passed.
@@ -192,3 +200,10 @@ Active Katagami job after repair:
 - `model="gpt-5.5"`, `provider="openai_codex"`
 - Latest Session `019e8e30-bc5e-7591-b6e9-2d2c5f2e00ed` received the 897-byte message and model/provider, then failed only at the explicit graceful auth boundary:
   `OpenAI Codex sign-in is required; start the Codex device login again.`
+
+Subsequent deploy verification found one remaining scheduler durability issue:
+
+- Railway deployment `d1bb22e9-dad0-4152-92b0-d54e512da279` served `sha-cb3148da` / `cb3148dae6adcb955d1bea196c8bb39085a3f095`.
+- `/readyz` and `/healthz` were 200.
+- The active Katagami CronJob still showed `run_count=74` and stale `next_run_at="2026-06-03T16:03:39Z"` after deploy.
+- Root cause: Temper's first scheduler recovery fix rearmed timers when an actor hydrated, but production startup only populated the query/index catalog. The scheduled CronJob actor stayed cold, so its in-memory `schedule_at` timer was never recreated.

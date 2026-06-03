@@ -630,6 +630,19 @@ async fn recover_runtime_indexes(state: &PlatformState, tenant_ids: &[TenantId])
     }
 }
 
+async fn recover_schedule_at_timers(state: &PlatformState, tenant_ids: &[TenantId]) -> usize {
+    let mut recovered = 0usize;
+    for tenant_id in tenant_ids {
+        recovered = recovered.saturating_add(
+            state
+                .server
+                .recover_schedule_at_timers_from_store(tenant_id)
+                .await,
+        );
+    }
+    recovered
+}
+
 fn orphaned_session_recovery_limit() -> Option<usize> {
     let enabled = std::env::var("TEMPERPAW_ORPHANED_SESSION_RECOVERY")
         .ok()
@@ -1842,6 +1855,16 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
 
     // Cron scheduling is now handled by the platform's schedule_at effect —
     // CronJob entities self-schedule via ActivateComplete/TriggerComplete.
+    let phase_started = Instant::now();
+    let schedule_tenant_ids = registry_tenant_ids(&state);
+    let recovered_schedule_timers = recover_schedule_at_timers(&state, &schedule_tenant_ids).await;
+    record_startup_phase_duration("phase_9_schedule_at_recovery", phase_started.elapsed());
+    tracing::info!(
+        tenants = schedule_tenant_ids.len(),
+        recovered = recovered_schedule_timers,
+        elapsed_ms = phase_started.elapsed().as_millis(),
+        "phase_9_schedule_at_recovery complete"
+    );
 
     // Start transports from vault (env vars were seeded into vault in Phase 5).
     // The TransportManager enables runtime connect/disconnect via the /paw/ API.
@@ -3869,6 +3892,22 @@ mod tests {
                     entity_type: "Soul",
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn schedule_at_recovery_runs_before_startup_readiness() {
+        let source = include_str!("startup.rs");
+        let recovery = source
+            .find("recover_schedule_at_timers(&state, &schedule_tenant_ids).await")
+            .expect("startup should recover schedule_at timers");
+        let ready = source
+            .find("startup_readiness.mark_ready()")
+            .expect("startup readiness marker should exist");
+
+        assert!(
+            recovery < ready,
+            "schedule_at timers must be re-armed before /readyz goes ready"
         );
     }
 
