@@ -1403,6 +1403,12 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         "CI should syntax-check the Agent Answers Directed Evolution live proof driver"
     );
     assert!(
+        ci.contains("Agent Answers proof precheck")
+            && ci.contains("PRECHECK_ONLY=1")
+            && ci.contains("\"no_mutation\": true"),
+        "CI should run the Agent Answers proof driver in no-mutation precheck mode"
+    );
+    assert!(
         readme.contains("directed-evolution-agent-answers-live-proof.sh"),
         "worker README should document the Agent Answers Directed Evolution live proof driver"
     );
