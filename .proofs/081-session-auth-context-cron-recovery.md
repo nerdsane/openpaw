@@ -23,12 +23,21 @@ Datadog error logs over the last 24 hours also showed:
 
 Railway production OData inspection showed active Katagami/CronJobs with populated `user_message` but empty `user_message_template`, plus empty `model` / `provider` fields. The pre-fix trigger path rendered only the empty template and spawned Sessions before model/provider defaults survived into the child.
 
+After the first Railway image deploy, production still invoked stale Genesis-pinned paw-agent artifacts:
+
+- Railway `/paw/version`: `sha-a27f4977` / `a27f49775b645bed9be69acb727dd2b29dbb74ef`
+- Production `cron_compute_next` invocation hash before live repair: `a54a6c4c...` / old behavior.
+- Fixed local `cron_compute_next` hash after OData casing repair: `7831f6a70c7bdd6f7b97dd933eac62870d4f8de64beede71cb7ce222de2b0092`.
+- `TEMPERPAW_GENESIS_BOOTSTRAP_REFS` pinned `temperpaw/paw-agent@93677c779776a17089c2ee0ccc65e0650b1f6688`, so container replacement alone did not replace live app spec/WASM bytes.
+
 ## Fixes
 
 - OpenAI Codex wire detection now treats `token_revoked`, `token_invalidated`, and invalidated OAuth-token 401 bodies as auth-expired outcomes.
 - SessionEntry reads synthesize only the known missing virtual initial root shape from `Session.user_message`.
 - Cron trigger compute falls back from empty `user_message_template` to existing `CronJob.user_message`.
+- Cron trigger compute reads both snake_case and PascalCase OData message fields (`user_message` / `UserMessage`).
 - Cron trigger compute resolves missing `model` / `provider` from tenant defaults.
+- CronJob carries explicit defaults for the optional `Session.Configure` surface and copies them during declarative spawn, satisfying production spec lint before hot-loading.
 - Temper spawn `copy_fields` precedence now preserves explicit callback params over stale copied parent fields.
 - paw-agent `app.toml` now declares spec-triggered WASM modules including cron, OpenAI Codex auth, approval handlers, and workspace restoration.
 - Provider credential selection skips unresolved `{secret:...}` templates before choosing API-key fallbacks.
@@ -40,17 +49,20 @@ Red tests observed before implementation:
 - `codex_revoked_oauth_token_routes_to_auth_recovery` failed against OpenAI Codex 401 `token_revoked`.
 - `session_entries_jsonl_repairs_missing_virtual_initial_root` failed before the helper existed.
 - `render_user_message_falls_back_to_existing_message_when_template_empty` and `resolved_cron_session_config_uses_trigger_defaults_for_missing_model_provider` failed before cron helpers existed.
+- `render_user_message_reads_camel_case_cron_fields` failed before the OData casing fallback existed.
 - `spawn_initial_params_keep_explicit_action_params_over_copied_fields` failed before the Temper merge helper existed.
 - `paw_agent_manifest_declares_hot_session_wasm_startup_policy` failed on missing `sandbox_provisioner` manifest registration.
+- `paw_agent_specs_map_cron_spawn_session_config` failed with `spawn_initial_action_params_unmapped` before CronJob declared and copied the optional Session config fields.
 - `api_key_resolution_skips_unresolved_secret_templates` failed by selecting `{secret:openai_api_key}` over a real fallback.
 
 Green checks:
 
 - `cargo test` in `openai-codex-wire`: 5 passed.
 - `cargo test` in `wasm-helpers`: 35 passed.
-- `cargo test` in `cron_compute_next`: 2 passed.
+- `cargo test` in `cron_compute_next`: 3 passed.
 - `cargo test` in `provider_caller`: 27 passed.
 - `cargo test -p temperpaw paw_agent_manifest_declares_hot_session_wasm_startup_policy`: passed.
+- `cargo test -p temperpaw paw_agent_specs_map_cron_spawn_session_config`: passed.
 - `cargo test -p temperpaw --test session_turn_architecture`: 22 passed.
 - `cargo test -p temperpaw --test datadog_observability_contract`: 32 passed.
 - `cargo test -p temperpaw --test paw_fs_hot_path`: 12 passed.
@@ -88,6 +100,49 @@ Activated and manually triggered it. Result:
 
 The local Session later failed only at the expected auth boundary because the fresh local DB had no OpenAI Codex refresh token.
 
-## Deployment Status
+## Production Deployment and Repair
 
-Pending at proof creation: commit, push, Railway deploy, and post-deploy production verification.
+Built and deployed GHCR image:
+
+- GitHub Actions Docker run: `26891748201`
+- Image: `ghcr.io/nerdsane/temperpaw:sha-a27f497`
+- Digest: `sha256:5c3eb935c07956893d30f9ee0e0cf9298dc0bf98e05397e075c8805161ffa8e0`
+- Railway deployment: `e2f4372d-e79e-4c0f-a61a-11444c7a7212`
+- Railway `/readyz`: 200 after startup
+- `/paw/version`: `{"version":"sha-a27f4977","sha":"a27f49775b645bed9be69acb727dd2b29dbb74ef"}`
+
+GitHub Railway redeploy workflow dispatch failed before touching Railway because the GitHub environment did not have required Railway/TEMPER secrets. Deployment was completed via the linked Railway CLI with `IMAGE_TAG=sha-a27f497`.
+
+Because production was Genesis-pinned to stale paw-agent app bytes, live app artifact repair was also required:
+
+- Hot-uploaded fixed paw-agent WASM modules through `/api/wasm/modules/{module}`.
+- Confirmed production accepted `cron_compute_next` hash `7831f6a70c7bdd6f7b97dd933eac62870d4f8de64beede71cb7ce222de2b0092`.
+- Submitted the corrected paw-agent spec bundle through `/api/specs/load-inline`.
+- Spec submission returned HTTP 200 and summary `all_passed=true` for Agent, App, CronJob, Memory, OpenaiCodexAuth, PlanReview, Project, Session, SessionEntry, SessionLink, Soul, Team, and ToolHook.
+
+## Production E2E
+
+Initial post-image proof `CronJob:cron-prod-token-context-proof-1780499143` failed with empty spawned Session fields. This proved the live app artifacts were still stale even though the container SHA changed.
+
+After hot-uploading the casing-aware `cron_compute_next` module but before spec load, proof `CronJob:cron-prod-token-context-proof-1780499802` emitted `TriggerFailed` with `CronJob model is empty; configure model or tenant llm_model`. This proved the stale live spec lacked trigger defaults.
+
+An explicit-model proof `CronJob:cron-prod-explicit-model-proof-1780500017` passed, proving declarative spawn itself still worked when model/provider existed in CronJob state:
+
+- Spawned `Session:019e8e12-3e0e-7ba3-a369-312805b9a1d3`
+- Session received matching `user_message`, `model`, and `provider`
+- Proof Session was cancelled and proof CronJob paused
+
+Patched the active broken Katagami CronJob in entity state:
+
+- `CronJob:cj-019e3cf6-d6bd-7a32-a167-4254878eaf3a`
+- Before: Active, empty `user_message`, empty `model`, empty `provider`
+- Restored message from sibling `CronJob:cj-019e3cf4-1969-7203-9d64-fd649515eddf`
+- After: Active, `user_message` length 897, `UserMessage` length 897, model/provider set, next run scheduled for `2026-06-03T15:33:41Z`
+
+Final no-model/no-provider production proof passed after live spec load:
+
+- `CronJob:cron-prod-token-context-proof-1780500519`
+- CronJob trigger filled `model="gpt-5.5"`, `provider="openai_codex"`, `run_count=1`
+- Spawned `Session:019e8e19-e593-7dd2-89d9-3e04f11ac6d7`
+- Session reached `PreparingContext` with matching `user_message`, non-empty model/provider, and `tools_enabled="read"`
+- Proof Session was cancelled and proof CronJob paused

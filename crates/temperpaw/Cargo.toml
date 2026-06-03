@@ -78,5 +78,6 @@ cliclack = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
+temper-spec = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
 toml = "0.8"
 tower = "0.5"

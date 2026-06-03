@@ -63,14 +63,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         match mode {
             "trigger" => {
                 // Template substitution for user_message
-                let template = fields
-                    .get("user_message_template")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let existing_user_message = fields
-                    .get("user_message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let (template, existing_user_message) = cron_message_sources(&fields);
                 let run_count = fields
                     .get("run_count")
                     .and_then(|v| v.as_i64())
@@ -82,8 +75,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 let now_str = unix_to_iso8601(now_secs);
 
                 let user_message = render_user_message(
-                    template,
-                    existing_user_message,
+                    &template,
+                    &existing_user_message,
                     run_count,
                     last_result,
                     &now_str,
@@ -149,6 +142,26 @@ fn render_user_message(
     }
 
     Ok(rendered)
+}
+
+fn cron_message_sources(fields: &Value) -> (String, String) {
+    (
+        string_field_preserve_templates(fields, &["user_message_template", "UserMessageTemplate"])
+            .unwrap_or_default(),
+        string_field_preserve_templates(fields, &["user_message", "UserMessage"])
+            .unwrap_or_default(),
+    )
+}
+
+fn string_field_preserve_templates(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
 }
 
 fn resolve_cron_session_config(
@@ -326,5 +339,25 @@ mod tests {
 
         assert_eq!(resolved.model, "gpt-5");
         assert_eq!(resolved.provider, "openai_codex");
+    }
+
+    #[test]
+    fn render_user_message_reads_camel_case_cron_fields() {
+        let fields = json!({
+            "UserMessageTemplate": "",
+            "UserMessage": "Proof message from OData casing"
+        });
+
+        let (template, existing_user_message) = cron_message_sources(&fields);
+        let rendered = render_user_message(
+            &template,
+            &existing_user_message,
+            1,
+            "",
+            "2026-06-03T15:00:00Z",
+        )
+        .expect("camel-case UserMessage should be accepted");
+
+        assert_eq!(rendered, "Proof message from OData casing");
     }
 }

@@ -78,6 +78,196 @@ type = "string"
 initial = "20"
 
 [[state]]
+name = "workdir"
+type = "string"
+initial = "/workspace"
+
+[[state]]
+name = "sandbox_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sandbox_provider"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sandbox_networking_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "sandbox_allowed_hosts_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "sandbox_allow_mcp_servers"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "sandbox_allow_package_managers"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "sandbox_packages_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "temper_api_url"
+type = "string"
+initial = "http://127.0.0.1:3000"
+
+[[state]]
+name = "agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reply_channel_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reply_thread_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reply_channel_entity_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reply_channel_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reply_route_source"
+type = "string"
+initial = ""
+
+[[state]]
+name = "parent_session_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_depth"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_follow_ups"
+type = "string"
+initial = "5"
+
+[[state]]
+name = "hook_policy"
+type = "string"
+initial = "none"
+
+[[state]]
+name = "reserve_tokens"
+type = "string"
+initial = "20000"
+
+[[state]]
+name = "keep_recent_tokens"
+type = "string"
+initial = "10000"
+
+[[state]]
+name = "compaction_model"
+type = "string"
+initial = ""
+
+[[state]]
+name = "heartbeat_timeout_seconds"
+type = "string"
+initial = "300"
+
+[[state]]
+name = "project_harness_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "project_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "workspace_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "conversation_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "file_manifest_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_leaf_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_entries_materialized"
+type = "string"
+initial = ""
+
+[[state]]
+name = "prepared_context_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "prepared_context_inline_json"
+type = "string"
+initial = ""
+
+[[state]]
+name = "system_prompt_hash"
+type = "string"
+initial = ""
+
+[[state]]
+name = "system_prompt_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "session_mode"
+type = "string"
+initial = "execute"
+
+[[state]]
+name = "gen_ai_parent_trace_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "gen_ai_parent_span_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "last_run_at"
 type = "string"
 initial = ""
@@ -195,7 +385,7 @@ from = ["Active"]
 params = ["next_run_at", "user_message", "model", "provider"]
 hint = "Cron computation complete. Spawn Session with copied fields, schedule next run."
 effect = [
-  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,temperature,tools_enabled,soul_id,sandbox_url,max_turns" },
+  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,temperature,max_turns,tools_enabled,workdir,sandbox_url,sandbox_id,sandbox_provider,sandbox_networking_type,sandbox_allowed_hosts_json,sandbox_allow_mcp_servers,sandbox_allow_package_managers,sandbox_packages_json,temper_api_url,soul_id,agent_id,reply_channel_id,reply_thread_id,reply_channel_entity_id,reply_channel_type,reply_route_source,parent_session_id,session_depth,max_follow_ups,hook_policy,reserve_tokens,keep_recent_tokens,compaction_model,heartbeat_timeout_seconds,project_harness_id,project_id,workspace_id,conversation_file_id,file_manifest_id,session_file_id,session_leaf_id,session_entries_materialized,prepared_context_file_id,prepared_context_inline_json,system_prompt_hash,system_prompt_file_id,session_mode,gen_ai_parent_trace_id,gen_ai_parent_span_id" },
   { type = "schedule_at", field = "next_run_at", action = "Trigger" },
 ]
 

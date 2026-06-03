@@ -4262,6 +4262,47 @@ mod tests {
     }
 
     #[test]
+    fn paw_agent_specs_map_cron_spawn_session_config() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let specs_dir = repo_root.join("os-apps/paw-agent/specs");
+        let mut automata = std::collections::BTreeMap::new();
+
+        for entry in std::fs::read_dir(&specs_dir).expect("paw-agent specs should be readable") {
+            let entry = entry.expect("paw-agent spec entry should be readable");
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap_or_else(|err| {
+                panic!(
+                    "paw-agent spec {} should be readable: {err}",
+                    path.display()
+                )
+            });
+            let automaton =
+                temper_spec::automaton::parse_automaton(&source).unwrap_or_else(|err| {
+                    panic!("paw-agent spec {} should parse: {err}", path.display())
+                });
+            automata.insert(automaton.automaton.name.clone(), automaton);
+        }
+
+        let errors: Vec<_> = temper_spec::automaton::lint_automata_bundle(&automata)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.severity,
+                    temper_spec::automaton::LintSeverity::Error
+                )
+            })
+            .collect();
+
+        assert!(
+            errors.is_empty(),
+            "paw-agent specs must be free of blocking lint errors: {errors:#?}"
+        );
+    }
+
+    #[test]
     fn paw_agent_build_script_builds_session_recoverer() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let build_script_path = repo_root.join("os-apps/paw-agent/wasm/build.sh");
