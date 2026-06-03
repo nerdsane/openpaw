@@ -19,7 +19,19 @@ Datadog error logs over the last 24 hours also showed:
 
 - `context_preparer: session-tree walk from leaf 't-2' returned 0 entries against a non-empty tree...`
 - `failed to read events for replay -- starting fresh`
+- `failed to persist trajectory entry from outbox`
 - OpenAI Codex 503 once
+
+Additional Datadog inspection after the `sha-4d64e800` deployment found 4
+trajectory persistence failures between 2026-06-03T15:20:24Z and
+2026-06-03T16:01:17Z. The latest production-tagged event on
+`version=sha-4d64e800` failed persisting `Session.ContextReady` with:
+
+`EOF while parsing a string at line 1 column 4096`
+
+Root cause: Temper's trajectory storage adapter serialized request-body JSON and
+then sliced the serialized string at 4096 bytes, which could produce invalid JSON
+before inserting into Postgres `JSONB`.
 
 Railway production OData inspection showed active Katagami/CronJobs with populated `user_message` but empty `user_message_template`, plus empty `model` / `provider` fields. The pre-fix trigger path rendered only the empty template and spawned Sessions before model/provider defaults survived into the child.
 
@@ -39,6 +51,8 @@ After the first Railway image deploy, production still invoked stale Genesis-pin
 - Cron trigger compute resolves missing `model` / `provider` from tenant defaults.
 - CronJob carries explicit defaults for the optional `Session.Configure` surface and copies them during declarative spawn, satisfying production spec lint before hot-loading.
 - Temper spawn `copy_fields` precedence now preserves explicit callback params over stale copied parent fields.
+- Temper trajectory request-body truncation now stores either the original small JSON
+  or a valid `_temper_truncated` envelope under 4096 bytes.
 - paw-agent `app.toml` now declares spec-triggered WASM modules including cron, OpenAI Codex auth, approval handlers, and workspace restoration.
 - Provider credential selection skips unresolved `{secret:...}` templates before choosing API-key fallbacks.
 
@@ -51,6 +65,8 @@ Red tests observed before implementation:
 - `render_user_message_falls_back_to_existing_message_when_template_empty` and `resolved_cron_session_config_uses_trigger_defaults_for_missing_model_provider` failed before cron helpers existed.
 - `render_user_message_reads_camel_case_cron_fields` failed before the OData casing fallback existed.
 - `spawn_initial_params_keep_explicit_action_params_over_copied_fields` failed before the Temper merge helper existed.
+- `trajectory_request_body_truncation_preserves_valid_json` failed with
+  `EOF while parsing a string` at column 4096 before Temper's truncation envelope.
 - `paw_agent_manifest_declares_hot_session_wasm_startup_policy` failed on missing `sandbox_provisioner` manifest registration.
 - `paw_agent_specs_map_cron_spawn_session_config` failed with `spawn_initial_action_params_unmapped` before CronJob declared and copied the optional Session config fields.
 - `api_key_resolution_skips_unresolved_secret_templates` failed by selecting `{secret:openai_api_key}` over a real fallback.
@@ -74,8 +90,10 @@ Temper platform checks:
 
 - `cargo test -p temper-server spawn_initial_params_keep_explicit_action_params_over_copied_fields`: passed.
 - `cargo test -p temper-server test_spawn_with_copy_fields`: passed.
+- `cargo test -p temper-server trajectory_request_body`: 2 passed.
 - `cargo test -p temper-jit test_spawn_with_copy_fields_passes_through`: passed.
 - `cargo test -p temper-spec parse_spawn_effect`: passed.
+- `cargo build -p temper-server`: passed.
 - Pre-push hook passed rustfmt, clippy, readability, and many non-Docker tests, then stopped because local Docker daemon was not running for Docker-backed Postgres integration tests.
 
 ## Local E2E
@@ -146,3 +164,31 @@ Final no-model/no-provider production proof passed after live spec load:
 - Spawned `Session:019e8e19-e593-7dd2-89d9-3e04f11ac6d7`
 - Session reached `PreparingContext` with matching `user_message`, non-empty model/provider, and `tools_enabled="read"`
 - Proof Session was cancelled and proof CronJob paused
+
+After the second image deployment:
+
+- GitHub Actions Docker run: `26895248992`
+- Image: `ghcr.io/nerdsane/temperpaw:sha-4d64e80`
+- Digest: `sha256:10438073ba17c7fd23d1bcc5dde29248562e690a2b8de5edbe999def2bd13389`
+- Railway deployment: `376af58e-1696-41a1-8a87-e0e1f900340d`
+- `/readyz`: 200
+- `/healthz`: 200
+- `/paw/version`: `{"version":"sha-4d64e800","sha":"4d64e800adba7c736dc5b65ebf4570e57dc401b9"}`
+
+Production no-model/no-provider smoke on `sha-4d64e800` passed:
+
+- `CronJob:cron-prod-token-context-proof-1780502469`
+- Spawned `Session:019e8e37-a7a8-7520-9e17-5cbacc9c12aa`
+- CronJob message lengths: `user_message=99`, `UserMessage=99`
+- Session received matching `user_message`, `model="gpt-5.5"`, `provider="openai_codex"`, and `tools_enabled="read"`
+- Proof Session was cancelled and proof CronJob paused
+
+Active Katagami job after repair:
+
+- `CronJob:cj-019e3cf6-d6bd-7a32-a167-4254878eaf3a`
+- Status: `Active`
+- `run_count=74`
+- `user_message` length 897, `UserMessage` length 897
+- `model="gpt-5.5"`, `provider="openai_codex"`
+- Latest Session `019e8e30-bc5e-7591-b6e9-2d2c5f2e00ed` received the 897-byte message and model/provider, then failed only at the explicit graceful auth boundary:
+  `OpenAI Codex sign-in is required; start the Codex device login again.`

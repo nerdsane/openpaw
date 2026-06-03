@@ -12,14 +12,14 @@ path = "src/main.rs"
 
 [dependencies]
 # Temper platform engine
-temper-platform = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
-temper-observe = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
-temper-server = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561", features = ["observe"] }
-temper-runtime = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
-temper-jit = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
-temper-authz = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
-temper-store-postgres = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
-temper-store-turso = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
+temper-platform = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
+temper-observe = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
+temper-server = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13", features = ["observe"] }
+temper-runtime = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
+temper-jit = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
+temper-authz = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
+temper-store-postgres = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
+temper-store-turso = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
 
 # Paw transport (local)
 paw-transport = { path = "../paw-transport" }
@@ -78,6 +78,6 @@ cliclack = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
-temper-spec = { git = "https://github.com/nerdsane/temper.git", rev = "d94a9df3ba0f6f8163ee443d5d6befea2ddac561" }
+temper-spec = { git = "https://github.com/nerdsane/temper.git", rev = "03754d8ab764d333396a8f8d6dbc69be0ac18d13" }
 toml = "0.8"
 tower = "0.5"
