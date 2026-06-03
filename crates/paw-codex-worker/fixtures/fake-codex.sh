@@ -33,6 +33,14 @@ while [ "$#" -gt 0 ]; do
       fi
       shift
       ;;
+    -c)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "-c requires a value" >&2
+        exit 2
+      fi
+      shift
+      ;;
     --cd)
       shift
       if [ "$#" -eq 0 ]; then

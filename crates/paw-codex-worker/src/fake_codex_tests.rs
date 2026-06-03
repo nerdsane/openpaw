@@ -21,6 +21,20 @@ fn fake_codex_fixture_only_uses_reviewer_mode_for_reviewer_prompt() {
         "implementation prompt should write the marker even if task text mentions a reviewer"
     );
 
+    let implementation_with_config = StdCommand::new(&fixture)
+        .arg("exec")
+        .arg("-c")
+        .arg("mcp_servers.datadog.url=\"https://mcp.datadoghq.test/mcp\"")
+        .arg("--cd")
+        .arg(&root)
+        .arg("Implement a task with a Codex config override.")
+        .output()
+        .expect("run fake implementation with config override");
+    assert!(
+        implementation_with_config.status.success(),
+        "fake implementation should accept Codex -c config overrides"
+    );
+
     let review = StdCommand::new(&fixture)
         .arg("exec")
         .arg("You are the independent reviewer for a TemperPaw paw-patrol WorkerRun.")

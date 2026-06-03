@@ -36,6 +36,7 @@ jobs:
           bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh
           bash -n crates/paw-codex-worker/scripts/production-readiness.sh
           bash -n crates/paw-codex-worker/scripts/production-preflight.sh
+          bash -n crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
           bash -n crates/paw-codex-worker/scripts/production-git-ancestry-guard.sh
           bash -n crates/paw-codex-worker/scripts/production-observe-only.sh
           bash -n crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh

@@ -361,6 +361,7 @@ run_step syntax-webhook bash -n "${ROOT}/crates/paw-codex-worker/scripts/webhook
 run_step syntax-repo-sweep bash -n "${ROOT}/crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh"
 run_step syntax-production-readiness bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-readiness.sh"
 run_step syntax-production-preflight bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight.sh"
+run_step syntax-directed-evolution-agent-answers-live-proof bash -n "${ROOT}/crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"
 run_step syntax-production-preflight-diff bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-diff.sh"
 run_step syntax-production-preflight-diff-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-diff-smoke.sh"
 run_step syntax-production-preflight-railway-discovery-smoke bash -n "${ROOT}/crates/paw-codex-worker/scripts/production-preflight-railway-discovery-smoke.sh"

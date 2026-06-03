@@ -78,6 +78,10 @@ Script inventory:
   SecurityFinding, ProofPacket, and DailyBrief loop.
 - `production-preflight.sh`: read-only production blocker inventory for tokens,
   Railway, GitHub PRs, launchd, and webhook secrets.
+- `directed-evolution-agent-answers-live-proof.sh`: guarded live Agent Answers
+  Directed Evolution proof driver that starts the semantic episode, waits for
+  worker/evidence closure, and requires Datadog-measured evidence plus a
+  successful terminal episode status.
 - `production-readiness.sh`: guarded doctor/build/plist path before loading the
   Mac mini daemon.
 - `production-observe-only.sh`: guarded production proof with execution off.
@@ -351,6 +355,32 @@ crates/paw-codex-worker/scripts/production-preflight-diff.sh \
   /tmp/previous-preflight/summary.json \
   /tmp/current-preflight/summary.json
 ```
+
+After preflight and readiness gates are clear, run the guarded Agent Answers
+Directed Evolution proof driver. It refuses to mutate production unless
+`ALLOW_PRODUCTION_WRITE=1` and `CONFIRM_AGENT_ANSWERS_LIVE_PROOF=1` are set,
+then calls `paw-codex-worker directed-evolution-start-episode`, waits for
+`WorkItems`, `WorkerRuns`, `EvidenceArtifacts`, terminal episode state, and at
+least one `datadog-measured` artifact with a Datadog URL. The script treats
+attempts to disable Datadog evidence or terminal-success requirements as
+blockers, not proof configuration:
+
+```sh
+ALLOW_PRODUCTION_WRITE=1 \
+CONFIRM_AGENT_ANSWERS_LIVE_PROOF=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+DIRECTED_EVOLUTION_ORGANISM_ID="$AGENT_ANSWERS_ORGANISM_ID" \
+DIRECTED_EVOLUTION_DIRECTION_ID="$AGENT_ANSWERS_DIRECTION_ID" \
+START_LOCAL_WORKER=0 \
+crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
+```
+
+Set `START_LOCAL_WORKER=1` on the production Mac mini when launchd has not
+already started the worker pool. The proof bundle is written under
+`/tmp/directed-evolution-agent-answers-live-proof-*` and includes
+`summary.json`, `proof.md`, `human-blockers.json` when blocked, the episode
+contract, and terminal episode state.
 
 Use `STRICT=1` when blocked gates should make the command fail, for example in
 a final cutover checklist:

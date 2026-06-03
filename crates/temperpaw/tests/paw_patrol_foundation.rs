@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use temper_authz::{AuthzEngine, SecurityContext};
 
@@ -1349,6 +1351,85 @@ fn datadog_patrol_smoke_proves_mcp_agent_fanout() {
             "Datadog Patrol smoke should prove MCP agent fanout: {needle}"
         );
     }
+}
+
+#[test]
+fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
+    let root = repo_root();
+    let script = read(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    );
+    let readme = read(root.join("crates/paw-codex-worker/README.md"));
+    let ci = read(root.join(".github/workflows/ci.yml"));
+
+    for needle in [
+        "DIRECTED_EVOLUTION_DIRECTION_ID",
+        "DIRECTED_EVOLUTION_ORGANISM_ID",
+        "Agent Answers",
+        "directed-evolution-start-episode",
+        "PAW_CODEX_ENABLE_EXECUTION=1",
+        "START_LOCAL_WORKER",
+        "EvidenceArtifacts",
+        "WorkerRuns",
+        "WorkItems",
+        "datadog-measured",
+        "datadog_url",
+        "present(f(\"ResultCount\"))",
+        "REQUIRE_DATADOG_EVIDENCE must remain 1",
+        "REQUIRE_EPISODE_SUCCESS must remain 1",
+        "datadog_count=\"$(wait_for_datadog_evidence",
+        "summary.json",
+        "proof.md",
+        "human-blockers.json",
+        "live Agent Answers Directed Evolution proof",
+    ] {
+        assert!(
+            script.contains(needle),
+            "Agent Answers live proof script should enforce production proof contract: {needle}"
+        );
+    }
+
+    assert!(
+        ci.contains(
+            "bash -n crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"
+        ),
+        "CI should syntax-check the Agent Answers Directed Evolution live proof driver"
+    );
+    assert!(
+        readme.contains("directed-evolution-agent-answers-live-proof.sh"),
+        "worker README should document the Agent Answers Directed Evolution live proof driver"
+    );
+}
+
+#[test]
+fn directed_evolution_agent_answers_live_proof_self_test_exercises_datadog_gate() {
+    let root = repo_root();
+    let proof_dir = env::temp_dir().join(format!(
+        "directed-evolution-agent-answers-live-proof-self-test-{}",
+        std::process::id()
+    ));
+    fs::remove_dir_all(&proof_dir).ok();
+
+    let output = Command::new(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    )
+    .current_dir(&root)
+    .env("SCRIPT_SELF_TEST", "1")
+    .env("PROOF_DIR", &proof_dir)
+    .output()
+    .expect("run Agent Answers Directed Evolution proof self-test");
+
+    assert!(
+        output.status.success(),
+        "proof driver self-test should pass\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("self-test passed"),
+        "self-test should report success"
+    );
+    fs::remove_dir_all(&proof_dir).ok();
 }
 
 #[test]
