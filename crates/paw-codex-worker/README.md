@@ -361,12 +361,17 @@ Directed Evolution proof driver. It refuses to mutate production unless
 `ALLOW_PRODUCTION_WRITE=1` and `CONFIRM_AGENT_ANSWERS_LIVE_PROOF=1` are set,
 then calls `paw-codex-worker directed-evolution-start-episode`, waits for
 `WorkItems`, `WorkerRuns`, `EvidenceArtifacts`, terminal episode state, and at
-least one `datadog-measured` artifact with a Datadog URL. The script treats
-attempts to disable Datadog evidence or terminal-success requirements as
-blockers, not proof configuration. When `START_LOCAL_WORKER=0`, also set
-`CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1` after verifying the production
-worker/vault has `dd_api_key` and `dd_app_key`; when `START_LOCAL_WORKER=1`,
-export `DD_API_KEY` or `DATADOG_API_KEY` plus `DD_APP_KEY` for the local worker:
+least one `datadog-measured` artifact with a Datadog URL. It also requires
+distinct `observer` and `telemetry_evaluator` `datadog-measured`
+EvidenceArtifacts with structured query, time window, result count,
+interpretation, and zero-result meaning fields, so the proof closes the
+Datadog observer/evaluator loop instead of relying on aggregate telemetry. The
+script treats attempts to disable Datadog evidence or terminal-success
+requirements as blockers, not proof configuration. When `START_LOCAL_WORKER=0`,
+also set `CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1` after verifying the
+production worker/vault has `dd_api_key` and `dd_app_key`; when
+`START_LOCAL_WORKER=1`, export `DD_API_KEY` or `DATADOG_API_KEY` plus
+`DD_APP_KEY` for the local worker:
 
 ```sh
 ALLOW_PRODUCTION_WRITE=1 \

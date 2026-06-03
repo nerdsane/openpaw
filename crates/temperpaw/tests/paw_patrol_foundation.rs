@@ -1385,6 +1385,10 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         "would_create_live_episode",
         "no_mutation",
         "datadog_count=\"$(wait_for_datadog_evidence",
+        "wait_for_datadog_role_evidence \"$episode_id\" observer",
+        "wait_for_datadog_role_evidence \"$episode_id\" telemetry_evaluator",
+        "datadog_observer_evidence_artifacts",
+        "datadog_telemetry_evaluator_evidence_artifacts",
         "summary.json",
         "proof.md",
         "human-blockers.json",
@@ -1419,6 +1423,10 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
     assert!(
         readme.contains("DD_API_KEY") && readme.contains("DD_APP_KEY"),
         "worker README should document local Datadog credentials for local-worker proof mode"
+    );
+    assert!(
+        readme.contains("observer") && readme.contains("telemetry_evaluator"),
+        "worker README should require distinct observer and telemetry_evaluator Datadog evidence"
     );
 }
 

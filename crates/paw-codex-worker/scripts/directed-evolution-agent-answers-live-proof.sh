@@ -354,7 +354,8 @@ count_for_episode() {
 
 datadog_evidence_count() {
   local episode_id="$1"
-  list_set EvidenceArtifacts | jq -r --arg episode_id "$episode_id" '
+  local role="${2:-}"
+  list_set EvidenceArtifacts | jq -r --arg episode_id "$episode_id" --arg role "$role" '
     def rows:
       if type == "array" then .
       elif has("value") then .value
@@ -372,6 +373,12 @@ datadog_evidence_count() {
       $value != null and ($value | tostring | length > 0);
     def corr:
       (f("CorrelationJson") | fromjson? // {});
+    def evidence_scope:
+      (corr.output.evidence_scope // corr.output.evidenceScope // [])
+      | if type == "array" then .
+        elif type == "object" then [.]
+        else []
+        end;
     def belongs_to_episode:
       f("EpisodeId") == $episode_id
       or f("episode_id") == $episode_id
@@ -381,12 +388,22 @@ datadog_evidence_count() {
     def datadog_url:
       if (f("Uri") | tostring | test("^https://app\\."))
       then (f("Uri") | tostring)
-      else ((corr.output.evidence_scope // corr.output.evidenceScope // [])
+      else (evidence_scope
         | map(.datadog_url // .datadogUrl // "")
         | map(select(test("^https://app\\.")))
         | .[0])
       end
       // "";
+    def role_matches:
+      $role == ""
+      or f("Role") == $role
+      or corr.role == $role
+      or corr.datadog.role == $role
+      or corr.datadog.join_fields.role == $role
+      or corr.output.role == $role
+      or corr.output.evaluator_role == $role
+      or corr.output.evaluatorRole == $role
+      or (evidence_scope | any((.role // .Role // .evaluator_role // .evaluatorRole // "") == $role));
     [rows[]? | select(
       belongs_to_episode
       and
@@ -397,8 +414,15 @@ datadog_evidence_count() {
       and present(f("Interpretation"))
       and present(f("ZeroResultMeaning"))
       and (datadog_url | test("^https://app\\."))
+      and role_matches
     )] | length
   '
+}
+
+datadog_role_evidence_count() {
+  local episode_id="$1"
+  local role="$2"
+  datadog_evidence_count "$episode_id" "$role"
 }
 
 wait_for_episode_terminal() {
@@ -451,6 +475,21 @@ wait_for_datadog_evidence() {
   fail "no datadog-measured EvidenceArtifacts with datadog_url/query/window/result_count/interpretation/zero_result_meaning were observed"
 }
 
+wait_for_datadog_role_evidence() {
+  local episode_id="$1"
+  local role="$2"
+  local count
+  for _ in $(seq 1 "$READY_ATTEMPTS"); do
+    count="$(datadog_role_evidence_count "$episode_id" "$role")"
+    if [[ "$count" -ge 1 ]]; then
+      printf '%s\n' "$count"
+      return 0
+    fi
+    sleep "$POLL_SECONDS"
+  done
+  fail "no datadog-measured EvidenceArtifacts for ${role} with datadog_url/query/window/result_count/interpretation/zero_result_meaning were observed"
+}
+
 run_self_test() {
   SCRIPT_SELF_TEST_FIXTURE_DIR="${PROOF_DIR}/self-test-fixtures"
   export SCRIPT_SELF_TEST_FIXTURE_DIR
@@ -468,7 +507,21 @@ run_self_test() {
         "TimeWindow": "now-15m to now",
         "ResultCount": 0,
         "Interpretation": "No runtime request logs were observed for the fixture.",
-        "ZeroResultMeaning": "failure"
+        "ZeroResultMeaning": "failure",
+        "CorrelationJson": "{\"episode_id\":\"episode-self-test\",\"role\":\"observer\",\"datadog\":{\"role\":\"observer\",\"join_fields\":{\"episode_id\":\"episode-self-test\",\"role\":\"observer\"}},\"output\":{\"evidence_scope\":[{\"datadog_url\":\"https://app.datadoghq.com/logs?query=directed-evolution\",\"role\":\"observer\"}]}}"
+      }
+    },
+    {
+      "fields": {
+        "EpisodeId": "episode-self-test",
+        "EvidenceProvenance": "datadog-measured",
+        "Uri": "https://app.datadoghq.com/logs?query=telemetry-evaluator",
+        "Query": "service:temper-platform directed_evolution.episode_id:episode-self-test role:telemetry_evaluator",
+        "TimeWindow": "now-15m to now",
+        "ResultCount": 3,
+        "Interpretation": "Telemetry evaluator observed proof-run events.",
+        "ZeroResultMeaning": "failure",
+        "CorrelationJson": "{\"episode_id\":\"episode-self-test\",\"datadog\":{\"role\":\"telemetry_evaluator\",\"join_fields\":{\"episode_id\":\"episode-self-test\",\"role\":\"telemetry_evaluator\"}},\"output\":{\"evaluator_role\":\"telemetry_evaluator\",\"evidence_scope\":[{\"datadog_url\":\"https://app.datadoghq.com/logs?query=telemetry-evaluator\",\"role\":\"telemetry_evaluator\"}]}}"
       }
     },
     {
@@ -489,8 +542,20 @@ JSON
 
   local count
   count="$(datadog_evidence_count "episode-self-test")"
-  if [[ "$count" != "1" ]]; then
-    fail "self-test expected one structured Datadog evidence artifact, got ${count}"
+  if [[ "$count" != "2" ]]; then
+    fail "self-test expected two structured Datadog evidence artifacts, got ${count}"
+  fi
+
+  local observer_count
+  observer_count="$(datadog_role_evidence_count "episode-self-test" observer)"
+  if [[ "$observer_count" != "1" ]]; then
+    fail "self-test expected one observer Datadog evidence artifact, got ${observer_count}"
+  fi
+
+  local telemetry_count
+  telemetry_count="$(datadog_role_evidence_count "episode-self-test" telemetry_evaluator)"
+  if [[ "$telemetry_count" != "1" ]]; then
+    fail "self-test expected one telemetry_evaluator Datadog evidence artifact, got ${telemetry_count}"
   fi
 
   local failed_status
@@ -590,6 +655,8 @@ work_item_count="$(wait_for_min_count WorkItems WorkItems "$episode_id" 1)"
 worker_run_count="$(wait_for_min_count WorkerRuns WorkerRuns "$episode_id" 1)"
 evidence_count="$(wait_for_min_count EvidenceArtifacts EvidenceArtifacts "$episode_id" 1)"
 datadog_count="$(wait_for_datadog_evidence "$episode_id")"
+datadog_observer_count="$(wait_for_datadog_role_evidence "$episode_id" observer)"
+datadog_telemetry_evaluator_count="$(wait_for_datadog_role_evidence "$episode_id" telemetry_evaluator)"
 
 episode_body="$(wait_for_episode_terminal "$episode_id")"
 episode_status="$(field Status <<<"$episode_body")"
@@ -608,6 +675,8 @@ case "$episode_status" in
       --argjson worker_run_count "$worker_run_count" \
       --argjson evidence_count "$evidence_count" \
       --argjson datadog_evidence_count "$datadog_count" \
+      --argjson datadog_observer_evidence_count "$datadog_observer_count" \
+      --argjson datadog_telemetry_evaluator_evidence_count "$datadog_telemetry_evaluator_count" \
       '{
         status: $status,
         proof_kind: "live Agent Answers Directed Evolution proof",
@@ -620,7 +689,9 @@ case "$episode_status" in
           work_items: $work_item_count,
           worker_runs: $worker_run_count,
           evidence_artifacts: $evidence_count,
-          datadog_measured_evidence_artifacts: $datadog_evidence_count
+          datadog_measured_evidence_artifacts: $datadog_evidence_count,
+          datadog_observer_evidence_artifacts: $datadog_observer_evidence_count,
+          datadog_telemetry_evaluator_evidence_artifacts: $datadog_telemetry_evaluator_evidence_count
         },
         failure_reason: "terminal episode status was not successful"
       }' >"$SUMMARY_JSON"
@@ -642,6 +713,8 @@ summary_json="$(jq -n \
   --argjson worker_run_count "$worker_run_count" \
   --argjson evidence_count "$evidence_count" \
   --argjson datadog_evidence_count "$datadog_count" \
+  --argjson datadog_observer_evidence_count "$datadog_observer_count" \
+  --argjson datadog_telemetry_evaluator_evidence_count "$datadog_telemetry_evaluator_count" \
   '{
     status: $status,
     proof_kind: "live Agent Answers Directed Evolution proof",
@@ -666,6 +739,8 @@ summary_json="$(jq -n \
       worker_runs: $worker_run_count,
       evidence_artifacts: $evidence_count,
       datadog_measured_evidence_artifacts: $datadog_evidence_count,
+      datadog_observer_evidence_artifacts: $datadog_observer_evidence_count,
+      datadog_telemetry_evaluator_evidence_artifacts: $datadog_telemetry_evaluator_evidence_count,
       mandatory_datadog_evidence: env.REQUIRE_DATADOG_EVIDENCE
     }
   }')"
@@ -678,8 +753,8 @@ cat >"$PROOF_MD" <<EOF
 This proof was created by \`directed-evolution-agent-answers-live-proof.sh\`.
 It starts a fresh semantic Directed Evolution Episode for the Agent Answers
 organism, waits for paw-orchestration \`WorkItems\`, local/production
-\`WorkerRuns\`, linked \`EvidenceArtifacts\`, and mandatory Datadog evidence
-before declaring the live proof cycle passed.
+\`WorkerRuns\`, linked \`EvidenceArtifacts\`, and mandatory Datadog
+observer/evaluator evidence before declaring the live proof cycle passed.
 
 ## Episode
 
@@ -694,6 +769,8 @@ before declaring the live proof cycle passed.
 - WorkerRuns for episode: ${worker_run_count}
 - EvidenceArtifacts for episode: ${evidence_count}
 - datadog-measured EvidenceArtifacts with \`datadog_url\`: ${datadog_count}
+- datadog-measured observer EvidenceArtifacts: ${datadog_observer_count}
+- datadog-measured telemetry_evaluator EvidenceArtifacts: ${datadog_telemetry_evaluator_count}
 
 ## Files
 
