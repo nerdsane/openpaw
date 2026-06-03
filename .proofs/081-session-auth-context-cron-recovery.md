@@ -207,3 +207,48 @@ Subsequent deploy verification found one remaining scheduler durability issue:
 - `/readyz` and `/healthz` were 200.
 - The active Katagami CronJob still showed `run_count=74` and stale `next_run_at="2026-06-03T16:03:39Z"` after deploy.
 - Root cause: Temper's first scheduler recovery fix rearmed timers when an actor hydrated, but production startup only populated the query/index catalog. The scheduled CronJob actor stayed cold, so its in-memory `schedule_at` timer was never recreated.
+
+## Final Production Deploy
+
+Pinned Temper to `0418ddc30a6c3e362401a58c91c605e8d50b34c1`, which adds startup recovery for persisted `schedule_at` timers even when actors have not been hydrated by ordinary reads.
+
+- TemperPaw commit: `7ccf62264c3c93bd3f5b09c0bab88cac2743d758`
+- Image: `ghcr.io/nerdsane/temperpaw:sha-7ccf622`
+- Image digest: `sha256:626a8dba549bfacea07201fd2c1c04394c56aa69ce5bfe81586f26c49d843753`
+- GitHub Actions Docker run: `26902834433`
+- GitHub Actions job: `79359578785`, success in `24m31s`
+- Railway deployment: `d37ff10b-f5a0-470f-b843-1b9d1834c9e7`
+- `/paw/version`: `{"version":"sha-7ccf6226","sha":"7ccf62264c3c93bd3f5b09c0bab88cac2743d758"}`
+- `/readyz`: 200, Discord connected
+- `/healthz`: 200
+
+## Final Production E2E
+
+The previously stale active Katagami CronJob recovered on startup:
+
+- `CronJob:cj-019e3cf6-d6bd-7a32-a167-4254878eaf3a`
+- Status: `Active`
+- `run_count` advanced from `74` to `75`
+- `next_run_at` advanced from stale `2026-06-03T16:03:39Z` to future `2026-06-03T18:28:36Z`
+- New `last_session_id`: `019e8eb5-716f-7221-a1b8-94d3752f01c1`
+- CronJob still carries `user_message` length `897`, `model="gpt-5.5"`, and `provider="openai_codex"`
+- Spawned Session `019e8eb5-716f-7221-a1b8-94d3752f01c1` received `user_message` length `897`, `model="gpt-5.5"`, and `provider="openai_codex"`
+- The Session failed only at the explicit graceful auth boundary:
+  `OpenAI Codex auth failed. OpenAI Codex sign-in is required; start the Codex device login again.`
+
+Disposable production CronJob smoke also passed:
+
+- `CronJob:cron-prod-final-schedule-proof-1780510834`
+- Seeded with `user_message` length `104`, empty `user_message_template`, empty `model`, and empty `provider`
+- Manual `Trigger` filled `model="gpt-5.5"` and `provider="openai_codex"`
+- Spawned `Session:019e8eb7-498a-73d3-afeb-724677eca03b`
+- Session received matching `user_message` length `104`, `model="gpt-5.5"`, `provider="openai_codex"`, and `tools_enabled="read"`
+- Proof Session was cancelled and proof CronJob paused.
+
+Datadog post-deploy checks from `2026-06-03T18:17:57Z`:
+
+- `service:temperpaw` logs for `sha-7ccf6226`: `4884` info, `244` warn, `0` error.
+- Scheduler recovery evidence present at `2026-06-03T18:18:35Z-18:18:36Z`:
+  `schedule_at timers re-armed from hydrated state`, `phase_9_schedule_at_recovery complete`, and `schedule_at timer recovery complete`.
+- No post-deploy logs matched `failed to persist trajectory entry from outbox`, `token_revoked`, `OpenAI Codex auth failed`, or `OpenAI Codex sign-in is required`.
+- Last seven days `token_revoked` count: `5`; first seen `2026-06-02T18:35:15.892Z`, last seen `2026-06-03T13:02:56.128Z`.
