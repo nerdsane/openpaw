@@ -914,6 +914,27 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_observer_datadog_scope_records_datadog_provenance() {
+        let output = json!({
+            "actionable": true,
+            "evidence_scope": [{
+                "surface": "logs",
+                "query": "@directed_evolution.episode_id:episode-1",
+                "time_window": "now-24h to now",
+                "result_count": 206,
+                "interpretation": "Episode-scoped runtime logs were present.",
+                "zero_result_meaning": "failure",
+                "datadog_url": "https://app.datadoghq.com/logs?query=episode-1"
+            }]
+        });
+
+        assert_eq!(
+            directed_evolution_evidence_provenance("observer", &output),
+            "datadog-measured"
+        );
+    }
+
+    #[test]
     fn directed_evolution_summary_uses_agent_summary_when_available() {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-review".to_string(),

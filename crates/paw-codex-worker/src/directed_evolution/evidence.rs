@@ -172,6 +172,31 @@ fn directed_evolution_scope_satisfies_datadog_contract(scope: &Value) -> bool {
 }
 
 fn directed_evolution_evidence_provenance(role: &str, output: &Value) -> String {
+    let explicit = value_field_string(
+        output,
+        &[
+            "provenance_kind",
+            "provenanceKind",
+            "EvidenceProvenance",
+            "evidence_provenance",
+        ],
+    );
+    if !explicit.trim().is_empty() {
+        return explicit;
+    }
+    if role == "observer"
+        && output
+            .get("evidence_scope")
+            .or_else(|| output.get("evidenceScope"))
+            .and_then(Value::as_array)
+            .is_some_and(|items| {
+                items
+                    .iter()
+                    .any(directed_evolution_scope_satisfies_datadog_contract)
+            })
+    {
+        return "datadog-measured".to_string();
+    }
     let fallback = match role {
         "simulated_user" => "agent-observed",
         "state_verifier" => "state-verified",
@@ -180,18 +205,7 @@ fn directed_evolution_evidence_provenance(role: &str, output: &Value) -> String 
         "reviewer" | "viability_evaluator" => "brain-judged",
         _ => "agent-observed",
     };
-    nonempty(
-        value_field_string(
-            output,
-            &[
-                "provenance_kind",
-                "provenanceKind",
-                "EvidenceProvenance",
-                "evidence_provenance",
-            ],
-        ),
-        fallback.to_string(),
-    )
+    fallback.to_string()
 }
 
 fn directed_evolution_evidence_uri(
