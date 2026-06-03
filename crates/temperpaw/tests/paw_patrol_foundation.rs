@@ -1380,6 +1380,10 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         "DD_API_KEY or DATADOG_API_KEY",
         "DD_APP_KEY",
         "REQUIRE_EPISODE_SUCCESS must remain 1",
+        "PRECHECK_ONLY",
+        "precheck ready",
+        "would_create_live_episode",
+        "no_mutation",
         "datadog_count=\"$(wait_for_datadog_evidence",
         "summary.json",
         "proof.md",
@@ -1480,6 +1484,63 @@ fn directed_evolution_agent_answers_live_proof_preflights_datadog_credentials() 
         "blocked local proof should name missing Datadog query credentials: {local_blockers}"
     );
     fs::remove_dir_all(&local_proof_dir).ok();
+}
+
+#[test]
+fn directed_evolution_agent_answers_live_proof_precheck_can_pass_without_mutation() {
+    let root = repo_root();
+    let proof_dir = env::temp_dir().join(format!(
+        "directed-evolution-agent-answers-live-proof-precheck-{}",
+        std::process::id()
+    ));
+    fs::remove_dir_all(&proof_dir).ok();
+
+    let output = Command::new(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    )
+    .current_dir(&root)
+    .env("PROOF_DIR", &proof_dir)
+    .env("PRECHECK_ONLY", "1")
+    .env("ALLOW_PRODUCTION_WRITE", "1")
+    .env("CONFIRM_AGENT_ANSWERS_LIVE_PROOF", "1")
+    .env("CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS", "1")
+    .env("TEMPER_URL", "https://temperpaw.example.invalid")
+    .env("WORKER_TOKEN", "worker-token")
+    .env("DIRECTED_EVOLUTION_DIRECTION_ID", "direction-agent-answers")
+    .env("DIRECTED_EVOLUTION_ORGANISM_ID", "organism-agent-answers")
+    .env("START_LOCAL_WORKER", "0")
+    .output()
+    .expect("run Agent Answers Directed Evolution proof precheck");
+
+    assert!(
+        output.status.success(),
+        "proof precheck should pass without mutating production\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("precheck ready"),
+        "precheck should report readiness"
+    );
+
+    let summary = read(proof_dir.join("summary.json"));
+    assert!(
+        summary.contains("\"status\": \"ready\"")
+            && summary.contains("\"would_create_live_episode\": true")
+            && summary.contains("\"no_mutation\": true"),
+        "precheck summary should expose ready no-mutation state: {summary}"
+    );
+    assert!(
+        !proof_dir.join("episode-start.json").exists(),
+        "precheck must not call directed-evolution-start-episode"
+    );
+    assert!(
+        !proof_dir
+            .join("agent-answers-episode-contract.json")
+            .exists(),
+        "precheck must not write a live episode contract"
+    );
+    fs::remove_dir_all(&proof_dir).ok();
 }
 
 #[test]

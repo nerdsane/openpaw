@@ -380,6 +380,25 @@ START_LOCAL_WORKER=0 \
 crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
 ```
 
+Use `PRECHECK_ONLY=1` with the same confirmations and identifiers to generate a
+ready proof bundle without mutating production. The precheck writes
+`summary.json` and `proof.md`, exits before the worker build, metadata read,
+episode start call, worker start, episode polling, and Datadog polling, and
+marks the bundle with `no_mutation: true`:
+
+```sh
+PRECHECK_ONLY=1 \
+ALLOW_PRODUCTION_WRITE=1 \
+CONFIRM_AGENT_ANSWERS_LIVE_PROOF=1 \
+CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1 \
+TEMPER_URL=https://your-railway-temperpaw.example \
+WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
+DIRECTED_EVOLUTION_ORGANISM_ID="$AGENT_ANSWERS_ORGANISM_ID" \
+DIRECTED_EVOLUTION_DIRECTION_ID="$AGENT_ANSWERS_DIRECTION_ID" \
+START_LOCAL_WORKER=0 \
+crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
+```
+
 Set `START_LOCAL_WORKER=1` on the production Mac mini when launchd has not
 already started the worker pool. In that mode, the local worker process inherits
 the Datadog query environment and the production-secret confirmation is not
