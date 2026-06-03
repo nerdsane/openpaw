@@ -186,10 +186,7 @@ fn ensure_tokens_fresh(ctx: &Context, force_refresh: bool) -> Result<(), String>
     }
 
     refresh_tokens(ctx).map_err(|err| {
-        if err.contains("refresh token is missing")
-            || err.contains("invalid_grant")
-            || err.contains("expired")
-        {
+        if refresh_error_requires_sign_in(&err) {
             format!("{err}. OpenAI Codex sign-in is required; start the Codex device login again.")
         } else {
             err
@@ -395,6 +392,25 @@ fn body_snippet(body: &str) -> String {
     body.chars().take(300).collect()
 }
 
+fn refresh_error_requires_sign_in(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        "refresh token is missing",
+        "invalid_grant",
+        "expired",
+        "refresh_token_reused",
+        "refresh token has already been used",
+        "invalidated oauth token",
+        "oauth token was invalidated",
+        "token_revoked",
+        "token revoked",
+        "token_invalidated",
+        "codex token refresh failed: http 401",
+    ]
+    .iter()
+    .any(|needle| error.contains(needle))
+}
+
 fn form_encode(pairs: &[(&str, &str)]) -> String {
     pairs
         .iter()
@@ -452,5 +468,14 @@ mod tests {
             extract_chatgpt_account_id_from_jwt(&token).as_deref(),
             Some("acct_test")
         );
+    }
+
+    #[test]
+    fn refresh_token_reuse_requires_sign_in() {
+        assert!(refresh_error_requires_sign_in(
+            r#"OpenAI Codex token refresh failed: HTTP 401 {"error":{"code":"refresh_token_reused"}}"#
+        ));
+        assert!(refresh_error_requires_sign_in("invalidated oauth token"));
+        assert!(refresh_error_requires_sign_in("token_revoked"));
     }
 }
