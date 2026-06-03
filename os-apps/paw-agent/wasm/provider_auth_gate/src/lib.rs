@@ -83,7 +83,7 @@ fn run_provider_auth_gate() -> Result<(), String> {
     if status.eq_ignore_ascii_case("failed") {
         let error = auth_error_from_status(&parsed)
             .unwrap_or_else(|| "OpenAI Codex auth failed".to_string());
-        if sign_in_required_error(&error) {
+        if failed_auth_status_needs_device_login(status, &error) {
             let prompt = start_device_login_prompt(&ctx, &temper_api_url, &headers);
             return Err(sign_in_required_message(&error, prompt));
         }
@@ -169,6 +169,10 @@ fn non_empty_string_value(value: Option<&Value>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn failed_auth_status_needs_device_login(status: &str, _error: &str) -> bool {
+    status.trim().eq_ignore_ascii_case("failed")
 }
 
 fn sign_in_required_error(error: &str) -> bool {
@@ -411,5 +415,17 @@ mod tests {
             auth_error_from_status(&parsed).as_deref(),
             Some("OpenAI Codex token refresh failed")
         );
+    }
+
+    #[test]
+    fn failed_auth_status_without_error_still_needs_device_login() {
+        assert!(failed_auth_status_needs_device_login(
+            "Failed",
+            "OpenAI Codex auth failed"
+        ));
+        assert!(!failed_auth_status_needs_device_login(
+            "Ready",
+            "OpenAI Codex auth failed"
+        ));
     }
 }

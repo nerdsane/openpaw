@@ -26,6 +26,8 @@ When `EnsureFresh`, `Refresh`, or `ForceRefresh` fails with a sign-in-required r
 
 If the auth entity is already `DeviceCodeReady`, `EnsureFresh` is not an allowed action. The gate recognizes that response, fetches the current auth status, and returns the existing device-code prompt instead of treating the action validation failure as an opaque HTTP 500.
 
+If the auth entity is already `Failed`, the gate also dispatches the existing device-login route even when the stored failure has no useful `last_error`. A failed OpenAI Codex auth setup is not a provider-ready state, and Discord recovery needs an actionable sign-in prompt rather than a generic retry instruction.
+
 The `openai_codex_auth` WASM now classifies `refresh_token_reused`, invalidated OAuth token text, and revoked-token text as sign-in-required refresh failures.
 
 ## Consequences
