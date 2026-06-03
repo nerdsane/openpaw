@@ -1710,6 +1710,10 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         "INSTALL_LAUNCHD=1",
         "PAW_CODEX_ENABLE_EXECUTION=0",
         "PAW_CODEX_DOCTOR_EXEC_SMOKE",
+        "WORKER_SLOT_COUNT",
+        "slot_worker_id",
+        "slot_launchd_label",
+        "registering worker slot identities",
     ] {
         assert!(
             script.contains(needle),
@@ -1784,6 +1788,14 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         "INSTALL_LAUNCHD=0",
         "PAW_CODEX_ENABLE_EXECUTION=0",
         "PAW_CODEX_DOCTOR_EXEC_SMOKE=1",
+        "WORKER_SLOT_COUNT=\"${WORKER_SLOT_COUNT:-3}\"",
+        "worker_slot_count",
+        "worker_slot_ids",
+        "process_pool_model",
+        "launchd worker slot per local Codex process",
+        "REQUIRE_MAIN_ANCESTRY=0",
+        "real production readiness script keeps ancestry checking enabled by default",
+        "slot-${slot_suffix}.plist",
         "token_not_printed_to_readiness_log",
         "launchd_not_loaded",
         "production readiness smoke passed",
@@ -1800,6 +1812,9 @@ fn production_readiness_script_keeps_mac_mini_activation_checkable() {
         "scripts/production-readiness-smoke.sh",
         "WRITE_LAUNCHD_PLIST=1",
         "INSTALL_LAUNCHD=1",
+        "WORKER_SLOT_COUNT=3",
+        "process-pool rendering",
+        "isolated worker slot identities",
         "does not print `WORKER_TOKEN`",
     ] {
         assert!(

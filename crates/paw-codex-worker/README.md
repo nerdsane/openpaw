@@ -445,11 +445,12 @@ crates/paw-codex-worker/scripts/production-readiness-smoke.sh
 ```
 
 On success, the smoke writes `summary.json`, `proof.md`,
-`production-readiness.log`, and a rendered launchd plist under
+`production-readiness.log`, and a rendered launchd plist pool under
 `/tmp/paw-patrol-production-readiness-proof-*`. It checks OData, the event
 stream, fake Codex availability, a guarded `codex exec` doctor smoke,
-`PAW_CODEX_ENABLE_EXECUTION=0`, plist rendering, and that the worker token was
-not printed to the readiness log.
+`PAW_CODEX_ENABLE_EXECUTION=0`, `WORKER_SLOT_COUNT=3` process-pool rendering,
+isolated worker slot identities, and that the worker token was not printed to
+the readiness log.
 
 On the production Mac mini, use the guarded bootstrap wrapper to avoid manually
 copying production tokens. It links the known Railway `temperpaw` production

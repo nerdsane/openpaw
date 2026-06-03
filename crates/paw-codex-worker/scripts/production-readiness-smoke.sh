@@ -40,6 +40,7 @@ TENANT="${TEMPER_TENANT:-patrol_production_smoke}"
 API_KEY="${TEMPER_API_KEY:-patrol-production-smoke}"
 DB_PATH="${DB_PATH:-/tmp/paw-patrol-production-smoke-${PORT}-$$.db}"
 WORKER_ID="${WORKER_ID:-mac-mini-codex-prod}"
+WORKER_SLOT_COUNT="${WORKER_SLOT_COUNT:-3}"
 READY_ATTEMPTS="${READY_ATTEMPTS:-480}"
 PROOF_DIR="${PROOF_DIR:-/tmp/paw-patrol-production-readiness-proof-${PORT}-$$}"
 LAUNCHD_PLIST="${LAUNCHD_PLIST:-${PROOF_DIR}/com.temperpaw.paw-codex-worker.plist}"
@@ -117,13 +118,17 @@ the non-mutating Railway, launchd, token, and webhook human blockers.
 - \`PAW_CODEX_DOCTOR_EXEC_SMOKE=1\` proved \`codex exec\` can start in the
   worker environment.
 - \`WRITE_LAUNCHD_PLIST=1\` rendered the plist for review.
+- \`WORKER_SLOT_COUNT=${WORKER_SLOT_COUNT}\` rendered a local Codex process
+  pool with isolated launchd worker identities.
+- \`REQUIRE_MAIN_ANCESTRY=0\` scoped the smoke to local readiness mechanics; the
+  real production readiness script keeps ancestry checking enabled by default.
 - \`INSTALL_LAUNCHD=0\` prevented launchd mutation.
 - The fake worker token did not appear in the readiness stdout/stderr log.
 
 ## Files
 
 - Readiness log: ${READINESS_LOG}
-- Rendered plist: ${LAUNCHD_PLIST}
+- Rendered plist directory: $(dirname "$LAUNCHD_PLIST")
 - Server log: ${SERVER_LOG}
 
 ## Machine Summary
@@ -162,6 +167,7 @@ set +e
 TEMPER_URL="$TEMPER_URL" \
 TEMPER_TENANT="$TENANT" \
 WORKER_ID="$WORKER_ID" \
+WORKER_SLOT_COUNT="$WORKER_SLOT_COUNT" \
 WORKER_TOKEN="$API_KEY" \
 REPO_ROOT="$ROOT" \
 WORKSPACE_ROOT="$(dirname "$ROOT")" \
@@ -170,6 +176,7 @@ PAW_CODEX_ENABLE_EXECUTION=0 \
 PAW_CODEX_DOCTOR_EXEC_SMOKE=1 \
 PAW_CODEX_POLL_ON_START=1 \
 PAW_CODEX_EXEC_TIMEOUT_SECS=1200 \
+REQUIRE_MAIN_ANCESTRY=0 \
 WRITE_LAUNCHD_PLIST=1 \
 INSTALL_LAUNCHD=0 \
 LAUNCHD_PLIST="$LAUNCHD_PLIST" \
@@ -189,25 +196,45 @@ assert_contains "$READINESS_LOG" "[pass] codex_bin:"
 assert_contains "$READINESS_LOG" "[pass] codex_exec_smoke:"
 assert_contains "$READINESS_LOG" "[pass] odata:"
 assert_contains "$READINESS_LOG" "[pass] event_stream:"
+assert_contains "$READINESS_LOG" "worker slot count: ${WORKER_SLOT_COUNT}"
+assert_contains "$READINESS_LOG" "registering worker slot identities"
 assert_contains "$READINESS_LOG" "production readiness check passed"
 assert_not_contains "$READINESS_LOG" "$API_KEY"
 
-test -s "$LAUNCHD_PLIST"
-assert_contains "$LAUNCHD_PLIST" "com.temperpaw.paw-codex-worker"
-assert_contains "$LAUNCHD_PLIST" "$TEMPER_URL"
-assert_contains "$LAUNCHD_PLIST" "$WORKER_ID"
-assert_contains "$LAUNCHD_PLIST" "PAW_CODEX_ENABLE_EXECUTION"
-assert_contains "$LAUNCHD_PLIST" "<string>0</string>"
-assert_contains "$LAUNCHD_PLIST" "PAW_CODEX_DOCTOR_EXEC_SMOKE"
-assert_contains "$LAUNCHD_PLIST" "<string>1</string>"
-assert_contains "$LAUNCHD_PLIST" "PAW_CODEX_EXEC_TIMEOUT_SECS"
-assert_contains "$LAUNCHD_PLIST" "<string>1200</string>"
+slot_plists_json="[]"
+slot_worker_ids_json="[]"
+for slot in $(seq 1 "$WORKER_SLOT_COUNT"); do
+  slot_suffix="$(printf '%02d' "$slot")"
+  slot_plist="$(dirname "$LAUNCHD_PLIST")/com.temperpaw.paw-codex-worker.slot-${slot_suffix}.plist"
+  if [[ "$slot" == "1" ]]; then
+    slot_worker_id="$WORKER_ID"
+  else
+    slot_worker_id="${WORKER_ID}-slot-${slot_suffix}"
+  fi
+
+  test -s "$slot_plist"
+  assert_contains "$slot_plist" "com.temperpaw.paw-codex-worker.slot-${slot_suffix}"
+  assert_contains "$slot_plist" "$TEMPER_URL"
+  assert_contains "$slot_plist" "$slot_worker_id"
+  assert_contains "$slot_plist" "PAW_CODEX_ENABLE_EXECUTION"
+  assert_contains "$slot_plist" "<string>0</string>"
+  assert_contains "$slot_plist" "PAW_CODEX_DOCTOR_EXEC_SMOKE"
+  assert_contains "$slot_plist" "<string>1</string>"
+  assert_contains "$slot_plist" "PAW_CODEX_EXEC_TIMEOUT_SECS"
+  assert_contains "$slot_plist" "<string>1200</string>"
+  assert_contains "$slot_plist" "MAX_CONCURRENT_RUNS"
+
+  slot_plists_json="$(jq -c --arg path "$slot_plist" '. + [$path]' <<<"$slot_plists_json")"
+  slot_worker_ids_json="$(jq -c --arg worker "$slot_worker_id" '. + [$worker]' <<<"$slot_worker_ids_json")"
+done
 
 summary_json="$(jq -n \
   --arg temper_url "$TEMPER_URL" \
   --arg worker_id "$WORKER_ID" \
+  --argjson worker_slot_count "$WORKER_SLOT_COUNT" \
+  --argjson worker_slot_ids "$slot_worker_ids_json" \
   --arg readiness_log "$READINESS_LOG" \
-  --arg launchd_plist "$LAUNCHD_PLIST" \
+  --argjson launchd_plists "$slot_plists_json" \
   --arg server_log "$SERVER_LOG" \
   '{
     status: "passed",
@@ -218,6 +245,8 @@ summary_json="$(jq -n \
     },
     worker: {
       worker_id: $worker_id,
+      worker_slot_count: $worker_slot_count,
+      worker_slot_ids: $worker_slot_ids,
       execution_enabled: false,
       codex_binary: "fake-codex fixture",
       codex_exec_smoke: "doctor pass"
@@ -225,7 +254,8 @@ summary_json="$(jq -n \
     launchd: {
       rendered: true,
       installed: false,
-      plist: $launchd_plist
+      process_pool_model: "launchd worker slot per local Codex process",
+      plists: $launchd_plists
     },
     logs: {
       production_readiness: $readiness_log,
