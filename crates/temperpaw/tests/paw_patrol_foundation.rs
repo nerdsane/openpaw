@@ -1376,6 +1376,9 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         "datadog_url",
         "present(f(\"ResultCount\"))",
         "REQUIRE_DATADOG_EVIDENCE must remain 1",
+        "CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS",
+        "DD_API_KEY or DATADOG_API_KEY",
+        "DD_APP_KEY",
         "REQUIRE_EPISODE_SUCCESS must remain 1",
         "datadog_count=\"$(wait_for_datadog_evidence",
         "summary.json",
@@ -1399,6 +1402,84 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         readme.contains("directed-evolution-agent-answers-live-proof.sh"),
         "worker README should document the Agent Answers Directed Evolution live proof driver"
     );
+    assert!(
+        readme.contains("CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1"),
+        "worker README should require production Datadog query-secret confirmation"
+    );
+    assert!(
+        readme.contains("DD_API_KEY") && readme.contains("DD_APP_KEY"),
+        "worker README should document local Datadog credentials for local-worker proof mode"
+    );
+}
+
+#[test]
+fn directed_evolution_agent_answers_live_proof_preflights_datadog_credentials() {
+    let root = repo_root();
+    let proof_dir = env::temp_dir().join(format!(
+        "directed-evolution-agent-answers-live-proof-blocked-{}",
+        std::process::id()
+    ));
+    fs::remove_dir_all(&proof_dir).ok();
+
+    let output = Command::new(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    )
+    .current_dir(&root)
+    .env("PROOF_DIR", &proof_dir)
+    .env("ALLOW_PRODUCTION_WRITE", "1")
+    .env("CONFIRM_AGENT_ANSWERS_LIVE_PROOF", "1")
+    .env("TEMPER_URL", "https://temperpaw.example.invalid")
+    .env("WORKER_TOKEN", "worker-token")
+    .env("DIRECTED_EVOLUTION_DIRECTION_ID", "direction-agent-answers")
+    .env("DIRECTED_EVOLUTION_ORGANISM_ID", "organism-agent-answers")
+    .env("START_LOCAL_WORKER", "0")
+    .output()
+    .expect("run blocked Agent Answers Directed Evolution proof preflight");
+
+    assert!(
+        !output.status.success(),
+        "proof driver should block when production Datadog query secrets are not confirmed"
+    );
+    let blockers = read(proof_dir.join("human-blockers.json"));
+    assert!(
+        blockers.contains("confirm:production_datadog_query_secrets"),
+        "blocked proof should name the missing production Datadog query-secret confirmation: {blockers}"
+    );
+
+    fs::remove_dir_all(&proof_dir).ok();
+
+    let local_proof_dir = env::temp_dir().join(format!(
+        "directed-evolution-agent-answers-live-proof-local-blocked-{}",
+        std::process::id()
+    ));
+    fs::remove_dir_all(&local_proof_dir).ok();
+
+    let local_output = Command::new(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    )
+    .current_dir(&root)
+    .env("PROOF_DIR", &local_proof_dir)
+    .env("ALLOW_PRODUCTION_WRITE", "1")
+    .env("CONFIRM_AGENT_ANSWERS_LIVE_PROOF", "1")
+    .env("TEMPER_URL", "https://temperpaw.example.invalid")
+    .env("WORKER_TOKEN", "worker-token")
+    .env("DIRECTED_EVOLUTION_DIRECTION_ID", "direction-agent-answers")
+    .env("DIRECTED_EVOLUTION_ORGANISM_ID", "organism-agent-answers")
+    .env("START_LOCAL_WORKER", "1")
+    .env("PAW_CODEX_ENABLE_EXECUTION", "1")
+    .output()
+    .expect("run blocked local-worker Agent Answers Directed Evolution proof preflight");
+
+    assert!(
+        !local_output.status.success(),
+        "local-worker proof driver should block without Datadog query credentials"
+    );
+    let local_blockers = read(local_proof_dir.join("human-blockers.json"));
+    assert!(
+        local_blockers.contains("env:dd_api_key") && local_blockers.contains("env:dd_app_key"),
+        "blocked local proof should name missing Datadog query credentials: {local_blockers}"
+    );
+    fs::remove_dir_all(&local_proof_dir).ok();
 }
 
 #[test]

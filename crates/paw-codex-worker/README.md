@@ -363,11 +363,15 @@ then calls `paw-codex-worker directed-evolution-start-episode`, waits for
 `WorkItems`, `WorkerRuns`, `EvidenceArtifacts`, terminal episode state, and at
 least one `datadog-measured` artifact with a Datadog URL. The script treats
 attempts to disable Datadog evidence or terminal-success requirements as
-blockers, not proof configuration:
+blockers, not proof configuration. When `START_LOCAL_WORKER=0`, also set
+`CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1` after verifying the production
+worker/vault has `dd_api_key` and `dd_app_key`; when `START_LOCAL_WORKER=1`,
+export `DD_API_KEY` or `DATADOG_API_KEY` plus `DD_APP_KEY` for the local worker:
 
 ```sh
 ALLOW_PRODUCTION_WRITE=1 \
 CONFIRM_AGENT_ANSWERS_LIVE_PROOF=1 \
+CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1 \
 TEMPER_URL=https://your-railway-temperpaw.example \
 WORKER_TOKEN="$TEMPER_WORKER_TOKEN" \
 DIRECTED_EVOLUTION_ORGANISM_ID="$AGENT_ANSWERS_ORGANISM_ID" \
@@ -377,7 +381,10 @@ crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
 ```
 
 Set `START_LOCAL_WORKER=1` on the production Mac mini when launchd has not
-already started the worker pool. The proof bundle is written under
+already started the worker pool. In that mode, the local worker process inherits
+the Datadog query environment and the production-secret confirmation is not
+accepted as a substitute for `DD_API_KEY`/`DD_APP_KEY`. The proof bundle is
+written under
 `/tmp/directed-evolution-agent-answers-live-proof-*` and includes
 `summary.json`, `proof.md`, `human-blockers.json` when blocked, the episode
 contract, and terminal episode state.

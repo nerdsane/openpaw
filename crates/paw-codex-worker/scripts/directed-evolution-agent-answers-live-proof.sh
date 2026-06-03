@@ -115,6 +115,26 @@ record_precondition_blockers() {
       "do not disable the Datadog observer/evaluator gate"
   fi
 
+  if [[ "$REQUIRE_DATADOG_EVIDENCE" == "1" ]]; then
+    if [[ "$START_LOCAL_WORKER" == "1" ]]; then
+      if [[ -z "${DD_API_KEY:-${DATADOG_API_KEY:-}}" ]]; then
+        add_blocker "env:dd_api_key" \
+          "START_LOCAL_WORKER=1 requires DD_API_KEY or DATADOG_API_KEY so Datadog observer/evaluator WorkItems can query live telemetry." \
+          "export the Datadog API key before starting the local proof worker"
+      fi
+
+      if [[ -z "${DD_APP_KEY:-}" ]]; then
+        add_blocker "env:dd_app_key" \
+          "START_LOCAL_WORKER=1 requires DD_APP_KEY so Datadog observer/evaluator WorkItems can query live telemetry." \
+          "export the Datadog application key before starting the local proof worker"
+      fi
+    elif [[ "${CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS:-0}" != "1" ]]; then
+      add_blocker "confirm:production_datadog_query_secrets" \
+        "START_LOCAL_WORKER=0 expects an already-running production worker pool; confirm it has dd_api_key and dd_app_key secrets before starting the live proof." \
+        "set CONFIRM_PRODUCTION_DATADOG_QUERY_SECRETS=1 after verifying the production worker/vault Datadog query credentials"
+    fi
+  fi
+
   if [[ "$REQUIRE_EPISODE_SUCCESS" != "1" ]]; then
     add_blocker "env:require_episode_success" \
       "REQUIRE_EPISODE_SUCCESS must remain 1; failed/cancelled/abandoned episodes cannot be reported as a passed proof." \
