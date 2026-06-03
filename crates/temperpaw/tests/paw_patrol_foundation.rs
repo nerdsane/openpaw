@@ -1369,6 +1369,16 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         "directed-evolution-start-episode",
         "PAW_CODEX_ENABLE_EXECUTION=1",
         "START_LOCAL_WORKER",
+        "WORKER_SLOT_COUNT",
+        "WORKER_PIDS",
+        "slot_worker_id",
+        "worker_slot_count",
+        "worker_slot_ids",
+        "local_worker_logs",
+        "process_pool_model",
+        "MAX_CONCURRENT_RUNS=\"1\"",
+        "local worker process pool",
+        "START_LOCAL_WORKER=1 requires WORKER_SLOT_COUNT >= 2",
         "EvidenceArtifacts",
         "WorkerRuns",
         "WorkItems",
@@ -1428,6 +1438,12 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
     assert!(
         readme.contains("DD_API_KEY") && readme.contains("DD_APP_KEY"),
         "worker README should document local Datadog credentials for local-worker proof mode"
+    );
+    assert!(
+        readme.contains("WORKER_SLOT_COUNT")
+            && readme.contains("<WORKER_ID>-slot-02")
+            && readme.contains("local-worker-logs"),
+        "worker README should document the local worker process pool proof mode"
     );
     assert!(
         readme.contains("observer") && readme.contains("telemetry_evaluator"),
@@ -1503,6 +1519,43 @@ fn directed_evolution_agent_answers_live_proof_preflights_datadog_credentials() 
         "blocked local proof should name missing Datadog query credentials: {local_blockers}"
     );
     fs::remove_dir_all(&local_proof_dir).ok();
+
+    let single_slot_proof_dir = env::temp_dir().join(format!(
+        "directed-evolution-agent-answers-live-proof-single-slot-blocked-{}",
+        std::process::id()
+    ));
+    fs::remove_dir_all(&single_slot_proof_dir).ok();
+
+    let single_slot_output = Command::new(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    )
+    .current_dir(&root)
+    .env("PROOF_DIR", &single_slot_proof_dir)
+    .env("ALLOW_PRODUCTION_WRITE", "1")
+    .env("CONFIRM_AGENT_ANSWERS_LIVE_PROOF", "1")
+    .env("TEMPER_URL", "https://temperpaw.example.invalid")
+    .env("WORKER_TOKEN", "worker-token")
+    .env("DIRECTED_EVOLUTION_DIRECTION_ID", "direction-agent-answers")
+    .env("DIRECTED_EVOLUTION_ORGANISM_ID", "organism-agent-answers")
+    .env("START_LOCAL_WORKER", "1")
+    .env("PAW_CODEX_ENABLE_EXECUTION", "1")
+    .env("WORKER_SLOT_COUNT", "1")
+    .env("DD_API_KEY", "dd-api")
+    .env("DD_APP_KEY", "dd-app")
+    .output()
+    .expect("run blocked single-slot Agent Answers Directed Evolution proof preflight");
+
+    assert!(
+        !single_slot_output.status.success(),
+        "local-worker proof driver should block a single-worker local proof"
+    );
+    let single_slot_blockers = read(single_slot_proof_dir.join("human-blockers.json"));
+    assert!(
+        single_slot_blockers.contains("env:worker_slot_count")
+            && single_slot_blockers.contains("WORKER_SLOT_COUNT >= 2"),
+        "blocked local proof should require a real worker process pool: {single_slot_blockers}"
+    );
+    fs::remove_dir_all(&single_slot_proof_dir).ok();
 }
 
 #[test]
@@ -1548,7 +1601,9 @@ fn directed_evolution_agent_answers_live_proof_precheck_can_pass_without_mutatio
             && summary.contains("\"would_create_live_episode\": true")
             && summary.contains("\"no_mutation\": true")
             && summary.contains("\"mandatory_datadog_observer_evidence\": true")
-            && summary.contains("\"mandatory_datadog_telemetry_evaluator_evidence\": true"),
+            && summary.contains("\"mandatory_datadog_telemetry_evaluator_evidence\": true")
+            && summary
+                .contains("\"process_pool_model\": \"already-running production worker pool\""),
         "precheck summary should expose ready no-mutation state: {summary}"
     );
     let proof = read(proof_dir.join("proof.md"));
@@ -1567,6 +1622,59 @@ fn directed_evolution_agent_answers_live_proof_precheck_can_pass_without_mutatio
         "precheck must not write a live episode contract"
     );
     fs::remove_dir_all(&proof_dir).ok();
+
+    let local_pool_proof_dir = env::temp_dir().join(format!(
+        "directed-evolution-agent-answers-live-proof-local-pool-precheck-{}",
+        std::process::id()
+    ));
+    fs::remove_dir_all(&local_pool_proof_dir).ok();
+
+    let local_pool_output = Command::new(
+        root.join("crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh"),
+    )
+    .current_dir(&root)
+    .env("PROOF_DIR", &local_pool_proof_dir)
+    .env("PRECHECK_ONLY", "1")
+    .env("ALLOW_PRODUCTION_WRITE", "1")
+    .env("CONFIRM_AGENT_ANSWERS_LIVE_PROOF", "1")
+    .env("TEMPER_URL", "https://temperpaw.example.invalid")
+    .env("WORKER_TOKEN", "worker-token")
+    .env("DIRECTED_EVOLUTION_DIRECTION_ID", "direction-agent-answers")
+    .env("DIRECTED_EVOLUTION_ORGANISM_ID", "organism-agent-answers")
+    .env("START_LOCAL_WORKER", "1")
+    .env("PAW_CODEX_ENABLE_EXECUTION", "1")
+    .env("WORKER_SLOT_COUNT", "3")
+    .env("DD_API_KEY", "dd-api")
+    .env("DD_APP_KEY", "dd-app")
+    .output()
+    .expect("run local worker pool Agent Answers Directed Evolution proof precheck");
+
+    assert!(
+        local_pool_output.status.success(),
+        "local worker pool proof precheck should pass without mutating production\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&local_pool_output.stdout),
+        String::from_utf8_lossy(&local_pool_output.stderr)
+    );
+    let local_pool_summary = read(local_pool_proof_dir.join("summary.json"));
+    assert!(
+        local_pool_summary.contains("\"worker_slot_count\": 3")
+            && local_pool_summary.contains("\"mac-mini-codex-prod-slot-02\"")
+            && local_pool_summary.contains("\"local_worker_logs\"")
+            && local_pool_summary.contains("\"process_pool_model\": \"local worker process pool\"")
+            && local_pool_summary.contains("\"local_worker_process_pool\": true"),
+        "local precheck summary should expose the local worker pool contract: {local_pool_summary}"
+    );
+    assert!(
+        !local_pool_proof_dir.join("episode-start.json").exists(),
+        "local precheck must not call directed-evolution-start-episode"
+    );
+    assert!(
+        !local_pool_proof_dir
+            .join("agent-answers-episode-contract.json")
+            .exists(),
+        "local precheck must not write a live episode contract"
+    );
+    fs::remove_dir_all(&local_pool_proof_dir).ok();
 }
 
 #[test]

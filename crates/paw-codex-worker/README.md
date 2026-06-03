@@ -408,10 +408,14 @@ crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
 ```
 
 Set `START_LOCAL_WORKER=1` on the production Mac mini when launchd has not
-already started the worker pool. In that mode, the local worker process inherits
-the Datadog query environment and the production-secret confirmation is not
-accepted as a substitute for `DD_API_KEY`/`DD_APP_KEY`. The proof bundle is
-written under
+already started the worker pool. In that mode, the proof driver starts a local
+worker process pool and defaults `WORKER_SLOT_COUNT` and `MAX_CONCURRENT_RUNS`
+to `3`, with each local slot running `MAX_CONCURRENT_RUNS=1`. Slot 1 keeps
+`WORKER_ID`, later slots use identities such as `<WORKER_ID>-slot-02`, and each
+slot writes its own log under the proof bundle's `local-worker-logs/`
+directory. Local worker processes inherit the Datadog query environment and the
+production-secret confirmation is not accepted as a substitute for
+`DD_API_KEY`/`DD_APP_KEY`. The proof bundle is written under
 `/tmp/directed-evolution-agent-answers-live-proof-*` and includes
 `summary.json`, `proof.md`, `human-blockers.json` when blocked, the episode
 contract, and terminal episode state.

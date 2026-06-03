@@ -10,7 +10,7 @@ HUMAN_BLOCKERS_JSON="${PROOF_DIR}/human-blockers.json"
 BLOCKERS_TSV="${PROOF_DIR}/human-blockers.tsv"
 CONTRACT_JSON="${PROOF_DIR}/agent-answers-episode-contract.json"
 START_JSON="${PROOF_DIR}/episode-start.json"
-WORKER_LOG="${PROOF_DIR}/local-worker.log"
+WORKER_LOG_DIR="${PROOF_DIR}/local-worker-logs"
 
 TEMPER_TENANT="${TEMPER_TENANT:-default}"
 WORKER_ID="${WORKER_ID:-mac-mini-codex-prod}"
@@ -24,13 +24,14 @@ PRECHECK_ONLY="${PRECHECK_ONLY:-0}"
 PAW_CODEX_ENABLE_EXECUTION="${PAW_CODEX_ENABLE_EXECUTION:-1}"
 PAW_CODEX_POLL_ON_START="${PAW_CODEX_POLL_ON_START:-1}"
 MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-3}"
+WORKER_SLOT_COUNT="${WORKER_SLOT_COUNT:-$MAX_CONCURRENT_RUNS}"
 READY_ATTEMPTS="${READY_ATTEMPTS:-900}"
 POLL_SECONDS="${POLL_SECONDS:-2}"
 REQUIRE_DATADOG_EVIDENCE="${REQUIRE_DATADOG_EVIDENCE:-1}"
 REQUIRE_EPISODE_SUCCESS="${REQUIRE_EPISODE_SUCCESS:-1}"
 DIRECTED_EVOLUTION_PROOF_ACTOR="${DIRECTED_EVOLUTION_PROOF_ACTOR:-codex-agent-answers-live-proof}"
 
-WORKER_PID=""
+WORKER_PIDS=()
 
 log() {
   printf '[directed-evolution-agent-answers-proof] %s\n' "$*"
@@ -53,12 +54,47 @@ add_blocker() {
 }
 
 cleanup() {
-  if [[ -n "$WORKER_PID" ]] && kill -0 "$WORKER_PID" >/dev/null 2>&1; then
-    kill "$WORKER_PID" >/dev/null 2>&1 || true
-    wait "$WORKER_PID" >/dev/null 2>&1 || true
-  fi
+  local pid
+  for pid in "${WORKER_PIDS[@]:-}"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" >/dev/null 2>&1 || true
+    fi
+  done
 }
 trap cleanup EXIT
+
+slot_worker_id() {
+  local slot="$1"
+  if [[ "$slot" == "1" ]]; then
+    printf '%s\n' "$WORKER_ID"
+  else
+    printf '%s-slot-%02d\n' "$WORKER_ID" "$slot"
+  fi
+}
+
+slot_worker_log() {
+  local slot="$1"
+  printf '%s/slot-%02d.log\n' "$WORKER_LOG_DIR" "$slot"
+}
+
+worker_slot_ids_json() {
+  local ids_json="[]"
+  local slot
+  for slot in $(seq 1 "$WORKER_SLOT_COUNT"); do
+    ids_json="$(jq -c --arg worker "$(slot_worker_id "$slot")" '. + [$worker]' <<<"$ids_json")"
+  done
+  printf '%s\n' "$ids_json"
+}
+
+worker_slot_logs_json() {
+  local logs_json="[]"
+  local slot
+  for slot in $(seq 1 "$WORKER_SLOT_COUNT"); do
+    logs_json="$(jq -c --arg log_path "$(slot_worker_log "$slot")" '. + [$log_path]' <<<"$logs_json")"
+  done
+  printf '%s\n' "$logs_json"
+}
 
 mkdir -p "$PROOF_DIR"
 : >"$BLOCKERS_TSV"
@@ -108,6 +144,22 @@ record_precondition_blockers() {
     add_blocker "env:paw_codex_enable_execution" \
       "START_LOCAL_WORKER=1 requires PAW_CODEX_ENABLE_EXECUTION=1 so Codex can execute variant/reviewer/evaluator work." \
       "set PAW_CODEX_ENABLE_EXECUTION=1"
+  fi
+
+  if ! [[ "$MAX_CONCURRENT_RUNS" =~ ^[0-9]+$ ]] || [[ "$MAX_CONCURRENT_RUNS" -lt 1 ]]; then
+    add_blocker "env:max_concurrent_runs" \
+      "MAX_CONCURRENT_RUNS must be a positive integer for the Directed Evolution proof contract." \
+      "set MAX_CONCURRENT_RUNS=3 or another positive concurrency budget"
+  fi
+
+  if ! [[ "$WORKER_SLOT_COUNT" =~ ^[0-9]+$ ]] || [[ "$WORKER_SLOT_COUNT" -lt 1 ]]; then
+    add_blocker "env:worker_slot_count" \
+      "WORKER_SLOT_COUNT must be a positive integer for the Directed Evolution proof worker pool." \
+      "set WORKER_SLOT_COUNT=3 or another positive pool size"
+  elif [[ "$START_LOCAL_WORKER" == "1" && "$WORKER_SLOT_COUNT" -lt 2 ]]; then
+    add_blocker "env:worker_slot_count" \
+      "START_LOCAL_WORKER=1 requires WORKER_SLOT_COUNT >= 2 so the live proof exercises a local Codex worker process pool, not a single worker." \
+      "set WORKER_SLOT_COUNT=3"
   fi
 
   if [[ "$REQUIRE_DATADOG_EVIDENCE" != "1" ]]; then
@@ -205,6 +257,9 @@ write_precheck_ready_summary_and_exit() {
     --arg worker_id "$WORKER_ID" \
     --arg start_local_worker "$START_LOCAL_WORKER" \
     --arg max_concurrent_runs "$MAX_CONCURRENT_RUNS" \
+    --arg worker_slot_count "$WORKER_SLOT_COUNT" \
+    --argjson worker_slot_ids "$(worker_slot_ids_json)" \
+    --argjson worker_slot_logs "$(worker_slot_logs_json)" \
     --arg execution_enabled "$PAW_CODEX_ENABLE_EXECUTION" \
     --arg mandatory_datadog_evidence "$REQUIRE_DATADOG_EVIDENCE" \
     --arg mandatory_terminal_success "$REQUIRE_EPISODE_SUCCESS" \
@@ -228,12 +283,17 @@ write_precheck_ready_summary_and_exit() {
         worker_id: $worker_id,
         start_local_worker: $start_local_worker,
         max_concurrent_runs: ($max_concurrent_runs | tonumber),
+        worker_slot_count: ($worker_slot_count | tonumber),
+        worker_slot_ids: $worker_slot_ids,
+        local_worker_logs: $worker_slot_logs,
+        process_pool_model: (if $start_local_worker == "1" then "local worker process pool" else "already-running production worker pool" end),
         execution_enabled: $execution_enabled
       },
       evidence_requirements: {
         mandatory_datadog_evidence: ($mandatory_datadog_evidence == "1"),
         mandatory_datadog_observer_evidence: ($mandatory_datadog_evidence == "1"),
         mandatory_datadog_telemetry_evaluator_evidence: ($mandatory_datadog_evidence == "1"),
+        local_worker_process_pool: ($start_local_worker == "1"),
         mandatory_terminal_success: ($mandatory_terminal_success == "1"),
         production_datadog_query_secrets_confirmed: ($production_datadog_query_secrets_confirmed == "1")
       },
@@ -637,19 +697,25 @@ if [[ -z "$episode_id" ]]; then
 fi
 
 if [[ "$START_LOCAL_WORKER" == "1" ]]; then
-  log "starting local worker for live proof"
-  TEMPER_URL="$TEMPER_URL" \
-  TEMPER_TENANT="$TEMPER_TENANT" \
-  WORKER_ID="$WORKER_ID" \
-  WORKER_TOKEN="$WORKER_TOKEN" \
-  REPO_ROOT="$REPO_ROOT" \
-  WORKSPACE_ROOT="$WORKSPACE_ROOT" \
-  CODEX_BIN="$CODEX_BIN" \
-  PAW_CODEX_ENABLE_EXECUTION="$PAW_CODEX_ENABLE_EXECUTION" \
-  PAW_CODEX_POLL_ON_START="$PAW_CODEX_POLL_ON_START" \
-  MAX_CONCURRENT_RUNS="$MAX_CONCURRENT_RUNS" \
-  "$WORKER_BIN" run >"$WORKER_LOG" 2>&1 &
-  WORKER_PID="$!"
+  log "starting ${WORKER_SLOT_COUNT} local worker slots for live proof"
+  mkdir -p "$WORKER_LOG_DIR"
+  for slot in $(seq 1 "$WORKER_SLOT_COUNT"); do
+    slot_worker="$(slot_worker_id "$slot")"
+    slot_log="$(slot_worker_log "$slot")"
+    log "starting local worker slot ${slot} as ${slot_worker}"
+    TEMPER_URL="$TEMPER_URL" \
+    TEMPER_TENANT="$TEMPER_TENANT" \
+    WORKER_ID="$slot_worker" \
+    WORKER_TOKEN="$WORKER_TOKEN" \
+    REPO_ROOT="$REPO_ROOT" \
+    WORKSPACE_ROOT="$WORKSPACE_ROOT" \
+    CODEX_BIN="$CODEX_BIN" \
+    PAW_CODEX_ENABLE_EXECUTION="$PAW_CODEX_ENABLE_EXECUTION" \
+    PAW_CODEX_POLL_ON_START="$PAW_CODEX_POLL_ON_START" \
+    MAX_CONCURRENT_RUNS="1" \
+    "$WORKER_BIN" run >"$slot_log" 2>&1 &
+    WORKER_PIDS+=("$!")
+  done
 else
   log "START_LOCAL_WORKER=0; expecting an already-running production worker pool"
 fi
@@ -674,6 +740,12 @@ case "$episode_status" in
       --arg proof_dir "$PROOF_DIR" \
       --arg episode_id "$episode_id" \
       --arg episode_status "$episode_status" \
+      --arg worker_id "$WORKER_ID" \
+      --arg start_local_worker "$START_LOCAL_WORKER" \
+      --arg execution_enabled "$PAW_CODEX_ENABLE_EXECUTION" \
+      --arg worker_slot_count "$WORKER_SLOT_COUNT" \
+      --argjson worker_slot_ids "$(worker_slot_ids_json)" \
+      --argjson worker_slot_logs "$(worker_slot_logs_json)" \
       --argjson work_item_count "$work_item_count" \
       --argjson worker_run_count "$worker_run_count" \
       --argjson evidence_count "$evidence_count" \
@@ -687,6 +759,15 @@ case "$episode_status" in
         agent_answers: {
           episode_id: $episode_id,
           episode_status: $episode_status
+        },
+        worker: {
+          worker_id: $worker_id,
+          start_local_worker: $start_local_worker,
+          execution_enabled: $execution_enabled,
+          worker_slot_count: ($worker_slot_count | tonumber),
+          worker_slot_ids: $worker_slot_ids,
+          local_worker_logs: $worker_slot_logs,
+          process_pool_model: (if $start_local_worker == "1" then "local worker process pool" else "already-running production worker pool" end)
         },
         evidence: {
           work_items: $work_item_count,
@@ -712,6 +793,12 @@ summary_json="$(jq -n \
   --arg direction_id "$DIRECTED_EVOLUTION_DIRECTION_ID" \
   --arg organism_id "$DIRECTED_EVOLUTION_ORGANISM_ID" \
   --arg worker_id "$WORKER_ID" \
+  --arg start_local_worker "$START_LOCAL_WORKER" \
+  --arg execution_enabled "$PAW_CODEX_ENABLE_EXECUTION" \
+  --arg worker_slot_count "$WORKER_SLOT_COUNT" \
+  --argjson worker_slot_ids "$(worker_slot_ids_json)" \
+  --argjson worker_slot_logs "$(worker_slot_logs_json)" \
+  --arg mandatory_datadog_evidence "$REQUIRE_DATADOG_EVIDENCE" \
   --argjson work_item_count "$work_item_count" \
   --argjson worker_run_count "$worker_run_count" \
   --argjson evidence_count "$evidence_count" \
@@ -734,8 +821,12 @@ summary_json="$(jq -n \
     },
     worker: {
       worker_id: $worker_id,
-      start_local_worker: env.START_LOCAL_WORKER,
-      execution_enabled: env.PAW_CODEX_ENABLE_EXECUTION
+      start_local_worker: $start_local_worker,
+      execution_enabled: $execution_enabled,
+      worker_slot_count: ($worker_slot_count | tonumber),
+      worker_slot_ids: $worker_slot_ids,
+      local_worker_logs: $worker_slot_logs,
+      process_pool_model: (if $start_local_worker == "1" then "local worker process pool" else "already-running production worker pool" end)
     },
     evidence: {
       work_items: $work_item_count,
@@ -744,7 +835,7 @@ summary_json="$(jq -n \
       datadog_measured_evidence_artifacts: $datadog_evidence_count,
       datadog_observer_evidence_artifacts: $datadog_observer_evidence_count,
       datadog_telemetry_evaluator_evidence_artifacts: $datadog_telemetry_evaluator_evidence_count,
-      mandatory_datadog_evidence: env.REQUIRE_DATADOG_EVIDENCE
+      mandatory_datadog_evidence: ($mandatory_datadog_evidence == "1")
     }
   }')"
 
@@ -775,12 +866,19 @@ observer/evaluator evidence before declaring the live proof cycle passed.
 - datadog-measured observer EvidenceArtifacts: ${datadog_observer_count}
 - datadog-measured telemetry_evaluator EvidenceArtifacts: ${datadog_telemetry_evaluator_count}
 
+## Worker Pool
+
+- Start local worker: ${START_LOCAL_WORKER}
+- Worker slot count: ${WORKER_SLOT_COUNT}
+- Worker slot IDs: $(worker_slot_ids_json)
+- Local worker log directory: ${WORKER_LOG_DIR}
+
 ## Files
 
 - Contract: ${CONTRACT_JSON}
 - Episode start response: ${START_JSON}
 - Terminal episode state: ${PROOF_DIR}/episode-terminal.json
-- Local worker log: ${WORKER_LOG}
+- Local worker log directory: ${WORKER_LOG_DIR}
 
 ## Machine Summary
 
