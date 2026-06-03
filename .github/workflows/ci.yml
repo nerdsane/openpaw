@@ -64,8 +64,10 @@ jobs:
           DIRECTED_EVOLUTION_DIRECTION_ID=agent-answers-ci-direction \
           START_LOCAL_WORKER=0 \
           crates/paw-codex-worker/scripts/directed-evolution-agent-answers-live-proof.sh
-          jq -e '.status == "ready" and .no_mutation == true and .would_create_live_episode == true' "$PROOF_DIR/summary.json"
+          jq -e '.status == "ready" and .no_mutation == true and .would_create_live_episode == true and .evidence_requirements.mandatory_datadog_observer_evidence == true and .evidence_requirements.mandatory_datadog_telemetry_evaluator_evidence == true' "$PROOF_DIR/summary.json"
           grep -F '"no_mutation": true' "$PROOF_DIR/summary.json"
+          grep -F '"mandatory_datadog_observer_evidence": true' "$PROOF_DIR/summary.json"
+          grep -F '"mandatory_datadog_telemetry_evaluator_evidence": true' "$PROOF_DIR/summary.json"
           test ! -e "$PROOF_DIR/episode-start.json"
           test ! -e "$PROOF_DIR/agent-answers-episode-contract.json"
       - name: WASM build (os-apps)

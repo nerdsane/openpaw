@@ -389,7 +389,10 @@ Use `PRECHECK_ONLY=1` with the same confirmations and identifiers to generate a
 ready proof bundle without mutating production. The precheck writes
 `summary.json` and `proof.md`, exits before the worker build, metadata read,
 episode start call, worker start, episode polling, and Datadog polling, and
-marks the bundle with `no_mutation: true`:
+marks the bundle with `no_mutation: true`. Its `evidence_requirements` section
+declares `mandatory_datadog_observer_evidence` and
+`mandatory_datadog_telemetry_evaluator_evidence`, making the no-mutation proof
+explicit about the role-specific Datadog gates the next live run must satisfy:
 
 ```sh
 PRECHECK_ONLY=1 \

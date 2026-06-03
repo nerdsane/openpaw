@@ -1389,6 +1389,9 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
         "wait_for_datadog_role_evidence \"$episode_id\" telemetry_evaluator",
         "datadog_observer_evidence_artifacts",
         "datadog_telemetry_evaluator_evidence_artifacts",
+        "mandatory_datadog_observer_evidence",
+        "mandatory_datadog_telemetry_evaluator_evidence",
+        "Datadog observer/evaluator evidence polling",
         "summary.json",
         "proof.md",
         "human-blockers.json",
@@ -1409,7 +1412,9 @@ fn directed_evolution_agent_answers_live_proof_requires_datadog_evidence() {
     assert!(
         ci.contains("Agent Answers proof precheck")
             && ci.contains("PRECHECK_ONLY=1")
-            && ci.contains("\"no_mutation\": true"),
+            && ci.contains("\"no_mutation\": true")
+            && ci.contains("\"mandatory_datadog_observer_evidence\": true")
+            && ci.contains("\"mandatory_datadog_telemetry_evaluator_evidence\": true"),
         "CI should run the Agent Answers proof driver in no-mutation precheck mode"
     );
     assert!(
@@ -1541,8 +1546,15 @@ fn directed_evolution_agent_answers_live_proof_precheck_can_pass_without_mutatio
     assert!(
         summary.contains("\"status\": \"ready\"")
             && summary.contains("\"would_create_live_episode\": true")
-            && summary.contains("\"no_mutation\": true"),
+            && summary.contains("\"no_mutation\": true")
+            && summary.contains("\"mandatory_datadog_observer_evidence\": true")
+            && summary.contains("\"mandatory_datadog_telemetry_evaluator_evidence\": true"),
         "precheck summary should expose ready no-mutation state: {summary}"
+    );
+    let proof = read(proof_dir.join("proof.md"));
+    assert!(
+        proof.contains("Datadog observer/evaluator evidence"),
+        "precheck proof markdown should name the role-specific Datadog evidence gate: {proof}"
     );
     assert!(
         !proof_dir.join("episode-start.json").exists(),
