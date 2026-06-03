@@ -116,6 +116,75 @@ Assertions passed:
 The proof ChannelSession was expired and the proof Channel was archived after
 the assertion.
 
+## Final Image Deployment
+
+Committed fix:
+
+- commit: `5ce397b334d8ed4ac8b42637dcdb9f05c5c58dac`
+- short image tag: `ghcr.io/nerdsane/temperpaw:sha-5ce397b`
+
+Docker build:
+
+- GitHub Actions run: `26909542496`
+- job: `79383557786`
+- result: success
+- duration: `23m46s`
+- image digest:
+  `sha256:d3e6140ab89f60f25b04dd2eae21cfba1e83243d1a8264e8357c6743d6af4fce`
+
+Railway deploy:
+
+- deployment: `ce117d39-9c27-4203-80e4-a469129ee6c4`
+- status: `SUCCESS`
+- `/paw/version`:
+  `{"version":"sha-5ce397b3","sha":"5ce397b334d8ed4ac8b42637dcdb9f05c5c58dac"}`
+- `/healthz`: HTTP 200
+- `/readyz`: HTTP 200, Discord connected
+
+Railway runtime variables checked without printing secrets:
+
+- `IMAGE_TAG=sha-5ce397b`
+- `BUILD_SHA=5ce397b334d8ed4ac8b42637dcdb9f05c5c58dac`
+- `BUILD_VERSION=sha-5ce397b3`
+- `DD_VERSION=sha-5ce397b3`
+- `DD_GIT_COMMIT_SHA=5ce397b334d8ed4ac8b42637dcdb9f05c5c58dac`
+
+Deployed-image E2E proof passed on `sha-5ce397b3`:
+
+- prior Session: `ss-019e8f2b-10a7-7b10-940b-d31df604a570`
+- continuation Session: `ss-019e8f2b-2fa7-7a62-b38b-cd2de2b777f6`
+- ChannelSession: `en-019e8f2b-20c4-7232-899d-7c00373feaf1`
+- continuation reused
+  `session-entries:ss-019e8f2b-10a7-7b10-940b-d31df604a570`
+- continuation marked `session_entries_materialized=true`
+- materialized entries:
+  - `h-ss-019e8f2b-10a7-7b10-940b-d31df604a570`, sequence `0`
+  - `u-ss-019e8f2b-10a7-7b10-940b-d31df604a570-0`, sequence `1`
+  - `u-2`, sequence `2`, parented to the prior user entry
+- assertions passed:
+  `empty_before`, `same_ref`, `materialized_true`, `prior_materialized`,
+  `continued_from_prior`, and `context_has_both`
+
+Datadog post-deploy log check for `service:temperpaw version:sha-5ce397b3`
+over the first 30-minute slice:
+
+- status counts: `info=5019`, `warn=194`, `error=0`
+- exact deployed-image materialization log observed at `2026-06-03T20:27:13Z`:
+  `append_user_message: materialized virtual first-turn SessionEntries ...`
+- zero matches for old clean-reset/token signatures:
+  - `starting clean continuation`
+  - `session entries continuation missing parent leaf`
+  - `token_revoked`
+  - `token_invalidated`
+
+Warn patterns were reviewed. The relevant auth warning was the expected boundary:
+
+- `session_turn: OpenAI Codex token expired; dispatching auth refresh gate`
+
+The other common warnings in that slice were startup liveness coverage messages,
+bounded orphan recovery, one missing Slack-token notice, Genesis cache recovery,
+and slow-statement warnings from the proof queries.
+
 ## Katagami Review Job Status
 
 The ten quality-review jobs referenced by the operator were checked separately:
