@@ -1,8 +1,9 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, create_session_entry, is_session_entries_ref, runtime_headers,
-    runtime_headers_for_workspace, session_id_from_entries_ref, timestamp_millis_string,
+    create_content_file_ref, create_initial_session_entries, create_session_entry,
+    is_session_entries_ref, runtime_headers, runtime_headers_for_workspace,
+    session_id_from_entries_ref, timestamp_millis_string,
 };
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,read,write,edit,bash";
@@ -53,6 +54,17 @@ extern "C" fn host_http_call(
     _headers_len: i32,
     _body_ptr: i32,
     _body_len: i32,
+    _result_buf_ptr: i32,
+    _result_buf_len: i32,
+) -> i32 {
+    -1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[unsafe(no_mangle)]
+extern "C" fn host_http_call_batch(
+    _ptr: i32,
+    _len: i32,
     _result_buf_ptr: i32,
     _result_buf_len: i32,
 ) -> i32 {
@@ -1160,6 +1172,7 @@ fn configure_session_from_prior(
         "file_manifest_id": carried_prior_field(carry_prior_artifacts, fields, &["file_manifest_id", "FileManifestId"]),
         "session_file_id": carried_prior_field(carry_prior_artifacts, fields, &["session_file_id", "SessionFileId"]),
         "session_leaf_id": session_leaf_id,
+        "session_entries_materialized": continuation_session_entries_materialized(carry_prior_artifacts),
         "prepared_context_file_id": prepared_context_storage.file_id,
         "prepared_context_inline_json": prepared_context_storage.inline_json,
         "system_prompt_hash": str_field(fields, &["system_prompt_hash", "SystemPromptHash"]).unwrap_or(""),
@@ -1207,6 +1220,10 @@ fn carried_prior_field<'a>(
     }
 }
 
+fn continuation_session_entries_materialized(carry_prior_artifacts: bool) -> &'static str {
+    if carry_prior_artifacts { "true" } else { "" }
+}
+
 fn continuation_prepared_context_storage(
     carry_prior_artifacts: bool,
     fields: &Value,
@@ -1233,7 +1250,6 @@ fn should_start_fresh_after_session_append_failure(error: &str) -> bool {
     error.contains("HTTP 423")
         || error.contains("VerificationRequired")
         || error.contains("SessionEntry creation failed")
-        || error.contains("session entries continuation missing parent leaf")
 }
 
 /// Update a ChannelSession to point to a new Session via the UpdateSession action.
@@ -1367,7 +1383,7 @@ fn append_user_message_to_session_entries(
     // dangling parent_id, which break every subsequent context_preparer
     // walk forever. Always use the latest verified entry as parent and
     // log when we override a non-matching field hint.
-    let parent_entry_id = match latest.as_ref() {
+    let (parent_entry_id, sequence) = match latest.as_ref() {
         Some((entry_id, _)) => {
             if !session_leaf_id.is_empty() && session_leaf_id != entry_id {
                 ctx.log(
@@ -1378,16 +1394,40 @@ fn append_user_message_to_session_entries(
                     ),
                 );
             }
-            entry_id.clone()
+            (
+                entry_id.clone(),
+                latest
+                    .as_ref()
+                    .map(|(_, sequence)| sequence.saturating_add(1))
+                    .unwrap_or(0),
+            )
         }
         None => {
-            return Err("session entries continuation missing parent leaf".to_string());
+            if !session_entries_are_virtual(fields) {
+                return Err("session entries continuation missing parent leaf".to_string());
+            }
+            let prior_user_message = str_field(fields, &["user_message", "UserMessage"])
+                .filter(|value| !value.trim().is_empty())
+                .ok_or(
+                    "session entries continuation missing parent leaf and prior user_message is empty",
+                )?;
+            let (_header, user) = create_initial_session_entries(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                &session_id,
+                prior_user_message,
+            )?;
+            ctx.log(
+                "info",
+                &format!(
+                    "append_user_message: materialized virtual first-turn SessionEntries for SessionId={session_id} before continuation"
+                ),
+            );
+            (user.entry_id, 2)
         }
     };
-    let sequence = latest
-        .as_ref()
-        .map(|(_, sequence)| sequence.saturating_add(1))
-        .unwrap_or(0);
     let entry_id = format!("u-{sequence}");
     let content = json!(user_message);
     let created = create_session_entry(
@@ -1408,6 +1448,15 @@ fn append_user_message_to_session_entries(
         estimate_tokens(user_message),
     )?;
     Ok(created.entry_id)
+}
+
+fn session_entries_are_virtual(fields: &Value) -> bool {
+    str_field(
+        fields,
+        &["session_entries_materialized", "SessionEntriesMaterialized"],
+    )
+    .map(|value| value.trim().eq_ignore_ascii_case("false"))
+    .unwrap_or(false)
 }
 
 fn latest_session_entry(
@@ -2030,16 +2079,36 @@ mod tests {
     }
 
     #[test]
-    fn session_entry_verification_failure_starts_clean_continuation() {
+    fn session_entry_verification_failure_starts_clean_continuation_but_missing_parent_does_not() {
         assert!(should_start_fresh_after_session_append_failure(
             "SessionEntry creation failed (HTTP 423): VerificationRequired"
         ));
-        assert!(should_start_fresh_after_session_append_failure(
+        assert!(!should_start_fresh_after_session_append_failure(
             "session entries continuation missing parent leaf"
         ));
         assert!(!should_start_fresh_after_session_append_failure(
             "create Session failed via http://127.0.0.1"
         ));
+    }
+
+    #[test]
+    fn continuation_marks_carried_session_entries_materialized() {
+        assert_eq!(continuation_session_entries_materialized(true), "true");
+        assert_eq!(continuation_session_entries_materialized(false), "");
+    }
+
+    #[test]
+    fn session_entries_are_virtual_only_for_explicit_false_marker() {
+        assert!(session_entries_are_virtual(&json!({
+            "session_entries_materialized": "false"
+        })));
+        assert!(session_entries_are_virtual(&json!({
+            "SessionEntriesMaterialized": "FALSE"
+        })));
+        assert!(!session_entries_are_virtual(&json!({
+            "session_entries_materialized": "true"
+        })));
+        assert!(!session_entries_are_virtual(&json!({})));
     }
 
     #[test]
