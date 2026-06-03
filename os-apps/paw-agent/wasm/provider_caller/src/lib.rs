@@ -95,8 +95,9 @@ fn provider_auth_expired_reason(error: &str) -> Option<&str> {
 
 fn first_non_empty(values: &[Option<String>]) -> String {
     for v in values.iter().flatten() {
-        if !v.trim().is_empty() {
-            return v.trim().to_string();
+        let value = v.trim();
+        if !value.is_empty() && !is_unresolved_secret_template(value) {
+            return value.to_string();
         }
     }
     String::new()
@@ -3806,6 +3807,16 @@ mod tests {
             provider_auth_expired_reason("regular provider failure"),
             None
         );
+    }
+
+    #[test]
+    fn api_key_resolution_skips_unresolved_secret_templates() {
+        let key = first_non_empty(&[
+            Some("{secret:openai_api_key}".to_string()),
+            Some("fallback-key".to_string()),
+        ]);
+
+        assert_eq!(key, "fallback-key");
     }
 
     #[test]

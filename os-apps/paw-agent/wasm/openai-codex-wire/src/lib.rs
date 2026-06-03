@@ -96,7 +96,13 @@ pub fn is_openai_codex_token_expired_error(status: u16, body: &str) -> bool {
     }
     let lower = body.to_ascii_lowercase();
     lower.contains("token_expired")
+        || lower.contains("token_invalidated")
+        || lower.contains("token_revoked")
         || lower.contains("authentication token is expired")
+        || lower.contains("authentication token has been invalidated")
+        || lower.contains("invalidated oauth token")
+        || lower.contains("token has been invalidated")
+        || lower.contains("token has been revoked")
         || lower.contains("token is expired")
 }
 
@@ -214,5 +220,12 @@ mod tests {
         assert!(is_openai_codex_token_expired_error(401, body));
         assert!(!is_openai_codex_token_expired_error(500, body));
         assert!(!is_openai_codex_token_expired_error(401, "{}"));
+    }
+
+    #[test]
+    fn codex_revoked_oauth_token_routes_to_auth_recovery() {
+        let body = r#"{"error":{"message":"Encountered invalidated oauth token for user, failing request","type":null,"code":"token_revoked","param":null},"status":401}"#;
+
+        assert!(is_openai_codex_token_expired_error(401, body));
     }
 }

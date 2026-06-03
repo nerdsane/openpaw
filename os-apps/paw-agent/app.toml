@@ -10,6 +10,11 @@ criticality = "app-required"
 startup_loading = "eager"
 
 [[wasm_modules]]
+name = "sandbox_provisioner"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
 name = "context_preparer"
 criticality = "app-required"
 startup_loading = "eager"
@@ -30,6 +35,16 @@ criticality = "app-required"
 startup_loading = "eager"
 
 [[wasm_modules]]
+name = "context_compactor"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "steering_checker"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
 name = "agent_reply"
 criticality = "app-required"
 startup_loading = "eager"
@@ -38,6 +53,41 @@ startup_loading = "eager"
 name = "emit_ots_trajectory"
 criticality = "app-required"
 startup_loading = "eager"
+
+[[wasm_modules]]
+name = "request_plan_review"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "request_approval"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "workspace_restorer"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "cron_compute_next"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "openai_codex_auth"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "plan_approval_handler"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "plan_review_feedback_handler"
+criticality = "app-required"
+startup_loading = "lazy"
 
 [[wasm_modules]]
 name = "monty_repl"

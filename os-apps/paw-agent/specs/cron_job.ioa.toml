@@ -184,13 +184,15 @@ on_failure = "TriggerFailed"
 
 [action.triggers.config]
 mode = "trigger"
+default_llm_provider = "{secret:llm_provider}"
+default_llm_model = "{secret:llm_model}"
 
 
 [[action]]
 name = "TriggerComplete"
 kind = "input"
 from = ["Active"]
-params = ["next_run_at", "user_message"]
+params = ["next_run_at", "user_message", "model", "provider"]
 hint = "Cron computation complete. Spawn Session with copied fields, schedule next run."
 effect = [
   { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,temperature,tools_enabled,soul_id,sandbox_url,max_turns" },

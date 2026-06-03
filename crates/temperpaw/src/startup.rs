@@ -4211,6 +4211,34 @@ mod tests {
         for module in [
             "workspace_provisioner",
             "context_preparer",
+            "sandbox_provisioner",
+            "provider_auth_gate",
+            "provider_caller",
+            "provider_response_applier",
+            "monty_repl",
+            "context_compactor",
+            "steering_checker",
+            "agent_reply",
+            "emit_ots_trajectory",
+            "request_plan_review",
+            "request_approval",
+            "session_recoverer",
+            "workspace_restorer",
+            "session_link_monitor",
+            "cron_compute_next",
+            "openai_codex_auth",
+            "plan_approval_handler",
+            "plan_review_feedback_handler",
+        ] {
+            assert!(
+                modules_by_name.contains_key(module),
+                "paw-agent app.toml must declare spec-triggered WASM module {module}"
+            );
+        }
+
+        for module in [
+            "workspace_provisioner",
+            "context_preparer",
             "provider_auth_gate",
             "provider_caller",
             "provider_response_applier",

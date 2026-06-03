@@ -785,7 +785,12 @@ pub fn read_session_from_entries(
     session_id: &str,
 ) -> Result<String, String> {
     let entries = list_session_entries(ctx, temper_api_url, tenant, fields, session_id)?;
-    Ok(session_entries_jsonl_from_entities(&entries))
+    let user_message = entity_field_str(fields, &["UserMessage", "user_message"]).unwrap_or("");
+    Ok(session_entries_jsonl_from_entities_with_synthetic_root(
+        &entries,
+        session_id,
+        user_message,
+    ))
 }
 
 pub fn sync_session_entries_from_jsonl(
@@ -833,6 +838,14 @@ pub fn sync_session_entries_from_jsonl(
 }
 
 pub fn session_entries_jsonl_from_entities(entries: &[Value]) -> String {
+    session_entries_jsonl_from_entities_with_synthetic_root(entries, "", "")
+}
+
+fn session_entries_jsonl_from_entities_with_synthetic_root(
+    entries: &[Value],
+    session_id: &str,
+    user_message: &str,
+) -> String {
     let mut rows: Vec<(i64, String, String)> = entries
         .iter()
         .filter_map(|entry| {
@@ -846,11 +859,78 @@ pub fn session_entries_jsonl_from_entities(entries: &[Value]) -> String {
             session_entry_entity_to_jsonl(entry).map(|line| (sequence, entry_id, line))
         })
         .collect();
+    synthesize_missing_initial_session_root(&mut rows, session_id, user_message);
     rows.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
     rows.into_iter()
         .map(|(_, _, line)| line)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn synthesize_missing_initial_session_root(
+    rows: &mut Vec<(i64, String, String)>,
+    session_id: &str,
+    user_message: &str,
+) {
+    if rows.is_empty() || session_id.is_empty() || user_message.is_empty() {
+        return;
+    }
+
+    let header_id = format!("h-{session_id}");
+    let user_id = format!("u-{session_id}-0");
+    let mut has_header = false;
+    let mut has_user = false;
+    let mut references_user = false;
+
+    for (_, entry_id, line) in rows.iter() {
+        if entry_id == &header_id {
+            has_header = true;
+        }
+        if entry_id == &user_id {
+            has_user = true;
+        }
+        if jsonl_parent_id(line).as_deref() == Some(user_id.as_str()) {
+            references_user = true;
+        }
+    }
+
+    if has_header && has_user {
+        return;
+    }
+    if has_user || !references_user {
+        return;
+    }
+
+    if !has_header {
+        let header_line = json!({
+            "id": header_id,
+            "parentId": Value::Null,
+            "type": "header",
+            "version": 1,
+            "tokens": 0
+        })
+        .to_string();
+        rows.push((-2, header_id.clone(), header_line));
+    }
+
+    let user_line = json!({
+        "id": user_id,
+        "parentId": header_id,
+        "type": "message",
+        "role": "user",
+        "content": user_message,
+        "tokens": user_message.len() / 4
+    })
+    .to_string();
+    rows.push((-1, user_id, user_line));
+}
+
+fn jsonl_parent_id(line: &str) -> Option<String> {
+    serde_json::from_str::<Value>(line)
+        .ok()?
+        .get("parentId")?
+        .as_str()
+        .map(str::to_string)
 }
 
 fn create_session_entry_from_jsonl_value(
@@ -1813,6 +1893,47 @@ mod tests {
         assert_eq!(lines[0]["parentId"], Value::Null);
         assert_eq!(lines[1]["id"], "a-2");
         assert_eq!(lines[1]["parentId"], "u-ss-1-0");
+    }
+
+    #[test]
+    fn session_entries_jsonl_repairs_missing_virtual_initial_root() {
+        let entities = vec![
+            json!({
+                "EntryId": "a-1",
+                "ParentEntryId": "u-ss-123-0",
+                "Sequence": 1,
+                "EntryType": "message",
+                "Role": "assistant",
+                "Content": "[{\"type\":\"tool_use\",\"id\":\"call-1\"}]",
+                "Tokens": 3,
+                "ExtraJson": "{}"
+            }),
+            json!({
+                "EntryId": "t-2",
+                "ParentEntryId": "a-1",
+                "Sequence": 2,
+                "EntryType": "message",
+                "Role": "user",
+                "Content": "[{\"type\":\"tool_result\",\"tool_use_id\":\"call-1\",\"content\":\"ok\"}]",
+                "Tokens": 5,
+                "ExtraJson": "{}"
+            }),
+        ];
+
+        let jsonl =
+            session_entries_jsonl_from_entities_with_synthetic_root(&entities, "ss-123", "prompt");
+        let lines: Vec<Value> = jsonl
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("valid json line"))
+            .collect();
+
+        assert_eq!(lines[0]["id"], "h-ss-123");
+        assert_eq!(lines[1]["id"], "u-ss-123-0");
+        assert_eq!(lines[1]["content"], "prompt");
+        assert_eq!(lines[2]["id"], "a-1");
+        assert_eq!(lines[2]["parentId"], "u-ss-123-0");
+        assert_eq!(lines[3]["id"], "t-2");
+        assert_eq!(lines[3]["parentId"], "a-1");
     }
 
     #[test]

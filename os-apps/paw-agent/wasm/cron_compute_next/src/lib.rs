@@ -11,13 +11,23 @@
 
 use temper_wasm_sdk::prelude::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CronSessionConfig {
+    model: String,
+    provider: String,
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
 
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-        let mode = ctx.config.get("mode").map(|s| s.as_str()).unwrap_or("activate");
+        let mode = ctx
+            .config
+            .get("mode")
+            .map(|s| s.as_str())
+            .unwrap_or("activate");
 
         ctx.log("info", &format!("cron_compute_next: mode={mode}"));
 
@@ -57,6 +67,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     .get("user_message_template")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                let existing_user_message = fields
+                    .get("user_message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let run_count = fields
                     .get("run_count")
                     .and_then(|v| v.as_i64())
@@ -67,14 +81,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     .unwrap_or("");
                 let now_str = unix_to_iso8601(now_secs);
 
-                let user_message = template
-                    .replace("{{run_count}}", &run_count.to_string())
-                    .replace("{{last_result}}", last_result)
-                    .replace("{{now}}", &now_str);
+                let user_message = render_user_message(
+                    template,
+                    existing_user_message,
+                    run_count,
+                    last_result,
+                    &now_str,
+                )?;
+                let config_json = config_json(&ctx);
+                let session_config = resolve_cron_session_config(&fields, &config_json)?;
 
                 ctx.log(
                     "info",
-                    &format!("cron_compute_next: user_message length={}", user_message.len()),
+                    &format!(
+                        "cron_compute_next: user_message length={}",
+                        user_message.len()
+                    ),
                 );
 
                 set_success_result(
@@ -82,15 +104,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     &json!({
                         "next_run_at": next_run_at,
                         "user_message": user_message,
+                        "model": session_config.model,
+                        "provider": session_config.provider,
                     }),
                 );
             }
             _ => {
                 // activate mode (default)
-                set_success_result(
-                    "ActivateComplete",
-                    &json!({ "next_run_at": next_run_at }),
-                );
+                set_success_result("ActivateComplete", &json!({ "next_run_at": next_run_at }));
             }
         }
 
@@ -101,6 +122,66 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+fn render_user_message(
+    template: &str,
+    existing_user_message: &str,
+    run_count: i64,
+    last_result: &str,
+    now: &str,
+) -> Result<String, String> {
+    let source = if !template.trim().is_empty() {
+        template
+    } else {
+        existing_user_message
+    };
+    let rendered = source
+        .replace("{{run_count}}", &run_count.to_string())
+        .replace("{{last_result}}", last_result)
+        .replace("{{now}}", now);
+
+    if rendered.trim().is_empty() {
+        return Err(
+            "CronJob user message is empty; configure user_message_template or user_message"
+                .to_string(),
+        );
+    }
+
+    Ok(rendered)
+}
+
+fn resolve_cron_session_config(
+    fields: &Value,
+    config: &Value,
+) -> Result<CronSessionConfig, String> {
+    let model = string_field(fields, &["model", "Model"])
+        .or_else(|| string_field(config, &["default_llm_model"]))
+        .ok_or("CronJob model is empty; configure model or tenant llm_model")?;
+    let provider = string_field(fields, &["provider", "Provider"])
+        .or_else(|| string_field(config, &["default_llm_provider"]))
+        .ok_or("CronJob provider is empty; configure provider or tenant llm_provider")?;
+
+    Ok(CronSessionConfig { model, provider })
+}
+
+fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.contains("{secret:"))
+            .map(str::to_string)
+    })
+}
+
+fn config_json(ctx: &Context) -> Value {
+    let mut object = serde_json::Map::new();
+    for (key, value) in &ctx.config {
+        object.insert(key.clone(), json!(value));
+    }
+    Value::Object(object)
 }
 
 /// Simple cron interval parser — extracts a repeat interval in seconds.
@@ -177,7 +258,16 @@ fn unix_to_iso8601(secs: u64) -> String {
     let mdays = [
         31,
         if leap { 29 } else { 28 },
-        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     for (i, &md) in mdays.iter().enumerate() {
@@ -201,4 +291,40 @@ fn unix_to_iso8601(secs: u64) -> String {
 
 fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_user_message_falls_back_to_existing_message_when_template_empty() {
+        let rendered = render_user_message(
+            "",
+            "Continue the katagami review queue.",
+            3,
+            "last result",
+            "2026-06-03T13:00:00Z",
+        )
+        .expect("rendered message");
+
+        assert_eq!(rendered, "Continue the katagami review queue.");
+    }
+
+    #[test]
+    fn resolved_cron_session_config_uses_trigger_defaults_for_missing_model_provider() {
+        let fields = json!({
+            "model": "",
+            "provider": ""
+        });
+        let config = json!({
+            "default_llm_model": "gpt-5",
+            "default_llm_provider": "openai_codex"
+        });
+
+        let resolved = resolve_cron_session_config(&fields, &config).expect("resolved config");
+
+        assert_eq!(resolved.model, "gpt-5");
+        assert_eq!(resolved.provider, "openai_codex");
+    }
 }
