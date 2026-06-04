@@ -93,6 +93,7 @@ fn start_device_login(ctx: &Context) -> Result<(), String> {
             "device_auth_id": device_auth_id,
             "poll_interval_ms": poll_interval_ms.to_string(),
             "expires_at_ms": expires_at_ms.to_string(),
+            "poll_attempt_count": 0,
         }),
     );
     Ok(())
@@ -104,6 +105,9 @@ fn poll_device_login(ctx: &Context, fields: &Value) -> Result<(), String> {
         .ok_or("OpenAI Codex auth missing device_auth_id; start device login first")?;
     let user_code = field_str(fields, "user_code")
         .ok_or("OpenAI Codex auth missing user_code; start device login first")?;
+    if device_code_is_expired(fields) {
+        return Err("OpenAI Codex device code expired; start device login again".to_string());
+    }
     let body = json!({
         "device_auth_id": device_auth_id,
         "user_code": user_code,
@@ -380,6 +384,13 @@ fn field_str<'a>(fields: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|v| !v.is_empty())
 }
 
+fn device_code_is_expired(fields: &Value) -> bool {
+    field_str(fields, "expires_at_ms")
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .map(|expires_at_ms| expires_at_ms <= Context::get_time_millis() as i64)
+        .unwrap_or(false)
+}
+
 fn string_field(value: &Value, key: &str) -> Option<String> {
     value
         .get(key)
@@ -477,5 +488,12 @@ mod tests {
         ));
         assert!(refresh_error_requires_sign_in("invalidated oauth token"));
         assert!(refresh_error_requires_sign_in("token_revoked"));
+    }
+
+    #[test]
+    fn device_code_without_expiry_is_not_expired() {
+        assert!(!device_code_is_expired(&json!({})));
+        assert!(device_code_is_expired(&json!({"expires_at_ms": "-1"})));
+        assert!(!device_code_is_expired(&json!({"expires_at_ms": "1"})));
     }
 }

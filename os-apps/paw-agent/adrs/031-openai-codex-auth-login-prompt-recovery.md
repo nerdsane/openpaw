@@ -30,6 +30,8 @@ If the auth entity is already `Failed`, the gate also dispatches the existing de
 
 If the auth entity is `DeviceCodeReady` when a Session retries, the gate now dispatches `PollDeviceLogin` before re-prompting. If the user has authorized the code, polling stores tokens and the Session continues to the provider. If authorization is still pending, the gate returns the current prompt only when it has more than a short safety window remaining; expired or nearly expired codes are replaced by a fresh `StartDeviceLogin` prompt.
 
+`OpenAICodexAuth.DeviceCodeReady` now also schedules bounded self-polling. The entity increments `poll_attempt_count` and schedules `PollDeviceLogin` every five seconds, guarded by `poll_attempt_count < 180`. This keeps the login completion loop Temper-native: once the user enters the device code, the auth entity can observe completion and store tokens without waiting for another Discord message. The polling window is bounded to roughly the 15-minute device-code lifetime.
+
 The `openai_codex_auth` WASM now classifies `refresh_token_reused`, invalidated OAuth token text, and revoked-token text as sign-in-required refresh failures.
 
 ## Consequences
@@ -43,3 +45,5 @@ Refresh-token reuse is not retried as if it were an ordinary expired access toke
 Stale `user_code` fields left on a `Failed` auth entity are not trusted. The gate only surfaces a code returned by a fresh `StartDeviceLogin` dispatch or by a current `DeviceCodeReady` status snapshot.
 
 Expired `DeviceCodeReady` prompts are not reused. The retry path also becomes the completion path: after a human enters the code in OpenAI, sending the Discord message again causes the gate to poll and complete login instead of repeating the same code forever.
+
+The auth entity also self-polls while a code is pending, reducing the chance that Discord users see repeated login prompts after successful browser authorization. If the device code expires before OpenAI authorizes it, polling fails the auth entity and the next Session attempt starts a fresh code.

@@ -136,6 +136,8 @@
         <Property Name="AccountId" Type="Edm.String"/>
         <Property Name="LastError" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="PollAttemptCount" Type="Edm.Int64"/>
+        <Property Name="MaxPollAttempts" Type="Edm.Int64"/>
       </EntityType>
 
       <EntityType Name="Soul">
@@ -976,6 +978,7 @@
         <Parameter Name="device_auth_id" Type="Edm.String" Nullable="false"/>
         <Parameter Name="poll_interval_ms" Type="Edm.String" Nullable="false"/>
         <Parameter Name="expires_at_ms" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="poll_attempt_count" Type="Edm.Int64" Nullable="true"/>
         <ReturnType Type="TemperPaw.OpenAICodexAuth"/>
       </Action>
 

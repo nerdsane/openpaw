@@ -270,15 +270,30 @@ fn device_login_prompt_is_usable(prompt: &DeviceLoginPrompt, now_ms: i64) -> boo
 }
 
 fn sign_in_required_message(error: &str, prompt: Option<DeviceLoginPrompt>) -> String {
-    let error = error.trim();
+    let error = sign_in_message_error_prefix(error);
     match prompt {
         Some(prompt) => format!(
-            "{error}. OpenAI Codex sign-in is required. Open {} and enter code {}. After signing in, send your Discord message again.",
+            "{error}OpenAI Codex sign-in is required. Open {} and enter code {}. After signing in, send your Discord message again.",
             prompt.verification_url, prompt.user_code
         ),
         None => format!(
-            "{error}. OpenAI Codex sign-in is required, but I could not start the device login flow automatically. Open the TemperPaw setup page or call /paw/setup/openai-codex/device-login, then send your Discord message again."
+            "{error}OpenAI Codex sign-in is required, but I could not start the device login flow automatically. Open the TemperPaw setup page or call /paw/setup/openai-codex/device-login, then send your Discord message again."
         ),
+    }
+}
+
+fn sign_in_message_error_prefix(error: &str) -> String {
+    let error = error.trim();
+    if error.is_empty()
+        || error
+            .to_ascii_lowercase()
+            .contains("openai codex sign-in is required")
+    {
+        String::new()
+    } else if error.ends_with('.') {
+        format!("{error} ")
+    } else {
+        format!("{error}. ")
     }
 }
 
@@ -543,6 +558,22 @@ mod tests {
         assert!(message.contains("https://auth.openai.com/codex/device"));
         assert!(message.contains("ABCD-EFGH"));
         assert!(!message.contains("start the Codex device login again"));
+    }
+
+    #[test]
+    fn sign_in_message_does_not_duplicate_required_phrase() {
+        let prompt = DeviceLoginPrompt {
+            verification_url: "https://auth.openai.com/codex/device".to_string(),
+            user_code: "ABCD-EFGH".to_string(),
+            expires_at_ms: None,
+        };
+
+        let message = sign_in_required_message("OpenAI Codex sign-in is required", Some(prompt));
+
+        assert_eq!(
+            message.matches("OpenAI Codex sign-in is required").count(),
+            1
+        );
     }
 
     #[test]

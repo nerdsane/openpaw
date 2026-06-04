@@ -51,6 +51,16 @@ name = "error_message"
 type = "string"
 initial = ""
 
+[[state]]
+name = "poll_attempt_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_poll_attempts"
+type = "counter"
+initial = "180"
+
 [[action]]
 name = "StartDeviceLogin"
 kind = "input"
@@ -75,14 +85,19 @@ name = "DeviceCodeReady"
 kind = "input"
 from = ["Starting", "Polling"]
 to = "DeviceCodeReady"
-params = ["verification_url", "user_code", "device_auth_id", "poll_interval_ms", "expires_at_ms"]
+params = ["verification_url", "user_code", "device_auth_id", "poll_interval_ms", "expires_at_ms", "poll_attempt_count"]
 hint = "Device code is ready for the user, or authorization is still pending."
+effect = [
+  { type = "increment", var = "poll_attempt_count" },
+  { type = "schedule", action = "PollDeviceLogin", delay_seconds = 5 },
+]
 
 [[action]]
 name = "PollDeviceLogin"
 kind = "input"
 from = ["DeviceCodeReady"]
 to = "Polling"
+guard = "poll_attempt_count < 180"
 hint = "Poll OpenAI for device authorization once."
 effect = [{ type = "trigger", name = "openai_codex_auth_poll" }]
 

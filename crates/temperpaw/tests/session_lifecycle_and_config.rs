@@ -271,9 +271,13 @@ fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
         "mode = \"force_refresh\"",
         "openai_auth_base_url",
         "name = \"error_message\"",
+        "name = \"poll_attempt_count\"",
+        "name = \"max_poll_attempts\"",
         "state = \"Starting\"",
         "state = \"Polling\"",
         "state = \"Refreshing\"",
+        "{ type = \"schedule\", action = \"PollDeviceLogin\", delay_seconds = 5 }",
+        "guard = \"poll_attempt_count < 180\"",
         "on_timeout = \"Fail\"",
     ] {
         assert!(
@@ -285,6 +289,8 @@ fn paw_agent_defines_temper_native_openai_codex_auth_entity() {
     for needle in [
         "<EntityType Name=\"OpenAICodexAuth\">",
         "<Property Name=\"ErrorMessage\" Type=\"Edm.String\"/>",
+        "<Property Name=\"PollAttemptCount\" Type=\"Edm.Int64\"/>",
+        "<Property Name=\"MaxPollAttempts\" Type=\"Edm.Int64\"/>",
         "<Action Name=\"EnsureFresh\" IsBound=\"true\">",
         "<Action Name=\"ForceRefresh\" IsBound=\"true\">",
         "<EntitySet Name=\"OpenAICodexAuths\" EntityType=\"TemperPaw.OpenAICodexAuth\"/>",
