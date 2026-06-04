@@ -84,6 +84,27 @@ size_bytes=231890
 HTTP 200
 ```
 
+## Baked Image Deployment
+
+Docker workflow:
+
+- GitHub Actions run: `26922460216`
+- Result: success
+- Image: `ghcr.io/nerdsane/temperpaw:sha-fb02704`
+- Image digest: `sha256:139b7b4c186481ac584fa87ad4e7fde3fdff687f97aa642fdac936660187d10c`
+- Build version: `sha-fb02704d`
+- Build SHA: `fb02704d210aab4740e2d259eab8aca804949f64`
+
+Railway deployment:
+
+- Deployment: `2489b865-9980-4b31-9bc3-62c52606ea32`
+- Service: `openpaw`
+- Environment: `production`
+- Status: `SUCCESS`
+- `/readyz`: ready
+- Discord transport: connected
+- `/paw/version`: `{"version":"sha-fb02704d","sha":"fb02704d210aab4740e2d259eab8aca804949f64"}`
+
 ## Production E2E
 
 Smoke Session:
@@ -105,6 +126,16 @@ Auth status after smoke:
 ```
 
 The smoke proved that production no longer reuses the expired code and instead starts a fresh OpenAI Codex device code.
+
+Baked-image smoke:
+
+- Session: `ss-019e902c-83c2-7440-a2ef-e4ed8084a032`
+- Version: `sha-fb02704d`
+- `message_has_device_url`: true
+- `message_has_enter_code`: true
+- `message_has_old_dead_end`: false
+- Auth status after smoke: `DeviceCodeReady`
+- Auth code TTL after smoke: 888 seconds
 
 ## Outcome
 
