@@ -3,6 +3,8 @@
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{resolve_temper_api_url, runtime_headers_as, timestamp_millis_string};
 
+const DEVICE_CODE_MIN_TTL_MS: i64 = 30_000;
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     if let Err(err) = run_provider_auth_gate() {
@@ -49,8 +51,15 @@ fn run_provider_auth_gate() -> Result<(), String> {
             )
         });
         if body_mentions_device_code_ready(&resp.body) {
-            let prompt = fetch_current_device_login_prompt(&ctx, &temper_api_url, &headers);
-            return Err(sign_in_required_message(&error, prompt));
+            match poll_device_login_or_prompt(&ctx, &temper_api_url, &headers) {
+                DeviceLoginResolution::Ready(status) => {
+                    set_success_result(ready_action, &ready_params(&fields, &status, ""));
+                    return Ok(());
+                }
+                DeviceLoginResolution::Prompt(prompt) => {
+                    return Err(sign_in_required_message(&error, prompt));
+                }
+            }
         }
         if sign_in_required_error(&error) {
             let prompt = start_device_login_prompt(&ctx, &temper_api_url, &headers);
@@ -74,10 +83,20 @@ fn run_provider_auth_gate() -> Result<(), String> {
     }
 
     if let Some(prompt) = device_login_prompt_from_status(&parsed) {
-        return Err(sign_in_required_message(
-            "OpenAI Codex sign-in is required",
-            Some(prompt),
-        ));
+        match prompt_or_fresh_device_login(&ctx, &temper_api_url, &headers, prompt) {
+            Some(prompt) => {
+                return Err(sign_in_required_message(
+                    "OpenAI Codex sign-in is required",
+                    Some(prompt),
+                ));
+            }
+            None => {
+                return Err(sign_in_required_message(
+                    "OpenAI Codex sign-in is required",
+                    None,
+                ));
+            }
+        }
     }
 
     if status.eq_ignore_ascii_case("failed") {
@@ -133,6 +152,12 @@ fn auth_endpoint_path(auth_action: &str) -> &'static str {
 struct DeviceLoginPrompt {
     verification_url: String,
     user_code: String,
+    expires_at_ms: Option<i64>,
+}
+
+enum DeviceLoginResolution {
+    Ready(String),
+    Prompt(Option<DeviceLoginPrompt>),
 }
 
 fn auth_status_is_ready(status: &str) -> bool {
@@ -206,9 +231,11 @@ fn device_login_prompt_from_status(parsed: &Value) -> Option<DeviceLoginPrompt> 
     let fields = parsed.get("fields").unwrap_or(parsed);
     let verification_url = field_from_candidates(fields, &["verification_url", "VerificationUrl"])?;
     let user_code = field_from_candidates(fields, &["user_code", "UserCode"])?;
+    let expires_at_ms = int_field_from_candidates(fields, &["expires_at_ms", "ExpiresAtMs"]);
     Some(DeviceLoginPrompt {
         verification_url,
         user_code,
+        expires_at_ms,
     })
 }
 
@@ -220,6 +247,26 @@ fn field_from_candidates(value: &Value, keys: &[&str]) -> Option<String> {
             .filter(|raw| !raw.trim().is_empty())
             .map(|raw| raw.trim().to_string())
     })
+}
+
+fn int_field_from_candidates(value: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|raw| {
+            raw.as_i64().or_else(|| {
+                raw.as_str()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .and_then(|value| value.parse::<i64>().ok())
+            })
+        })
+    })
+}
+
+fn device_login_prompt_is_usable(prompt: &DeviceLoginPrompt, now_ms: i64) -> bool {
+    prompt
+        .expires_at_ms
+        .map(|expires_at_ms| expires_at_ms > now_ms + DEVICE_CODE_MIN_TTL_MS)
+        .unwrap_or(true)
 }
 
 fn sign_in_required_message(error: &str, prompt: Option<DeviceLoginPrompt>) -> String {
@@ -237,6 +284,101 @@ fn sign_in_required_message(error: &str, prompt: Option<DeviceLoginPrompt>) -> S
 
 fn body_mentions_device_code_ready(body: &str) -> bool {
     body.to_ascii_lowercase().contains("devicecodeready")
+}
+
+fn poll_device_login_or_prompt(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+) -> DeviceLoginResolution {
+    let url = format!("{temper_api_url}/paw/setup/openai-codex/poll");
+    let resp = match ctx.http_call("POST", &url, headers, "{}") {
+        Ok(resp) => resp,
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!("provider_auth_gate: Codex device login poll failed: {err}"),
+            );
+            return DeviceLoginResolution::Prompt(current_or_fresh_device_login_prompt(
+                ctx,
+                temper_api_url,
+                headers,
+            ));
+        }
+    };
+
+    if !(200..300).contains(&resp.status) {
+        ctx.log(
+            "warn",
+            &format!(
+                "provider_auth_gate: Codex device login poll returned HTTP {}: {}",
+                resp.status,
+                body_snippet(&resp.body)
+            ),
+        );
+        return DeviceLoginResolution::Prompt(current_or_fresh_device_login_prompt(
+            ctx,
+            temper_api_url,
+            headers,
+        ));
+    }
+
+    let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
+    let status = parsed
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if auth_status_is_ready(status) {
+        return DeviceLoginResolution::Ready(status.to_string());
+    }
+    if let Some(prompt) = device_login_prompt_from_status(&parsed) {
+        return DeviceLoginResolution::Prompt(prompt_or_fresh_device_login(
+            ctx,
+            temper_api_url,
+            headers,
+            prompt,
+        ));
+    }
+    if status.eq_ignore_ascii_case("failed") {
+        return DeviceLoginResolution::Prompt(start_device_login_prompt(
+            ctx,
+            temper_api_url,
+            headers,
+        ));
+    }
+
+    DeviceLoginResolution::Prompt(current_or_fresh_device_login_prompt(
+        ctx,
+        temper_api_url,
+        headers,
+    ))
+}
+
+fn current_or_fresh_device_login_prompt(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+) -> Option<DeviceLoginPrompt> {
+    fetch_current_device_login_prompt(ctx, temper_api_url, headers)
+        .and_then(|prompt| prompt_or_fresh_device_login(ctx, temper_api_url, headers, prompt))
+        .or_else(|| start_device_login_prompt(ctx, temper_api_url, headers))
+}
+
+fn prompt_or_fresh_device_login(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+    prompt: DeviceLoginPrompt,
+) -> Option<DeviceLoginPrompt> {
+    if device_login_prompt_is_usable(&prompt, Context::get_time_millis() as i64) {
+        Some(prompt)
+    } else {
+        ctx.log(
+            "info",
+            "provider_auth_gate: existing Codex device login code expired; starting a fresh code",
+        );
+        start_device_login_prompt(ctx, temper_api_url, headers)
+    }
 }
 
 fn fetch_current_device_login_prompt(
@@ -427,5 +569,35 @@ mod tests {
             "Ready",
             "OpenAI Codex auth failed"
         ));
+    }
+
+    #[test]
+    fn device_login_prompt_expiry_is_honored() {
+        let expired = DeviceLoginPrompt {
+            verification_url: "https://auth.openai.com/codex/device".to_string(),
+            user_code: "ABCD-EFGH".to_string(),
+            expires_at_ms: Some(1_000),
+        };
+        let fresh = DeviceLoginPrompt {
+            verification_url: "https://auth.openai.com/codex/device".to_string(),
+            user_code: "WXYZ-1234".to_string(),
+            expires_at_ms: Some(120_000),
+        };
+
+        assert!(!device_login_prompt_is_usable(&expired, 60_000));
+        assert!(device_login_prompt_is_usable(&fresh, 60_000));
+    }
+
+    #[test]
+    fn device_login_prompt_reads_expires_at_ms() {
+        let prompt = device_login_prompt_from_status(&json!({
+            "status": "DeviceCodeReady",
+            "verification_url": "https://auth.openai.com/codex/device",
+            "user_code": "ABCD-EFGH",
+            "expires_at_ms": "12345"
+        }))
+        .expect("device prompt");
+
+        assert_eq!(prompt.expires_at_ms, Some(12345));
     }
 }

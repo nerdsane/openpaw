@@ -28,6 +28,8 @@ If the auth entity is already `DeviceCodeReady`, `EnsureFresh` is not an allowed
 
 If the auth entity is already `Failed`, the gate also dispatches the existing device-login route even when the stored failure has no useful `last_error`. A failed OpenAI Codex auth setup is not a provider-ready state, and Discord recovery needs an actionable sign-in prompt rather than a generic retry instruction.
 
+If the auth entity is `DeviceCodeReady` when a Session retries, the gate now dispatches `PollDeviceLogin` before re-prompting. If the user has authorized the code, polling stores tokens and the Session continues to the provider. If authorization is still pending, the gate returns the current prompt only when it has more than a short safety window remaining; expired or nearly expired codes are replaced by a fresh `StartDeviceLogin` prompt.
+
 The `openai_codex_auth` WASM now classifies `refresh_token_reused`, invalidated OAuth token text, and revoked-token text as sign-in-required refresh failures.
 
 ## Consequences
@@ -39,3 +41,5 @@ The recovery remains Temper-native: session auth still runs from the Session sta
 Refresh-token reuse is not retried as if it were an ordinary expired access token. A new device login is required, which matches OpenAI refresh-token rotation semantics.
 
 Stale `user_code` fields left on a `Failed` auth entity are not trusted. The gate only surfaces a code returned by a fresh `StartDeviceLogin` dispatch or by a current `DeviceCodeReady` status snapshot.
+
+Expired `DeviceCodeReady` prompts are not reused. The retry path also becomes the completion path: after a human enters the code in OpenAI, sending the Discord message again causes the gate to poll and complete login instead of repeating the same code forever.
