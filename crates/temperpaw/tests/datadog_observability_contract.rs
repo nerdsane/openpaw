@@ -1806,7 +1806,9 @@ fn temperpaw_guest_observability_api_exposes_session_tool_and_llmobs_semconv() {
         "\"gen_ai.conversation.id\"",
         "\"session_id\"",
         "\"tool.name\"",
+        "\"gen_ai.output.messages\"",
         "\"gen_ai.completion\"",
+        "\"gen_ai.client.inference.operation.details\"",
         "\"gen_ai.usage.input_tokens\"",
         "\"gen_ai.usage.output_tokens\"",
     ] {

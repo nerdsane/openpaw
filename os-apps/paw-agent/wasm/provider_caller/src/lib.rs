@@ -17,8 +17,8 @@ use openai_codex_wire::{
     select_openai_responses_url,
 };
 use session_turn_artifacts::{
-    PreparedContextArtifact, ProviderResponseArtifact,
-    build_gen_ai_input_messages, build_gen_ai_system_instructions,
+    PreparedContextArtifact, ProviderResponseArtifact, build_gen_ai_input_messages,
+    build_gen_ai_output_messages, build_gen_ai_system_instructions,
     build_provider_response_ready_params_with_inline, parse_prepared_context_artifact,
 };
 use std::collections::BTreeMap;
@@ -1356,7 +1356,10 @@ fn append_llm_span_hint_headers(
     session_id: &str,
     completion_pointer: &str,
 ) {
-    headers.push(("X-Temper-Span-Name".to_string(), "tool.llm_call".to_string()));
+    headers.push((
+        "X-Temper-Span-Name".to_string(),
+        "tool.llm_call".to_string(),
+    ));
     headers.push((
         "X-Temper-Span-Attr-gen_ai.operation.name".to_string(),
         "chat".to_string(),
@@ -1492,28 +1495,59 @@ fn finish_llm_guest_span_success(
     completion: &Value,
 ) {
     if let Some(span) = span.take() {
-        let attrs = json!({
-            "gen_ai.provider.name": provider,
-            "gen_ai.response.model": model,
-            "gen_ai.response.finish_reasons": stop_reason,
-            "gen_ai.usage.input_tokens": input_tokens,
-            "gen_ai.usage.output_tokens": output_tokens,
-            "gen_ai.usage.cache_read_input_tokens": cache_read_input_tokens,
-            "gen_ai.usage.cache_creation_input_tokens": cache_creation_input_tokens,
-            "http.response.body.size": response_bytes,
-            "gen_ai.completion": stringify_content(completion),
+        let attrs = llm_success_span_attributes(
+            provider,
+            model,
+            stop_reason,
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+            response_bytes,
+            completion,
+        );
+        let output_event_attrs = json!({
+            "gen_ai.output.messages": attrs
+                .get("gen_ai.output.messages")
+                .cloned()
+                .unwrap_or_else(|| json!("[]")),
         });
+        let _ = span.add_event(
+            "gen_ai.client.inference.operation.details",
+            &output_event_attrs,
+        );
         let _ = span.add_event("llm.response", &attrs);
         let _ = span.set_attributes(&attrs);
         let _ = span.end_ok(&json!({}));
     }
 }
 
-fn finish_llm_guest_span_error(
-    span: &mut Option<WasmSpan>,
-    error_type: &str,
-    error_message: &str,
-) {
+fn llm_success_span_attributes(
+    provider: &str,
+    model: &str,
+    stop_reason: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    response_bytes: usize,
+    completion: &Value,
+) -> Value {
+    json!({
+        "gen_ai.provider.name": provider,
+        "gen_ai.response.model": model,
+        "gen_ai.response.finish_reasons": stop_reason,
+        "gen_ai.usage.input_tokens": input_tokens,
+        "gen_ai.usage.output_tokens": output_tokens,
+        "gen_ai.usage.cache_read_input_tokens": cache_read_input_tokens,
+        "gen_ai.usage.cache_creation_input_tokens": cache_creation_input_tokens,
+        "http.response.body.size": response_bytes,
+        "gen_ai.output.messages": build_gen_ai_output_messages(completion, stop_reason),
+        "gen_ai.completion": stringify_content(completion),
+    })
+}
+
+fn finish_llm_guest_span_error(span: &mut Option<WasmSpan>, error_type: &str, error_message: &str) {
     if let Some(span) = span.take() {
         let _ = span.end_error(error_type, error_message, &json!({}));
     }
@@ -1751,11 +1785,7 @@ fn call_anthropic(
                         let error = format!(
                             "Anthropic stream failed after visible output or final attempt: {last_err}"
                         );
-                        finish_llm_guest_span_error(
-                            &mut llm_span,
-                            "stream_parse_error",
-                            &error,
-                        );
+                        finish_llm_guest_span_error(&mut llm_span, "stream_parse_error", &error);
                         return Err(error);
                     }
                 }
@@ -2080,11 +2110,7 @@ fn call_openrouter(
                         let error = format!(
                             "OpenRouter stream failed after visible output or final attempt: {last_err}"
                         );
-                        finish_llm_guest_span_error(
-                            &mut llm_span,
-                            "stream_parse_error",
-                            &error,
-                        );
+                        finish_llm_guest_span_error(&mut llm_span, "stream_parse_error", &error);
                         return Err(error);
                     }
                 }
@@ -2564,11 +2590,7 @@ fn call_openai(
                         let error = format!(
                             "OpenAI Codex stream failed after visible output or final attempt: {last_err}"
                         );
-                        finish_llm_guest_span_error(
-                            &mut llm_span,
-                            "stream_parse_error",
-                            &error,
-                        );
+                        finish_llm_guest_span_error(&mut llm_span, "stream_parse_error", &error);
                         return Err(error);
                     }
                 }
@@ -3262,8 +3284,7 @@ pub fn run_provider_caller() -> Result<(), String> {
         .unwrap_or_else(|| "temperpaw-agent".to_string());
 
     let mock_hang = provider == "mock" && mock_plan_requests_hang(&prepared.messages);
-    if should_send_initial_provider_heartbeat(mock_hang, provider_initial_heartbeat_enabled(&ctx))
-    {
+    if should_send_initial_provider_heartbeat(mock_hang, provider_initial_heartbeat_enabled(&ctx)) {
         let _ = send_heartbeat(&ctx, &temper_api_url, tenant);
     }
     let typing_agent_id = fields
@@ -3522,8 +3543,7 @@ fn should_send_provider_typing_indicator(entity_id: &str, fields: &Value) -> boo
         return false;
     }
 
-    let reply_channel_type =
-        field_str(fields, &["reply_channel_type", "ReplyChannelType"]).trim();
+    let reply_channel_type = field_str(fields, &["reply_channel_type", "ReplyChannelType"]).trim();
     let reply_channel_type = reply_channel_type.to_ascii_lowercase();
     !matches!(reply_channel_type.as_str(), "cli" | "tui")
 }
@@ -3866,6 +3886,37 @@ mod tests {
     }
 
     #[test]
+    fn llm_success_span_attrs_include_datadog_output_messages() {
+        let attrs = llm_success_span_attributes(
+            "anthropic",
+            "claude-sonnet-4.6",
+            "end_turn",
+            120,
+            480,
+            40,
+            80,
+            2048,
+            &json!([
+                {"type": "text", "text": "The repair is complete."}
+            ]),
+        );
+
+        let output_messages = attrs["gen_ai.output.messages"]
+            .as_str()
+            .expect("gen_ai.output.messages should be a serialized JSON attribute");
+        let parsed: Value =
+            serde_json::from_str(output_messages).expect("output messages must be JSON");
+        assert_eq!(parsed[0]["role"], "assistant");
+        assert_eq!(parsed[0]["finish_reason"], "end_turn");
+        assert_eq!(parsed[0]["parts"][0]["content"], "The repair is complete.");
+        let legacy_completion: Value =
+            serde_json::from_str(attrs["gen_ai.completion"].as_str().unwrap())
+                .expect("legacy completion should remain JSON");
+        assert_eq!(legacy_completion[0]["type"], "text");
+        assert_eq!(legacy_completion[0]["text"], "The repair is complete.");
+    }
+
+    #[test]
     fn llm_span_hint_headers_use_datadog_genai_semconv() {
         let mut headers = Vec::new();
         append_llm_span_hint_headers(
@@ -3908,10 +3959,7 @@ mod tests {
             lookup("X-Temper-Span-Attr-gen_ai.conversation.id"),
             Some("session-123")
         );
-        assert_eq!(
-            lookup("X-Temper-Span-Attr-session_id"),
-            Some("session-123")
-        );
+        assert_eq!(lookup("X-Temper-Span-Attr-session_id"), Some("session-123"));
         assert_eq!(
             lookup("X-Temper-Span-Attr-tool.name"),
             Some("provider_caller")

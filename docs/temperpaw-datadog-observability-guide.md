@@ -322,6 +322,12 @@ workflow, SQL, and WASM phase spans show up in LLMObs as `No content` rows.
 Use LLMObs for agent/workflow/LLM/tool content and APM for the lower-level
 runtime trace.
 
+Provider LLM spans must include structured `gen_ai.input.messages`,
+`gen_ai.output.messages`, and `gen_ai.system_instructions` attributes. The
+provider success path also emits a `gen_ai.client.inference.operation.details`
+event with `gen_ai.output.messages` so Datadog can populate the LLMObs content
+view instead of rendering the provider response as `No content`.
+
 Final LLMObs proof:
 
 - Trace id: `123527112440865216744564245077429649188`
