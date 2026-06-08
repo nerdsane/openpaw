@@ -1317,6 +1317,19 @@ const LLM_MAX_TOKENS: u32 = 16384;
 /// host-level one (easier for operators reading traces to spot). Values
 /// are truncated on a UTF-8 boundary.
 const LLM_PROMPT_ATTR_MAX_BYTES: usize = 18 * 1024;
+const LLM_COMPLETION_ATTR_MAX_BYTES: usize = 18 * 1024;
+const LLM_ATTR_TRUNCATED_SUFFIX: &str = "…[truncated]";
+
+fn truncate_llm_span_attr(raw: &str, max_bytes: usize) -> String {
+    if raw.len() <= max_bytes {
+        return raw.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !raw.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}{}", &raw[..cut], LLM_ATTR_TRUNCATED_SUFFIX)
+}
 
 /// Serialize `system_prompt` + `messages` as a compact JSON object suitable
 /// for the `gen_ai.prompt` span attribute, truncating at a UTF-8 boundary
@@ -1334,14 +1347,14 @@ fn format_gen_ai_prompt_attr(system_prompt: &str, messages: &[Value]) -> String 
         })
     };
     let raw = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
-    if raw.len() <= LLM_PROMPT_ATTR_MAX_BYTES {
-        return raw;
-    }
-    let mut cut = LLM_PROMPT_ATTR_MAX_BYTES;
-    while cut > 0 && !raw.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    format!("{}…[truncated]", &raw[..cut])
+    truncate_llm_span_attr(&raw, LLM_PROMPT_ATTR_MAX_BYTES)
+}
+
+fn format_gen_ai_completion_attr(completion: &Value) -> String {
+    truncate_llm_span_attr(
+        &stringify_content(completion),
+        LLM_COMPLETION_ATTR_MAX_BYTES,
+    )
 }
 
 #[allow(dead_code)]
@@ -1483,6 +1496,7 @@ fn start_llm_guest_span(
 }
 
 fn finish_llm_guest_span_success(
+    ctx: &Context,
     span: &mut Option<WasmSpan>,
     provider: &str,
     model: &str,
@@ -1512,13 +1526,35 @@ fn finish_llm_guest_span_success(
                 .cloned()
                 .unwrap_or_else(|| json!("[]")),
         });
-        let _ = span.add_event(
-            "gen_ai.client.inference.operation.details",
-            &output_event_attrs,
+        log_llm_span_export_result(
+            ctx,
+            "add gen_ai.client.inference.operation.details",
+            span.add_event(
+                "gen_ai.client.inference.operation.details",
+                &output_event_attrs,
+            ),
         );
-        let _ = span.add_event("llm.response", &attrs);
-        let _ = span.set_attributes(&attrs);
-        let _ = span.end_ok(&json!({}));
+        log_llm_span_export_result(
+            ctx,
+            "add llm.response",
+            span.add_event("llm.response", &attrs),
+        );
+        log_llm_span_export_result(ctx, "set success attributes", span.set_attributes(&attrs));
+        log_llm_span_export_result(ctx, "end success", span.end_ok(&json!({})));
+    } else {
+        ctx.log(
+            "warn",
+            "provider_caller: LLM span success export skipped because no active span was available",
+        );
+    }
+}
+
+fn log_llm_span_export_result(ctx: &Context, operation: &str, result: Result<(), String>) {
+    if let Err(err) = result {
+        ctx.log(
+            "warn",
+            &format!("provider_caller: LLM span export failed operation={operation} error={err}"),
+        );
     }
 }
 
@@ -1543,7 +1579,7 @@ fn llm_success_span_attributes(
         "gen_ai.usage.cache_creation_input_tokens": cache_creation_input_tokens,
         "http.response.body.size": response_bytes,
         "gen_ai.output.messages": build_gen_ai_output_messages(completion, stop_reason),
-        "gen_ai.completion": stringify_content(completion),
+        "gen_ai.completion": format_gen_ai_completion_attr(completion),
     })
 }
 
@@ -1951,6 +1987,7 @@ fn call_anthropic(
     );
 
     finish_llm_guest_span_success(
+        ctx,
         &mut llm_span,
         "anthropic",
         model,
@@ -2246,6 +2283,7 @@ fn call_openrouter(
     );
 
     finish_llm_guest_span_success(
+        ctx,
         &mut llm_span,
         "openrouter",
         model,
@@ -2673,6 +2711,7 @@ fn call_openai(
     );
 
     finish_llm_guest_span_success(
+        ctx,
         &mut llm_span,
         provider,
         model,
@@ -3914,6 +3953,35 @@ mod tests {
                 .expect("legacy completion should remain JSON");
         assert_eq!(legacy_completion[0]["type"], "text");
         assert_eq!(legacy_completion[0]["text"], "The repair is complete.");
+    }
+
+    #[test]
+    fn llm_success_span_attrs_bound_legacy_completion() {
+        let big = "🎉".repeat(10 * 1024);
+        let attrs = llm_success_span_attributes(
+            "openai_codex",
+            "gpt-5.5",
+            "tool_use",
+            12_000,
+            4_000,
+            0,
+            0,
+            big.len(),
+            &json!([
+                {"type": "text", "text": big}
+            ]),
+        );
+
+        let completion = attrs["gen_ai.completion"]
+            .as_str()
+            .expect("legacy completion should remain a string attribute");
+        assert!(completion.ends_with("…[truncated]"));
+        assert!(
+            completion.len() <= LLM_COMPLETION_ATTR_MAX_BYTES + "…[truncated]".len(),
+            "completion attr length {} exceeded expected cap",
+            completion.len()
+        );
+        let _ = std::str::from_utf8(completion.as_bytes()).expect("must remain valid utf-8");
     }
 
     #[test]
