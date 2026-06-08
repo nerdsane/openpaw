@@ -24,7 +24,7 @@ COPY os-apps ./os-apps
 # catalog discovers them. Pin the default ref to the exact Katagami commit baked
 # into this image; callers may still override KATAGAMI_REF with a branch or tag.
 ARG KATAGAMI_REF=7b897e1a1af96ff61e7c15a201da41546570a43e
-ARG TEMPER_OBSERVABILITY_REV=5ee4429f45d8f2bcf48f1269e377ef79b2c5544c
+ARG TEMPER_OBSERVABILITY_REV=7f6c029d034200599b8d03688229ad4a316b3303
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
     && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
     && git init /tmp/katagami \
