@@ -24,7 +24,6 @@ fn run_provider_auth_gate() -> Result<(), String> {
 
     let auth_action = config_value(&ctx, "auth_action").unwrap_or("EnsureFresh");
     let temper_api_url = resolve_temper_api_url(&ctx, &fields);
-    let url = format!("{temper_api_url}{}", auth_endpoint_path(auth_action));
     let headers = runtime_headers_as(
         &ctx,
         &ctx.tenant,
@@ -33,6 +32,30 @@ fn run_provider_auth_gate() -> Result<(), String> {
         Some("application/json"),
         Some("application/json"),
     );
+
+    if auth_action == "EnsureFresh" {
+        let status_url = format!("{temper_api_url}/paw/setup/openai-codex/status");
+        let resp = ctx.http_call("GET", &status_url, &headers, "")?;
+        if (200..300).contains(&resp.status) {
+            let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
+            let status = codex_auth_status_value(&parsed).unwrap_or("");
+            if codex_auth_status_allows_provider_call(&parsed) {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "provider_auth_gate: OpenAICodexAuth status is {status}; skipping EnsureFresh"
+                    ),
+                );
+                set_success_result(ready_action, &ready_params(&fields, status, ""));
+                return Ok(());
+            }
+            if let Some(error) = codex_auth_status_blocks_before_dispatch(&parsed) {
+                return Err(error);
+            }
+        }
+    }
+
+    let url = format!("{temper_api_url}{}", auth_endpoint_path(auth_action));
 
     ctx.log(
         "info",
@@ -48,19 +71,9 @@ fn run_provider_auth_gate() -> Result<(), String> {
     }
 
     let parsed: Value = serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({}));
-    let status = parsed
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("Ready");
-    if status.eq_ignore_ascii_case("failed") {
-        let error = parsed
-            .get("last_error")
-            .or_else(|| parsed.get("error"))
-            .and_then(Value::as_str)
-            .unwrap_or("OpenAI Codex auth failed");
-        return Err(format!(
-            "{error}. OpenAI Codex sign-in is required; start the Codex device login again."
-        ));
+    let status = codex_auth_status_value(&parsed).unwrap_or("Ready");
+    if let Some(error) = codex_auth_status_error(&parsed) {
+        return Err(error);
     }
 
     set_success_result(ready_action, &ready_params(&fields, status, ""));
@@ -98,6 +111,100 @@ fn auth_endpoint_path(auth_action: &str) -> &'static str {
         "ForceRefresh" => "/paw/setup/openai-codex/force-refresh",
         "Refresh" => "/paw/setup/openai-codex/refresh",
         _ => "/paw/setup/openai-codex/ensure-fresh",
+    }
+}
+
+fn codex_auth_status_value(parsed: &Value) -> Option<&str> {
+    parsed
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|status| !status.trim().is_empty())
+}
+
+fn codex_auth_status_error(parsed: &Value) -> Option<String> {
+    if codex_auth_status_allows_provider_call(parsed) {
+        return None;
+    }
+
+    let status = codex_auth_status_value(parsed).unwrap_or("missing");
+    let detail = parsed
+        .get("last_error")
+        .or_else(|| parsed.get("error"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+
+    if status.eq_ignore_ascii_case("failed") {
+        let error = detail.unwrap_or("OpenAI Codex auth failed");
+        return Some(format!("{error}. {}", codex_auth_login_guidance(parsed)));
+    }
+
+    if matches!(
+        status.to_ascii_lowercase().as_str(),
+        "starting" | "devicecodeready" | "polling" | "refreshing" | "disconnected" | "idle"
+    ) {
+        return Some(format!(
+            "OpenAI Codex sign-in is required before calling the provider; auth status is {status}. {}",
+            codex_auth_login_guidance(parsed)
+        ));
+    }
+
+    Some(format!(
+        "OpenAI Codex auth returned status {status}; OpenAI Codex sign-in is required. {}",
+        codex_auth_login_guidance(parsed)
+    ))
+}
+
+fn codex_auth_status_allows_provider_call(parsed: &Value) -> bool {
+    let status = codex_auth_status_value(parsed).unwrap_or("");
+    if status.eq_ignore_ascii_case("ready") {
+        return true;
+    }
+    status.eq_ignore_ascii_case("refreshing") && codex_auth_status_is_configured(parsed)
+}
+
+fn codex_auth_status_is_configured(parsed: &Value) -> bool {
+    parsed
+        .get("configured")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn codex_auth_status_blocks_before_dispatch(parsed: &Value) -> Option<String> {
+    if codex_auth_status_allows_provider_call(parsed) {
+        return None;
+    }
+    let status = codex_auth_status_value(parsed)?;
+    if matches!(
+        status.to_ascii_lowercase().as_str(),
+        "starting" | "devicecodeready" | "polling" | "refreshing" | "disconnected"
+    ) {
+        return codex_auth_status_error(parsed);
+    }
+    None
+}
+
+fn codex_auth_login_guidance(parsed: &Value) -> String {
+    let verification_url = parsed
+        .get("verification_uri")
+        .or_else(|| parsed.get("verification_url"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+    let user_code = parsed
+        .get("user_code")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+
+    match (verification_url, user_code) {
+        (Some(url), Some(code)) => format!(
+            "In Discord, DM the bot `codex auth`, open {url}, enter code {code}, then reply `codex auth done`."
+        ),
+        (Some(url), None) => format!(
+            "In Discord, DM the bot `codex auth`, open {url}, complete sign-in, then reply `codex auth done`."
+        ),
+        (None, Some(code)) => format!(
+            "In Discord, DM the bot `codex auth`, enter code {code} at the device-login page, then reply `codex auth done`."
+        ),
+        (None, None) => "In Discord, DM the bot `codex auth`, complete the device login, then reply `codex auth done`.".to_string(),
     }
 }
 
@@ -183,5 +290,41 @@ mod tests {
                 .and_then(Value::as_i64),
             Some(2)
         );
+    }
+
+    #[test]
+    fn configured_refreshing_codex_auth_allows_provider_calls() {
+        let status = json!({
+            "status": "Refreshing",
+            "configured": true
+        });
+
+        assert!(codex_auth_status_allows_provider_call(&status));
+        assert!(codex_auth_status_error(&status).is_none());
+    }
+
+    #[test]
+    fn device_code_codex_auth_blocks_with_discord_guidance() {
+        let status = json!({
+            "status": "DeviceCodeReady",
+            "configured": false,
+            "verification_uri": "https://microsoft.com/devicelogin",
+            "user_code": "ABCD-EFGH"
+        });
+
+        let error = codex_auth_status_error(&status).expect("device code should block");
+        assert!(error.contains("DM the bot"));
+        assert!(error.contains("ABCD-EFGH"));
+        assert!(error.contains("https://microsoft.com/devicelogin"));
+    }
+
+    #[test]
+    fn unconfigured_refreshing_codex_auth_blocks_before_dispatch() {
+        let status = json!({
+            "status": "Refreshing",
+            "configured": false
+        });
+
+        assert!(codex_auth_status_blocks_before_dispatch(&status).is_some());
     }
 }
