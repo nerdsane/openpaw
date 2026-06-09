@@ -2093,15 +2093,26 @@ fn publish_or_update_app_via_git(
         owner,
         name
     );
+    let git_header_key = format!(
+        "http.{}/.extraHeader",
+        registry_url.trim_end_matches('/')
+    );
+    let git_tenant_header = format!("X-Tenant-Id: {registry_tenant}");
     let command = format!(
         "set -euo pipefail\n\
          cd {}\n\
          if [ ! -d .git ]; then git init -b main >/dev/null 2>&1 || (git init >/dev/null && git checkout -B main >/dev/null); fi\n\
+         git config --unset-all {} >/dev/null 2>&1 || true\n\
+         git config --add {} {}\n\
+         git config protocol.version 0\n\
          git add .\n\
          if ! git diff --cached --quiet; then git -c user.name={} -c user.email={} commit -m {} >/dev/null; fi\n\
          git push {} HEAD:main\n\
          git rev-parse HEAD",
         shell_quote(path),
+        shell_quote(&git_header_key),
+        shell_quote(&git_header_key),
+        shell_quote(&git_tenant_header),
         shell_quote("TemperPaw Agent"),
         shell_quote("agent@temperpaw.local"),
         shell_quote(message),

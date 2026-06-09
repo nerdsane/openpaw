@@ -106,6 +106,9 @@ fn paw_agent_publishes_apps_through_canonical_genesis_actions() {
         "Temper.Git.PublishNewVersion",
         "verify_genesis_latest_hash",
         "\"verified_latest\": true",
+        "http.{}/.extraHeader",
+        "X-Tenant-Id: {registry_tenant}",
+        "git config protocol.version 0",
     ] {
         assert!(
             combined.contains(required),
