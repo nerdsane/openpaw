@@ -1479,6 +1479,7 @@ fn railway_datadog_runtime_agent_product_coverage_is_documented_and_deployable()
         "DD_TRACE_AGENT_URL=http://datadog-runtime-agent.railway.internal:8126",
         "DD_LLMOBS_ENABLED=true",
         "DD_LLMOBS_API_ENABLED=true",
+        "OTEL_RESOURCE_ATTRIBUTES=service.name=temperpaw,deployment.environment=prod,dd_llmobs_enabled=false",
         "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
         "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
     ] {
@@ -1499,6 +1500,7 @@ fn railway_datadog_runtime_agent_product_coverage_is_documented_and_deployable()
         "No Linux Compose",
         "No Kubernetes",
         "No database migration",
+        "dd_llmobs_enabled=false",
     ] {
         assert!(
             adr.contains(required),
@@ -1512,6 +1514,7 @@ fn railway_datadog_runtime_agent_product_coverage_is_documented_and_deployable()
         "blocked-on-Railway-system-probe",
         "blocked-on-Railway-perf-permissions",
         "on-demand profiling remains supported",
+        "dd_llmobs_enabled=false",
     ] {
         assert!(
             guide.contains(required),
@@ -1622,6 +1625,8 @@ fn setup_api_can_ensure_railway_datadog_runtime_agent_without_exposing_tokens() 
         "TEMPER_DATADOG_RAILWAY_PROFILE",
         "datadog-enhanced-railway",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "dd_llmobs_enabled=false",
         "DD_TRACE_AGENT_URL",
         "DD_LLMOBS_ENABLED",
         "DD_LLMOBS_API_ENABLED",

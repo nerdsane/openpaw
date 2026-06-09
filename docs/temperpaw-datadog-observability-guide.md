@@ -80,7 +80,9 @@ Railway production has two supported observability profiles:
   `http://datadog-runtime-agent.railway.internal:4318`, sends Datadog trace
   client traffic to
   `http://datadog-runtime-agent.railway.internal:8126`, and enables direct
-  LLMObs export with `DD_LLMOBS_API_ENABLED=true`.
+  LLMObs export with `DD_LLMOBS_API_ENABLED=true`. It also includes
+  `dd_llmobs_enabled=false` in `OTEL_RESOURCE_ATTRIBUTES` so Datadog keeps OTLP
+  spans in APM instead of auto-converting them into duplicate LLMObs rows.
 - `portable-otel` keeps the existing `otel-collector` route as the fallback for
   non-Datadog and recovery deployments.
 
