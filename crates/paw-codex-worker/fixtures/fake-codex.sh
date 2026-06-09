@@ -17,10 +17,11 @@ while [ "$#" -gt 0 ]; do
     --dangerously-bypass-approvals-and-sandbox|--ignore-user-config|--ephemeral)
       shift
       ;;
-    --sandbox)
+    --sandbox|-c|--config)
+      option="$1"
       shift
       if [ "$#" -eq 0 ]; then
-        echo "--sandbox requires a value" >&2
+        echo "$option requires a value" >&2
         exit 2
       fi
       shift
