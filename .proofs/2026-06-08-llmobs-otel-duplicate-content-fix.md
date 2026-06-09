@@ -27,6 +27,7 @@ input/output content in the LLMObs UI.
   `deployment.environment=prod`.
 - Apply the same boundary in the deploy CLI, governed Railway setup API, and
   governed Railway redeploy endpoint.
+- Apply the same boundary in the manual GitHub `railway-redeploy` workflow.
 - ADR: `docs/adrs/0064-llmobs-direct-api-export-boundary.md`.
 
 ## Red-Green Evidence
@@ -39,6 +40,13 @@ input/output content in the LLMObs UI.
 - Green: `cargo test -p temperpaw-cli deploy::tests` passed 21 tests.
 - Green:
   `cargo test -p temperpaw --test temperpaw_identity_contract railway_redeploy_uses_current_deployment_api`
+  passed.
+- Red: expanded
+  `manual_railway_redeploy_workflow_is_secret_backed_and_version_proven` to
+  require the OTEL resource boundary; it failed before the workflow upsert was
+  added.
+- Green:
+  `cargo test -p temperpaw --test temperpaw_identity_contract manual_railway_redeploy_workflow_is_secret_backed_and_version_proven`
   passed.
 - Green:
   `cargo test -p temperpaw datadog_enhanced_app_vars_disable_otel_llmobs_auto_conversion`
