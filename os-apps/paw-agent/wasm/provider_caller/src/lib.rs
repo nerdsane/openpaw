@@ -1378,6 +1378,10 @@ fn append_llm_span_hint_headers(
         "chat".to_string(),
     ));
     headers.push((
+        "X-Temper-Span-Attr-dd_llmobs_enabled".to_string(),
+        "false".to_string(),
+    ));
+    headers.push((
         "X-Temper-Span-Attr-gen_ai.provider.name".to_string(),
         provider.to_string(),
     ));
@@ -4010,6 +4014,10 @@ mod tests {
         assert_eq!(
             lookup("X-Temper-Span-Attr-gen_ai.operation.name"),
             Some("chat")
+        );
+        assert_eq!(
+            lookup("X-Temper-Span-Attr-dd_llmobs_enabled"),
+            Some("false")
         );
         assert_eq!(
             lookup("X-Temper-Span-Attr-gen_ai.provider.name"),
