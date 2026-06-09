@@ -19,7 +19,7 @@ fn directed_evolution_prompt(work_item: &DirectedEvolutionWorkItemState) -> Stri
             "Run deterministic state/spec verification against the variant. Use specs, CSDL, Cedar, runtime state, and transition checks rather than subjective judgment. Return pass/fail, provenance_kind=state-verified, metrics, decision_basis, and concrete evidence."
         }
         "telemetry_evaluator" => {
-            "Evaluate Datadog telemetry evidence for the variant. Datadog is the primary judging surface: query logs for service:temper-platform \"directed evolution runtime request\" scoped by directed_evolution.episode_id, directed_evolution.variant_id, and the runtime tenant parsed from RuntimeRef. Do not require directed_evolution.runtime_ref unless Datadog field discovery proves it is indexed for these logs. Return top-level provenance_kind=datadog-measured. The first evidence_scope item must include surface=logs, the exact Datadog query, time_window, result_count, interpretation, zero_result_meaning, and a Datadog URL. Zero matching runtime-request logs is failure for this stage; runtime OData probes may be supporting evidence but must not replace Datadog."
+            "Evaluate Datadog telemetry evidence for the variant. Datadog is the primary judging surface: query runtime app-usage logs and traces for the runtime service/tenant parsed from RuntimeRef. Scope by the generic Temper observation metadata emitted by the runtime, for example observation_metadata containing de.episode_id/de.variant_id in logs or temper.observation.de.* attributes in traces. Do not require a producer-specific field unless Datadog field discovery proves it is indexed. Return top-level provenance_kind=datadog-measured. The first evidence_scope item must include surface=logs|traces, the exact Datadog query, time_window, result_count, interpretation, zero_result_meaning, and a Datadog URL. Zero matching runtime app-usage telemetry is failure for this stage; runtime OData probes may be supporting evidence but must not replace Datadog."
         }
         "wasm_evaluator" => {
             "Run or inspect the pinned deterministic evaluator bundle for this stage. Do not let the variant alter the evaluator judging it. Return pass/fail, provenance_kind=wasm-computed, metrics, evaluator inputs, and evidence."
@@ -144,8 +144,8 @@ fn directed_evolution_output_contract(role: &str) -> &'static str {
   "provenance_kind": "datadog-measured",
   "metrics": {"runtime_request_log_count":{"value":0,"unit":"logs","provenance_kind":"datadog-measured","interpretation":"..."}},
   "decision_basis": {"why":"Datadog query result is the pass/fail source; runtime OData probes are supporting only.","tradeoffs":["Do not over-scope by runtime_ref unless field discovery shows it is indexed."]},
-  "inputs": {"telemetry":["Datadog logs query scoped by directed_evolution episode, variant, and tenant fields"],"observations":[],"state":[]},
-  "evidence_scope": [{"surface":"logs","query":"service:temper-platform \"directed evolution runtime request\" ...","time_window":"...","result_count":1,"interpretation":"...","zero_result_meaning":"failure","datadog_url":"https://app.datadoghq.com/logs?query=..."}],
+  "inputs": {"telemetry":["Datadog logs/traces query scoped by Temper observation metadata and runtime tenant"],"observations":[],"state":[]},
+  "evidence_scope": [{"surface":"logs|traces","query":"service:temperpaw @tenant:<runtime-tenant> \"app usage:\" @observation_metadata:*de.variant_id* ...","time_window":"...","result_count":1,"interpretation":"...","zero_result_meaning":"failure","datadog_url":"https://app.datadoghq.com/logs?query=..."}],
   "evidence_refs": ["..."],
   "reasoning_summary": "..."
 }"#

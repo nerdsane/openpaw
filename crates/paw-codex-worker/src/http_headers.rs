@@ -50,6 +50,24 @@ fn event_stream_headers(config: &Config) -> Result<HeaderMap> {
         "x-tenant-id",
         HeaderValue::from_str(&config.tenant).context("invalid TEMPER_TENANT")?,
     );
+    if let Ok(kind) = env::var("PAW_CODEX_EVENT_STREAM_PRINCIPAL_KIND")
+        && !kind.trim().is_empty()
+    {
+        let principal_id = env::var("PAW_CODEX_EVENT_STREAM_PRINCIPAL_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| config.worker_id.clone());
+        headers.insert(
+            "x-temper-principal-kind",
+            HeaderValue::from_str(kind.trim())
+                .context("invalid PAW_CODEX_EVENT_STREAM_PRINCIPAL_KIND")?,
+        );
+        headers.insert(
+            "x-temper-principal-id",
+            HeaderValue::from_str(principal_id.trim())
+                .context("invalid PAW_CODEX_EVENT_STREAM_PRINCIPAL_ID")?,
+        );
+    }
     if let Some(token) = &config.worker_token {
         headers.insert(
             AUTHORIZATION,

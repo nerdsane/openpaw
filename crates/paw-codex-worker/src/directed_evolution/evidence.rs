@@ -305,6 +305,10 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
         }
     }
     let query = query_parts.join(" ");
+    let runtime_observation_query = format!(
+        "service:{service} env:{env_name} \"app usage:\" @observation_metadata:*{}*",
+        work_item.id
+    );
     json!({
         "service": service,
         "env": env_name,
@@ -318,6 +322,11 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
         "logs_url": format!(
             "https://app.{site}/logs?query={}",
             encode_url_component(&query)
+        ),
+        "runtime_observation_query": runtime_observation_query,
+        "runtime_observation_logs_url": format!(
+            "https://app.{site}/logs?query={}",
+            encode_url_component(&runtime_observation_query)
         ),
     })
 }

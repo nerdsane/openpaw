@@ -248,26 +248,17 @@ fn recovered_stage_prompt(args: RecoveredStagePrompt<'_>) -> String {
     let runtime_ref = value_field_string(args.variant_fields, &["RuntimeRef", "runtime_ref"]);
     let variant_summary = value_field_string(args.variant_fields, &["Summary", "summary"]);
     let trial_context = recovered_trial_context(args.trials, args.variant_id);
-    let header_block = format!(
-        concat!(
-            "x-de-episode-id: {episode_id}\n",
-            "x-de-generation-id: {generation_id}\n",
-            "x-de-variant-id: {variant_id}\n",
-            "x-de-stage-id: {stage_id}\n",
-            "x-de-stage-result-id: {stage_result_id}\n",
-            "x-de-work-item-id: {work_item_id}\n",
-            "x-de-runtime-ref: {runtime_ref}\n",
-            "x-de-app-ref: {app_ref}",
-        ),
-        episode_id = args.episode_id,
-        generation_id = args.generation_id,
-        variant_id = args.variant_id,
-        stage_id = args.stage_id,
-        stage_result_id = args.stage_result_id,
-        work_item_id = args.work_item_id,
-        runtime_ref = runtime_ref,
-        app_ref = app_ref
-    );
+    let header_metadata = serde_json::json!({
+        "de.episode_id": args.episode_id,
+        "de.generation_id": args.generation_id,
+        "de.variant_id": args.variant_id,
+        "de.stage_id": args.stage_id,
+        "de.stage_result_id": args.stage_result_id,
+        "de.work_item_id": args.work_item_id,
+        "de.runtime_ref": runtime_ref,
+        "de.app_ref": app_ref,
+    });
+    let header_block = format!("X-Temper-Observe-Metadata: {header_metadata}");
 
     if args.role == "telemetry_evaluator" {
         return format!(
