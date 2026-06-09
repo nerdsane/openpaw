@@ -474,6 +474,7 @@ async fn bootstrap_configured_genesis_apps(
                 app_ref: app_ref.clone(),
                 registry_url: registry_url.clone(),
                 registry_tenant: registry_tenant.clone(),
+                follow_policy: "pinned".to_string(),
             },
         )
         .await

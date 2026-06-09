@@ -302,7 +302,7 @@ Use this when an app already exists in Genesis.
 ```python
 apps = temper.search_apps({"query": "research"})
 app_ref = apps["apps"][0]["app_ref"]
-temper.install_app({"app_ref": app_ref, "reason": "Need web search capability"})
+temper.install_app({"app_ref": app_ref, "follow_policy": "pinned", "reason": "Need web search capability"})
 ```
 
 The platform materializes the pinned Genesis closure, installs dependencies
@@ -323,7 +323,7 @@ new_ref = temper.update_app({
     "message": "Fix quality review behavior"
 })
 
-temper.install_app({"app_ref": new_ref, "reason": "Install repaired app"})
+temper.install_app({"app_ref": new_ref, "follow_policy": "pinned", "reason": "Install repaired app"})
 ```
 
 Verify the broken entity/action after install. A repair is a new version of the

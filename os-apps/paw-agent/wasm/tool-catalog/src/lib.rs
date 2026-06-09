@@ -211,8 +211,8 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
     ReplMethodSpec {
         object: "temper",
         method: "install_app",
-        signature: "({app_ref, tenant?, registry_url?, registry_tenant?, reason?})",
-        description: "install a pinned Genesis app ref into this Temper instance",
+        signature: "({app_ref, tenant?, registry_url?, registry_tenant?, follow_policy?, reason?})",
+        description: "install a pinned Genesis app ref into this Temper instance; default follow_policy is pinned",
         token: Some("temper_install_app"),
     },
     ReplMethodSpec {
@@ -226,14 +226,14 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "publish_app",
         signature: "({path, owner, name, registry_url?, registry_tenant?, message?})",
-        description: "publish an app directory to Genesis, advance the registry, and return owner/name@hash",
+        description: "publish app bytes to Genesis through Temper.Git.RegisterNewApp/PublishNewVersion, verify latest, and return owner/name@hash",
         token: Some("temper_publish_app"),
     },
     ReplMethodSpec {
         object: "temper",
         method: "update_app",
         signature: "({path, app_ref_or_name, registry_url?, registry_tenant?, message?})",
-        description: "push a new Genesis app version, advance the registry, and return owner/name@hash",
+        description: "push a new Genesis app version through Temper.Git.PublishNewVersion, verify latest, and return owner/name@hash",
         token: Some("temper_update_app"),
     },
     ReplMethodSpec {

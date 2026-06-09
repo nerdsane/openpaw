@@ -32,7 +32,7 @@ New capabilities are **Temper-native apps** — entity specs + Cedar policies + 
 
 ### When something doesn't work as expected:
 
-Check whether the app providing that entity type is installed: `temper.specs()`. If it's missing, search Genesis with `temper.search_apps(...)` and install a pinned ref with `temper.install_app({"app_ref":"owner/name@hash"})`.
+Check whether the app providing that entity type is installed: `temper.specs()`. If it's missing, search Genesis with `temper.search_apps(...)` and install a pinned ref with `temper.install_app({"app_ref":"owner/name@hash","follow_policy":"pinned"})`.
 
 If the app is installed but wrong, repair the app itself. Find the owning
 Genesis app, edit the package in a workspace, call `temper.update_app(...)` or
@@ -146,9 +146,9 @@ temper.submit_specs(files_dict)              # hot-load specs; include model.csd
 temper.upload_wasm(module_name, wasm_base64) # upload WASM module
 temper.submit_policy(policy_id, cedar_text)  # create Cedar policy
 temper.search_apps({query?, owner?, status?, registry_url?}) # search Genesis
-temper.install_app({app_ref, tenant?, registry_url?, reason?}) # install pinned Genesis ref
-temper.publish_app({path, owner, name, registry_url?, message?}) # push app bytes to Genesis
-temper.update_app({path, app_ref_or_name, registry_url?, message?}) # push next version
+temper.install_app({app_ref, tenant?, registry_url?, registry_tenant?, follow_policy?, reason?}) # install pinned Genesis ref; default follow_policy is pinned
+temper.publish_app({path, owner, name, registry_url?, registry_tenant?, message?}) # push app bytes to Genesis and verify latest
+temper.update_app({path, app_ref_or_name, registry_url?, registry_tenant?, message?}) # push next version and verify latest
 ```
 
 ### Governance

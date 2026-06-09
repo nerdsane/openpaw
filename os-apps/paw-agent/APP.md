@@ -56,4 +56,4 @@ Plan entity with review workflow. Worker creates, lead reviews, human escalation
 
 ## Setup
 
-Depends on `paw-fs` for file storage (soul content, agent instructions). Install from Genesis with a pinned ref such as `temper.install_app({"app_ref":"temperpaw/paw-agent@HASH"})`.
+Depends on `paw-fs` for file storage (soul content, agent instructions). Install from Genesis with a pinned ref such as `temper.install_app({"app_ref":"temperpaw/paw-agent@HASH","follow_policy":"pinned"})`.
