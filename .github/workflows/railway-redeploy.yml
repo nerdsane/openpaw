@@ -164,6 +164,9 @@ jobs:
             upsert_var BUILD_SHA "${EXPECTED_SHA}"
             upsert_var BUILD_VERSION "${build_version}"
             upsert_var DD_VERSION "${build_version}"
+            upsert_var OTEL_RESOURCE_ATTRIBUTES "service.name=temperpaw,service.version=${build_version},deployment.environment=prod,dd_llmobs_enabled=false"
+          else
+            upsert_var OTEL_RESOURCE_ATTRIBUTES "service.name=temperpaw,deployment.environment=prod,dd_llmobs_enabled=false"
           fi
 
       - name: Find current Railway deployment

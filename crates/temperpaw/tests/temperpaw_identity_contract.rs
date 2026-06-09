@@ -526,6 +526,8 @@ fn manual_railway_redeploy_workflow_is_secret_backed_and_version_proven() {
         "BUILD_SHA",
         "BUILD_VERSION",
         "DD_VERSION",
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "dd_llmobs_enabled=false",
         "sha-${EXPECTED_SHA:0:8}",
         "run_artifact_batch_e2e",
         "scripts/production_artifact_batch_e2e.sh",
