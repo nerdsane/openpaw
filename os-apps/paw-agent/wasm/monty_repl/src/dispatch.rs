@@ -2093,6 +2093,14 @@ fn publish_or_update_app_via_git(
         owner,
         name
     );
+    let app_url = format!(
+        "{}/tdata/Apps('{}')",
+        registry_url.trim_end_matches('/'),
+        escape_odata_key(&app_id_for(owner, name))
+    );
+    let headers = genesis_registry_headers(registry_tenant);
+    let existing_latest_hash =
+        fetch_genesis_latest_hash(ctx, &app_url, &headers, owner, name).unwrap_or_default();
     let git_header_key = format!(
         "http.{}/.extraHeader",
         registry_url.trim_end_matches('/')
@@ -2100,22 +2108,46 @@ fn publish_or_update_app_via_git(
     let git_tenant_header = format!("X-Tenant-Id: {registry_tenant}");
     let command = format!(
         "set -euo pipefail\n\
-         cd {}\n\
-         if [ ! -d .git ]; then git init -b main >/dev/null 2>&1 || (git init >/dev/null && git checkout -B main >/dev/null); fi\n\
+         source_dir={}\n\
+         publish_dir=$(mktemp -d)\n\
+         cleanup() {{ rm -rf \"$publish_dir\"; }}\n\
+         trap cleanup EXIT\n\
+         if ! git -c {}={} -c protocol.version=0 clone {} \"$publish_dir\" >/dev/null 2>&1; then\n\
+           git init -b main \"$publish_dir\" >/dev/null 2>&1 || (git init \"$publish_dir\" >/dev/null && git -C \"$publish_dir\" checkout -B main >/dev/null)\n\
+           git -C \"$publish_dir\" remote add origin {}\n\
+         fi\n\
+         find \"$publish_dir\" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {{}} +\n\
+         (cd \"$source_dir\" && tar --exclude=.git --exclude=target --exclude=__pycache__ --exclude='*.py[co]' --exclude=.pytest_cache -cf - .) | (cd \"$publish_dir\" && tar -xf -)\n\
+         find \"$publish_dir\" -type d \\( -name target -o -name __pycache__ -o -name .pytest_cache \\) -prune -exec rm -rf {{}} +\n\
+         find \"$publish_dir\" -type f \\( -name '*.pyc' -o -name '*.pyo' \\) -delete\n\
+         cd \"$publish_dir\"\n\
          git config --unset-all {} >/dev/null 2>&1 || true\n\
          git config --add {} {}\n\
          git config protocol.version 0\n\
          git add .\n\
          if ! git diff --cached --quiet; then git -c user.name={} -c user.email={} commit -m {} >/dev/null; fi\n\
-         git push {} HEAD:main\n\
+         if ! git push {} HEAD:main; then\n\
+           existing_hash={}\n\
+           if [ -n \"$existing_hash\" ] && ! git rev-parse --verify refs/remotes/origin/main >/dev/null 2>&1; then\n\
+             git push --force-with-lease=refs/heads/main:$existing_hash {} HEAD:main\n\
+           else\n\
+             exit 1\n\
+           fi\n\
+         fi\n\
          git rev-parse HEAD",
         shell_quote(path),
+        shell_quote(&git_header_key),
+        shell_quote(&git_tenant_header),
+        shell_quote(&remote),
+        shell_quote(&remote),
         shell_quote(&git_header_key),
         shell_quote(&git_header_key),
         shell_quote(&git_tenant_header),
         shell_quote("TemperPaw Agent"),
         shell_quote("agent@temperpaw.local"),
         shell_quote(message),
+        shell_quote(&remote),
+        shell_quote(&existing_latest_hash),
         shell_quote(&remote),
     );
     let result = wasm_helpers::sandbox::sandbox_exec(ctx, &handle, &command, workdir)?;

@@ -109,6 +109,9 @@ fn paw_agent_publishes_apps_through_canonical_genesis_actions() {
         "http.{}/.extraHeader",
         "X-Tenant-Id: {registry_tenant}",
         "git config protocol.version 0",
+        "git -c {}={} -c protocol.version=0 clone",
+        "tar --exclude=.git --exclude=target",
+        "--force-with-lease=refs/heads/main:$existing_hash",
     ] {
         assert!(
             combined.contains(required),
