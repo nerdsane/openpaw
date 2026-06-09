@@ -2152,6 +2152,7 @@ fn datadog_enhanced_app_railway_vars(
     } else {
         build_sha.to_string()
     };
+    let otel_resource_attributes = datadog_app_otel_resource_attributes(&version);
 
     vec![
         ("DD_API_KEY", dd_api_key.to_string()),
@@ -2168,6 +2169,7 @@ fn datadog_enhanced_app_railway_vars(
         ),
         ("DD_LLMOBS_ENABLED", "true".to_string()),
         ("DD_LLMOBS_API_ENABLED", "true".to_string()),
+        ("OTEL_RESOURCE_ATTRIBUTES", otel_resource_attributes),
         (
             "OTEL_EXPORTER_OTLP_ENDPOINT",
             format!("http://{DATADOG_RUNTIME_AGENT_HOST}:4318"),
@@ -2179,6 +2181,12 @@ fn datadog_enhanced_app_railway_vars(
             format!("http://{DATADOG_RUNTIME_AGENT_HOST}:8126"),
         ),
     ]
+}
+
+fn datadog_app_otel_resource_attributes(version: &str) -> String {
+    format!(
+        "service.name=temperpaw,service.version={version},deployment.environment=prod,dd_llmobs_enabled=false"
+    )
 }
 
 async fn railway_find_service_by_name(
@@ -2594,6 +2602,10 @@ async fn railway_redeploy(
             ("BUILD_SHA", build_sha.clone()),
             ("BUILD_VERSION", build_version.clone()),
             ("DD_VERSION", build_version.clone()),
+            (
+                "OTEL_RESOURCE_ATTRIBUTES",
+                datadog_app_otel_resource_attributes(build_version),
+            ),
         ],
         _ => Vec::new(),
     };
@@ -3449,6 +3461,20 @@ mod tests {
         assert!(
             !app_tags.contains(','),
             "TemperPaw app DD_TAGS must also remain whitespace-safe"
+        );
+    }
+
+    #[test]
+    fn datadog_enhanced_app_vars_disable_otel_llmobs_auto_conversion() {
+        let app_vars = datadog_enhanced_app_railway_vars("api-key", "datadoghq.com", "build-sha");
+        let resource_attributes = app_vars
+            .iter()
+            .find_map(|(name, value)| (*name == "OTEL_RESOURCE_ATTRIBUTES").then_some(value))
+            .expect("enhanced Datadog app vars must set OTEL_RESOURCE_ATTRIBUTES");
+
+        assert_eq!(
+            resource_attributes,
+            "service.name=temperpaw,service.version=build-sha,deployment.environment=prod,dd_llmobs_enabled=false"
         );
     }
 

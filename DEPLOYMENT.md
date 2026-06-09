@@ -231,6 +231,7 @@ Turso remains available only as an explicit legacy mode by setting
 | `DD_AGENT_HOST` | `datadog-runtime-agent.railway.internal` in Datadog-enhanced Railway mode |
 | `DD_TRACE_AGENT_URL` | `http://datadog-runtime-agent.railway.internal:8126` in Datadog-enhanced Railway mode |
 | `DD_LLMOBS_API_ENABLED` | Enables direct Datadog LLMObs export when runtime OTLP bypasses the collector |
+| `OTEL_RESOURCE_ATTRIBUTES` | Includes service identity plus `dd_llmobs_enabled=false` in Datadog-enhanced Railway mode so APM OTLP spans remain in APM while direct LLMObs API spans are the only LLMObs source |
 | `DD_API_KEY` | Datadog API key (set on `temperpaw`, `datadog-runtime-agent`, and Datadog collector/DBM services when enabled) |
 | `DD_SITE` | Datadog site (e.g., `datadoghq.com`) |
 

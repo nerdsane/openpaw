@@ -91,6 +91,10 @@ fn datadog_runtime_variables(
         variables.push("DD_LLMOBS_ENABLED=true".to_string());
         variables.push("DD_LLMOBS_API_ENABLED=true".to_string());
         variables.push(
+            "OTEL_RESOURCE_ATTRIBUTES=service.name=temperpaw,deployment.environment=prod,dd_llmobs_enabled=false"
+                .to_string(),
+        );
+        variables.push(
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318"
                 .to_string(),
         );
@@ -2332,6 +2336,7 @@ mod tests {
             "TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway",
             "DD_LLMOBS_ENABLED=true",
             "DD_LLMOBS_API_ENABLED=true",
+            "OTEL_RESOURCE_ATTRIBUTES=service.name=temperpaw,deployment.environment=prod,dd_llmobs_enabled=false",
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-runtime-agent.railway.internal:4318",
             "DD_AGENT_HOST=datadog-runtime-agent.railway.internal",
             "DD_TRACE_AGENT_PORT=8126",

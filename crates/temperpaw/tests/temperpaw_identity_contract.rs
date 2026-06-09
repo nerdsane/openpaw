@@ -489,6 +489,8 @@ fn railway_redeploy_uses_current_deployment_api() {
         "BUILD_SHA",
         "BUILD_VERSION",
         "DD_VERSION",
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "datadog_app_otel_resource_attributes(build_version)",
         "deployment_runtime_vars",
     ] {
         assert!(

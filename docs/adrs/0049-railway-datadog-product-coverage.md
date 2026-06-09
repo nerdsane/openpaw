@@ -48,12 +48,18 @@ DD_ENV=prod
 DD_VERSION=<build sha>
 TEMPER_DATADOG_RAILWAY_PROFILE=datadog-enhanced-railway
 DD_LLMOBS_API_ENABLED=true
+OTEL_RESOURCE_ATTRIBUTES=service.name=temperpaw,service.version=<build version>,deployment.environment=prod,dd_llmobs_enabled=false
 ```
 
 The Runtime Agent enables APM intake, OTLP HTTP and gRPC ingest, log intake, the
 process Agent, unified service tags, and Datadog trace intake. The existing
 `otel-collector` remains deployed as the `portable-otel` fallback path and as
 the explicit non-Datadog mode.
+
+LLMObs in Datadog-enhanced Railway mode is sourced from Temper's direct LLMObs
+API exporter. OTLP spans still go to the Runtime Agent for APM, but the app sets
+`dd_llmobs_enabled=false` alongside the OTLP service identity so Datadog does
+not also convert the APM trace into duplicate LLMObs rows with missing content.
 
 For already-running Railway deployments, TemperPaw exposes a governed setup API
 action at `/paw/infra/railway/datadog-runtime-agent/ensure`. It uses the stored
