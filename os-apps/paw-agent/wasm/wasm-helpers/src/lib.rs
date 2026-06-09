@@ -14,6 +14,8 @@ pub const SESSION_ENTRIES_REF_PREFIX: &str = "session-entries:";
 const TEMPERFS_READ_ATTEMPTS: usize = 10;
 const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
 const TEMPERFS_BATCH_READ_ATTEMPTS: usize = 3;
+const SESSION_ENTRIES_PAGE_SIZE: usize = 1000;
+const SESSION_ENTRIES_MAX_PAGES: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchTextFileReadItem {
@@ -713,6 +715,18 @@ fn session_entries_verify_url(temper_api_url: &str, session_id: &str) -> String 
     )
 }
 
+fn session_entries_list_url(
+    temper_api_url: &str,
+    session_id: &str,
+    top: usize,
+    skip: usize,
+) -> String {
+    format!(
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$top={top}&$skip={skip}",
+        session_id.replace('\'', "''"),
+    )
+}
+
 fn session_entry_verify_response_visible(body: &str) -> bool {
     let parsed: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({"value": []}));
     parsed
@@ -905,26 +919,40 @@ fn list_session_entries(
     fields: &Value,
     session_id: &str,
 ) -> Result<Vec<Value>, String> {
-    let escaped = session_id.replace('\'', "''");
-    let url = format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped}'&$top=10000"
-    );
     let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status != 200 {
-        return Err(format!(
-            "SessionEntry list failed (HTTP {}): {}",
-            resp.status,
-            &resp.body[..resp.body.len().min(300)]
-        ));
+    let mut entries = Vec::new();
+    let mut skip = 0usize;
+
+    for _ in 0..SESSION_ENTRIES_MAX_PAGES {
+        let url =
+            session_entries_list_url(temper_api_url, session_id, SESSION_ENTRIES_PAGE_SIZE, skip);
+        let resp = ctx.http_call("GET", &url, &headers, "")?;
+        if resp.status != 200 {
+            return Err(format!(
+                "SessionEntry list failed (HTTP {}): {}",
+                resp.status,
+                &resp.body[..resp.body.len().min(300)]
+            ));
+        }
+        let parsed: Value = serde_json::from_str(&resp.body)
+            .map_err(|err| format!("parse SessionEntry list response: {err}"))?;
+        let mut page = parsed
+            .get("value")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let page_len = page.len();
+        entries.append(&mut page);
+        if page_len < SESSION_ENTRIES_PAGE_SIZE {
+            return Ok(entries);
+        }
+        skip += page_len;
     }
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|err| format!("parse SessionEntry list response: {err}"))?;
-    Ok(parsed
-        .get("value")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default())
+
+    Err(format!(
+        "SessionEntry list exceeded {} pages for session {session_id}; refusing incomplete context",
+        SESSION_ENTRIES_MAX_PAGES
+    ))
 }
 
 fn session_entry_entity_to_jsonl(entry: &Value) -> Option<String> {
@@ -1719,6 +1747,14 @@ mod tests {
     }
 
     #[test]
+    fn session_entries_list_url_pages_with_skip() {
+        assert_eq!(
+            session_entries_list_url("http://temper", "ss-1", 1000, 2000),
+            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$top=1000&$skip=2000"
+        );
+    }
+
+    #[test]
     fn next_session_entry_id_advances_numeric_suffix() {
         assert_eq!(next_session_entry_id("a", "u-1"), ("a-2".to_string(), 2));
         assert_eq!(next_session_entry_id("t", "a-17"), ("t-18".to_string(), 18));
@@ -1813,6 +1849,66 @@ mod tests {
         assert_eq!(lines[0]["parentId"], Value::Null);
         assert_eq!(lines[1]["id"], "a-2");
         assert_eq!(lines[1]["parentId"], "u-ss-1-0");
+    }
+
+    #[test]
+    fn session_entries_jsonl_keeps_tail_entries_after_first_page() {
+        let mut entities = Vec::new();
+        entities.push(json!({
+            "fields": {
+                "EntryId": "h-ss-long",
+                "ParentEntryId": "",
+                "Sequence": 0,
+                "EntryType": "header",
+                "Role": "",
+                "Content": "",
+                "Tokens": 0,
+                "ExtraJson": "{\"version\":1}"
+            }
+        }));
+
+        let mut parent = "h-ss-long".to_string();
+        for sequence in 1..=1005 {
+            let entry_id = if sequence % 2 == 0 {
+                format!("a-{sequence}")
+            } else {
+                format!("u-{sequence}")
+            };
+            let role = if entry_id.starts_with("a-") {
+                "assistant"
+            } else {
+                "user"
+            };
+            entities.push(json!({
+                "fields": {
+                    "EntryId": entry_id,
+                    "ParentEntryId": parent,
+                    "Sequence": sequence,
+                    "EntryType": "message",
+                    "Role": role,
+                    "Content": format!("\"entry {sequence}\""),
+                    "Tokens": 1,
+                    "ExtraJson": "{}"
+                }
+            }));
+            parent = if sequence % 2 == 0 {
+                format!("a-{sequence}")
+            } else {
+                format!("u-{sequence}")
+            };
+        }
+
+        let jsonl = session_entries_jsonl_from_entities(&entities);
+        let lines: Vec<Value> = jsonl
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("valid json line"))
+            .collect();
+
+        assert_eq!(lines.len(), 1006);
+        assert_eq!(lines[999]["id"], "u-999");
+        assert_eq!(lines[1000]["id"], "a-1000");
+        assert_eq!(lines[1005]["id"], "u-1005");
+        assert_eq!(lines[1005]["parentId"], "a-1004");
     }
 
     #[test]
