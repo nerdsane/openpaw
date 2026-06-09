@@ -739,7 +739,7 @@ pub fn run_context_preparer() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let session_leaf_id = fields
+    let mut session_leaf_id = fields
         .get("session_leaf_id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -813,7 +813,17 @@ pub fn run_context_preparer() -> Result<(), String> {
         load_started_at,
         if load_result.is_ok() { "ok" } else { "error" },
     );
-    let (mut messages, session_tree, entries_loaded, content_files_loaded) = load_result?;
+    let LoadedMessages {
+        messages,
+        session_tree,
+        entries_loaded,
+        content_files_loaded,
+        session_leaf_id: loaded_session_leaf_id,
+    } = load_result?;
+    let mut messages = messages;
+    if !loaded_session_leaf_id.is_empty() {
+        session_leaf_id = loaded_session_leaf_id;
+    }
     check_phase_budget(
         &ctx,
         "context_preparer",
@@ -1105,6 +1115,14 @@ fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> S
     }
 }
 
+struct LoadedMessages {
+    messages: Vec<Value>,
+    session_tree: Option<SessionTree>,
+    entries_loaded: usize,
+    content_files_loaded: usize,
+    session_leaf_id: String,
+}
+
 fn load_messages_for_prepare(
     ctx: &Context,
     fields: &Value,
@@ -1117,7 +1135,7 @@ fn load_messages_for_prepare(
     workspace_id: &str,
     prune_after_turns: usize,
     existing_prepared: Option<&PreparedContextArtifact>,
-) -> Result<(Vec<Value>, Option<SessionTree>, usize, usize), String> {
+) -> Result<LoadedMessages, String> {
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     if use_session_tree {
         let session_jsonl =
@@ -1130,22 +1148,57 @@ fn load_messages_for_prepare(
                 );
             }
             let tree = SessionTree::from_jsonl(&session_jsonl);
-            return Ok((
-                vec![json!({ "role": "user", "content": user_message })],
-                Some(tree),
-                1,
-                0,
-            ));
+            return Ok(LoadedMessages {
+                messages: vec![json!({ "role": "user", "content": user_message })],
+                session_tree: Some(tree),
+                entries_loaded: 1,
+                content_files_loaded: 0,
+                session_leaf_id: session_leaf_id.to_string(),
+            });
         }
 
         let tree = SessionTree::from_jsonl(&session_jsonl);
+        let resolved_session_leaf_id = match tree.resolve_context_leaf_id(session_leaf_id) {
+            Some(leaf_id) => {
+                if leaf_id != session_leaf_id {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "context_preparer: recovered stale session_leaf_id '{}' to latest walkable leaf '{}' (tree_len={}, file_id='{}')",
+                            session_leaf_id,
+                            leaf_id,
+                            tree.len(),
+                            session_file_id,
+                        ),
+                    );
+                }
+                leaf_id
+            }
+            None => {
+                ctx.log(
+                    "error",
+                    &format!(
+                        "context_preparer: session tree has no walkable context leaf (requested='{}', tree_len={}, file_id='{}')",
+                        session_leaf_id,
+                        tree.len(),
+                        session_file_id,
+                    ),
+                );
+                return Err(format!(
+                    "session tree has no walkable context leaf for '{}' against {}-entry tree (file_id='{}'); refusing to feed empty conversation to LLM",
+                    session_leaf_id,
+                    tree.len(),
+                    session_file_id,
+                ));
+            }
+        };
         if let Some(prepared) = existing_prepared {
             match try_reuse_prepared_context(
                 prepared,
                 &tree,
                 conversation_file_id,
                 session_file_id,
-                session_leaf_id,
+                &resolved_session_leaf_id,
                 workspace_id,
                 prune_after_turns,
                 |refs| resolve_context_refs(ctx, temper_api_url, tenant, refs),
@@ -1163,7 +1216,13 @@ fn load_messages_for_prepare(
                             "context_preparer: reused prepared context delta_entries={delta_entries_loaded} delta_content_files={delta_content_files_loaded}"
                         ),
                     );
-                    return Ok((messages, Some(tree), entries_loaded, content_files_loaded));
+                    return Ok(LoadedMessages {
+                        messages,
+                        session_tree: Some(tree),
+                        entries_loaded,
+                        content_files_loaded,
+                        session_leaf_id: resolved_session_leaf_id,
+                    });
                 }
                 PreparedContextReuse::RebuildRequired { reason } => {
                     ctx.log(
@@ -1174,7 +1233,7 @@ fn load_messages_for_prepare(
             }
         }
 
-        let context_refs = tree.build_context_refs(session_leaf_id);
+        let context_refs = tree.build_context_refs(&resolved_session_leaf_id);
         // An empty walk from a non-empty tree means a parent_id pointer
         // dangles — the leaf or one of its ancestors references an
         // EntryId that wasn't in the SessionEntries list response.
@@ -1187,14 +1246,14 @@ fn load_messages_for_prepare(
                 "error",
                 &format!(
                     "context_preparer: session-tree walk from leaf '{}' returned 0 entries against a non-empty tree (tree_len={}, file_id='{}'). Conversation context would be wiped — failing PreparingContext to prevent runaway loop.",
-                    session_leaf_id,
+                    resolved_session_leaf_id,
                     tree.len(),
                     session_file_id,
                 ),
             );
             return Err(format!(
                 "session-tree walk from leaf '{}' produced no entries against {}-entry tree (file_id='{}'); refusing to feed empty conversation to LLM",
-                session_leaf_id,
+                resolved_session_leaf_id,
                 tree.len(),
                 session_file_id,
             ));
@@ -1212,14 +1271,21 @@ fn load_messages_for_prepare(
             })
             .count();
         if messages.is_empty() {
-            Ok((
-                vec![json!({ "role": "user", "content": user_message })],
-                Some(tree),
+            Ok(LoadedMessages {
+                messages: vec![json!({ "role": "user", "content": user_message })],
+                session_tree: Some(tree),
                 entries_loaded,
                 content_files_loaded,
-            ))
+                session_leaf_id: resolved_session_leaf_id,
+            })
         } else {
-            Ok((messages, Some(tree), entries_loaded, content_files_loaded))
+            Ok(LoadedMessages {
+                messages,
+                session_tree: Some(tree),
+                entries_loaded,
+                content_files_loaded,
+                session_leaf_id: resolved_session_leaf_id,
+            })
         }
     } else if !conversation_file_id.is_empty() {
         let messages = read_conversation_from_temperfs(
@@ -1243,23 +1309,36 @@ fn load_messages_for_prepare(
                     .unwrap_or(false)
             })
             .count();
-        Ok((messages.clone(), None, messages.len(), content_files_loaded))
+        Ok(LoadedMessages {
+            entries_loaded: messages.len(),
+            messages,
+            session_tree: None,
+            content_files_loaded,
+            session_leaf_id: session_leaf_id.to_string(),
+        })
     } else {
         let conversation_json = fields
             .get("conversation")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if conversation_json.is_empty() {
-            Ok((
-                vec![json!({ "role": "user", "content": user_message })],
-                None,
-                1,
-                0,
-            ))
+            Ok(LoadedMessages {
+                messages: vec![json!({ "role": "user", "content": user_message })],
+                session_tree: None,
+                entries_loaded: 1,
+                content_files_loaded: 0,
+                session_leaf_id: session_leaf_id.to_string(),
+            })
         } else {
             let messages = serde_json::from_str(conversation_json)
                 .unwrap_or_else(|_| vec![json!({ "role": "user", "content": user_message })]);
-            Ok((messages.clone(), None, messages.len(), 0))
+            Ok(LoadedMessages {
+                entries_loaded: messages.len(),
+                messages,
+                session_tree: None,
+                content_files_loaded: 0,
+                session_leaf_id: session_leaf_id.to_string(),
+            })
         }
     }
 }

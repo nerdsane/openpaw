@@ -202,6 +202,39 @@ impl SessionTree {
         self.order.last().map(|s| s.as_str())
     }
 
+    /// Resolve a requested leaf to a leaf that can actually produce LLM context.
+    ///
+    /// Session.entity `session_leaf_id` can drift past durable SessionEntry
+    /// rows during continuation/recovery races. In that state callers should
+    /// fall back to the newest entry whose parent chain is fully present,
+    /// rather than feeding an empty conversation to the model.
+    pub fn resolve_context_leaf_id(&self, requested_leaf_id: &str) -> Option<String> {
+        if !requested_leaf_id.is_empty() && self.context_leaf_is_walkable(requested_leaf_id) {
+            return Some(requested_leaf_id.to_string());
+        }
+
+        self.latest_context_leaf_id().map(str::to_string)
+    }
+
+    /// Find the newest leaf whose parent chain is present and has non-header
+    /// context content.
+    pub fn latest_context_leaf_id(&self) -> Option<&str> {
+        self.order
+            .iter()
+            .rev()
+            .map(String::as_str)
+            .find(|entry_id| self.context_leaf_is_walkable(entry_id))
+    }
+
+    /// True when walking from this leaf reaches root without a missing parent
+    /// and yields at least one non-header context ref.
+    pub fn context_leaf_is_walkable(&self, leaf_id: &str) -> bool {
+        let Some(chain) = self.chain_from_leaf(leaf_id) else {
+            return false;
+        };
+        !context_refs_from_chain(&chain).refs.is_empty()
+    }
+
     /// Build context messages by walking from leaf_id to root.
     /// This only reads inline content; callers that want file-backed content
     /// should use `build_context_refs`.
@@ -844,7 +877,10 @@ mod tests {
     #[test]
     fn test_interrupted_tool_results_for_nonexistent_leaf() {
         let tree = SessionTree::new("test-r4");
-        assert!(tree.interrupted_tool_results_for_leaf("nonexistent").is_none());
+        assert!(
+            tree.interrupted_tool_results_for_leaf("nonexistent")
+                .is_none()
+        );
     }
 
     #[test]
@@ -905,6 +941,40 @@ mod tests {
 
         let tree = SessionTree::from_jsonl(jsonl);
         assert!(tree.build_context_refs_since("u-2", "u-3").is_none());
+    }
+
+    #[test]
+    fn resolve_context_leaf_id_falls_back_to_latest_walkable_leaf() {
+        let jsonl = r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}
+{"id":"u-1","parentId":"h-1","type":"message","role":"user","content":"hello","tokens":10}
+{"id":"a-1","parentId":"u-1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"tokens":5}
+{"id":"t-1001","parentId":"missing-parent","type":"message","role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"lost"}],"tokens":7}
+{"id":"u-1002","parentId":"t-1001","type":"message","role":"user","content":"try again","tokens":3}"#;
+
+        let tree = SessionTree::from_jsonl(jsonl);
+
+        assert!(!tree.context_leaf_is_walkable("t-1001"));
+        assert!(!tree.context_leaf_is_walkable("u-1002"));
+        assert_eq!(tree.latest_context_leaf_id(), Some("a-1"));
+        assert_eq!(
+            tree.resolve_context_leaf_id("u-1002").as_deref(),
+            Some("a-1")
+        );
+        assert_eq!(
+            tree.resolve_context_leaf_id("missing-leaf").as_deref(),
+            Some("a-1")
+        );
+        assert_eq!(tree.resolve_context_leaf_id("a-1").as_deref(), Some("a-1"));
+    }
+
+    #[test]
+    fn resolve_context_leaf_id_ignores_header_only_tree() {
+        let tree = SessionTree::from_jsonl(
+            r#"{"id":"h-1","parentId":null,"type":"header","version":1,"tokens":0}"#,
+        );
+
+        assert_eq!(tree.latest_context_leaf_id(), None);
+        assert_eq!(tree.resolve_context_leaf_id("h-1"), None);
     }
 
     #[test]
