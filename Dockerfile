@@ -13,29 +13,6 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY os-apps ./os-apps
-# `os-apps/katagami-curation` and `os-apps/katagami-commons` are symlinks
-# into a local developer's checkout of github.com/arni-labs/katagami. The
-# symlinks work on a developer's Mac but resolve to a non-existent path
-# inside the Docker build, which is why `Startup OS app surface resolved
-# from manifests` reported only ["paw-agent","paw-channels","paw-fs",
-# "paw-research"] and the Katagami data layer was missing every deploy.
-#
-# Replace the symlinks with real content pulled from the upstream repo so the
-# catalog discovers them. Pin the default ref to the exact Katagami commit baked
-# into this image; callers may still override KATAGAMI_REF with a branch or tag.
-ARG KATAGAMI_REF=7b897e1a1af96ff61e7c15a201da41546570a43e
-ARG TEMPER_OBSERVABILITY_REV=7f6c029d034200599b8d03688229ad4a316b3303
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* \
-    && rm -rf os-apps/katagami-curation os-apps/katagami-commons \
-    && git init /tmp/katagami \
-    && git -C /tmp/katagami remote add origin https://github.com/arni-labs/katagami.git \
-    && git -C /tmp/katagami fetch --depth 1 origin "${KATAGAMI_REF}" \
-    && git -C /tmp/katagami checkout --detach FETCH_HEAD \
-    && cp -a /tmp/katagami/katagami-curation os-apps/katagami-curation \
-    && cp -a /tmp/katagami/katagami-commons  os-apps/katagami-commons  \
-    && find os-apps/katagami-curation/wasm -name Cargo.toml -exec sed -i "s|temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", branch = \"main\" }|temper-wasm-sdk = { git = \"https://github.com/nerdsane/temper.git\", rev = \"${TEMPER_OBSERVABILITY_REV}\" }|g" {} + \
-    && find os-apps/katagami-curation/wasm -name Cargo.lock -delete \
-    && rm -rf /tmp/katagami
 COPY scripts ./scripts
 COPY docs ./docs
 COPY railway.toml README.md AGENTS.md CLAUDE.md INSTRUCTIONS.md ./
@@ -54,8 +31,7 @@ RUN cd os-apps/paw-agent/wasm && bash build.sh \
     && cd /app/os-apps/paw-managed-agents/wasm && bash build.sh \
     && cd /app/os-apps/paw-skills/wasm && bash build.sh \
     && cd /app/os-apps/paw-research/wasm && bash build.sh \
-    && cd /app/os-apps/paw-patrol/wasm && bash build.sh \
-    && cd /app/os-apps/katagami-curation/wasm && bash build.sh
+    && cd /app/os-apps/paw-patrol/wasm && bash build.sh
 RUN find os-apps -type d -name target -prune -exec rm -rf {} +
 
 FROM debian:bookworm-slim

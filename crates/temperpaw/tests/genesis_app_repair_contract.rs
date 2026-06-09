@@ -83,6 +83,49 @@ fn agent_guidance_makes_genesis_repair_the_default_app_workflow() {
 }
 
 #[test]
+fn katagami_is_not_a_tracked_local_temperpaw_app_source() {
+    let root = repo_root();
+
+    for forbidden in ["os-apps/katagami-commons", "os-apps/katagami-curation"] {
+        assert!(
+            !root.join(forbidden).exists(),
+            "{forbidden} must be installed from Genesis, not tracked as a local app source"
+        );
+    }
+}
+
+#[test]
+fn paw_agent_publishes_apps_through_canonical_genesis_actions() {
+    let root = repo_root();
+    let repl = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+    let worker = read(root.join("crates/paw-codex-worker/src/directed_evolution/workdir.rs"));
+    let combined = format!("{repl}\n{worker}");
+
+    for required in [
+        "Temper.Git.RegisterNewApp",
+        "Temper.Git.PublishNewVersion",
+        "verify_genesis_latest_hash",
+        "\"verified_latest\": true",
+    ] {
+        assert!(
+            combined.contains(required),
+            "Paw app publish/update path must contain canonical Genesis publish proof `{required}`"
+        );
+    }
+
+    for forbidden in [
+        "Temper.RegisterNewApp",
+        "Temper.PublishNewVersion",
+        "App.PublishNewVersion",
+    ] {
+        assert!(
+            !combined.contains(forbidden),
+            "Paw app publish/update path must not use legacy action route `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn deployment_docs_preserve_production_databases() {
     let root = repo_root();
     let deployment = read(root.join("docs/deployment.md"));

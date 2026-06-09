@@ -1860,7 +1860,7 @@ fn temper_install_app(
     let input = args
         .first()
         .ok_or_else(|| {
-            "temper.install_app() requires {app_ref:'owner/name@hash', registry_url?, tenant?}"
+            "temper.install_app() requires {app_ref:'owner/name@hash', registry_url?, registry_tenant?, tenant?, follow_policy?}"
                 .to_string()
         })?;
     let app_ref = if let Some(obj) = input.as_object() {
@@ -1890,11 +1890,19 @@ fn temper_install_app(
         .and_then(|obj| obj.get("registry_tenant").or_else(|| obj.get("RegistryTenant")))
         .and_then(Value::as_str)
         .unwrap_or("default");
+    let follow_policy = input_obj
+        .and_then(|obj| {
+            obj.get("follow_policy")
+                .or_else(|| obj.get("FollowPolicy"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("pinned");
     let body = json!({
         "tenant": target_tenant,
         "app_ref": app_ref,
         "registry_url": registry_url,
         "registry_tenant": registry_tenant,
+        "follow_policy": follow_policy,
     });
     http_post(ctx, api_url, tenant, "/api/genesis/apps/install", &body)
 }
@@ -2206,7 +2214,7 @@ fn publish_genesis_app_version(
     let headers = genesis_registry_headers(registry_tenant);
     let existing = ctx.http_call("GET", &app_url, &headers, "")?;
     if existing.status == 404 {
-        let register_url = format!("{app_url}/Temper.RegisterNewApp?await_integration=true");
+        let register_url = format!("{app_url}/Temper.Git.RegisterNewApp?await_integration=true");
         let body = json!({
             "Name": name,
             "RepositoryId": repository_id,
@@ -2217,13 +2225,18 @@ fn publish_genesis_app_version(
         let registered = ctx.http_call("POST", &register_url, &headers, &body.to_string())?;
         if registered.status >= 400 {
             return Err(format!(
-                "Genesis RegisterNewApp failed for {owner}/{name}: HTTP {} {}",
+                "Genesis Temper.Git.RegisterNewApp failed for {owner}/{name}: HTTP {} {}",
                 registered.status, registered.body
             ));
         }
+        let latest_hash =
+            verify_genesis_latest_hash(ctx, &app_url, &headers, owner, name, hash)?;
         return Ok(json!({
             "kind": "registered",
             "app_id": app_id,
+            "canonical_action": "Temper.Git.RegisterNewApp",
+            "latest_hash": latest_hash,
+            "verified_latest": true,
             "response": parse_json_or_text(&registered.body),
         }));
     }
@@ -2241,26 +2254,92 @@ fn publish_genesis_app_version(
         return Ok(json!({
             "kind": "already_current",
             "app_id": app_id,
+            "canonical_action": "Temper.Git.PublishNewVersion",
+            "latest_hash": hash,
+            "verified_latest": true,
         }));
     }
 
-    let publish_url = format!("{app_url}/Temper.PublishNewVersion?await_integration=true");
+    let publish_url = format!("{app_url}/Temper.Git.PublishNewVersion?await_integration=true");
     let body = json!({
         "NewHash": hash,
         "RefName": "main",
     });
     let published = ctx.http_call("POST", &publish_url, &headers, &body.to_string())?;
     if published.status >= 400 {
+        if let Ok(latest_hash) =
+            fetch_genesis_latest_hash(ctx, &app_url, &headers, owner, name)
+        {
+            if latest_hash.trim_start_matches('@') == hash {
+                return Ok(json!({
+                    "kind": "already_current",
+                    "app_id": app_id,
+                    "canonical_action": "Temper.Git.PublishNewVersion",
+                    "latest_hash": latest_hash,
+                    "verified_latest": true,
+                    "response": parse_json_or_text(&published.body),
+                }));
+            }
+        }
         return Err(format!(
-            "Genesis PublishNewVersion failed for {owner}/{name}: HTTP {} {}",
+            "Genesis Temper.Git.PublishNewVersion failed for {owner}/{name}: HTTP {} {}",
             published.status, published.body
         ));
     }
+    let latest_hash = verify_genesis_latest_hash(ctx, &app_url, &headers, owner, name, hash)?;
     Ok(json!({
         "kind": "published_version",
         "app_id": app_id,
+        "canonical_action": "Temper.Git.PublishNewVersion",
+        "latest_hash": latest_hash,
+        "verified_latest": true,
         "response": parse_json_or_text(&published.body),
     }))
+}
+
+fn fetch_genesis_latest_hash(
+    ctx: &Context,
+    app_url: &str,
+    headers: &[(String, String)],
+    owner: &str,
+    name: &str,
+) -> Result<String, String> {
+    let current = ctx.http_call("GET", app_url, headers, "")?;
+    if current.status >= 400 {
+        return Err(format!(
+            "Genesis app latest verification lookup failed for {owner}/{name}: HTTP {} {}",
+            current.status, current.body
+        ));
+    }
+    let parsed = serde_json::from_str::<Value>(&current.body)
+        .map_err(|error| format!("Genesis app latest verification returned invalid JSON: {error}"))?;
+    let fields = parsed.get("fields").unwrap_or(&parsed);
+    let latest_hash = field_str(fields, &["LatestVersionHash", "latest_version_hash"]);
+    if latest_hash.trim().is_empty() {
+        return Err(format!(
+            "Genesis app latest verification for {owner}/{name} returned no LatestVersionHash"
+        ));
+    }
+    Ok(latest_hash.trim_start_matches('@').to_string())
+}
+
+fn verify_genesis_latest_hash(
+    ctx: &Context,
+    app_url: &str,
+    headers: &[(String, String)],
+    owner: &str,
+    name: &str,
+    expected_hash: &str,
+) -> Result<String, String> {
+    let latest_hash = fetch_genesis_latest_hash(ctx, app_url, headers, owner, name)?;
+    if latest_hash.trim_start_matches('@') != expected_hash.trim_start_matches('@') {
+        return Err(format!(
+            "Genesis latest verification failed for {owner}/{name}: expected {}, got {}",
+            expected_hash.trim_start_matches('@'),
+            latest_hash
+        ));
+    }
+    Ok(latest_hash)
 }
 
 fn genesis_registry_url(

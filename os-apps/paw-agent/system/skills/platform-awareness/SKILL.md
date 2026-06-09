@@ -196,6 +196,7 @@ Genesis is the app source of truth. Install only by pinned ref:
 ```python
 temper.install_app({
     "app_ref": "owner/name@HASH",
+    "follow_policy": "pinned",
     "reason": "Need bookmark management for project tracking"
 })
 # This calls the Genesis install path, materializes the pinned closure locally,
@@ -204,7 +205,7 @@ temper.install_app({
 
 Use `temper.publish_app({"path": "/workspace/my-app", "owner": "owner", "name": "name"})`
 or `temper.update_app(...)` to push app bytes to Genesis and receive the next
-pinned ref. Direct `git push` is the transport underneath, not the normal agent UX.
+pinned ref after Genesis latest is verified. Direct `git push` is the transport underneath, not the normal agent UX.
 
 Installed apps are durable tenant state. After a TemperPaw restart or redeploy
 with the same database, already-installed Genesis refs recover from the DB and
@@ -225,7 +226,7 @@ new_ref = temper.update_app({
     "message": "Fix quality review sensor"
 })
 
-temper.install_app({"app_ref": new_ref, "reason": "Roll forward repaired app"})
+temper.install_app({"app_ref": new_ref, "follow_policy": "pinned", "reason": "Roll forward repaired app"})
 ```
 
 Then verify the entity/action that was broken. Report the old pinned ref, the

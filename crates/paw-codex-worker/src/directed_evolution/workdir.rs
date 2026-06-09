@@ -636,6 +636,7 @@ async fn install_directed_evolution_variant(
             "Installer": config.worker_id,
             "RegistryUrl": genesis_url.trim_end_matches('/'),
             "RegistryTenant": registry_tenant,
+            "FollowPolicy": "pinned",
         }))
         .send()
         .await
@@ -662,7 +663,7 @@ async fn publish_directed_evolution_app_version(
     registry_tenant: &str,
 ) -> Result<()> {
     let url = format!(
-        "{}/tdata/Apps('{}')/App.PublishNewVersion?await_integration=true",
+        "{}/tdata/Apps('{}')/Temper.Git.PublishNewVersion?await_integration=true",
         genesis_url.trim_end_matches('/'),
         app.app_id().replace('\'', "''")
     );

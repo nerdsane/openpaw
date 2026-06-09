@@ -357,8 +357,8 @@ fn dockerfile_prunes_wasm_build_outputs_before_runtime_copy() {
         fs::read_to_string(repo_root().join("Dockerfile")).expect("Dockerfile should be readable");
 
     let wasm_build_idx = dockerfile
-        .find("cd /app/os-apps/katagami-curation/wasm && bash build.sh")
-        .expect("Dockerfile should build all runtime WASM modules before pruning");
+        .find("cd /app/os-apps/paw-patrol/wasm && bash build.sh")
+        .expect("Dockerfile should build Paw runtime WASM modules before pruning");
     let prune_idx = dockerfile
         .find("RUN find os-apps -type d -name target -prune -exec rm -rf {} +")
         .expect(
@@ -372,6 +372,19 @@ fn dockerfile_prunes_wasm_build_outputs_before_runtime_copy() {
         wasm_build_idx < prune_idx && prune_idx < runtime_copy_idx,
         "Dockerfile must remove nested WASM target directories after building modules and before copying os-apps into the runtime image"
     );
+
+    for forbidden in [
+        "github.com/arni-labs/katagami.git",
+        "KATAGAMI_REF",
+        "/tmp/katagami",
+        "os-apps/katagami-curation/wasm",
+        "os-apps/katagami-commons",
+    ] {
+        assert!(
+            !dockerfile.contains(forbidden),
+            "Dockerfile must not bake Katagami from GitHub or local os-app folders; found `{forbidden}`"
+        );
+    }
 }
 
 #[test]
