@@ -1,2 +1,2 @@
-ARG IMAGE_TAG=latest
+ARG IMAGE_TAG=sha-36cd53bd
 FROM ghcr.io/nerdsane/temperpaw:${IMAGE_TAG}
