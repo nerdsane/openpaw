@@ -868,38 +868,58 @@ pub fn run_context_preparer() -> Result<(), String> {
         Some("gauge"),
     );
 
+    let compaction_skip_reason = current_compaction_skip_reason(&ctx, &fields, &session_leaf_id);
     let context_window = model_context_window(model);
     if context_tokens > context_window.saturating_sub(reserve_tokens) {
-        emit_metric_ignore(
-            &ctx,
-            "temper_session_compaction_trigger_total",
-            1.0,
-            &metric_tags,
-            Some("count"),
-        );
-        emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
-        emit_phase_total_duration(&ctx, "context_preparer", started_at, "needs_compaction");
-        let existing_hash = fields
-            .get("system_prompt_hash")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let existing_file_id = fields
-            .get("system_prompt_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        set_success_result(
-            "NeedsCompaction",
-            &json!({
-                "context_tokens": context_tokens,
-                "prepared_context_bytes": 0,
-                "prepared_context_entries_loaded": entries_loaded,
-                "prepared_context_content_files_loaded": content_files_loaded,
-                "session_leaf_id": session_leaf_id,
-                "system_prompt_hash": existing_hash,
-                "system_prompt_file_id": existing_file_id,
-            }),
-        );
-        return Ok(());
+        if let Some(reason) = compaction_skip_reason.as_deref() {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_preparer: context remains over token budget after skipped compaction ({reason}); continuing with prepared context"
+                ),
+            );
+            emit_metric_ignore(
+                &ctx,
+                "temper_session_compaction_skip_bypass_total",
+                1.0,
+                &json!({
+                    "reason": reason,
+                    "budget": "tokens",
+                }),
+                Some("count"),
+            );
+        } else {
+            emit_metric_ignore(
+                &ctx,
+                "temper_session_compaction_trigger_total",
+                1.0,
+                &metric_tags,
+                Some("count"),
+            );
+            emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+            emit_phase_total_duration(&ctx, "context_preparer", started_at, "needs_compaction");
+            let existing_hash = fields
+                .get("system_prompt_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let existing_file_id = fields
+                .get("system_prompt_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            set_success_result(
+                "NeedsCompaction",
+                &json!({
+                    "context_tokens": context_tokens,
+                    "prepared_context_bytes": 0,
+                    "prepared_context_entries_loaded": entries_loaded,
+                    "prepared_context_content_files_loaded": content_files_loaded,
+                    "session_leaf_id": session_leaf_id,
+                    "system_prompt_hash": existing_hash,
+                    "system_prompt_file_id": existing_file_id,
+                }),
+            );
+            return Ok(());
+        }
     }
 
     let prompt_started_at = Context::get_time_millis();
@@ -943,35 +963,54 @@ pub fn run_context_preparer() -> Result<(), String> {
     );
 
     if context_bytes > max_live_context_bytes {
-        emit_metric_ignore(
-            &ctx,
-            "temper_session_compaction_trigger_total",
-            1.0,
-            &metric_tags,
-            Some("count"),
-        );
-        emit_metric_ignore(
-            &ctx,
-            "temper_session_memory_limit_exceeded_total",
-            1.0,
-            &metric_tags,
-            Some("count"),
-        );
-        emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
-        emit_phase_total_duration(&ctx, "context_preparer", started_at, "needs_compaction");
-        set_success_result(
-            "NeedsCompaction",
-            &json!({
-                "context_tokens": context_tokens,
-                "prepared_context_bytes": context_bytes,
-                "prepared_context_entries_loaded": entries_loaded,
-                "prepared_context_content_files_loaded": content_files_loaded,
-                "session_leaf_id": session_leaf_id,
-                "system_prompt_hash": system_prompt_hash,
-                "system_prompt_file_id": system_prompt_file_id,
-            }),
-        );
-        return Ok(());
+        if let Some(reason) = compaction_skip_reason.as_deref() {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_preparer: context remains over byte budget after skipped compaction ({reason}); continuing with prepared context"
+                ),
+            );
+            emit_metric_ignore(
+                &ctx,
+                "temper_session_compaction_skip_bypass_total",
+                1.0,
+                &json!({
+                    "reason": reason,
+                    "budget": "bytes",
+                }),
+                Some("count"),
+            );
+        } else {
+            emit_metric_ignore(
+                &ctx,
+                "temper_session_compaction_trigger_total",
+                1.0,
+                &metric_tags,
+                Some("count"),
+            );
+            emit_metric_ignore(
+                &ctx,
+                "temper_session_memory_limit_exceeded_total",
+                1.0,
+                &metric_tags,
+                Some("count"),
+            );
+            emit_prepare_duration_metric(&ctx, &metric_tags, started_at);
+            emit_phase_total_duration(&ctx, "context_preparer", started_at, "needs_compaction");
+            set_success_result(
+                "NeedsCompaction",
+                &json!({
+                    "context_tokens": context_tokens,
+                    "prepared_context_bytes": context_bytes,
+                    "prepared_context_entries_loaded": entries_loaded,
+                    "prepared_context_content_files_loaded": content_files_loaded,
+                    "session_leaf_id": session_leaf_id,
+                    "system_prompt_hash": system_prompt_hash,
+                    "system_prompt_file_id": system_prompt_file_id,
+                }),
+            );
+            return Ok(());
+        }
     }
 
     let artifact = PreparedContextArtifact {
@@ -1113,6 +1152,34 @@ fn read_state_string_field(ctx: &Context, fields: &Value, field_name: &str) -> S
             .unwrap_or("")
             .to_string(),
     }
+}
+
+fn current_compaction_skip_reason(
+    ctx: &Context,
+    fields: &Value,
+    session_leaf_id: &str,
+) -> Option<String> {
+    let reason = read_state_string_field(ctx, fields, "compaction_skipped_reason");
+    let skipped_leaf_id = read_state_string_field(ctx, fields, "compaction_skipped_leaf_id");
+    compaction_skip_reason_for_leaf(&reason, &skipped_leaf_id, session_leaf_id)
+}
+
+fn compaction_skip_reason_for_leaf(
+    reason: &str,
+    skipped_leaf_id: &str,
+    session_leaf_id: &str,
+) -> Option<String> {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return None;
+    }
+
+    let skipped_leaf_id = skipped_leaf_id.trim();
+    if skipped_leaf_id.is_empty() || skipped_leaf_id != session_leaf_id {
+        return None;
+    }
+
+    Some(reason.to_string())
 }
 
 struct LoadedMessages {
@@ -3178,6 +3245,30 @@ mod tests {
                 "{provider} should still ensure Codex OAuth before provider call"
             );
         }
+    }
+
+    #[test]
+    fn compaction_skip_reason_only_applies_to_matching_leaf() {
+        assert_eq!(
+            compaction_skip_reason_for_leaf("no_valid_cut_point", "t-1074", "t-1074"),
+            Some("no_valid_cut_point".to_string())
+        );
+        assert_eq!(
+            compaction_skip_reason_for_leaf("no_valid_cut_point", "t-1074", "u-1075"),
+            None
+        );
+        assert_eq!(
+            compaction_skip_reason_for_leaf("", "t-1074", "t-1074"),
+            None
+        );
+    }
+
+    #[test]
+    fn compaction_skip_reason_requires_leaf_marker() {
+        assert_eq!(
+            compaction_skip_reason_for_leaf("no_messages_to_summarize", "", "t-1074"),
+            None
+        );
     }
 
     #[test]

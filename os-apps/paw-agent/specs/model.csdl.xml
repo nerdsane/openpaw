@@ -59,6 +59,8 @@
         <Property Name="KeepRecentTokens" Type="Edm.String"/>
         <Property Name="CompactionCount" Type="Edm.Int64"/>
         <Property Name="CompactionModel" Type="Edm.String"/>
+        <Property Name="CompactionSkippedReason" Type="Edm.String"/>
+        <Property Name="CompactionSkippedLeafId" Type="Edm.String"/>
         <Property Name="SystemPromptHash" Type="Edm.String"/>
         <Property Name="SystemPromptFileId" Type="Edm.String"/>
         <Property Name="GenAiParentTraceId" Type="Edm.String"/>
@@ -283,6 +285,8 @@
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="compaction_skipped_reason" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="compaction_skipped_leaf_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
