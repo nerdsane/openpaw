@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="TemperPaw.Media" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="MediaGeneration">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Prompt" Type="Edm.String"/>
+        <Property Name="MediaType" Type="Edm.String"/>
+        <Property Name="Operation" Type="Edm.String"/>
+        <Property Name="Provider" Type="Edm.String"/>
+        <Property Name="Model" Type="Edm.String"/>
+        <Property Name="Size" Type="Edm.String"/>
+        <Property Name="Quality" Type="Edm.String"/>
+        <Property Name="OutputFormat" Type="Edm.String"/>
+        <Property Name="Background" Type="Edm.String"/>
+        <Property Name="WorkspaceId" Type="Edm.String"/>
+        <Property Name="OutputPath" Type="Edm.String"/>
+        <Property Name="ProviderAuthStatus" Type="Edm.String"/>
+        <Property Name="ProviderAuthCheckedAtMs" Type="Edm.String"/>
+        <Property Name="ProviderAuthError" Type="Edm.String"/>
+        <Property Name="ProviderAuthRetryCount" Type="Edm.Int64"/>
+        <Property Name="CompactionAuthRetryCount" Type="Edm.Int64"/>
+        <Property Name="ResultFileId" Type="Edm.String"/>
+        <Property Name="ResultFileVersionId" Type="Edm.String"/>
+        <Property Name="ResultPath" Type="Edm.String"/>
+        <Property Name="MimeType" Type="Edm.String"/>
+        <Property Name="RevisedPrompt" Type="Edm.String"/>
+        <Property Name="ProviderResponseId" Type="Edm.String"/>
+        <Property Name="UsageJson" Type="Edm.String"/>
+        <Property Name="ResultImageBase64" Type="Edm.String"/>
+        <Property Name="Error" Type="Edm.String"/>
+        <Property Name="LastError" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/media_generation.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Governed media generation request/result entity."/>
+      </EntityType>
+
+      <Action Name="Generate" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Media.MediaGeneration"/>
+        <Parameter Name="prompt" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="media_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="operation" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="model" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="size" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="quality" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="output_format" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="background" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="workspace_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="output_path" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Media.MediaGeneration"/>
+      </Action>
+
+      <Action Name="RecordAuthReady" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Media.MediaGeneration"/>
+        <Parameter Name="provider_auth_status" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_checked_at_ms" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <Parameter Name="compaction_auth_retry_count" Type="Edm.Int64" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Media.MediaGeneration"/>
+      </Action>
+
+      <Action Name="RecordStoring" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Media.MediaGeneration"/>
+        <Parameter Name="provider_response_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="revised_prompt" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="usage_json" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Media.MediaGeneration"/>
+      </Action>
+
+      <Action Name="RecordResult" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Media.MediaGeneration"/>
+        <Parameter Name="result_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="result_file_version_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="result_path" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="mime_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="revised_prompt" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_response_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="usage_json" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="result_image_base64" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Media.MediaGeneration"/>
+      </Action>
+
+      <Action Name="RecordError" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Media.MediaGeneration"/>
+        <Parameter Name="error" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="last_error" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Media.MediaGeneration"/>
+      </Action>
+
+      <EntityContainer Name="MediaService">
+        <EntitySet Name="MediaGenerations" EntityType="TemperPaw.Media.MediaGeneration"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
