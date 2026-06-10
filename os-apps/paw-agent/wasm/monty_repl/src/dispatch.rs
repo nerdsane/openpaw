@@ -1020,26 +1020,59 @@ fn temper_create(
     args: &[Value],
 ) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "create")?;
-    let body = with_managed_session_parent(ctx, &entity_set, obj_arg(args, 1, "fields", "create")?);
+    let body =
+        with_session_parent_provenance(ctx, &entity_set, obj_arg(args, 1, "fields", "create")?);
     http_post(ctx, api_url, tenant, &format!("/tdata/{entity_set}"), &body)
 }
 
-fn with_managed_session_parent(ctx: &Context, entity_set: &str, mut body: Value) -> Value {
-    if entity_set == "ManagedSessions" {
+fn with_session_parent_provenance(ctx: &Context, entity_set: &str, mut body: Value) -> Value {
+    if matches!(entity_set, "ManagedSessions" | "CurationJobs") {
         let has_parent = entity_field_str(&body, &["ParentSessionId", "parent_session_id"])
             .is_some_and(|value| !value.trim().is_empty());
+        let parent_session_id = if entity_set == "CurationJobs" {
+            approval_route_parent_session_id(ctx)
+        } else {
+            current_session_id(ctx)
+        };
         if !has_parent
-            && let Some(parent_session_id) = ctx
-                .entity_state
-                .get("entity_id")
-                .and_then(Value::as_str)
-                .filter(|value| value.starts_with("ss-"))
+            && let Some(parent_session_id) = parent_session_id
             && let Some(object) = body.as_object_mut()
         {
             object.insert("ParentSessionId".to_string(), json!(parent_session_id));
         }
     }
     body
+}
+
+fn with_curation_job_action_parent(ctx: &Context, entity_set: &str, action_name: &str, mut body: Value) -> Value {
+    if entity_set == "CurationJobs" && matches!(action_name, "Configure" | "ConfigureAndSubmit") {
+        let has_parent = entity_field_str(&body, &["parent_session_id", "ParentSessionId"])
+            .is_some_and(|value| !value.trim().is_empty());
+        if !has_parent
+            && let Some(parent_session_id) = approval_route_parent_session_id(ctx)
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert("parent_session_id".to_string(), json!(parent_session_id));
+        }
+    }
+    body
+}
+
+fn current_session_id(ctx: &Context) -> Option<String> {
+    ctx.entity_state
+        .get("entity_id")
+        .and_then(Value::as_str)
+        .filter(|value| value.starts_with("ss-"))
+        .map(str::to_string)
+}
+
+fn approval_route_parent_session_id(ctx: &Context) -> Option<String> {
+    ctx.entity_state
+        .get("fields")
+        .and_then(|fields| entity_field_str(fields, &["parent_session_id", "ParentSessionId"]))
+        .filter(|value| value.starts_with("ss-"))
+        .map(str::to_string)
+        .or_else(|| current_session_id(ctx))
 }
 
 fn temper_action(
@@ -1051,7 +1084,7 @@ fn temper_action(
     let entity_set = str_arg(args, 0, "entity_set", "action")?;
     let entity_id = str_arg(args, 1, "entity_id", "action")?;
     let action_name = str_arg(args, 2, "action_name", "action")?;
-    let body = obj_arg_or_empty(args, 3);
+    let body = with_curation_job_action_parent(ctx, &entity_set, action_name, obj_arg_or_empty(args, 3));
     let key = escape_odata_key(&entity_id);
     http_post(
         ctx,

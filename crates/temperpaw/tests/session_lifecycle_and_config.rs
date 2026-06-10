@@ -245,9 +245,15 @@ fn managed_agent_inner_sessions_preserve_parent_for_approval_routing() {
         "session_orchestrator should propagate ManagedSession.parent_session_id into inner Session.Configure"
     );
     assert!(
-        monty_dispatch.contains("with_managed_session_parent")
-            && monty_dispatch.contains("entity_set == \"ManagedSessions\""),
+        monty_dispatch.contains("with_session_parent_provenance")
+            && monty_dispatch.contains("\"ManagedSessions\""),
         "temper.create should stamp ManagedSessions with the current Session as parent_session_id"
+    );
+    assert!(
+        monty_dispatch.contains("\"CurationJobs\"")
+            && monty_dispatch.contains("with_curation_job_action_parent")
+            && monty_dispatch.contains("\"ConfigureAndSubmit\""),
+        "temper.create/action should stamp Katagami CurationJobs with parent_session_id so approvals route back to chat"
     );
 }
 
