@@ -10,6 +10,7 @@ async fn resolve_directed_evolution_workdir(
             path: config.repo_root.clone(),
             app_ref: String::new(),
             branch_ref: String::new(),
+            canonical_genesis_bundle: false,
         });
     };
     if let Some(path) =
@@ -23,6 +24,7 @@ async fn resolve_directed_evolution_workdir(
                 path: worktree,
                 app_ref: context.app_ref,
                 branch_ref,
+                canonical_genesis_bundle: false,
             });
         }
         if !context.branch_ref.trim().is_empty() {
@@ -33,19 +35,54 @@ async fn resolve_directed_evolution_workdir(
                 path: worktree,
                 app_ref: context.app_ref,
                 branch_ref: context.branch_ref,
+                canonical_genesis_bundle: false,
             });
         }
         return Ok(DirectedEvolutionWorkdir {
             path,
             app_ref: context.app_ref,
             branch_ref: context.branch_ref,
+            canonical_genesis_bundle: false,
+        });
+    }
+    if !context.branch_ref.trim().is_empty()
+        && let Some(worktree) =
+            directed_evolution_existing_workspace_worktree(config, &context.branch_ref).await?
+    {
+        return Ok(DirectedEvolutionWorkdir {
+            path: worktree,
+            app_ref: context.app_ref,
+            branch_ref: context.branch_ref,
+            canonical_genesis_bundle: false,
+        });
+    }
+    if let Some(path) =
+        directed_evolution_repo_from_genesis_bundle(client, config, &context.app_ref, &work_item.id)
+            .await?
+    {
+        if directed_evolution_role_may_write_repo(&work_item.role) {
+            let branch_ref = directed_evolution_variant_branch(work_item);
+            let worktree =
+                ensure_directed_evolution_worktree(config, &path, &branch_ref, true).await?;
+            return Ok(DirectedEvolutionWorkdir {
+                path: worktree,
+                app_ref: context.app_ref,
+                branch_ref,
+                canonical_genesis_bundle: false,
+            });
+        }
+        return Ok(DirectedEvolutionWorkdir {
+            path,
+            app_ref: context.app_ref,
+            branch_ref: context.branch_ref,
+            canonical_genesis_bundle: true,
         });
     }
     if directed_evolution_role_may_write_repo(&work_item.role)
         && env_flag("PAW_DE_ALLOW_GLOBAL_REPO_FOR_VARIANTS") != Some(true)
     {
         bail!(
-            "Directed Evolution {} WorkItem {} resolved app_ref '{}' for organism '{}' but no repository mapping was configured. Set DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON or PAW_DE_ALLOW_GLOBAL_REPO_FOR_VARIANTS=true.",
+            "Directed Evolution {} WorkItem {} resolved app_ref '{}' for organism '{}' but no repository mapping or canonical Genesis bundle worktree was available. Set DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON, DIRECTED_EVOLUTION_GENESIS_URL, or PAW_DE_ALLOW_GLOBAL_REPO_FOR_VARIANTS=true.",
             work_item.role,
             work_item.id,
             context.app_ref,
@@ -56,6 +93,7 @@ async fn resolve_directed_evolution_workdir(
         path: config.repo_root.clone(),
         app_ref: context.app_ref,
         branch_ref: context.branch_ref,
+        canonical_genesis_bundle: false,
     })
 }
 
@@ -64,6 +102,7 @@ struct DirectedEvolutionWorkdir {
     path: PathBuf,
     app_ref: String,
     branch_ref: String,
+    canonical_genesis_bundle: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -142,8 +181,69 @@ async fn directed_evolution_work_item_context(
             }
             Ok(context)
         }
+        ("observer", "Organism") => {
+            directed_evolution_observer_organism_context(client, config, work_item).await
+        }
         _ => Ok(None),
     }
+}
+
+async fn directed_evolution_observer_organism_context(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+) -> Result<Option<DirectedEvolutionWorkContext>> {
+    let correlation = serde_json::from_str::<Value>(&work_item.correlation_json)
+        .unwrap_or_else(|_| json!({}));
+    let organism_id = directed_evolution_correlation_string(&correlation, "organism_id")
+        .or_else(|| directed_evolution_correlation_string(&correlation, "organismId"))
+        .unwrap_or_else(|| work_item.target_entity_id.clone());
+    let mut app_ref = directed_evolution_correlation_string(&correlation, "app_ref")
+        .or_else(|| directed_evolution_correlation_string(&correlation, "appRef"))
+        .unwrap_or_default();
+    let branch_ref = directed_evolution_correlation_string(&correlation, "branch_ref")
+        .or_else(|| directed_evolution_correlation_string(&correlation, "branchRef"))
+        .unwrap_or_default();
+
+    if !work_item.target_entity_id.trim().is_empty()
+        && let Ok(organism) =
+            fetch_directed_evolution_entity_fields(client, config, "Organisms", &work_item.target_entity_id).await
+    {
+        let organism_app_ref = value_field_string(&organism, &["AppRef", "app_ref"]);
+        if !organism_app_ref.trim().is_empty() {
+            app_ref = organism_app_ref;
+        } else {
+            let version_id = value_field_string(&organism, &[
+                "OrganismVersionId",
+                "organism_version_id",
+                "ParentVersionId",
+                "parent_version_id",
+            ]);
+            if !version_id.trim().is_empty()
+                && let Ok(version) = fetch_directed_evolution_entity_fields(
+                    client,
+                    config,
+                    "OrganismVersions",
+                    &version_id,
+                )
+                .await
+            {
+                let version_app_ref = value_field_string(&version, &["AppRef", "app_ref"]);
+                if !version_app_ref.trim().is_empty() {
+                    app_ref = version_app_ref;
+                }
+            }
+        }
+    }
+
+    if organism_id.trim().is_empty() && app_ref.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(DirectedEvolutionWorkContext {
+        organism_id,
+        app_ref,
+        branch_ref,
+    }))
 }
 
 async fn directed_evolution_promotion_context(
@@ -260,6 +360,13 @@ fn directed_evolution_repo_from_mapping(organism_id: &str, app_ref: &str) -> Opt
         if let Some(path) = mapping.get(key).and_then(Value::as_str) {
             return Some(PathBuf::from(path));
         }
+        if let Some(path) = mapping
+            .get(key)
+            .and_then(|value| value.get("path"))
+            .and_then(Value::as_str)
+        {
+            return Some(PathBuf::from(path));
+        }
     }
     None
 }
@@ -270,6 +377,169 @@ fn directed_evolution_role_may_write_repo(role: &str) -> bool {
 
 fn directed_evolution_variant_branch(work_item: &DirectedEvolutionWorkItemState) -> String {
     format!("directed-evolution/{}", sanitize_git_ref_component(&work_item.id))
+}
+
+async fn directed_evolution_repo_from_genesis_bundle(
+    client: &reqwest::Client,
+    config: &Config,
+    app_ref: &str,
+    work_item_id: &str,
+) -> Result<Option<PathBuf>> {
+    if app_ref.trim().is_empty() {
+        return Ok(None);
+    }
+    let Some(genesis_url) = directed_evolution_genesis_url() else {
+        return Ok(None);
+    };
+    let app = directed_evolution_genesis_app_from_ref(app_ref)?;
+    let repo = directed_evolution_materialized_bundle_repo_path(config, &app, work_item_id);
+    if repo.join(".git").exists() {
+        return Ok(Some(repo));
+    }
+
+    let url = directed_evolution_genesis_bundle_url(&genesis_url, &app);
+    let registry_tenant = directed_evolution_registry_tenant(config);
+    let response = client
+        .get(&url)
+        .headers(headers_for_tenant(config, &registry_tenant)?)
+        .send()
+        .await
+        .with_context(|| format!("fetch canonical Genesis bundle {}", app.pinned_ref()))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .context("read canonical Genesis bundle response")?;
+    if !status.is_success() {
+        bail!(
+            "fetch canonical Genesis bundle {} failed: HTTP {} body={}",
+            app.pinned_ref(),
+            status,
+            body
+        );
+    }
+    let bundle: Value = serde_json::from_str(&body)
+        .with_context(|| format!("parse canonical Genesis bundle {}", app.pinned_ref()))?;
+    materialize_directed_evolution_bundle_repo(&repo, &app, &bundle).await?;
+    Ok(Some(repo))
+}
+
+fn directed_evolution_materialized_bundle_repo_path(
+    config: &Config,
+    app: &DirectedEvolutionGenesisApp,
+    work_item_id: &str,
+) -> PathBuf {
+    config
+        .workspace_root
+        .join("directed-evolution")
+        .join("canonical-bundles")
+        .join(app.app_id())
+        .join(sanitize_path_component(&app.hash))
+        .join(sanitize_path_component(work_item_id))
+}
+
+fn directed_evolution_genesis_bundle_url(genesis_url: &str, app: &DirectedEvolutionGenesisApp) -> String {
+    format!(
+        "{}/api/genesis/apps/{}/{}/versions/{}/bundle",
+        genesis_url.trim_end_matches('/'),
+        app.owner,
+        app.name,
+        app.hash
+    )
+}
+
+async fn materialize_directed_evolution_bundle_repo(
+    repo: &Path,
+    app: &DirectedEvolutionGenesisApp,
+    bundle: &Value,
+) -> Result<()> {
+    if repo.exists() {
+        fs::remove_dir_all(repo)
+            .with_context(|| format!("remove stale canonical bundle repo {}", repo.display()))?;
+    }
+    fs::create_dir_all(repo)
+        .with_context(|| format!("create canonical bundle repo {}", repo.display()))?;
+
+    for (path, content) in directed_evolution_bundle_files(bundle)? {
+        let file_path = repo.join(&path);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create bundle directory {}", parent.display()))?;
+        }
+        fs::write(&file_path, content)
+            .with_context(|| format!("write bundle file {}", file_path.display()))?;
+    }
+
+    git_capture(repo, &["init"]).await?;
+    ensure_git_identity(repo).await?;
+    git_capture(repo, &["add", "-f", "-A"]).await?;
+    git_capture_owned(
+        repo,
+        vec![
+            "commit".to_string(),
+            "-m".to_string(),
+            format!("Materialize canonical Genesis bundle {}", app.pinned_ref()),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+fn directed_evolution_bundle_files(bundle: &Value) -> Result<Vec<(PathBuf, Vec<u8>)>> {
+    let apps = bundle
+        .get("apps")
+        .and_then(Value::as_array)
+        .context("canonical Genesis bundle missing apps array")?;
+    let app = apps
+        .first()
+        .context("canonical Genesis bundle has no apps")?;
+    let files = app
+        .get("files")
+        .and_then(Value::as_array)
+        .context("canonical Genesis bundle app missing files array")?;
+    let mut out = Vec::new();
+    for file in files {
+        let path = file
+            .get("path")
+            .and_then(Value::as_str)
+            .context("canonical Genesis bundle file missing path")?;
+        let path = safe_directed_evolution_bundle_path(path)?;
+        let content_base64 = file
+            .get("content_base64")
+            .and_then(Value::as_str)
+            .context("canonical Genesis bundle file missing content_base64")?;
+        let content = base64::engine::general_purpose::STANDARD
+            .decode(content_base64)
+            .context("decode canonical Genesis bundle file")?;
+        out.push((path, content));
+    }
+    Ok(out)
+}
+
+fn safe_directed_evolution_bundle_path(path: &str) -> Result<PathBuf> {
+    let path = Path::new(path);
+    if path.as_os_str().is_empty() {
+        bail!("canonical Genesis bundle file path is empty");
+    }
+    let mut safe = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(part) => {
+                if part.to_string_lossy().eq_ignore_ascii_case(".git") {
+                    bail!(
+                        "canonical Genesis bundle file path may not contain .git: {}",
+                        path.display()
+                    );
+                }
+                safe.push(part)
+            }
+            _ => bail!("canonical Genesis bundle file path is unsafe: {}", path.display()),
+        }
+    }
+    if safe.as_os_str().is_empty() {
+        bail!("canonical Genesis bundle file path is empty");
+    }
+    Ok(safe)
 }
 
 async fn ensure_directed_evolution_worktree(
@@ -285,6 +555,9 @@ async fn ensure_directed_evolution_worktree(
         .join(sanitize_path_component(&branch));
     if worktree.join(".git").exists() {
         return Ok(worktree);
+    }
+    if let Some(existing) = existing_directed_evolution_worktree_for_branch(base_repo, &branch).await? {
+        return Ok(existing);
     }
     fs::create_dir_all(worktree.parent().unwrap_or(&config.workspace_root))
         .with_context(|| format!("create {}", worktree.display()))?;
@@ -305,6 +578,51 @@ async fn ensure_directed_evolution_worktree(
     git_capture_owned(base_repo, args).await?;
     ensure_git_identity(&worktree).await?;
     Ok(worktree)
+}
+
+async fn existing_directed_evolution_worktree_for_branch(
+    base_repo: &Path,
+    branch: &str,
+) -> Result<Option<PathBuf>> {
+    let list = git_capture(base_repo, &["worktree", "list", "--porcelain"]).await?;
+    let expected_ref = format!("refs/heads/{branch}");
+    let mut current_path: Option<PathBuf> = None;
+
+    for line in list.lines().chain(std::iter::once("")) {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = Some(PathBuf::from(path));
+            continue;
+        }
+        if let Some(active_branch) = line.strip_prefix("branch ")
+            && active_branch == expected_ref
+        {
+            return Ok(current_path);
+        }
+        if line.trim().is_empty() {
+            current_path = None;
+        }
+    }
+
+    Ok(None)
+}
+
+async fn directed_evolution_existing_workspace_worktree(
+    config: &Config,
+    branch_ref: &str,
+) -> Result<Option<PathBuf>> {
+    let branch = sanitize_git_branch(branch_ref);
+    let worktree = config
+        .workspace_root
+        .join("directed-evolution")
+        .join(sanitize_path_component(&branch));
+    if !worktree.join(".git").exists() {
+        return Ok(None);
+    }
+    let current_branch = git_capture(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+    if current_branch.trim() == branch {
+        return Ok(Some(worktree));
+    }
+    Ok(None)
 }
 
 async fn finalize_directed_evolution_output(
@@ -816,11 +1134,70 @@ fn sanitize_id_component(value: &str) -> String {
     }
 }
 
+async fn query_directed_evolution_rows(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    filter: &str,
+    top: usize,
+) -> Result<Vec<Value>> {
+    let mut url = format!("{}/tdata/{entity_set}?$top={top}", config.temper_url);
+    if !filter.trim().is_empty() {
+        url.push_str("&$filter=");
+        url.push_str(&filter.replace(' ', "%20").replace('\'', "%27"));
+    }
+    let response = client
+        .get(url)
+        .headers(headers(config)?)
+        .send()
+        .await
+        .with_context(|| format!("query Directed Evolution {entity_set}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        bail!("query Directed Evolution {entity_set} returned {status}: {text}");
+    }
+    let body: Value = response.json().await.context("parse Directed Evolution query")?;
+    Ok(body
+        .get("value")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn directed_evolution_row_fields(row: &Value) -> Value {
+    row.get("fields").cloned().unwrap_or_else(|| json!({}))
+}
+
+fn directed_evolution_row_id(row: &Value) -> String {
+    let fields = directed_evolution_row_fields(row);
+    first_string(row, &fields, &["entity_id", "id", "Id"], &["Id", "id"])
+}
+
 fn value_field_string(fields: &Value, keys: &[&str]) -> String {
     keys.iter()
-        .find_map(|key| fields.get(*key).and_then(Value::as_str))
-        .unwrap_or("")
-        .to_string()
+        .find_map(|key| {
+            fields.get(*key).and_then(|value| match value {
+                Value::String(value) => Some(value.to_string()),
+                Value::Number(value) => Some(value.to_string()),
+                Value::Bool(value) => Some(value.to_string()),
+                _ => None,
+            })
+        })
+        .unwrap_or_default()
+}
+
+fn directed_evolution_correlation_string(correlation: &Value, key: &str) -> Option<String> {
+    correlation
+        .get(key)
+        .and_then(|value| match value {
+            Value::String(value) => Some(value.to_string()),
+            Value::Number(value) => Some(value.to_string()),
+            Value::Bool(value) => Some(value.to_string()),
+            _ => None,
+        })
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn env_flag(key: &str) -> Option<bool> {

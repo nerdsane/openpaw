@@ -309,6 +309,7 @@ fn stale_stage_result_should_eliminate(stage_fields: &Value) -> bool {
 
 
 include!("directed_evolution/evidence.rs");
+include!("directed_evolution/observer_sources.rs");
 include!("directed_evolution/human_episode_defaults.rs");
 include!("directed_evolution/human_episode_plan.rs");
 include!("directed_evolution/human_episode.rs");
@@ -338,7 +339,7 @@ async fn run_directed_evolution_codex_role(
     config: &Config,
     work_item: &DirectedEvolutionWorkItemState,
 ) -> Result<String> {
-    let prompt = directed_evolution_prompt(work_item);
+    let mut prompt = directed_evolution_prompt(work_item);
     info!(
         work_item_id = %work_item.id,
         role = %work_item.role,
@@ -373,6 +374,23 @@ async fn run_directed_evolution_codex_role(
     }
 
     let workdir = resolve_directed_evolution_workdir(client, config, work_item).await?;
+    if work_item.role == "observer" {
+        let inventory =
+            directed_evolution_observer_source_inventory_prompt(client, config, work_item, &workdir)
+                .await?;
+        prompt.push_str(
+            "\n\nObserver source inventory:\n\
+The following JSON is a source map, not a script. Use it to orient yourself, then inspect any \
+additional available source that could confirm, contradict, or refine the observation.\n",
+        );
+        prompt.push_str(&inventory);
+        prompt.push_str(
+            "\n\nObserver source-discovery discipline:\n\
+- Do not limit yourself to the seed queries or samples in the inventory.\n\
+- Include every important source you used, every important zero-result source, and every important unavailable source in evidence_scope.\n\
+- Prefer conclusions supported by multiple surfaces, especially runtime state plus telemetry or stored trajectory evidence.\n",
+        );
+    }
     let readonly_status_before = if directed_evolution_role_may_write_repo(&work_item.role) {
         None
     } else {

@@ -55,7 +55,7 @@ mod directed_evolution_tests {
     }
 
     #[test]
-    fn observer_prompt_requires_datadog_evidence_scope() {
+    fn observer_prompt_requires_source_discovery_not_scripted_datadog() {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-observer".to_string(),
             status: "Queued".to_string(),
@@ -70,10 +70,12 @@ mod directed_evolution_tests {
 
         let prompt = directed_evolution_prompt(&work_item);
 
-        assert!(prompt.contains("Datadog MCP"));
+        assert!(prompt.contains("observer source inventory"));
+        assert!(prompt.contains("inspect any additional accessible source"));
+        assert!(prompt.contains("Do not treat a signal summary or a single scripted query as proof"));
         assert!(prompt.contains("evidence_scope"));
         assert!(prompt.contains("datadog_url"));
-        assert!(prompt.contains("Do not treat the signal summary as proof"));
+        assert!(!prompt.contains("Datadog MCP"));
     }
 
     #[test]
@@ -630,6 +632,23 @@ mod directed_evolution_tests {
         assert_eq!(context["target_entity_type"], "StageResult");
         assert_eq!(context["target_entity_id"], "sr-1");
         assert!(context["query"].as_str().unwrap().contains("@work_item_id:wi-dd"));
+    }
+
+    #[test]
+    fn observer_field_sample_accepts_legacy_brain_run_id() {
+        let sample = directed_evolution_observer_fields_sample(
+            "WorkItems",
+            "wi-observer",
+            &json!({
+                "Status": "Succeeded",
+                "Role": "observer",
+                "BrainRunId": "br-legacy",
+                "Summary": "Observed all available sources."
+            }),
+        );
+
+        assert_eq!(sample["worker_run_id"], "br-legacy");
+        assert_eq!(sample["role"], "observer");
     }
 
     #[test]
