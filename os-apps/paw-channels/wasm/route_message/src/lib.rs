@@ -891,7 +891,17 @@ fn continue_with_new_session(
     )?;
 
     let mut carry_prior_artifacts = true;
-    let new_leaf_id = if !session_file_id.is_empty() {
+    if should_start_clean_continuation_from_prior(&fields) {
+        carry_prior_artifacts = false;
+        ctx.log(
+            "warn",
+            &format!(
+                "route_message: starting clean continuation after prior session {prior_session_id} failed in context/compaction path"
+            ),
+        );
+    }
+
+    let new_leaf_id = if carry_prior_artifacts && !session_file_id.is_empty() {
         match append_user_message_to_session(
             ctx,
             temper_api_url,
@@ -930,11 +940,13 @@ fn continue_with_new_session(
         )?;
     }
 
-    // Prepend a session-continuation notice so the agent naturally acknowledges the new session
-    let user_message_with_notice = format!(
-        "[System: A new session has started. Your previous conversation context and memories are preserved.]\n\n{}",
-        user_message
-    );
+    // Prepend a session-continuation notice so the agent naturally acknowledges the new session.
+    let continuation_notice = if carry_prior_artifacts {
+        "A new session has started. Your previous conversation context and memories are preserved."
+    } else {
+        "A new session has started. The prior conversation tree was unhealthy, so continue from the user's latest message and ask for any missing context."
+    };
+    let user_message_with_notice = format!("[System: {continuation_notice}]\n\n{user_message}");
 
     let new_session_id = create_blank_session(ctx, temper_api_url, tenant)?;
 
@@ -1234,6 +1246,39 @@ fn should_start_fresh_after_session_append_failure(error: &str) -> bool {
         || error.contains("VerificationRequired")
         || error.contains("SessionEntry creation failed")
         || error.contains("session entries continuation missing parent leaf")
+}
+
+fn should_start_clean_continuation_from_prior(fields: &Value) -> bool {
+    if str_field(fields, &["Status", "status"]) != Some("Failed") {
+        return false;
+    }
+
+    if i64_field(fields, &["compaction_count", "CompactionCount"]).unwrap_or(0) >= 3 {
+        return true;
+    }
+
+    let failure_text = [
+        str_field(fields, &["error", "Error"]),
+        str_field(fields, &["error_message", "ErrorMessage"]),
+        str_field(fields, &["compaction_skipped_reason", "CompactionSkippedReason"]),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join("\n")
+    .to_ascii_lowercase();
+
+    [
+        "session-tree walk",
+        "no walkable context leaf",
+        "context preparation did not complete",
+        "fuel exhausted",
+        "large_session_tree_guard",
+        "repeated_compaction_guard",
+        "no_valid_cut_point",
+    ]
+    .iter()
+    .any(|needle| failure_text.contains(needle))
 }
 
 /// Update a ChannelSession to point to a new Session via the UpdateSession action.
@@ -2040,6 +2085,40 @@ mod tests {
         assert!(!should_start_fresh_after_session_append_failure(
             "create Session failed via http://127.0.0.1"
         ));
+    }
+
+    #[test]
+    fn failed_context_compaction_sessions_start_clean_continuations() {
+        let fields = json!({
+            "Status": "Failed",
+            "error": "fuel exhausted -- module exceeded instruction budget",
+            "error_message": "fuel exhausted -- module exceeded instruction budget",
+            "compaction_count": 2328,
+            "compaction_skipped_reason": "no_valid_cut_point",
+        });
+
+        assert!(should_start_clean_continuation_from_prior(&fields));
+    }
+
+    #[test]
+    fn failed_session_tree_walks_start_clean_continuations() {
+        let fields = json!({
+            "Status": "Failed",
+            "error_message": "session-tree walk from leaf 'u-1002' produced no entries against 999-entry tree; refusing to feed empty conversation to LLM",
+        });
+
+        assert!(should_start_clean_continuation_from_prior(&fields));
+    }
+
+    #[test]
+    fn non_failed_prior_sessions_do_not_start_clean_by_default() {
+        let fields = json!({
+            "Status": "Completed",
+            "compaction_count": 10,
+            "error_message": "fuel exhausted",
+        });
+
+        assert!(!should_start_clean_continuation_from_prior(&fields));
     }
 
     #[test]
