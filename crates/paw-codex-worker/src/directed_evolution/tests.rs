@@ -336,6 +336,144 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_worker_run_start_body_uses_worker_contract() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-observer".to_string(),
+            status: "Queued".to_string(),
+            role: "observer".to_string(),
+            target_entity_type: "Organism".to_string(),
+            target_entity_id: "organism-agent-answers".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{\"batch_id\":\"batch-1\"}".to_string(),
+        };
+
+        let body = directed_evolution_start_worker_run_body(
+            &work_item,
+            "genesis-local-sim-worker",
+            "wr-observer",
+            "parent-session-1",
+        );
+
+        assert_eq!(PAW_ORCHESTRATION_NAMESPACE, "Temper.PawOrchestration");
+        assert_eq!(
+            DIRECTED_EVOLUTION_WORKER_PROVIDER_ID,
+            "local_codex"
+        );
+        assert_eq!(body["Role"], "observer");
+        assert_eq!(body["WorkItemId"], "wi-observer");
+        assert_eq!(body["WorkerId"], "genesis-local-sim-worker");
+        assert_eq!(body["ProviderId"], "local_codex");
+        assert_eq!(body["AgentKind"], "codex");
+        assert_eq!(body["Model"], "codex-cli");
+        assert_eq!(body["SessionId"], "wr-observer");
+        assert_eq!(body["ParentSessionId"], "parent-session-1");
+        assert_eq!(body["CorrelationJson"], "{\"batch_id\":\"batch-1\"}");
+    }
+
+    #[test]
+    fn directed_evolution_work_item_start_body_uses_worker_run_id() {
+        let body = directed_evolution_start_work_item_body("wr-1");
+
+        assert_eq!(body, json!({ "WorkerRunId": "wr-1" }));
+        assert!(body.get("BrainRunId").is_none());
+    }
+
+    #[test]
+    fn directed_evolution_evidence_correlation_links_worker_run() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-observer".to_string(),
+            status: "Running".to_string(),
+            role: "observer".to_string(),
+            target_entity_type: "Organism".to_string(),
+            target_entity_id: "organism-agent-answers".to_string(),
+            prompt_ref: String::new(),
+            context_ref: "organism:agent-answers".to_string(),
+            output_schema_ref: "schema:observer".to_string(),
+            correlation_json: "{}".to_string(),
+        };
+        let output = json!({
+            "summary": "Inventory found enough runtime state and telemetry to suggest one pressure."
+        });
+
+        let correlation =
+            directed_evolution_evidence_correlation(&work_item, "wr-observer", output.clone());
+        let link = directed_evolution_evidence_link_body("wr-observer");
+
+        assert_eq!(correlation["worker_run_id"], "wr-observer");
+        assert!(correlation.get("brain_run_id").is_none());
+        assert_eq!(correlation["output"], output);
+        assert_eq!(link, json!({
+            "TargetEntityType": "WorkerRun",
+            "TargetEntityId": "wr-observer",
+        }));
+    }
+
+    #[test]
+    fn directed_evolution_success_receipt_routes_worker_output() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-observer".to_string(),
+            status: "Running".to_string(),
+            role: "observer".to_string(),
+            target_entity_type: "Organism".to_string(),
+            target_entity_id: "organism-agent-answers".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{\"phase\":\"seed-observation\"}".to_string(),
+        };
+
+        let body = directed_evolution_success_receipt_body(
+            &work_item,
+            "wr-observer",
+            "{\"actionable\":true}",
+            "evidence-1",
+            "Observer found one direction.",
+        );
+
+        assert_eq!(body["WorkItemId"], "wi-observer");
+        assert_eq!(body["Role"], "observer");
+        assert_eq!(body["TargetEntityType"], "Organism");
+        assert_eq!(body["TargetEntityId"], "organism-agent-answers");
+        assert_eq!(body["WorkerRunId"], "wr-observer");
+        assert_eq!(body["ResultJson"], "{\"actionable\":true}");
+        assert_eq!(body["EvidenceArtifactId"], "evidence-1");
+        assert_eq!(body["Summary"], "Observer found one direction.");
+        assert_eq!(body["CorrelationJson"], "{\"phase\":\"seed-observation\"}");
+    }
+
+    #[test]
+    fn directed_evolution_failure_receipt_routes_worker_failure() {
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-observer".to_string(),
+            status: "Running".to_string(),
+            role: "observer".to_string(),
+            target_entity_type: "Organism".to_string(),
+            target_entity_id: "organism-agent-answers".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{\"phase\":\"seed-observation\"}".to_string(),
+        };
+
+        let body = directed_evolution_failure_receipt_body(
+            &work_item,
+            "wr-observer",
+            "observer failed",
+            "evidence-failure",
+        );
+
+        assert_eq!(body["WorkItemId"], "wi-observer");
+        assert_eq!(body["Role"], "observer");
+        assert_eq!(body["WorkerRunId"], "wr-observer");
+        assert_eq!(body["FailureReason"], "observer failed");
+        assert_eq!(body["EvidenceArtifactId"], "evidence-failure");
+        assert_eq!(body["CorrelationJson"], "{\"phase\":\"seed-observation\"}");
+        assert!(body.get("ResultJson").is_none());
+    }
+
+    #[test]
     fn directed_evolution_repo_mapping_accepts_app_ref_prefix() {
         let previous = env::var_os("DIRECTED_EVOLUTION_ORGANISM_REPOS_JSON");
         unsafe {

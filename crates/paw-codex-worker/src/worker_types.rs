@@ -7,6 +7,8 @@ const EVALUATION_START_LABEL: &str = "EvaluationRun.Start";
 const EVALUATION_PASS_LABEL: &str = "EvaluationRun.Pass";
 const EVALUATION_FAIL_LABEL: &str = "EvaluationRun.Fail";
 const DIRECTED_EVOLUTION_NAMESPACE: &str = "Temper.DirectedEvolution";
+const PAW_ORCHESTRATION_NAMESPACE: &str = "Temper.PawOrchestration";
+const DIRECTED_EVOLUTION_WORKER_PROVIDER_ID: &str = "local_codex";
 
 #[derive(Clone, Debug)]
 struct Config {

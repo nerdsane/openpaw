@@ -22,7 +22,7 @@ async fn handle_queued_directed_evolution_work_item(
     {
         eliminate_stale_directed_evolution_stage_result(client, config, &work_item, &reason)
             .await?;
-        post_directed_evolution_action(
+        post_paw_orchestration_action(
             client,
             config,
             "WorkItems",
@@ -39,8 +39,8 @@ async fn handle_queued_directed_evolution_work_item(
         return Ok(());
     }
 
-    let brain_run_id = create_entity(client, config, "BrainRuns", json!({})).await?;
-    post_directed_evolution_action(
+    let worker_run_id = create_entity(client, config, "WorkerRuns", json!({})).await?;
+    post_paw_orchestration_action(
         client,
         config,
         "WorkItems",
@@ -52,34 +52,32 @@ async fn handle_queued_directed_evolution_work_item(
         }),
     )
     .await?;
-    post_directed_evolution_action(
+    post_paw_orchestration_action(
         client,
         config,
-        "BrainRuns",
-        &brain_run_id,
-        "StartBrainRun",
-        json!({
-            "Role": work_item.role,
-            "WorkItemId": work_item.id,
-            "AgentKind": directed_evolution_agent_kind_for_role(&work_item.role),
-            "Model": directed_evolution_model_for_role(&work_item.role),
-            "ParentSessionId": env::var("CODEX_SESSION_ID").unwrap_or_default(),
-            "CorrelationJson": work_item.correlation_json,
-        }),
+        "WorkerRuns",
+        &worker_run_id,
+        "StartWorkerRun",
+        directed_evolution_start_worker_run_body(
+            &work_item,
+            &config.worker_id,
+            &worker_run_id,
+            &env::var("CODEX_SESSION_ID").unwrap_or_default(),
+        ),
     )
     .await?;
-    post_directed_evolution_action(
+    post_paw_orchestration_action(
         client,
         config,
         "WorkItems",
         &work_item.id,
         "StartWorkItem",
-        json!({ "BrainRunId": brain_run_id }),
+        directed_evolution_start_work_item_body(&worker_run_id),
     )
     .await?;
     info!(
         work_item_id = %work_item.id,
-        brain_run_id = %brain_run_id,
+        worker_run_id = %worker_run_id,
         role = %work_item.role,
         target_entity_type = %work_item.target_entity_type,
         target_entity_id = %work_item.target_entity_id,
@@ -89,22 +87,22 @@ async fn handle_queued_directed_evolution_work_item(
     match run_directed_evolution_codex_role(client, config, &work_item).await {
         Ok(output_json) => {
             let summary = directed_evolution_summary(&work_item, &output_json);
-            let evidence_artifact_id = record_directed_evolution_brain_evidence(
+            let evidence_artifact_id = record_directed_evolution_worker_evidence(
                 client,
                 config,
                 &work_item,
-                &brain_run_id,
-                "codex_brain_run",
+                &worker_run_id,
+                "codex_worker_run",
                 &output_json,
                 &summary,
             )
             .await?;
-            post_directed_evolution_action(
+            post_paw_orchestration_action(
                 client,
                 config,
-                "BrainRuns",
-                &brain_run_id,
-                "SucceedBrainRun",
+                "WorkerRuns",
+                &worker_run_id,
+                "SucceedWorkerRun",
                 json!({
                     "OutputJson": output_json,
                     "EvidenceArtifactId": evidence_artifact_id,
@@ -112,7 +110,17 @@ async fn handle_queued_directed_evolution_work_item(
                 }),
             )
             .await?;
-            post_directed_evolution_action(
+            let receipt_id = route_directed_evolution_success_receipt(
+                client,
+                config,
+                &work_item,
+                &worker_run_id,
+                &output_json,
+                &evidence_artifact_id,
+                &summary,
+            )
+            .await?;
+            post_paw_orchestration_action(
                 client,
                 config,
                 "WorkItems",
@@ -127,21 +135,22 @@ async fn handle_queued_directed_evolution_work_item(
             .await?;
             info!(
                 work_item_id = %work_item.id,
-                brain_run_id = %brain_run_id,
+                worker_run_id = %worker_run_id,
                 role = %work_item.role,
                 evidence_artifact_id = %evidence_artifact_id,
-                "completed Directed Evolution Codex brain run"
+                receipt_id = %receipt_id,
+                "completed Directed Evolution Codex worker run"
             );
             Ok(())
         }
         Err(error) => {
             let failure_reason = format!("Directed Evolution Codex role failed: {error}");
-            let evidence_artifact_id = match record_directed_evolution_brain_evidence(
+            let evidence_artifact_id = match record_directed_evolution_worker_evidence(
                 client,
                 config,
                 &work_item,
-                &brain_run_id,
-                "codex_brain_run_failure",
+                &worker_run_id,
+                "codex_worker_run_failure",
                 &serde_json::to_string(&json!({
                     "status": "failed",
                     "failure_reason": failure_reason,
@@ -152,16 +161,16 @@ async fn handle_queued_directed_evolution_work_item(
             {
                 Ok(id) => id,
                 Err(report_error) => {
-                    warn!(%report_error, work_item_id, brain_run_id, "failed to record Directed Evolution failure evidence");
+                    warn!(%report_error, work_item_id, worker_run_id, "failed to record Directed Evolution failure evidence");
                     String::new()
                 }
             };
-            if let Err(report_error) = post_directed_evolution_action(
+            if let Err(report_error) = post_paw_orchestration_action(
                 client,
                 config,
-                "BrainRuns",
-                &brain_run_id,
-                "FailBrainRun",
+                "WorkerRuns",
+                &worker_run_id,
+                "FailWorkerRun",
                 json!({
                     "FailureReason": failure_reason,
                     "EvidenceArtifactId": evidence_artifact_id,
@@ -169,9 +178,21 @@ async fn handle_queued_directed_evolution_work_item(
             )
             .await
             {
-                warn!(%report_error, work_item_id, brain_run_id, "failed to report BrainRun failure");
+                warn!(%report_error, work_item_id, worker_run_id, "failed to report WorkerRun failure");
             }
-            post_directed_evolution_action(
+            if let Err(report_error) = route_directed_evolution_failure_receipt(
+                client,
+                config,
+                &work_item,
+                &worker_run_id,
+                &failure_reason,
+                &evidence_artifact_id,
+            )
+            .await
+            {
+                warn!(%report_error, work_item_id, worker_run_id, "failed to route Directed Evolution failure receipt");
+            }
+            post_paw_orchestration_action(
                 client,
                 config,
                 "WorkItems",
@@ -185,10 +206,10 @@ async fn handle_queued_directed_evolution_work_item(
             .await?;
             warn!(
                 work_item_id = %work_item.id,
-                brain_run_id = %brain_run_id,
+                worker_run_id = %worker_run_id,
                 role = %work_item.role,
                 evidence_artifact_id = %evidence_artifact_id,
-                "failed Directed Evolution Codex brain run"
+                "failed Directed Evolution Codex worker run"
             );
             Ok(())
         }
@@ -314,6 +335,121 @@ include!("directed_evolution/human_episode_defaults.rs");
 include!("directed_evolution/human_episode_plan.rs");
 include!("directed_evolution/human_episode.rs");
 
+fn directed_evolution_start_worker_run_body(
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_id: &str,
+    worker_run_id: &str,
+    parent_session_id: &str,
+) -> Value {
+    json!({
+        "Role": work_item.role,
+        "WorkItemId": work_item.id,
+        "WorkerId": worker_id,
+        "ProviderId": DIRECTED_EVOLUTION_WORKER_PROVIDER_ID,
+        "AgentKind": directed_evolution_agent_kind_for_role(&work_item.role),
+        "Model": directed_evolution_model_for_role(&work_item.role),
+        "SessionId": worker_run_id,
+        "ParentSessionId": parent_session_id,
+        "CorrelationJson": work_item.correlation_json,
+    })
+}
+
+fn directed_evolution_start_work_item_body(worker_run_id: &str) -> Value {
+    json!({ "WorkerRunId": worker_run_id })
+}
+
+fn directed_evolution_success_receipt_body(
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
+    result_json: &str,
+    evidence_artifact_id: &str,
+    summary: &str,
+) -> Value {
+    json!({
+        "WorkItemId": work_item.id,
+        "Role": work_item.role,
+        "TargetEntityType": work_item.target_entity_type,
+        "TargetEntityId": work_item.target_entity_id,
+        "WorkerRunId": worker_run_id,
+        "ResultJson": result_json,
+        "EvidenceArtifactId": evidence_artifact_id,
+        "Summary": summary,
+        "CorrelationJson": work_item.correlation_json,
+    })
+}
+
+fn directed_evolution_failure_receipt_body(
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
+    failure_reason: &str,
+    evidence_artifact_id: &str,
+) -> Value {
+    json!({
+        "WorkItemId": work_item.id,
+        "Role": work_item.role,
+        "TargetEntityType": work_item.target_entity_type,
+        "TargetEntityId": work_item.target_entity_id,
+        "WorkerRunId": worker_run_id,
+        "FailureReason": failure_reason,
+        "EvidenceArtifactId": evidence_artifact_id,
+        "CorrelationJson": work_item.correlation_json,
+    })
+}
+
+async fn route_directed_evolution_success_receipt(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
+    result_json: &str,
+    evidence_artifact_id: &str,
+    summary: &str,
+) -> Result<String> {
+    let receipt_id = create_entity(client, config, "WorkItemReceipts", json!({})).await?;
+    post_directed_evolution_action(
+        client,
+        config,
+        "WorkItemReceipts",
+        &receipt_id,
+        "RouteSucceededWorkItem",
+        directed_evolution_success_receipt_body(
+            work_item,
+            worker_run_id,
+            result_json,
+            evidence_artifact_id,
+            summary,
+        ),
+    )
+    .await?;
+    Ok(receipt_id)
+}
+
+async fn route_directed_evolution_failure_receipt(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
+    failure_reason: &str,
+    evidence_artifact_id: &str,
+) -> Result<String> {
+    let receipt_id = create_entity(client, config, "WorkItemReceipts", json!({})).await?;
+    post_directed_evolution_action(
+        client,
+        config,
+        "WorkItemReceipts",
+        &receipt_id,
+        "RouteFailedWorkItem",
+        directed_evolution_failure_receipt_body(
+            work_item,
+            worker_run_id,
+            failure_reason,
+            evidence_artifact_id,
+        ),
+    )
+    .await?;
+    Ok(receipt_id)
+}
+
 async fn post_directed_evolution_action(
     client: &reqwest::Client,
     config: &Config,
@@ -328,6 +464,26 @@ async fn post_directed_evolution_action(
         entity_set,
         entity_id,
         DIRECTED_EVOLUTION_NAMESPACE,
+        action,
+        body,
+    )
+    .await
+}
+
+async fn post_paw_orchestration_action(
+    client: &reqwest::Client,
+    config: &Config,
+    entity_set: &str,
+    entity_id: &str,
+    action: &str,
+    body: Value,
+) -> Result<()> {
+    post_entity_action_with_namespace(
+        client,
+        config,
+        entity_set,
+        entity_id,
+        PAW_ORCHESTRATION_NAMESPACE,
         action,
         body,
     )
