@@ -4079,10 +4079,7 @@ mod tests {
             "Bearer access-token".to_string()
         )));
         assert!(headers.contains(&("chatgpt-account-id".to_string(), "acct_123".to_string())));
-        assert!(headers.contains(&(
-            "OpenAI-Beta".to_string(),
-            "responses=experimental".to_string()
-        )));
+        assert!(headers.contains(&("OpenAI-Beta".to_string(), "responses=v1".to_string())));
         assert!(headers.contains(&("accept".to_string(), "text/event-stream".to_string())));
     }
 

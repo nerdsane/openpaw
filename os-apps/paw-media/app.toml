@@ -1,0 +1,10 @@
+name = "paw-media"
+description = "Governed media generation for TemperPaw agents"
+version = "0.1.0"
+startup_install = "core"
+dependencies = ["paw-agent", "paw-fs"]
+
+[[wasm_modules]]
+name = "openai_codex_image_generate"
+criticality = "app-required"
+startup_loading = "lazy"

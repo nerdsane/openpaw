@@ -1,0 +1,252 @@
+# MediaGeneration — Governed media generation request/result lifecycle.
+#
+# Version 1 supports image generation through the OpenAI Codex subscription
+# provider. The entity is intentionally media/provider generic so future image,
+# video, audio, and other providers can add dedicated WASM modules without
+# changing the agent tool surface.
+
+[automaton]
+name = "MediaGeneration"
+states = ["Created", "Authorizing", "Generating", "Storing", "Complete", "Failed"]
+initial = "Created"
+
+allow_indefinite_states = ["Created", "Complete", "Failed"]
+
+# --- Request fields ---
+
+[[state]]
+name = "prompt"
+type = "string"
+initial = ""
+
+[[state]]
+name = "media_type"
+type = "string"
+initial = "image"
+
+[[state]]
+name = "operation"
+type = "string"
+initial = "generate"
+
+[[state]]
+name = "provider"
+type = "string"
+initial = "openai_codex"
+
+[[state]]
+name = "model"
+type = "string"
+initial = ""
+
+[[state]]
+name = "size"
+type = "string"
+initial = "1024x1024"
+
+[[state]]
+name = "quality"
+type = "string"
+initial = "auto"
+
+[[state]]
+name = "output_format"
+type = "string"
+initial = "png"
+
+[[state]]
+name = "background"
+type = "string"
+initial = "auto"
+
+[[state]]
+name = "workspace_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "output_path"
+type = "string"
+initial = ""
+
+# --- Provider auth gate fields ---
+
+[[state]]
+name = "provider_auth_status"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_auth_checked_at_ms"
+type = "string"
+initial = ""
+query_indexed = false
+
+[[state]]
+name = "provider_auth_error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_auth_retry_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "compaction_auth_retry_count"
+type = "counter"
+initial = "0"
+
+# --- Result fields ---
+
+[[state]]
+name = "result_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "result_file_version_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "result_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "mime_type"
+type = "string"
+initial = ""
+
+[[state]]
+name = "revised_prompt"
+type = "string"
+initial = ""
+
+[[state]]
+name = "provider_response_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "usage_json"
+type = "string"
+initial = ""
+
+[[state]]
+name = "result_image_base64"
+type = "string"
+initial = ""
+overflow_ttl_seconds = "3600"
+
+[[state]]
+name = "error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "last_error"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Generate"
+kind = "input"
+from = ["Created", "Failed"]
+to = "Authorizing"
+params = ["prompt", "media_type", "operation", "provider", "model", "size", "quality", "output_format", "background", "workspace_id", "output_path"]
+hint = "Start a governed media generation request."
+effect = [{ type = "trigger", name = "ensure_provider_auth" }]
+
+[[action.triggers]]
+name = "ensure_provider_auth"
+kind = "wasm"
+module = "provider_auth_gate"
+on_failure = "RecordError"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+default_llm_provider = "openai_codex"
+auth_action = "EnsureFresh"
+ready_action = "RecordAuthReady"
+
+[[action]]
+name = "RecordAuthReady"
+kind = "input"
+from = ["Authorizing"]
+to = "Generating"
+params = ["provider_auth_status", "provider_auth_checked_at_ms", "provider_auth_error", "provider_auth_retry_count", "compaction_auth_retry_count"]
+hint = "Codex subscription auth is fresh enough for a provider call."
+effect = [{ type = "trigger", name = "generate_openai_codex_image" }]
+
+[[action.triggers]]
+name = "generate_openai_codex_image"
+kind = "wasm"
+module = "openai_codex_image_generate"
+on_failure = "RecordError"
+llm = true
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+openai_codex_access_token = "{secret:openai_codex_access_token}"
+openai_codex_token = "{secret:openai_codex_token}"
+openai_codex_account_id = "{secret:openai_codex_account_id}"
+openai_codex_api_url = "https://chatgpt.com/backend-api/codex/responses"
+timeout_secs = "600"
+max_response_bytes = "16777216"
+max_memory = "268435456"
+
+[[action]]
+name = "RecordStoring"
+kind = "input"
+from = ["Generating"]
+to = "Storing"
+params = ["provider_response_id", "revised_prompt", "usage_json"]
+hint = "Provider produced image bytes; the WASM module is storing the artifact in PawFS."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Generating", "Storing"]
+to = "Complete"
+params = ["result_file_id", "result_file_version_id", "result_path", "mime_type", "revised_prompt", "provider_response_id", "usage_json", "result_image_base64"]
+hint = "Generation completed and durable PawFS output is available."
+
+[[action]]
+name = "RecordError"
+kind = "input"
+from = ["Authorizing", "Generating", "Storing"]
+to = "Failed"
+params = ["error", "last_error"]
+hint = "Generation failed."
+
+[[invariant]]
+name = "CompleteIsFinal"
+when = ["Complete"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+[[state_timeout]]
+state = "Authorizing"
+after_seconds = 90
+on_timeout = "RecordError"
+params = { error = "media generation auth did not complete within 90s", last_error = "auth timeout" }
+
+[[state_timeout]]
+state = "Generating"
+after_seconds = 600
+on_timeout = "RecordError"
+params = { error = "media generation provider call did not complete within 600s", last_error = "provider timeout" }
+
+[[state_timeout]]
+state = "Storing"
+after_seconds = 90
+on_timeout = "RecordError"
+params = { error = "media generation storage did not complete within 90s", last_error = "storage timeout" }
