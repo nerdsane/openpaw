@@ -1,4 +1,6 @@
-# Agent Architecture Guide
+# TemperPaw — Codex Project Guide
+
+> Synchronized with `CLAUDE.md` (Claude Code) — identical rules. When you change one, mirror the other. Global rules live in `~/AGENTS.md` / `~/.claude/CLAUDE.md`; this file adds what is TemperPaw-specific.
 
 ## Foundational Context
 
@@ -7,6 +9,19 @@ TemperPaw is built on [Temper](https://github.com/nerdsane/temper). Development 
 TemperPaw is Temper-native: all functionality MUST be built using Temper primitives (Temper apps — entity specs, WASM integrations, Cedar policies). There is no separate orchestration layer. If Temper doesn't support what you need, the answer is to extend Temper, not to work around it.
 
 You are an autonomous agent running on the Temper platform. This guide defines how you should build and extend the platform. Read this before making architectural decisions.
+
+## Naming & Sources of Truth
+
+- **OpenPaw was rebranded to TemperPaw** — same project, not a separate brand. Don't coin new names; ask when unsure.
+- **Genesis is the source of truth for TemperPaw apps.** Everything installs from Genesis — no GitHub-sourced, Docker-baked, or local-catalog app sources in production. After merging to `main` on GitHub, **publish to Genesis and verify the installed pinned ref (`owner/app@hash`) is up to date**. On divergence, Genesis wins; sync is bidirectional.
+- When reporting git status, state branch AND remote host — `origin` is not always GitHub here.
+
+## Worktree Discipline
+
+- Work only in a git worktree branched from up-to-date `main` (`codex/<short-task-name>`). Never push or commit directly to `main`; never touch existing dirty checkouts.
+- State which repo/worktree/branch you're on before mutating anything. Open a **draft PR as soon as changes begin**; exactly **one PR per repo per effort**.
+- Multi-repo efforts merge in dependency order: Genesis → Temper → TemperPaw → Katagami.
+- Treat `.env` as shared local state; do not commit it or rewrite teammate credentials.
 
 ## The Entity-First Rule
 
@@ -17,6 +32,10 @@ Never write orchestration in imperative code (Rust, Python scripts, background t
 1. Define the state machine (IOA spec in `.ioa.toml`)
 2. Wire WASM integrations on the actions that need logic
 3. Use Cedar policies for authorization
+
+- Rust code is ONLY for: triggers (protocol bridges in `crates/paw-triggers/`), WASM host functions, platform primitives (`crates/temper/`).
+- `crates/temperpaw/` has NO business logic — it loads os-apps and starts triggers.
+- Test: if your Rust code creates entities or dispatches actions in a loop, it should be a WASM integration instead. See ADR-0005 for the rationale.
 
 ## The Trigger Boundary
 
@@ -62,18 +81,6 @@ Any material architecture change MUST be captured in an ADR before implementatio
 
 Write app-scoped decisions in `os-apps/<app>/adrs/`. Write platform-wide decisions in `docs/adrs/`. If a change is deliberately too small for an ADR, record that judgement in the proof or PR notes.
 
-## Where Things Live
-
-| Layer | What | Where |
-|-------|------|-------|
-| **Triggers** (Rust) | HTTP listener, WebSocket gateway, cron | `crates/paw-triggers/` |
-| **Platform** (Rust) | OData API, WASM runtime, Cedar engine | `crates/temper/` |
-| **Entity specs** (TOML) | State machines, action definitions | `os-apps/*/specs/` |
-| **Integrations** (WASM) | Business logic on state transitions | `os-apps/*/wasm/` |
-| **Agent definitions** | Agent identities and instructions | `os-apps/paw-agent/agents/` |
-| **Skill definitions** | Reusable knowledge for agent prompts | `os-apps/paw-agent/skills/` |
-| **Policies** (Cedar) | Authorization rules | `os-apps/*/policies/` |
-
 ## Red-Green TDD (Mandatory)
 
 All code changes MUST follow red-green TDD:
@@ -86,15 +93,40 @@ No implementation code is written before a failing test exists for it. This appl
 
 ## End-to-End Verification (Mandatory)
 
-Every implementation MUST be verified end-to-end before it is considered complete. Agents must:
+Coding agents MUST verify every implementation end-to-end before considering it complete:
 
 1. **Build and run** — Compile the full project, start the server, confirm it boots clean.
 2. **Exercise the feature** — Manually invoke the new functionality (dispatch actions, hit endpoints, send messages through transports) and confirm correct behavior.
 3. **Simulate real usage** — Walk through the user-facing flow as a real user would: send a Discord/Slack message, trigger a webhook, approve a plan — whatever the feature touches.
 4. **Check state transitions** — Query entities via OData to confirm state machines moved through the expected states.
-5. **Record results** — Capture output/logs as evidence in the `.proofs/` report.
+5. **Record results** — Capture output/logs as evidence in the `.proofs/` report (use `.proofs/TEMPLATE.md`). A task is not complete until the verification flow is executed and recorded.
+6. **Verify deployed** — After merge, hot-deploy / publish to Genesis and verify live on Railway. **Find out exactly what is deployed — never guess.** Use **Datadog** to confirm behavior in production.
 
-Passing unit tests alone is NOT sufficient. If you cannot run the system and observe the feature working, it is not done.
+Do NOT rely solely on unit tests passing. If you cannot run it and see it work, it is not done. Hand over PR links, merge commits, deployment links, and live test results.
+
+## Root Cause & Operations
+
+- When something "keeps happening" or "didn't use to happen": find **what changed** (read the code, read Datadog), fix the root cause, and explain the causal story — why it started, what the fix is, how you verified. Never stack fixes on fixes.
+- **Datadog first** for production diagnosis.
+- **Every error, failure, and Cedar policy denial must surface to the human channel (Discord DMs).** Silent failure is itself a bug. Recoverable errors (re-auth, retries) must be operable by the human entirely from Discord — TemperPaw is standalone; needing a side agent to recover is a UX failure.
+- Prefer event-driven designs over polling.
+- Provider auth uses the Codex subscription/OAuth flow, not raw API keys, unless told otherwise.
+- Batch pipeline jobs run at most **10 concurrent**.
+- Long-running plans get recorded as Temper **goals** ("implement as a goal") so they survive sessions and context loss.
+
+## Brand Voice (for any TemperPaw-facing copy or creative work)
+
+- Anchors: **"Warm but hard. Old and existential."** Y2K / Ghost in the Shell / Evangelion vibe is load-bearing.
+- Temper is a **machine tool — a machine for building machines**; incorporate that profoundly, not decoratively.
+- Vibey, not religious. No bones imagery. Paw = mecha-animal (locked).
+- Compiled brand documents stand on their own — never name other agent projects or prior-art brands in them.
+- Down to earth, no drama, no literary devices, no vanity metrics.
+
+## Implementation Notes
+
+- Prefer real integrations over mocks when credentials are available.
+- Keep the entity model aligned with the `TemperPaw` namespace and the `Agent` / `Soul` / `Memory` / `Skill` names.
+- Commit in small, reviewable increments with clear messages so parallel implementations are easy to compare.
 
 ## Reference
 
