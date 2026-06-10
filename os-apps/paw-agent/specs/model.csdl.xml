@@ -415,6 +415,8 @@
         <Parameter Name="context_tokens" Type="Edm.Int64" Nullable="true"/>
         <Parameter Name="system_prompt_hash" Type="Edm.String" Nullable="true"/>
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="compaction_skipped_reason" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="compaction_skipped_leaf_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
