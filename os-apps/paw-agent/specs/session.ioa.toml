@@ -350,6 +350,16 @@ name = "compaction_model"
 type = "string"
 initial = ""
 
+[[state]]
+name = "compaction_skipped_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "compaction_skipped_leaf_id"
+type = "string"
+initial = ""
+
 # --- State Variables: System Prompt Cache (ADR-0022) ---
 
 [[state]]
@@ -965,8 +975,8 @@ name = "CompactionComplete"
 kind = "input"
 from = ["Compacting"]
 to = "PreparingContext"
-params = ["session_leaf_id", "context_tokens", "system_prompt_hash", "system_prompt_file_id"]
-hint = "Compaction finished. Resume bounded context preparation with the compacted session tree."
+params = ["session_leaf_id", "context_tokens", "system_prompt_hash", "system_prompt_file_id", "compaction_skipped_reason", "compaction_skipped_leaf_id"]
+hint = "Compaction finished or explicitly skipped. Resume bounded context preparation with the compacted session tree, or with a skip marker that prevents re-running the same impossible compaction."
 effect = [
   { type = "increment", var = "compaction_count" },
   { type = "trigger", name = "prepare_context" }

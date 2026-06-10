@@ -129,12 +129,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "warn",
                     "context_compactor: no valid cut point found, skipping compaction",
                 );
-                set_success_result(
-                    "CompactionComplete",
-                    &json!({
-                        "session_leaf_id": session_leaf_id,
-                        "context_tokens": tree.estimate_tokens(session_leaf_id),
-                    }),
+                set_compaction_skipped_result(
+                    session_leaf_id,
+                    tree.estimate_tokens(session_leaf_id),
+                    "no_valid_cut_point",
                 );
                 return Ok(());
             }
@@ -156,12 +154,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         );
         if messages_to_summarize.is_empty() {
             ctx.log("warn", "context_compactor: no messages to summarize");
-            set_success_result(
-                "CompactionComplete",
-                &json!({
-                    "session_leaf_id": session_leaf_id,
-                    "context_tokens": tree.estimate_tokens(session_leaf_id),
-                }),
+            set_compaction_skipped_result(
+                session_leaf_id,
+                tree.estimate_tokens(session_leaf_id),
+                "no_messages_to_summarize",
             );
             return Ok(());
         }
@@ -268,6 +264,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({
                 "session_leaf_id": compaction_id,
                 "context_tokens": new_token_estimate,
+                "compaction_skipped_leaf_id": "",
+                "compaction_skipped_reason": "",
             }),
         );
 
@@ -278,6 +276,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+fn set_compaction_skipped_result(session_leaf_id: &str, context_tokens: usize, reason: &str) {
+    set_success_result(
+        "CompactionComplete",
+        &json!({
+            "session_leaf_id": session_leaf_id,
+            "context_tokens": context_tokens,
+            "compaction_skipped_leaf_id": session_leaf_id,
+            "compaction_skipped_reason": reason,
+        }),
+    );
 }
 
 fn resolve_context_refs_for_compaction(

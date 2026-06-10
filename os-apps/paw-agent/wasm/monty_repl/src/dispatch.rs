@@ -1086,7 +1086,7 @@ fn temper_action(
     let entity_set = str_arg(args, 0, "entity_set", "action")?;
     let entity_id = str_arg(args, 1, "entity_id", "action")?;
     let action_name = str_arg(args, 2, "action_name", "action")?;
-    let body = with_curation_job_action_parent(ctx, &entity_set, action_name, obj_arg_or_empty(args, 3));
+    let body = with_curation_job_action_parent(ctx, &entity_set, &action_name, obj_arg_or_empty(args, 3));
     let key = escape_odata_key(&entity_id);
     http_post(
         ctx,

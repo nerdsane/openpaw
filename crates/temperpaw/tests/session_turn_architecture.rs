@@ -98,6 +98,12 @@ fn session_routes_llm_calls_through_codex_auth_gate() {
         "NeedsCompaction should enter the compaction auth gate before calling the compactor"
     );
     assert!(
+        spec.contains("name = \"compaction_skipped_reason\"")
+            && spec.contains("name = \"compaction_skipped_leaf_id\"")
+            && spec.contains("params = [\"session_leaf_id\", \"context_tokens\", \"system_prompt_hash\", \"system_prompt_file_id\", \"compaction_skipped_reason\", \"compaction_skipped_leaf_id\"]"),
+        "CompactionComplete should persist explicit skip markers so PreparingContext cannot re-run the same impossible compaction forever"
+    );
+    assert!(
         build_sh.contains("provider_auth_gate"),
         "provider_auth_gate must be built with the paw-agent wasm bundle"
     );
