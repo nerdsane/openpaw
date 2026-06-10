@@ -119,7 +119,7 @@ Do NOT rely solely on unit tests passing. If you cannot run it and see it work, 
 - Anchors: **"Warm but hard. Old and existential."** Y2K / Ghost in the Shell / Evangelion vibe is load-bearing.
 - Temper is a **machine tool — a machine for building machines**; incorporate that profoundly, not decoratively.
 - Vibey, not religious. No bones imagery. Paw = mecha-animal (locked).
-- No Nous/Hermes references in compiled brand documents.
+- Compiled brand documents stand on their own — never name other agent projects or prior-art brands in them.
 - Down to earth, no drama, no literary devices, no vanity metrics.
 
 ## Implementation Notes
