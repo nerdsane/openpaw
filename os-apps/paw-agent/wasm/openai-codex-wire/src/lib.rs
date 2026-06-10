@@ -50,7 +50,7 @@ pub fn build_openai_headers(
         ));
         headers.push((
             "OpenAI-Beta".to_string(),
-            "responses=experimental".to_string(),
+            "responses=v1".to_string(),
         ));
         headers.push(("accept".to_string(), "text/event-stream".to_string()));
     }

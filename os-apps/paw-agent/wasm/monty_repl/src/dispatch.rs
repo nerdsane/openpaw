@@ -704,6 +704,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "vercel" => Some("temper_vercel"),
         "web_search" => Some("temper_web_search"),
         "web_fetch" => Some("temper_web_fetch"),
+        "image_generate" => Some("temper_image_generate"),
         "done" | "get_agent_id" | "get_session_id" | "switch_provider" | "switch_mode" => None,
         _ => None,
     }
@@ -931,6 +932,7 @@ fn dispatch_temper(
         // Web research (backed by standalone WASM modules via WebQuery entity)
         "web_search" => temper_web_search(ctx, api_url, tenant, args),
         "web_fetch" => temper_web_fetch(ctx, api_url, tenant, args),
+        "image_generate" => temper_image_generate(ctx, api_url, tenant, args),
 
         _ => Err(format!(
             "unknown temper method '{method}'. Available: \
@@ -942,7 +944,7 @@ fn dispatch_temper(
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, write, read, ls, grep, glob, edit, rename, \
              search_history, run_coding_agent, datadog_query, railway, vercel, \
-             web_search, web_fetch"
+             web_search, web_fetch, image_generate"
         )),
     }
 }
@@ -1326,6 +1328,226 @@ fn temper_web_fetch(
         ));
     }
     Ok(result)
+}
+
+/// Generate an image via MediaGeneration entity + openai_codex_image_generate WASM.
+/// Creates a MediaGeneration, dispatches Generate, reads result metadata.
+fn temper_image_generate(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = image_generate_input(ctx, args)?;
+    let body = media_generation_fields(&input);
+    let entity = http_post(ctx, api_url, tenant, "/tdata/MediaGenerations", &body)?;
+    let entity_id = entity
+        .get("entity_id")
+        .or_else(|| entity.get("EntityId"))
+        .or_else(|| entity.get("Id"))
+        .and_then(Value::as_str)
+        .or_else(|| entity_field_str(&entity, &["Id", "id"]))
+        .ok_or_else(|| {
+            "image_generate: failed to get entity_id from created MediaGeneration".to_string()
+        })?;
+
+    let key = escape_odata_key(entity_id);
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/MediaGenerations('{key}')/Temper.Generate?await_integration=true"),
+        &json!({
+            "prompt": input.prompt,
+            "media_type": input.media_type,
+            "operation": input.operation,
+            "provider": input.provider,
+            "model": input.model,
+            "size": input.size,
+            "quality": input.quality,
+            "output_format": input.output_format,
+            "background": input.background,
+            "workspace_id": input.workspace_id,
+            "output_path": input.output_path,
+        }),
+    )?;
+
+    let result = http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/MediaGenerations('{key}')"),
+    )?;
+    render_media_generation_result(entity_id, &result, input.include_base64)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ImageGenerateInput {
+    prompt: String,
+    media_type: String,
+    operation: String,
+    provider: String,
+    model: String,
+    size: String,
+    quality: String,
+    output_format: String,
+    background: String,
+    workspace_id: String,
+    output_path: String,
+    include_base64: bool,
+}
+
+fn image_generate_input(ctx: &Context, args: &[Value]) -> Result<ImageGenerateInput, String> {
+    let (prompt, opts) = match args.first() {
+        Some(Value::Object(input)) => {
+            let prompt = input
+                .get("prompt")
+                .or_else(|| input.get("Prompt"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    "temper.image_generate(): object input must include non-empty prompt"
+                        .to_string()
+                })?
+                .trim()
+                .to_string();
+            let opts = input
+                .get("opts")
+                .or_else(|| input.get("options"))
+                .filter(|value| value.is_object())
+                .cloned()
+                .unwrap_or_else(|| Value::Object(input.clone()));
+            (prompt, opts)
+        }
+        _ => {
+            let prompt = str_arg(args, 0, "prompt", "image_generate")?;
+            (prompt.trim().to_string(), obj_arg_or_empty(args, 1))
+        }
+    };
+
+    if prompt.is_empty() {
+        return Err("temper.image_generate(): prompt cannot be empty".to_string());
+    }
+
+    let session_fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let workspace_id = opts_string(&opts, &["workspace_id", "WorkspaceId"])
+        .or_else(|| {
+            entity_field_str(&session_fields, &["workspace_id", "WorkspaceId"])
+                .map(ToOwned::to_owned)
+        })
+        .ok_or_else(|| {
+            "temper.image_generate(): workspace_id is required because generated images are stored in PawFS".to_string()
+        })?;
+
+    Ok(ImageGenerateInput {
+        prompt,
+        media_type: opts_string(&opts, &["media_type", "MediaType"])
+            .unwrap_or_else(|| "image".to_string()),
+        operation: opts_string(&opts, &["operation", "Operation"])
+            .unwrap_or_else(|| "generate".to_string()),
+        provider: normalize_image_provider(
+            &opts_string(&opts, &["provider", "Provider"])
+                .unwrap_or_else(|| "openai_codex".to_string()),
+        ),
+        model: opts_string(&opts, &["model", "Model"]).unwrap_or_default(),
+        size: opts_string(&opts, &["size", "Size"]).unwrap_or_else(|| "1024x1024".to_string()),
+        quality: opts_string(&opts, &["quality", "Quality"]).unwrap_or_else(|| "low".to_string()),
+        output_format: opts_string(&opts, &["output_format", "OutputFormat"])
+            .or_else(|| opts_string(&opts, &["format", "Format"]))
+            .unwrap_or_else(|| "png".to_string()),
+        background: opts_string(&opts, &["background", "Background"])
+            .unwrap_or_else(|| "auto".to_string()),
+        workspace_id,
+        output_path: opts_string(&opts, &["output_path", "OutputPath"])
+            .or_else(|| opts_string(&opts, &["path", "Path"]))
+            .unwrap_or_default(),
+        include_base64: opts
+            .get("inline")
+            .or_else(|| opts.get("include_base64"))
+            .or_else(|| opts.get("base64"))
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    })
+}
+
+fn media_generation_fields(input: &ImageGenerateInput) -> Value {
+    json!({
+        "Prompt": input.prompt,
+        "MediaType": input.media_type,
+        "Operation": input.operation,
+        "Provider": input.provider,
+        "Model": input.model,
+        "Size": input.size,
+        "Quality": input.quality,
+        "OutputFormat": input.output_format,
+        "Background": input.background,
+        "WorkspaceId": input.workspace_id,
+        "OutputPath": input.output_path,
+    })
+}
+
+fn render_media_generation_result(
+    media_generation_id: &str,
+    entity: &Value,
+    include_base64: bool,
+) -> Result<Value, String> {
+    let fields = entity.get("fields").unwrap_or(entity);
+    let status = entity_field_str(entity, &["Status", "status"]).unwrap_or("Created");
+    if status != "Complete" {
+        let error = entity_field_str(fields, &["Error", "error"])
+            .or_else(|| entity_field_str(fields, &["LastError", "last_error"]))
+            .unwrap_or("");
+        return Err(format!(
+            "image_generate: generation did not complete (status={status}){}",
+            if error.is_empty() {
+                String::new()
+            } else {
+                format!(": {error}")
+            }
+        ));
+    }
+
+    let mime_type = entity_field_str(fields, &["MimeType", "mime_type"]).unwrap_or("image/png");
+    let base64_data =
+        entity_field_str(fields, &["ResultImageBase64", "result_image_base64"]).unwrap_or("");
+    let byte_count = base64_data.len().saturating_mul(3) / 4;
+    let mut result = json!({
+        "__temperpaw_image": true,
+        "media_generation_id": media_generation_id,
+        "media_type": mime_type,
+        "mime_type": mime_type,
+        "file_id": entity_field_str(fields, &["ResultFileId", "result_file_id"]).unwrap_or(""),
+        "file_version_id": entity_field_str(fields, &["ResultFileVersionId", "result_file_version_id"]).unwrap_or(""),
+        "path": entity_field_str(fields, &["ResultPath", "result_path"]).unwrap_or(""),
+        "prompt": entity_field_str(fields, &["Prompt", "prompt"]).unwrap_or(""),
+        "revised_prompt": entity_field_str(fields, &["RevisedPrompt", "revised_prompt"]).unwrap_or(""),
+        "provider": entity_field_str(fields, &["Provider", "provider"]).unwrap_or("openai_codex"),
+        "model": entity_field_str(fields, &["Model", "model"]).unwrap_or(""),
+        "provider_response_id": entity_field_str(fields, &["ProviderResponseId", "provider_response_id"]).unwrap_or(""),
+        "byte_count": byte_count,
+    });
+    if include_base64 && !base64_data.is_empty() {
+        result["base64_data"] = json!(base64_data);
+    } else {
+        result["content_ref"] = json!("pawfs_file");
+    }
+    Ok(result)
+}
+
+fn opts_string(opts: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| opts.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn normalize_image_provider(provider: &str) -> String {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "codex" | "openai-codex" => "openai_codex".to_string(),
+        "" => "openai_codex".to_string(),
+        other => other.to_string(),
+    }
 }
 
 /// Shared implementation: create WebQuery entity, dispatch action, return results.
@@ -1920,7 +2142,10 @@ fn temper_install_app(
         .to_string();
     let registry_url = genesis_registry_url(ctx, input_obj)?;
     let registry_tenant = input_obj
-        .and_then(|obj| obj.get("registry_tenant").or_else(|| obj.get("RegistryTenant")))
+        .and_then(|obj| {
+            obj.get("registry_tenant")
+                .or_else(|| obj.get("RegistryTenant"))
+        })
         .and_then(Value::as_str)
         .unwrap_or("default");
     let follow_policy = input_obj
@@ -1945,7 +2170,10 @@ fn temper_search_apps(ctx: &Context, args: &[Value]) -> Result<Value, String> {
     let input_obj = input.and_then(Value::as_object);
     let registry_url = genesis_registry_url(ctx, input_obj)?;
     let registry_tenant = input_obj
-        .and_then(|obj| obj.get("registry_tenant").or_else(|| obj.get("RegistryTenant")))
+        .and_then(|obj| {
+            obj.get("registry_tenant")
+                .or_else(|| obj.get("RegistryTenant"))
+        })
         .and_then(Value::as_str)
         .unwrap_or("default");
     let query = input_obj
@@ -1996,7 +2224,12 @@ fn temper_search_apps(ctx: &Context, args: &[Value]) -> Result<Value, String> {
         let name = field_str(fields, &["Name", "name"]);
         let desc = field_str(fields, &["Description", "description"]);
         let hash = field_str(fields, &["LatestVersionHash", "latest_version_hash"]);
-        let haystack = format!("{} {} {}", app_owner, name.to_ascii_lowercase(), desc.to_ascii_lowercase());
+        let haystack = format!(
+            "{} {} {}",
+            app_owner,
+            name.to_ascii_lowercase(),
+            desc.to_ascii_lowercase()
+        );
         if !query.is_empty() && !haystack.contains(&query) {
             continue;
         }
@@ -2023,13 +2256,9 @@ fn temper_publish_app(
     workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = args
-        .first()
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            "temper.publish_app() requires {path, owner, name, registry_url?, message?}"
-                .to_string()
-        })?;
+    let input = args.first().and_then(Value::as_object).ok_or_else(|| {
+        "temper.publish_app() requires {path, owner, name, registry_url?, message?}".to_string()
+    })?;
     let path = required_obj_str(input, "path", "publish_app")?;
     let owner = required_obj_str(input, "owner", "publish_app")?;
     let name = required_obj_str(input, "name", "publish_app")?;
@@ -2062,13 +2291,9 @@ fn temper_update_app(
     workdir: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = args
-        .first()
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            "temper.update_app() requires {path, app_ref_or_name, registry_url?, message?}"
-                .to_string()
-        })?;
+    let input = args.first().and_then(Value::as_object).ok_or_else(|| {
+        "temper.update_app() requires {path, app_ref_or_name, registry_url?, message?}".to_string()
+    })?;
     let path = required_obj_str(input, "path", "update_app")?;
     let app_ref_or_name = required_obj_str(input, "app_ref_or_name", "update_app")?;
     let (owner, name) = owner_name_from_ref_or_name(&app_ref_or_name)?;
@@ -2134,10 +2359,7 @@ fn publish_or_update_app_via_git(
     let headers = genesis_registry_headers(registry_tenant);
     let existing_latest_hash =
         fetch_genesis_latest_hash(ctx, &app_url, &headers, owner, name).unwrap_or_default();
-    let git_header_key = format!(
-        "http.{}/.extraHeader",
-        registry_url.trim_end_matches('/')
-    );
+    let git_header_key = format!("http.{}/.extraHeader", registry_url.trim_end_matches('/'));
     let git_tenant_header = format!("X-Tenant-Id: {registry_tenant}");
     let command = format!(
         "set -euo pipefail\n\
@@ -2262,7 +2484,10 @@ fn ensure_genesis_repository(
         "Visibility": "public",
     });
     let created = ctx.http_call("POST", &create_url, &headers, &body.to_string())?;
-    if created.status >= 400 && !created.body.contains("already") && !created.body.contains("exists") {
+    if created.status >= 400
+        && !created.body.contains("already")
+        && !created.body.contains("exists")
+    {
         return Err(format!(
             "Genesis repository create failed for {owner}/{name}: HTTP {} {}",
             created.status, created.body
@@ -2305,8 +2530,7 @@ fn publish_genesis_app_version(
                 registered.status, registered.body
             ));
         }
-        let latest_hash =
-            verify_genesis_latest_hash(ctx, &app_url, &headers, owner, name, hash)?;
+        let latest_hash = verify_genesis_latest_hash(ctx, &app_url, &headers, owner, name, hash)?;
         return Ok(json!({
             "kind": "registered",
             "app_id": app_id,
@@ -2343,9 +2567,7 @@ fn publish_genesis_app_version(
     });
     let published = ctx.http_call("POST", &publish_url, &headers, &body.to_string())?;
     if published.status >= 400 {
-        if let Ok(latest_hash) =
-            fetch_genesis_latest_hash(ctx, &app_url, &headers, owner, name)
-        {
+        if let Ok(latest_hash) = fetch_genesis_latest_hash(ctx, &app_url, &headers, owner, name) {
             if latest_hash.trim_start_matches('@') == hash {
                 return Ok(json!({
                     "kind": "already_current",
@@ -2387,8 +2609,9 @@ fn fetch_genesis_latest_hash(
             current.status, current.body
         ));
     }
-    let parsed = serde_json::from_str::<Value>(&current.body)
-        .map_err(|error| format!("Genesis app latest verification returned invalid JSON: {error}"))?;
+    let parsed = serde_json::from_str::<Value>(&current.body).map_err(|error| {
+        format!("Genesis app latest verification returned invalid JSON: {error}")
+    })?;
     let fields = parsed.get("fields").unwrap_or(&parsed);
     let latest_hash = field_str(fields, &["LatestVersionHash", "latest_version_hash"]);
     if latest_hash.trim().is_empty() {
