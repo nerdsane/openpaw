@@ -246,3 +246,116 @@ fn encode_url_component(value: &str) -> String {
     }
     encoded
 }
+
+struct DirectedEvolutionDatadogEventSearch<'a> {
+    site: &'a str,
+    path: &'a str,
+    api_key: &'a str,
+    app_key: &'a str,
+    query: &'a str,
+    from: &'a str,
+    to: &'a str,
+}
+
+async fn directed_evolution_datadog_event_search(
+    client: &reqwest::Client,
+    request: DirectedEvolutionDatadogEventSearch<'_>,
+) -> Result<Value> {
+    let url = format!("https://api.{}{}", request.site, request.path);
+    let request_body = if request.path.contains("/spans/") {
+        json!({
+            "data": {
+                "type": "search_request",
+                "attributes": {
+                    "filter": {
+                        "query": request.query,
+                        "from": request.from,
+                        "to": request.to,
+                    },
+                    "options": {
+                        "timezone": "GMT",
+                    },
+                    "page": {
+                        "limit": 25,
+                    },
+                    "sort": "-timestamp",
+                },
+            },
+        })
+    } else {
+        json!({
+            "filter": {
+                "query": request.query,
+                "from": request.from,
+                "to": request.to,
+            },
+            "page": {
+                "limit": 25,
+            },
+        })
+    };
+    let response = client
+        .post(url)
+        .header("DD-API-KEY", request.api_key)
+        .header("DD-APPLICATION-KEY", request.app_key)
+        .header(ACCEPT, "application/json")
+        .header(CONTENT_TYPE, "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .with_context(|| format!("query Datadog events for {}", request.query))?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Ok(json!({
+            "ok": false,
+            "http_status": status.to_string(),
+            "body_preview": truncate_middle(&text, 1_200),
+        }));
+    }
+    let value = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| {
+        json!({
+            "raw": truncate_middle(&text, 1_200),
+        })
+    });
+    Ok(directed_evolution_datadog_event_summary(&value))
+}
+
+fn directed_evolution_datadog_event_summary(value: &Value) -> Value {
+    let items = value
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let samples = items
+        .iter()
+        .take(8)
+        .map(directed_evolution_datadog_event_sample)
+        .collect::<Vec<_>>();
+    json!({
+        "ok": true,
+        "result_count": items.len(),
+        "samples": samples,
+    })
+}
+
+fn directed_evolution_datadog_event_sample(item: &Value) -> Value {
+    let attributes = item.get("attributes").unwrap_or(item);
+    let nested = attributes.get("attributes").unwrap_or(attributes);
+    json!({
+        "id": value_field_string(item, &["id"]),
+        "timestamp": value_field_string(attributes, &["timestamp"]),
+        "service": value_field_string(nested, &["service"]),
+        "message": truncate_middle(
+            &value_field_string(attributes, &["message", "resource_name", "name"]),
+            300
+        ),
+        "action": value_field_string(nested, &["action", "temper.action"]),
+        "entity_type": value_field_string(nested, &["entity_type", "temper.entity_type"]),
+        "entity_id": value_field_string(nested, &["entity_id", "temper.entity_id"]),
+        "observation_metadata": truncate_middle(
+            &value_field_string(nested, &["observation_metadata", "temper.observation_metadata"]),
+            500
+        ),
+    })
+}
