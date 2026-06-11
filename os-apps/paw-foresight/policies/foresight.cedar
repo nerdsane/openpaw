@@ -365,3 +365,51 @@ permit(
    "aggregate_costs", "evidence_ingest", "register_forecasts",
    "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
 };
+
+// ── Session relay (v1 trust model) ─────────────────────────────
+// Entity actions dispatched from inside sessions arrive as the
+// wasm-runtime relay principal, not as the agent itself, so the
+// agent_type- and id-bound permits above cannot see them. Until the
+// dispatch context carries verifiable agent attributes end to end
+// (follow-up: bind RepairComplete/ChallengeComplete to the assigned
+// agent via context attrs), session self-reports are permitted at
+// the relay principal — the same de facto trust model the 0.1 engine
+// ran with. System-only transitions (scoring, classification,
+// publication, forecast lifecycle) remain closed: they are
+// dispatched by app WASM, never by sessions.
+
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"Fail"],
+  resource is World
+);
+
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action in [Action::"SubmitForRepair", Action::"Fail"],
+  resource is Endpoint
+);
+
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action in [Action::"RepairComplete", Action::"ChallengeComplete", Action::"Fail"],
+  resource is Path
+);
+
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action in [Action::"SubmitForCheck", Action::"CheckerVerdict", Action::"Reject"],
+  resource is Artifact
+);
+
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action == Action::"Confirm",
+  resource is EventNode
+);
+
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action in [Action::"RecordTraversal", Action::"RecordContradiction"],
+  resource is Dweller
+);
