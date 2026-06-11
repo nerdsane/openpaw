@@ -1,9 +1,18 @@
 // TemperFS File Authorization Policies
 
-// Any authenticated principal can read/list files
+// Any authenticated principal can read/list files. Session tool reads
+// (temper.read) authorize content access through a family of capitalized
+// action names relayed as service:wasm-runtime — without them every session
+// file read dies in WaitingForApproval (found live: hindcast surveyor could
+// not read its own frozen corpus).
 permit(
     principal,
-    action in [Action::"read", Action::"list"],
+    action in [
+        Action::"read", Action::"list",
+        Action::"Read", Action::"Download", Action::"GetContent",
+        Action::"GetValue", Action::"Stream", Action::"Open",
+        Action::"GetText", Action::"FetchContent", Action::"Content"
+    ],
     resource is File
 );
 
