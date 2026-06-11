@@ -11,6 +11,53 @@
 
 use temper_wasm_sdk::prelude::*;
 
+/// Read a string field from an OData row. List/GET rows nest snake_case
+/// values under "fields" with lowercase status/entity_id at the top level;
+/// some surfaces serve PascalCase top-level properties. Check both.
+fn row_str<'a>(row: &'a Value, pascal: &str) -> &'a str {
+    fn snake(p: &str) -> String {
+        let mut s = String::new();
+        for (i, ch) in p.chars().enumerate() {
+            if ch.is_uppercase() {
+                if i > 0 {
+                    s.push('_');
+                }
+                s.extend(ch.to_lowercase());
+            } else {
+                s.push(ch);
+            }
+        }
+        s
+    }
+    let s = snake(pascal);
+    if let Some(v) = row
+        .get("fields")
+        .and_then(|f| f.get(s.as_str()))
+        .and_then(|v| v.as_str())
+    {
+        return v;
+    }
+    if let Some(v) = row.get(pascal).and_then(|v| v.as_str()) {
+        return v;
+    }
+    // List rows also carry lowercase top-level keys (status, entity_id).
+    row.get(s.as_str()).and_then(|v| v.as_str()).unwrap_or("")
+}
+
+fn row_status(row: &Value) -> &str {
+    row.get("status")
+        .or_else(|| row.get("Status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
+fn row_id(row: &Value) -> &str {
+    row.get("entity_id")
+        .or_else(|| row.get("Id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
 /// Engine version stamped on every registration.
 const ENGINE_VERSION: &str = "0.2.0";
 
@@ -104,7 +151,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let mut registered = 0usize;
         for node in &nodes {
-            let str_of = |k: &str| node.get(k).and_then(|v| v.as_str()).unwrap_or("");
+            let str_of = |k: &str| row_str(node, k);
             let node_id = node
                 .get("Id")
                 .or_else(|| node.get("entity_id"))
@@ -317,4 +364,18 @@ mod tests {
         assert_eq!(first_source_ref("[]"), "");
         assert_eq!(first_source_ref("not json"), "");
     }
+    #[test]
+    fn row_readers_handle_both_odata_shapes() {
+        let nested = json!({"entity_id": "e-1", "status": "Scored",
+            "fields": {"repair_cost": "17.50", "world_id": "w-1"}});
+        assert_eq!(row_id(&nested), "e-1");
+        assert_eq!(row_status(&nested), "Scored");
+        assert_eq!(row_str(&nested, "RepairCost"), "17.50");
+        assert_eq!(row_str(&nested, "Status"), "Scored"); // lowercase top-level
+        let pascal = json!({"Id": "e-2", "Status": "Tail", "RepairCost": "50.00"});
+        assert_eq!(row_id(&pascal), "e-2");
+        assert_eq!(row_status(&pascal), "Tail");
+        assert_eq!(row_str(&pascal, "RepairCost"), "50.00");
+    }
+
 }

@@ -278,16 +278,17 @@ fn spawn_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
         ));
     }
     let world: Value = serde_json::from_str(&world_resp.body).unwrap_or(json!({}));
-    let model = world
-        .get("AgentModel")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let provider = world
-        .get("AgentProvider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let world_field = |snake: &str, pascal: &str| -> String {
+        world
+            .get("fields")
+            .and_then(|f| f.get(snake))
+            .or_else(|| world.get(pascal))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let model = world_field("agent_model", "AgentModel");
+    let provider = world_field("agent_provider", "AgentProvider");
     if model.trim().is_empty() || provider.trim().is_empty() {
         return Err("World.agent_model and World.agent_provider are required".to_string());
     }

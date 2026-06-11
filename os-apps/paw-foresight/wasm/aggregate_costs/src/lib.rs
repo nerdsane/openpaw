@@ -12,6 +12,53 @@
 
 use temper_wasm_sdk::prelude::*;
 
+/// Read a string field from an OData row. List/GET rows nest snake_case
+/// values under "fields" with lowercase status/entity_id at the top level;
+/// some surfaces serve PascalCase top-level properties. Check both.
+fn row_str<'a>(row: &'a Value, pascal: &str) -> &'a str {
+    fn snake(p: &str) -> String {
+        let mut s = String::new();
+        for (i, ch) in p.chars().enumerate() {
+            if ch.is_uppercase() {
+                if i > 0 {
+                    s.push('_');
+                }
+                s.extend(ch.to_lowercase());
+            } else {
+                s.push(ch);
+            }
+        }
+        s
+    }
+    let s = snake(pascal);
+    if let Some(v) = row
+        .get("fields")
+        .and_then(|f| f.get(s.as_str()))
+        .and_then(|v| v.as_str())
+    {
+        return v;
+    }
+    if let Some(v) = row.get(pascal).and_then(|v| v.as_str()) {
+        return v;
+    }
+    // List rows also carry lowercase top-level keys (status, entity_id).
+    row.get(s.as_str()).and_then(|v| v.as_str()).unwrap_or("")
+}
+
+fn row_status(row: &Value) -> &str {
+    row.get("status")
+        .or_else(|| row.get("Status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
+fn row_id(row: &Value) -> &str {
+    row.get("entity_id")
+        .or_else(|| row.get("Id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
 /// Base cost per flag kind. A miracle (unexplained discontinuity) costs the
 /// most; a compressed lag the least. Unknown kinds cost like contradictions
 /// so malformed flags are never free.
@@ -216,14 +263,39 @@ fn classify_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
     // 2. The pass is settled when no path is still in flight.
     let mut scored: Vec<(String, f64, String)> = Vec::new(); // (path_id, cost, endpoint_id)
     for p in &paths {
-        let id = p
-            .get("Id")
-            .or_else(|| p.get("entity_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let status = p.get("Status").and_then(|v| v.as_str()).unwrap_or("");
-        match status {
+        let id = row_id(p).to_string();
+        // The list projection can lag the event store by a beat: a row that
+        // still reads in flight may have transitioned already. Trust our own
+        // entity's post-transition state, and confirm any other in-flight row
+        // against the authoritative single-entity read before bailing.
+        let mut status = row_status(p).to_string();
+        let mut cost_src = row_str(p, "RepairCost").to_string();
+        let mut endpoint_src = row_str(p, "EndpointId").to_string();
+        if matches!(status.as_str(), "Solving" | "Repaired" | "Challenged") {
+            if id == ctx.entity_id {
+                status = "Scored".to_string();
+                let own = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+                if let Some(v) = own.get("repair_cost").and_then(|v| v.as_str()) {
+                    cost_src = v.to_string();
+                }
+                if let Some(v) = own.get("endpoint_id").and_then(|v| v.as_str()) {
+                    endpoint_src = v.to_string();
+                }
+            } else if let Ok(r) = ctx.http_call(
+                "GET",
+                &format!("{temper_api_url}/tdata/Paths('{id}')"),
+                &headers,
+                "",
+            ) {
+                if (200..300).contains(&r.status) {
+                    let row: Value = serde_json::from_str(&r.body).unwrap_or(json!({}));
+                    status = row_status(&row).to_string();
+                    cost_src = row_str(&row, "RepairCost").to_string();
+                    endpoint_src = row_str(&row, "EndpointId").to_string();
+                }
+            }
+        }
+        match status.as_str() {
             "Solving" | "Repaired" | "Challenged" => {
                 ctx.log(
                     "info",
@@ -235,17 +307,8 @@ fn classify_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
                 return Ok(());
             }
             "Scored" => {
-                let cost = p
-                    .get("RepairCost")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(f64::MAX);
-                let endpoint_id = p
-                    .get("EndpointId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                scored.push((id, cost, endpoint_id));
+                let cost = cost_src.parse::<f64>().unwrap_or(f64::MAX);
+                scored.push((id, cost, endpoint_src));
             }
             _ => {} // Canonical/Tail/Rejected/Failed from earlier passes
         }
@@ -319,7 +382,29 @@ fn classify_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
         }
     }
 
-    // 5. Report the settled pass to the world.
+    // 5. Report the settled pass to the world — once. Concurrent Score
+    // triggers can both observe a settled pass (the classification
+    // transitions race); the world's canonical_path_id is the
+    // single-writer guard: if it is already set for this pass, another
+    // run got here first.
+    if let Ok(r) = ctx.http_call(
+        "GET",
+        &format!("{temper_api_url}/tdata/Worlds('{world_id}')"),
+        &headers,
+        "",
+    ) {
+        if (200..300).contains(&r.status) {
+            let world: Value = serde_json::from_str(&r.body).unwrap_or(json!({}));
+            if !row_str(&world, "CanonicalPathId").is_empty() {
+                ctx.log(
+                    "info",
+                    "aggregate_costs: pass already reported (canonical set); skipping duplicate PathsScored",
+                );
+                set_success_result("", &json!({}));
+                return Ok(());
+            }
+        }
+    }
     let url = format!("{temper_api_url}/tdata/Worlds('{world_id}')/TemperPaw.PathsScored");
     let body = json!({ "canonical_path_id": canonical_path_id });
     let r = ctx.http_call("POST", &url, &headers, &body.to_string())?;
@@ -428,4 +513,18 @@ mod tests {
         let weights = endpoint_weights(&[("only".to_string(), 999.0)]);
         assert_eq!(weights, vec![("only".to_string(), 1.0)]);
     }
+    #[test]
+    fn row_readers_handle_both_odata_shapes() {
+        let nested = json!({"entity_id": "e-1", "status": "Scored",
+            "fields": {"repair_cost": "17.50", "world_id": "w-1"}});
+        assert_eq!(row_id(&nested), "e-1");
+        assert_eq!(row_status(&nested), "Scored");
+        assert_eq!(row_str(&nested, "RepairCost"), "17.50");
+        assert_eq!(row_str(&nested, "Status"), "Scored"); // lowercase top-level
+        let pascal = json!({"Id": "e-2", "Status": "Tail", "RepairCost": "50.00"});
+        assert_eq!(row_id(&pascal), "e-2");
+        assert_eq!(row_status(&pascal), "Tail");
+        assert_eq!(row_str(&pascal, "RepairCost"), "50.00");
+    }
+
 }

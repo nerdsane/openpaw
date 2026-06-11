@@ -19,6 +19,53 @@
 
 use temper_wasm_sdk::prelude::*;
 
+/// Read a string field from an OData row. List/GET rows nest snake_case
+/// values under "fields" with lowercase status/entity_id at the top level;
+/// some surfaces serve PascalCase top-level properties. Check both.
+fn row_str<'a>(row: &'a Value, pascal: &str) -> &'a str {
+    fn snake(p: &str) -> String {
+        let mut s = String::new();
+        for (i, ch) in p.chars().enumerate() {
+            if ch.is_uppercase() {
+                if i > 0 {
+                    s.push('_');
+                }
+                s.extend(ch.to_lowercase());
+            } else {
+                s.push(ch);
+            }
+        }
+        s
+    }
+    let s = snake(pascal);
+    if let Some(v) = row
+        .get("fields")
+        .and_then(|f| f.get(s.as_str()))
+        .and_then(|v| v.as_str())
+    {
+        return v;
+    }
+    if let Some(v) = row.get(pascal).and_then(|v| v.as_str()) {
+        return v;
+    }
+    // List rows also carry lowercase top-level keys (status, entity_id).
+    row.get(s.as_str()).and_then(|v| v.as_str()).unwrap_or("")
+}
+
+fn row_status(row: &Value) -> &str {
+    row.get("status")
+        .or_else(|| row.get("Status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
+fn row_id(row: &Value) -> &str {
+    row.get("entity_id")
+        .or_else(|| row.get("Id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
 // --- Pure rules -----------------------------------------------------------
 
 /// Brier score for a registered probability against a yes/no outcome,
@@ -268,13 +315,8 @@ fn ingest(ctx: &Context) -> Result<(), String> {
     let mut fresh: std::collections::BTreeMap<String, FreshPrice> =
         std::collections::BTreeMap::new();
     for node in &nodes {
-        let str_of = |k: &str| node.get(k).and_then(|v| v.as_str()).unwrap_or("");
-        let node_id = node
-            .get("Id")
-            .or_else(|| node.get("entity_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let str_of = |k: &str| row_str(node, k);
+        let node_id = row_id(node).to_string();
         if node_id.is_empty() || str_of("Provenance") != "market" {
             continue;
         }
@@ -374,13 +416,8 @@ fn ingest(ctx: &Context) -> Result<(), String> {
     // 4. Resolution sweep over overdue Confirmed nodes.
     let mut resolved: Vec<(String, &'static str, String)> = Vec::new(); // (node_id, outcome, refs)
     for node in &nodes {
-        let str_of = |k: &str| node.get(k).and_then(|v| v.as_str()).unwrap_or("");
-        let node_id = node
-            .get("Id")
-            .or_else(|| node.get("entity_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let str_of = |k: &str| row_str(node, k);
+        let node_id = row_id(node).to_string();
         let resolve_by = str_of("ResolveBy");
         if node_id.is_empty()
             || str_of("Status") != "Confirmed"
@@ -452,16 +489,11 @@ fn ingest(ctx: &Context) -> Result<(), String> {
             .cloned()
             .unwrap_or_default();
         for forecast in &forecasts {
-            let str_of = |k: &str| forecast.get(k).and_then(|v| v.as_str()).unwrap_or("");
+            let str_of = |k: &str| row_str(forecast, k);
             if str_of("Status") != "Preregistered" {
                 continue;
             }
-            let forecast_id = forecast
-                .get("Id")
-                .or_else(|| forecast.get("entity_id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            let forecast_id = row_id(forecast).to_string();
             let node_id = str_of("EventNodeId");
             let Some((_, outcome, refs)) = resolved.iter().find(|(id, _, _)| id == node_id)
             else {
@@ -550,9 +582,8 @@ fn ingest(ctx: &Context) -> Result<(), String> {
             return Ok(());
         }
         let path: Value = serde_json::from_str(&presp.body).unwrap_or(json!({}));
-        let required: Vec<String> = path
-            .get("RequiredNodeIds")
-            .and_then(|v| v.as_str())
+        let required: Vec<String> = Some(row_str(&path, "RequiredNodeIds"))
+            .filter(|s| !s.is_empty())
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .and_then(|v| v.as_array().cloned())
             .map(|arr| {
@@ -665,4 +696,18 @@ mod tests {
         assert_eq!(parse_kalshi_price(kalshi_mid), Some(0.05));
         assert_eq!(parse_kalshi_price("{}"), None);
     }
+    #[test]
+    fn row_readers_handle_both_odata_shapes() {
+        let nested = json!({"entity_id": "e-1", "status": "Scored",
+            "fields": {"repair_cost": "17.50", "world_id": "w-1"}});
+        assert_eq!(row_id(&nested), "e-1");
+        assert_eq!(row_status(&nested), "Scored");
+        assert_eq!(row_str(&nested, "RepairCost"), "17.50");
+        assert_eq!(row_str(&nested, "Status"), "Scored"); // lowercase top-level
+        let pascal = json!({"Id": "e-2", "Status": "Tail", "RepairCost": "50.00"});
+        assert_eq!(row_id(&pascal), "e-2");
+        assert_eq!(row_status(&pascal), "Tail");
+        assert_eq!(row_str(&pascal, "RepairCost"), "50.00");
+    }
+
 }
