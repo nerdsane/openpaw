@@ -1,75 +1,47 @@
-// Foresight — Cedar Authorization Policies
+// Foresight — Cedar Authorization Policies (corridor engine, 0.2)
 //
-// Broad permits matching the paw-heal pattern. All principals can perform
-// standard CRUD and actions on Foresight entities.
+// Legacy 0.1 retirement (ADR-003): the five old entity types persist in
+// installed stores as inert residue. Reads stay open everywhere; mutation is
+// system-principals-only so an image rollback (which restores the old
+// bundle's WASM) keeps old system flows functional while sessions, agents,
+// and humans can no longer drive the retired machinery.
 
-// --- ForesightModel ---
 permit(
   principal,
-  action in [Action::"create", Action::"read", Action::"list",
-             Action::"Seed", Action::"SeedComplete", Action::"SeedFailed",
-             Action::"RefreshSignals", Action::"RefreshComplete",
-             Action::"MarkStale", Action::"Reactivate"],
+  action in [Action::"read", Action::"list"],
   resource is ForesightModel
 );
-
-// --- Projection ---
 permit(
   principal,
-  action in [Action::"create", Action::"read", Action::"list",
-             Action::"Configure", Action::"Start", Action::"ProbesReady",
-             Action::"ProbeStepDone", Action::"ConvergenceComplete",
-             Action::"ProjectionUpdated",
-             Action::"AdvanceStep", Action::"Complete", Action::"Branch", Action::"Fail"],
+  action in [Action::"read", Action::"list"],
   resource is Projection
 );
-
-// --- Observation ---
 permit(
   principal,
-  action in [Action::"create", Action::"read", Action::"list",
-             Action::"Record", Action::"Confirm",
-             Action::"Escalate", Action::"Fade"],
+  action in [Action::"read", Action::"list"],
   resource is Observation
 );
-
-// --- Direction ---
 permit(
   principal,
-  action in [Action::"create", Action::"read", Action::"list",
-             Action::"Propose", Action::"SubmitForReview",
-             Action::"RecordReview", Action::"RecordConfirmation",
-             Action::"MarkCrossModelAgreement",
-             Action::"BeginImplementation", Action::"ImplementationComplete",
-             Action::"Select", Action::"Archive"],
+  action in [Action::"read", Action::"list"],
   resource is Direction
 );
-
-// --- DirectionFeedback ---
 permit(
   principal,
-  action in [Action::"create", Action::"read", Action::"list",
-             Action::"Submit", Action::"Address",
-             Action::"Resolve", Action::"Reopen", Action::"ReAddress"],
+  action in [Action::"read", Action::"list"],
   resource is DirectionFeedback
 );
 
-// --- WASM module HTTP + secret access ---
-permit(
-  principal is Agent,
-  action == Action::"http_call",
-  resource is HttpEndpoint
-) when {
-  ["spawn_seed_agent", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
-};
-
-permit(
-  principal is Agent,
-  action == Action::"access_secret",
-  resource is Secret
-) when {
-  ["spawn_seed_agent", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
-};
+permit(principal, action, resource is ForesightModel)
+when { principal.agent_type == "system" };
+permit(principal, action, resource is Projection)
+when { principal.agent_type == "system" };
+permit(principal, action, resource is Observation)
+when { principal.agent_type == "system" };
+permit(principal, action, resource is Direction)
+when { principal.agent_type == "system" };
+permit(principal, action, resource is DirectionFeedback)
+when { principal.agent_type == "system" };
 
 // ============================================================
 // Corridor world engine (ADR-002). Separations that carry the

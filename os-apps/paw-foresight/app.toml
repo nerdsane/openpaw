@@ -1,11 +1,12 @@
 name = "paw-foresight"
 description = "Corridor world engine — scored worlds: skeleton forward, endpoints backward, adversarial repair, reality-graded forecasts"
-version = "0.1.0"
+version = "0.2.0"
 startup_install = "core"
 dependencies = ["paw-agent"]
 
-# Corridor engine modules (ADR-002). Legacy 0.1 projection modules remain
-# undeclared/auto-discovered until their removal commit (ADR-003).
+# Corridor engine modules (ADR-002). The legacy 0.1 projection surface was
+# removed in the ADR-003 retirement commit; its specs persist in installed
+# stores as inert, readable residue.
 
 [[wasm_modules]]
 name = "seed_world"

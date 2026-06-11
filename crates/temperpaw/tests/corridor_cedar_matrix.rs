@@ -257,3 +257,40 @@ fn world_pass_results_and_legacy_retirement_boundaries_hold() {
             .is_allowed()
     );
 }
+
+#[test]
+fn legacy_entity_types_are_retired_read_only_except_for_system() {
+    // ADR-003: old specs persist in installed stores; reads stay open, but
+    // only system principals (rollback safety) may still drive them.
+    let engine = engine();
+    for entity in [
+        "ForesightModel",
+        "Projection",
+        "Observation",
+        "Direction",
+        "DirectionFeedback",
+    ] {
+        let a = attrs(&[("id", serde_json::json!("legacy-1"))]);
+        let agent = ctx("session", "agent");
+        assert!(
+            engine.authorize(&agent, "read", entity, &a).is_allowed(),
+            "{entity} residue must stay readable"
+        );
+        assert!(
+            engine.authorize(&agent, "list", entity, &a).is_allowed(),
+            "{entity} residue must stay listable"
+        );
+        for action in ["create", "Start", "Seed", "Record", "Propose", "Submit"] {
+            assert!(
+                !engine.authorize(&agent, action, entity, &a).is_allowed(),
+                "agents must not {action} retired {entity}"
+            );
+        }
+        assert!(
+            engine
+                .authorize(&ctx("rollback-wasm", "system"), "create", entity, &a)
+                .is_allowed(),
+            "system retains {entity} mutation for rollback symmetry"
+        );
+    }
+}
