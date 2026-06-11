@@ -55,3 +55,13 @@ permit(
 ) when {
     principal in Group::"WorkspaceAdmins" && resource.workspaceId == principal.workspaceid
 };
+
+// The wasm-runtime service writes files on behalf of sessions (turn
+// artifacts, agent temper.write via the directory tree). Without this
+// permit every fresh tenant needs a runtime decision approval before any
+// session can persist content — found live, twice, in corridor e2e runs.
+permit(
+    principal == Agent::"service:wasm-runtime",
+    action in [Action::"create", Action::"Create", Action::"StreamUpdated", Action::"update"],
+    resource is File
+);
