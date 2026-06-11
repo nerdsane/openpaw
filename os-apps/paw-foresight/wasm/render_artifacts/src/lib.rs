@@ -171,6 +171,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "render_artifacts: world {world_id} has no canonical path yet; nothing to render"
                 ),
             );
+            // A successful run with nothing to dispatch must still set a
+            // result: the host treats an empty result as failure.
+            set_success_result("", &json!({}));
             return Ok(());
         }
         let model = get("agent_model");
@@ -278,6 +281,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "render_artifacts: author spawned for world {world_id} (canonical path {path_id}); artifacts will arrive via SubmitForCheck"
             ),
         );
+        // A successful run with nothing to dispatch must still set a
+        // result: the host treats an empty result as failure.
+        set_success_result("", &json!({}));
         Ok(())
     })();
 

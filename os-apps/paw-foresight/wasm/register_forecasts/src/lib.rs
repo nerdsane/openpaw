@@ -200,6 +200,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 nodes.len()
             ),
         );
+        // A successful run with nothing to dispatch must still set a
+        // result: the host treats an empty result as failure.
+        set_success_result("", &json!({}));
         Ok(())
     })();
 

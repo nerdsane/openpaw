@@ -307,6 +307,9 @@ fn spawn_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
     )?;
     // No result: the checker self-reports CheckerVerdict, which re-enters
     // this module in the validate phase.
+    // A successful run with nothing to dispatch must still set a
+    // result: the host treats an empty result as failure.
+    set_success_result("", &json!({}));
     Ok(())
 }
 

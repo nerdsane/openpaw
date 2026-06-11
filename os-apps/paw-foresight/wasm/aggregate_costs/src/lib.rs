@@ -146,6 +146,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "warn",
                     &format!("aggregate_costs: unexpected path status {other}, nothing to do"),
                 );
+                // A successful run with nothing to dispatch must still set a
+                // result: the host treats an empty result as failure.
+                set_success_result("", &json!({}));
                 Ok(())
             }
         }
@@ -226,6 +229,9 @@ fn classify_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
                     "info",
                     &format!("aggregate_costs: path {id} still {status}; pass not settled"),
                 );
+                // A successful run with nothing to dispatch must still set a
+                // result: the host treats an empty result as failure.
+                set_success_result("", &json!({}));
                 return Ok(());
             }
             "Scored" => {
@@ -247,6 +253,9 @@ fn classify_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
 
     if scored.is_empty() {
         ctx.log("info", "aggregate_costs: no freshly scored paths to classify");
+        // A successful run with nothing to dispatch must still set a
+        // result: the host treats an empty result as failure.
+        set_success_result("", &json!({}));
         return Ok(());
     }
 
@@ -326,6 +335,9 @@ fn classify_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
             "aggregate_costs: pass settled for world {world_id}; canonical={canonical_path_id}"
         ),
     );
+    // A successful run with nothing to dispatch must still set a
+    // result: the host treats an empty result as failure.
+    set_success_result("", &json!({}));
     Ok(())
 }
 

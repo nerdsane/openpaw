@@ -544,6 +544,9 @@ fn ingest(ctx: &Context) -> Result<(), String> {
                     presp.status
                 ),
             );
+            // A successful run with nothing to dispatch must still set a
+            // result: the host treats an empty result as failure.
+            set_success_result("", &json!({}));
             return Ok(());
         }
         let path: Value = serde_json::from_str(&presp.body).unwrap_or(json!({}));
@@ -578,6 +581,9 @@ fn ingest(ctx: &Context) -> Result<(), String> {
             resolved.len()
         ),
     );
+    // A successful run with nothing to dispatch must still set a
+    // result: the host treats an empty result as failure.
+    set_success_result("", &json!({}));
     Ok(())
 }
 
