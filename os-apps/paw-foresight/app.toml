@@ -1,6 +1,6 @@
 name = "paw-foresight"
 description = "Corridor world engine — scored worlds: skeleton forward, endpoints backward, adversarial repair, reality-graded forecasts"
-version = "0.2.0"
+version = "0.2.1"
 startup_install = "core"
 dependencies = ["paw-agent"]
 
