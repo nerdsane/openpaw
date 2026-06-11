@@ -2,11 +2,11 @@
 //! (ADR-002).
 //!
 //! Two triggers land here, both with the artifact in Checking, split on the
-//! verdict_json field:
-//! - Artifact.SubmitForCheck (verdict_json EMPTY): spawn a checker session
+//! triggering action:
+//! - Artifact.SubmitForCheck: spawn a checker session
 //!   that reads the artifact and its cited EventNodes, then self-reports a
 //!   structured verdict via Artifact.CheckerVerdict.
-//! - Artifact.CheckerVerdict (verdict_json NON-EMPTY): validate the verdict
+//! - Artifact.CheckerVerdict: validate the verdict
 //!   deterministically and own the transition — PassCheck only for a clean
 //!   schema-valid pass, FailCheck for everything else.
 //!
@@ -281,11 +281,26 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .to_string()
         };
 
-        let verdict_json = get("verdict_json");
-        if verdict_json.trim().is_empty() {
-            spawn_phase(&ctx, &fields)
-        } else {
-            validate_phase(&ctx, &verdict_json)
+        // Phase split on the TRIGGERING ACTION, not field emptiness: a
+        // resubmitted artifact still carries its previous verdict_json, and
+        // keying on the field made the gate validate the stale verdict
+        // instead of spawning a fresh checker (live runs 8b/8c).
+        match ctx.trigger_action.as_str() {
+            "SubmitForCheck" => spawn_phase(&ctx, &fields),
+            "CheckerVerdict" => validate_phase(&ctx, &get("verdict_json")),
+            other => {
+                // Backward-compatible fallback for unexpected wiring.
+                ctx.log(
+                    "warn",
+                    &format!("consistency_gate: unexpected trigger action {other}; falling back to field split"),
+                );
+                let verdict_json = get("verdict_json");
+                if verdict_json.trim().is_empty() {
+                    spawn_phase(&ctx, &fields)
+                } else {
+                    validate_phase(&ctx, &verdict_json)
+                }
+            }
         }
     })();
 
