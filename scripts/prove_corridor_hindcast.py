@@ -29,14 +29,30 @@ from prove_corridor_e2e import Client, field, status_of, wait
 
 
 def upload_file(c: Client, name: str, path: str) -> str:
-    created = c.create("Files", {"name": name})
+    # File writes are permitted for system agents in the paw-fs bundle;
+    # the api-key-holder/admin principal has no File-create permit.
+    sys_headers = [
+        ("Authorization", f"Bearer {c.key}"),
+        ("X-Tenant-Id", c.tenant),
+        ("X-Temper-Principal-Kind", "agent"),
+        ("X-Temper-Principal-Id", "hindcast-harness"),
+        ("X-Temper-Agent-Type", "system"),
+        ("Content-Type", "application/json"),
+    ]
+    create_req = urllib.request.Request(f"{c.base}/tdata/Files", method="POST")
+    for k, v in sys_headers:
+        create_req.add_header(k, v)
+    import json as _json
+    with urllib.request.urlopen(
+        create_req, data=_json.dumps({"name": name}).encode(), timeout=120
+    ) as r:
+        created = _json.loads(r.read().decode())
     fid = created["entity_id"]
     req = urllib.request.Request(
         f"{c.base}/tdata/Files('{fid}')/$value", method="PUT"
     )
-    req.add_header("Authorization", f"Bearer {c.key}")
-    req.add_header("X-Tenant-Id", c.tenant)
-    req.add_header("X-Temper-Principal-Kind", "admin")
+    for k, v in sys_headers[:-1]:
+        req.add_header(k, v)
     with open(path, "rb") as fh:
         data = fh.read()
     with urllib.request.urlopen(req, data=data, timeout=120) as r:
