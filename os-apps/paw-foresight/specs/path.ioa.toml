@@ -62,10 +62,18 @@ name = "required_node_ids"
 type = "string"
 initial = "[]"
 
-# JSON array of cost flags raised by repairer and adversary:
-# [{"kind": "contradiction|incentive|lag|miracle", "severity": "low|medium|high", "by": "repairer|adversary", "note": "..."}]
+# JSON array of cost flags raised by the repairer during backward repair:
+# [{"kind": "contradiction|incentive|lag|miracle", "severity": "low|medium|high", "note": "..."}]
 [[state]]
 name = "cost_flags"
+type = "string"
+initial = "[]"
+
+# JSON array of cost flags raised by the adversary's attack (same shape).
+# Kept separate so neither side can overwrite the other's flags; costing
+# reads the union.
+[[state]]
+name = "challenge_flags"
 type = "string"
 initial = "[]"
 
@@ -110,8 +118,8 @@ name = "ChallengeComplete"
 kind = "input"
 from = ["Repaired"]
 to = "Challenged"
-params = ["challenge_log_file_id", "cost_flags"]
-hint = "Adversary self-reports its attack flags (merged into cost_flags). Triggers deterministic costing."
+params = ["challenge_log_file_id", "challenge_flags"]
+hint = "Adversary self-reports its attack flags. Triggers deterministic costing over the union of both sides' flags."
 effect = [{ type = "trigger", name = "aggregate_costs" }]
 
 [[action.triggers]]
@@ -130,7 +138,17 @@ kind = "input"
 from = ["Challenged"]
 to = "Scored"
 params = ["repair_cost"]
-hint = "Deterministic cost from aggregate_costs. System principals only (Cedar)."
+hint = "Deterministic cost from aggregate_costs. System principals only (Cedar). Triggers the world-wide classification check."
+effect = [{ type = "trigger", name = "aggregate_costs_classify" }]
+
+[[action.triggers]]
+name = "aggregate_costs_classify"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
 
 [[action]]
 name = "ClassifyCanonical"

@@ -366,6 +366,7 @@
         <Property Name="ChallengeLogFileId" Type="Edm.String"/>
         <Property Name="RequiredNodeIds" Type="Edm.String"/>
         <Property Name="CostFlags" Type="Edm.String"/>
+        <Property Name="ChallengeFlags" Type="Edm.String"/>
         <Property Name="RepairCost" Type="Edm.String"/>
         <Property Name="ClassificationNote" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
@@ -599,7 +600,7 @@
       <Action Name="ChallengeComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Path"/>
         <Parameter Name="challenge_log_file_id" Type="Edm.String" Nullable="true"/>
-        <Parameter Name="cost_flags" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="challenge_flags" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.Path"/>
       </Action>
       <Action Name="Score" IsBound="true">

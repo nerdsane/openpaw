@@ -321,6 +321,11 @@ fn path_scoring_is_deterministic_wasm_territory() {
         !action_params(repair).contains("repair_cost"),
         "repairers flag costs, they do not compute them"
     );
+    // Adversary flags land in a separate field so neither side can overwrite
+    // the other (action params write fields directly).
+    let challenge = action(&spec, "ChallengeComplete", &path);
+    assert!(action_params(challenge).contains("challenge_flags"));
+    assert!(!action_params(challenge).contains("cost_flags"));
     let score = action(&spec, "Score", &path);
     assert!(action_params(score).contains("repair_cost"));
 }
