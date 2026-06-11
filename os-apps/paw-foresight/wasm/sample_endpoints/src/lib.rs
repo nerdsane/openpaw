@@ -134,36 +134,11 @@ fn ensure_world_workspace(
     world_id: &str,
 ) -> Result<String, String> {
     let name = workspace_name(world_id);
-    let list_resp = ctx.http_call(
-        "GET",
-        &format!("{api}/tdata/Workspaces?$filter=name eq '{name}'"),
-        headers,
-        "",
-    )?;
-    if list_resp.status < 200 || list_resp.status >= 300 {
-        return Err(format!(
-            "list Workspaces for {name} failed (HTTP {})",
-            list_resp.status
-        ));
-    }
-    let body: Value = serde_json::from_str(&list_resp.body).unwrap_or(json!({}));
-    let rows = body
-        .as_array()
-        .cloned()
-        .or_else(|| body.get("value").and_then(|v| v.as_array()).cloned())
-        .unwrap_or_default();
-    for row in &rows {
-        let row_name = row
-            .get("fields")
-            .and_then(|f| f.get("name"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if row_name == name {
-            if let Some(id) = row.get("entity_id").and_then(|v| v.as_str()) {
-                return Ok(id.to_string());
-            }
-        }
-    }
+    // Workspace rows are not readable by agent principals (paw-fs Cedar has
+    // no read/list permit on Workspace), so idempotent lookup is impossible:
+    // create one per spawn batch. Correctness needs only that each session's
+    // Configure workspace matches the files it writes; file READS are
+    // unrestricted, so cross-session reads work across workspaces.
     let create_resp = ctx.http_call(
         "POST",
         &format!("{api}/tdata/Workspaces"),
