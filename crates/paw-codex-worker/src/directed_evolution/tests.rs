@@ -954,6 +954,249 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn role_target_mismatch_fails_simulated_user_without_trial_target() {
+        let reason = directed_evolution_role_target_mismatch("simulated_user", "StageResult")
+            .expect("simulated_user requires a Trial target");
+
+        assert!(reason.contains("simulated_user"));
+        assert!(reason.contains("Trial"));
+        assert!(reason.contains("StageResult"));
+    }
+
+    #[test]
+    fn role_target_mismatch_fails_evaluator_roles_without_stage_result_target() {
+        for role in [
+            "reviewer",
+            "viability_evaluator",
+            "state_verifier",
+            "telemetry_evaluator",
+            "wasm_evaluator",
+        ] {
+            let reason = directed_evolution_role_target_mismatch(role, "Trial")
+                .unwrap_or_else(|| panic!("{role} requires a StageResult target"));
+            assert!(reason.contains(role));
+            assert!(reason.contains("StageResult"));
+        }
+    }
+
+    #[test]
+    fn role_target_mismatch_allows_expected_and_unconstrained_targets() {
+        assert!(directed_evolution_role_target_mismatch("simulated_user", "Trial").is_none());
+        assert!(directed_evolution_role_target_mismatch("reviewer", "StageResult").is_none());
+        assert!(directed_evolution_role_target_mismatch("observer", "Organism").is_none());
+        assert!(
+            directed_evolution_role_target_mismatch("variant_generator", "Generation").is_none()
+        );
+    }
+
+    #[test]
+    fn runtime_credential_preflight_fails_when_no_named_env_var_is_set() {
+        let join = directed_evolution_join_fields(
+            r#"{
+                "runtime_base_url": "https://temper.example",
+                "runtime_auth_env_vars": ["DE_RUNTIME_KEY_A", "DE_RUNTIME_KEY_B"]
+            }"#,
+        );
+
+        let reason =
+            directed_evolution_runtime_credential_failure("simulated_user", &join, |_| None)
+                .expect("missing runtime credentials should fail preflight");
+
+        assert_eq!(
+            reason,
+            "runtime credential missing: none of [DE_RUNTIME_KEY_A, DE_RUNTIME_KEY_B, TEMPERPAW_RUNTIME_API_KEY, TEMPER_API_KEY] is set"
+        );
+    }
+
+    #[test]
+    fn runtime_credential_preflight_passes_when_any_named_env_var_is_set() {
+        let join = directed_evolution_join_fields(
+            r#"{
+                "runtime_base_url": "https://temper.example",
+                "runtime_auth_env_vars": ["DE_RUNTIME_KEY_A"]
+            }"#,
+        );
+
+        let configured = directed_evolution_runtime_credential_failure(
+            "telemetry_evaluator",
+            &join,
+            |name| (name == "DE_RUNTIME_KEY_A").then(|| "secret".to_string()),
+        );
+        let fallback = directed_evolution_runtime_credential_failure(
+            "reviewer",
+            &directed_evolution_join_fields(r#"{"runtime_base_url":"https://temper.example"}"#),
+            |name| (name == "TEMPER_API_KEY").then(|| "secret".to_string()),
+        );
+
+        assert!(configured.is_none());
+        assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn runtime_credential_preflight_ignores_blank_env_values() {
+        let join = directed_evolution_join_fields(
+            r#"{"runtime_base_url":"https://temper.example"}"#,
+        );
+
+        let reason = directed_evolution_runtime_credential_failure("simulated_user", &join, |_| {
+            Some("   ".to_string())
+        })
+        .expect("blank runtime credentials should fail preflight");
+
+        assert!(reason.starts_with("runtime credential missing: none of ["));
+    }
+
+    #[test]
+    fn runtime_credential_preflight_skips_non_runtime_roles_and_items() {
+        let runtime_join = directed_evolution_join_fields(
+            r#"{"runtime_base_url":"https://temper.example"}"#,
+        );
+        let no_runtime_join = directed_evolution_join_fields(r#"{"episode_id":"ep-1"}"#);
+
+        assert!(
+            directed_evolution_runtime_credential_failure("observer", &runtime_join, |_| None)
+                .is_none(),
+            "observer resolves runtime auth best-effort in its source inventory"
+        );
+        assert!(
+            directed_evolution_runtime_credential_failure(
+                "variant_generator",
+                &runtime_join,
+                |_| None
+            )
+            .is_none()
+        );
+        assert!(
+            directed_evolution_runtime_credential_failure(
+                "simulated_user",
+                &no_runtime_join,
+                |_| None
+            )
+            .is_none(),
+            "work items without runtime_base_url have no runtime to authenticate against"
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_role_dispatch_fails_fast_on_role_target_mismatch() {
+        let config = Config {
+            temper_url: "http://127.0.0.1:9".to_string(),
+            tenant: "default".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            worker_token: None,
+            workspace_root: PathBuf::from("/tmp/worktrees"),
+            repo_root: PathBuf::from("/tmp/temperpaw"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: false,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(30),
+        };
+        let client = reqwest::Client::new();
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-mismatch".to_string(),
+            status: "Running".to_string(),
+            role: "simulated_user".to_string(),
+            target_entity_type: "StageResult".to_string(),
+            target_entity_id: "sr-1".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
+        };
+
+        let error = run_directed_evolution_codex_role(&client, &config, &work_item, "wr-1")
+            .await
+            .expect_err("role/target mismatch must fail dispatch up-front");
+
+        assert!(error.to_string().contains("Trial"));
+        assert!(error.to_string().contains("StageResult"));
+    }
+
+    #[tokio::test]
+    async fn codex_role_dispatch_fails_fast_on_missing_runtime_credentials() {
+        let previous_runtime_key = env::var_os("TEMPERPAW_RUNTIME_API_KEY");
+        let previous_api_key = env::var_os("TEMPER_API_KEY");
+        unsafe {
+            env::remove_var("TEMPERPAW_RUNTIME_API_KEY");
+            env::remove_var("TEMPER_API_KEY");
+        }
+        let config = Config {
+            temper_url: "http://127.0.0.1:9".to_string(),
+            tenant: "default".to_string(),
+            worker_id: "mac-mini-codex-1".to_string(),
+            worker_token: None,
+            workspace_root: PathBuf::from("/tmp/worktrees"),
+            repo_root: PathBuf::from("/tmp/temperpaw"),
+            codex_bin: "codex".to_string(),
+            max_concurrent_runs: 1,
+            enable_execution: true,
+            poll_on_start: true,
+            codex_exec_smoke: false,
+            codex_exec_timeout: Duration::from_secs(30),
+        };
+        let client = reqwest::Client::new();
+        let work_item = DirectedEvolutionWorkItemState {
+            id: "wi-preflight".to_string(),
+            status: "Running".to_string(),
+            role: "simulated_user".to_string(),
+            target_entity_type: "Trial".to_string(),
+            target_entity_id: "trial-1".to_string(),
+            prompt_ref: String::new(),
+            context_ref: String::new(),
+            output_schema_ref: String::new(),
+            correlation_json: r#"{
+                "runtime_base_url": "https://temper.example",
+                "runtime_auth_env_vars": ["PAW_TEST_DE_RUNTIME_KEY_UNSET"]
+            }"#
+            .to_string(),
+            worker_run_id: String::new(),
+        };
+
+        let result = run_directed_evolution_codex_role(&client, &config, &work_item, "wr-1").await;
+
+        unsafe {
+            if let Some(value) = previous_runtime_key {
+                env::set_var("TEMPERPAW_RUNTIME_API_KEY", value);
+            }
+            if let Some(value) = previous_api_key {
+                env::set_var("TEMPER_API_KEY", value);
+            }
+        }
+        let error = result.expect_err("missing runtime credentials must fail dispatch up-front");
+        assert!(
+            error
+                .to_string()
+                .contains("runtime credential missing: none of [PAW_TEST_DE_RUNTIME_KEY_UNSET, TEMPERPAW_RUNTIME_API_KEY, TEMPER_API_KEY] is set"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn join_fields_resolve_runtime_auth_preflight_inputs() {
+        let join = directed_evolution_join_fields(
+            r#"{
+                "runtime_base_url": "https://temper.example/",
+                "runtime_auth_env_vars": ["DE_RUNTIME_KEY_A", " ", "DE_RUNTIME_KEY_B"]
+            }"#,
+        );
+
+        assert_eq!(join.runtime_base_url, "https://temper.example/");
+        assert_eq!(
+            join.runtime_auth_env_vars,
+            vec!["DE_RUNTIME_KEY_A".to_string(), "DE_RUNTIME_KEY_B".to_string()]
+        );
+        assert!(
+            join.entries()
+                .iter()
+                .all(|(key, _)| *key != "runtime_base_url" && *key != "runtime_auth_env_vars"),
+            "preflight inputs are not de.* join fields"
+        );
+    }
+
+    #[test]
     fn directed_evolution_start_episode_command_accepts_contract_path() {
         let command = parse_worker_command([
             "directed-evolution-start-episode".to_string(),

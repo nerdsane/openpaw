@@ -25,6 +25,10 @@ struct DirectedEvolutionJoinFields {
     runtime_ref: String,
     app_ref: String,
     runtime_tenant: String,
+    /// Runtime auth preflight inputs (B9). Resolved from the same single
+    /// CorrelationJson parse but not part of the de.* join-field entries.
+    runtime_base_url: String,
+    runtime_auth_env_vars: Vec<String>,
 }
 
 impl DirectedEvolutionJoinFields {
@@ -73,6 +77,8 @@ fn directed_evolution_join_fields(correlation_json: &str) -> DirectedEvolutionJo
         runtime_ref: field("runtime_ref"),
         app_ref: field("app_ref"),
         runtime_tenant: field("runtime_tenant"),
+        runtime_base_url: field("runtime_base_url"),
+        runtime_auth_env_vars: observer_string_array(&correlation, "runtime_auth_env_vars"),
     }
 }
 
