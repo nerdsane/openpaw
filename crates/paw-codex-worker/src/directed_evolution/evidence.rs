@@ -239,7 +239,7 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
     let env_name = env::var("DD_ENV").unwrap_or_else(|_| "local".to_string());
     let site = env::var("DD_SITE").unwrap_or_else(|_| "datadoghq.com".to_string());
     let query = format!("service:{service} env:{env_name} @work_item_id:{}", work_item.id);
-    json!({
+    let mut context = json!({
         "service": service,
         "env": env_name,
         "work_item_id": work_item.id,
@@ -252,7 +252,14 @@ fn directed_evolution_datadog_context(work_item: &DirectedEvolutionWorkItemState
             "https://app.{site}/logs?query={}",
             encode_url_component(&query)
         ),
-    })
+    });
+    let join = directed_evolution_join_fields(&work_item.correlation_json);
+    if let Some(object) = context.as_object_mut() {
+        for (key, value) in join.entries() {
+            object.insert(key.to_string(), json!(value));
+        }
+    }
+    context
 }
 
 fn config_tenant_label() -> String {

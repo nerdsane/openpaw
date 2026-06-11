@@ -444,6 +444,76 @@ mod directed_evolution_observe_metadata_tests {
     }
 
     #[test]
+    fn datadog_context_resolves_full_join_field_set() {
+        let work_item = observe_test_work_item("simulated_user", FULL_CORRELATION);
+
+        let context = directed_evolution_datadog_context(&work_item);
+
+        assert_eq!(context["work_item_id"], "wi-1");
+        assert_eq!(context["role"], "simulated_user");
+        assert_eq!(context["episode_id"], "ep-1");
+        assert_eq!(context["direction_id"], "dir-1");
+        assert_eq!(context["generation_id"], "gen-1");
+        assert_eq!(context["variant_id"], "var-1");
+        assert_eq!(context["evaluation_stage_id"], "stage-1");
+        assert_eq!(context["stage_result_id"], "sr-1");
+        assert_eq!(context["trial_id"], "trial-1");
+        assert_eq!(context["simulated_user_plan_id"], "plan-1");
+        assert_eq!(context["persona_index"], "2");
+        assert_eq!(context["run_index"], "1");
+        assert_eq!(
+            context["runtime_ref"],
+            "temper://tenant/de-variant-1/app/nerdsane/agent-answers@abc123"
+        );
+        assert_eq!(context["app_ref"], "nerdsane/agent-answers@abc123");
+        assert_eq!(context["runtime_tenant"], "de-variant-1");
+    }
+
+    #[test]
+    fn datadog_context_omits_unresolved_join_fields() {
+        let work_item = observe_test_work_item("observer", r#"{"episode_id":"ep-1"}"#);
+
+        let context = directed_evolution_datadog_context(&work_item);
+
+        assert_eq!(context["episode_id"], "ep-1");
+        assert!(context.get("variant_id").is_none());
+        assert!(context.get("trial_id").is_none());
+    }
+
+    #[test]
+    fn directed_evolution_prompt_header_includes_resolved_join_fields() {
+        let work_item = observe_test_work_item("simulated_user", FULL_CORRELATION);
+
+        let prompt = directed_evolution_prompt(&work_item);
+
+        assert!(prompt.contains("ResolvedCorrelation:"));
+        assert!(prompt.contains("de.episode_id: ep-1"));
+        assert!(prompt.contains("de.direction_id: dir-1"));
+        assert!(prompt.contains("de.generation_id: gen-1"));
+        assert!(prompt.contains("de.variant_id: var-1"));
+        assert!(prompt.contains("de.evaluation_stage_id: stage-1"));
+        assert!(prompt.contains("de.stage_result_id: sr-1"));
+        assert!(prompt.contains("de.trial_id: trial-1"));
+        assert!(prompt.contains("de.simulated_user_plan_id: plan-1"));
+        assert!(prompt.contains("de.persona_index: 2"));
+        assert!(prompt.contains("de.run_index: 1"));
+        assert!(prompt.contains(
+            "de.runtime_ref: temper://tenant/de-variant-1/app/nerdsane/agent-answers@abc123"
+        ));
+        assert!(prompt.contains("de.app_ref: nerdsane/agent-answers@abc123"));
+        assert!(prompt.contains("de.runtime_tenant: de-variant-1"));
+    }
+
+    #[test]
+    fn directed_evolution_prompt_marks_empty_resolved_correlation() {
+        let work_item = observe_test_work_item("observer", "{}");
+
+        let prompt = directed_evolution_prompt(&work_item);
+
+        assert!(prompt.contains("ResolvedCorrelation:\n(none)"));
+    }
+
+    #[test]
     fn headers_with_observe_metadata_attach_kernel_header() {
         let config = observe_test_config("http://127.0.0.1:3497".to_string());
         let join = directed_evolution_join_fields(r#"{"episode_id":"ep-1"}"#);
