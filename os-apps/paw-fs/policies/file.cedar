@@ -7,13 +7,17 @@ permit(
     resource is File
 );
 
-// Agents can create, update, lock, and unlock files in their own workspace
+// Agents can create, update, lock, and unlock files in their own workspace.
+// Resource attributes are the entity's raw fields (snake_case): an earlier
+// form of this permit compared resource.workspaceId, which never exists at
+// evaluation time, so the permit was dead code — found when corridor
+// sessions hit 403 on their first workspace-scoped write.
 permit(
     principal is Agent,
     action in [Action::"StreamUpdated", Action::"Create", Action::"create", Action::"update", Action::"Lock", Action::"Unlock"],
     resource is File
 ) when {
-    resource.workspaceId == principal.workspaceid
+    resource.workspace_id == principal.workspaceid
 };
 
 // System agents execute Temper-native PawFS workflows such as ArtifactBatch and
