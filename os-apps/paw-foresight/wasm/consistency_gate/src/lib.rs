@@ -341,9 +341,32 @@ fn spawn_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
         return Err("World.agent_model and World.agent_provider are required".to_string());
     }
 
-    // One workspace per world, passed at Configure time like every other
-    // corridor session — uniform even though the checker never writes.
-    let workspace_id = ensure_world_workspace(ctx, &api, &headers, &world_id)?;
+    // The checker must read the artifact's content file, and temper.read
+    // resolves inside the session's own workspace — so the checker joins the
+    // ARTIFACT'S workspace (read off the File row). Falls back to a fresh
+    // world workspace only if the File row hides its workspace.
+    let workspace_id = {
+        let file_url = format!("{api}/tdata/Files('{content_file_id}')");
+        let file_ws = ctx
+            .http_call("GET", &file_url, &headers, "")
+            .ok()
+            .filter(|r| (200..300).contains(&r.status))
+            .and_then(|r| serde_json::from_str::<Value>(&r.body).ok())
+            .map(|row| {
+                row.get("fields")
+                    .and_then(|f| f.get("workspace_id"))
+                    .or_else(|| row.get("WorkspaceId"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .unwrap_or_default();
+        if file_ws.is_empty() {
+            ensure_world_workspace(ctx, &api, &headers, &world_id)?
+        } else {
+            file_ws
+        }
+    };
 
     let prompt = checker_prompt(&artifact_id, &content_file_id, &get("cited_node_ids"));
     spawn_session(
