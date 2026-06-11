@@ -17,11 +17,20 @@ async fn handle_queued_directed_evolution_work_item(
         debug!(work_item_id, "Directed Evolution WorkItem has no brain role yet");
         return Ok(());
     }
+    let join_fields = directed_evolution_join_fields(&work_item.correlation_json);
+    let observe_metadata_pre_run =
+        directed_evolution_work_item_observe_metadata(&work_item, "", &join_fields);
     if let Some(reason) =
         stale_directed_evolution_work_item_reason(client, config, &work_item).await?
     {
-        eliminate_stale_directed_evolution_stage_result(client, config, &work_item, &reason)
-            .await?;
+        eliminate_stale_directed_evolution_stage_result(
+            client,
+            config,
+            &work_item,
+            &reason,
+            Some(&observe_metadata_pre_run),
+        )
+        .await?;
         post_paw_orchestration_action(
             client,
             config,
@@ -29,6 +38,7 @@ async fn handle_queued_directed_evolution_work_item(
             &work_item.id,
             "CancelWorkItem",
             json!({ "Reason": reason }),
+            Some(&observe_metadata_pre_run),
         )
         .await?;
         info!(
@@ -39,7 +49,16 @@ async fn handle_queued_directed_evolution_work_item(
         return Ok(());
     }
 
-    let worker_run_id = create_entity(client, config, "WorkerRuns", json!({})).await?;
+    let worker_run_id = create_entity_with_observe_metadata(
+        client,
+        config,
+        "WorkerRuns",
+        json!({}),
+        Some(&observe_metadata_pre_run),
+    )
+    .await?;
+    let observe_metadata =
+        directed_evolution_work_item_observe_metadata(&work_item, &worker_run_id, &join_fields);
     post_paw_orchestration_action(
         client,
         config,
@@ -50,6 +69,7 @@ async fn handle_queued_directed_evolution_work_item(
             "WorkerId": config.worker_id,
             "ClaimedBy": config.worker_id,
         }),
+        Some(&observe_metadata),
     )
     .await?;
     post_paw_orchestration_action(
@@ -64,6 +84,7 @@ async fn handle_queued_directed_evolution_work_item(
             &worker_run_id,
             &env::var("CODEX_SESSION_ID").unwrap_or_default(),
         ),
+        Some(&observe_metadata),
     )
     .await?;
     post_paw_orchestration_action(
@@ -73,6 +94,7 @@ async fn handle_queued_directed_evolution_work_item(
         &work_item.id,
         "StartWorkItem",
         directed_evolution_start_work_item_body(&worker_run_id),
+        Some(&observe_metadata),
     )
     .await?;
     info!(
@@ -84,7 +106,7 @@ async fn handle_queued_directed_evolution_work_item(
         "started Directed Evolution worker run"
     );
 
-    match run_directed_evolution_codex_role(client, config, &work_item).await {
+    match run_directed_evolution_codex_role(client, config, &work_item, &worker_run_id).await {
         Ok(output_json) => {
             let summary = directed_evolution_summary(&work_item, &output_json);
             let evidence_artifact_id = record_directed_evolution_worker_evidence(
@@ -95,6 +117,7 @@ async fn handle_queued_directed_evolution_work_item(
                 "codex_worker_run",
                 &output_json,
                 &summary,
+                Some(&observe_metadata),
             )
             .await?;
             post_paw_orchestration_action(
@@ -108,6 +131,7 @@ async fn handle_queued_directed_evolution_work_item(
                     "EvidenceArtifactId": evidence_artifact_id,
                     "Summary": summary,
                 }),
+                Some(&observe_metadata),
             )
             .await?;
             // Receipt routing is best-effort, mirroring the failure path: a
@@ -122,6 +146,7 @@ async fn handle_queued_directed_evolution_work_item(
                 &output_json,
                 &evidence_artifact_id,
                 &summary,
+                Some(&observe_metadata),
             )
             .await
             {
@@ -142,6 +167,7 @@ async fn handle_queued_directed_evolution_work_item(
                     "EvidenceArtifactId": evidence_artifact_id,
                     "Summary": summary,
                 }),
+                Some(&observe_metadata),
             )
             .await?;
             info!(
@@ -167,6 +193,7 @@ async fn handle_queued_directed_evolution_work_item(
                     "failure_reason": failure_reason,
                 }))?,
                 &failure_reason,
+                Some(&observe_metadata),
             )
             .await
             {
@@ -186,6 +213,7 @@ async fn handle_queued_directed_evolution_work_item(
                     "FailureReason": failure_reason,
                     "EvidenceArtifactId": evidence_artifact_id,
                 }),
+                Some(&observe_metadata),
             )
             .await
             {
@@ -198,6 +226,7 @@ async fn handle_queued_directed_evolution_work_item(
                 &worker_run_id,
                 &failure_reason,
                 &evidence_artifact_id,
+                Some(&observe_metadata),
             )
             .await
             {
@@ -213,6 +242,7 @@ async fn handle_queued_directed_evolution_work_item(
                     "FailureReason": failure_reason,
                     "EvidenceArtifactId": evidence_artifact_id,
                 }),
+                Some(&observe_metadata),
             )
             .await?;
             warn!(
@@ -261,6 +291,7 @@ async fn eliminate_stale_directed_evolution_stage_result(
     config: &Config,
     work_item: &DirectedEvolutionWorkItemState,
     reason: &str,
+    observe_metadata: Option<&str>,
 ) -> Result<()> {
     if !stale_stage_work_targets_stage_result(work_item) {
         return Ok(());
@@ -284,6 +315,7 @@ async fn eliminate_stale_directed_evolution_stage_result(
             "EvidenceArtifactId": value_field_string(&stage_fields, &["EvidenceArtifactId", "evidence_artifact_id"]),
             "Reason": reason,
         }),
+        observe_metadata,
     )
     .await
 }
@@ -340,6 +372,7 @@ fn stale_stage_result_should_eliminate(stage_fields: &Value) -> bool {
 }
 
 
+include!("directed_evolution/observe_metadata.rs");
 include!("directed_evolution/evidence.rs");
 include!("directed_evolution/observer_sources.rs");
 include!("directed_evolution/human_episode_defaults.rs");
@@ -407,6 +440,7 @@ fn directed_evolution_failure_receipt_body(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn route_directed_evolution_success_receipt(
     client: &reqwest::Client,
     config: &Config,
@@ -415,8 +449,16 @@ async fn route_directed_evolution_success_receipt(
     result_json: &str,
     evidence_artifact_id: &str,
     summary: &str,
+    observe_metadata: Option<&str>,
 ) -> Result<String> {
-    let receipt_id = create_entity(client, config, "WorkItemReceipts", json!({})).await?;
+    let receipt_id = create_entity_with_observe_metadata(
+        client,
+        config,
+        "WorkItemReceipts",
+        json!({}),
+        observe_metadata,
+    )
+    .await?;
     post_directed_evolution_action(
         client,
         config,
@@ -430,6 +472,7 @@ async fn route_directed_evolution_success_receipt(
             evidence_artifact_id,
             summary,
         ),
+        observe_metadata,
     )
     .await?;
     Ok(receipt_id)
@@ -442,8 +485,16 @@ async fn route_directed_evolution_failure_receipt(
     worker_run_id: &str,
     failure_reason: &str,
     evidence_artifact_id: &str,
+    observe_metadata: Option<&str>,
 ) -> Result<String> {
-    let receipt_id = create_entity(client, config, "WorkItemReceipts", json!({})).await?;
+    let receipt_id = create_entity_with_observe_metadata(
+        client,
+        config,
+        "WorkItemReceipts",
+        json!({}),
+        observe_metadata,
+    )
+    .await?;
     post_directed_evolution_action(
         client,
         config,
@@ -456,6 +507,7 @@ async fn route_directed_evolution_failure_receipt(
             failure_reason,
             evidence_artifact_id,
         ),
+        observe_metadata,
     )
     .await?;
     Ok(receipt_id)
@@ -498,6 +550,12 @@ async fn fail_recovered_directed_evolution_work_item(
     if work_item.status != "Running" {
         return Ok(());
     }
+    let join_fields = directed_evolution_join_fields(&work_item.correlation_json);
+    let observe_metadata = directed_evolution_work_item_observe_metadata(
+        &work_item,
+        &work_item.worker_run_id,
+        &join_fields,
+    );
     let failure_reason = directed_evolution_restart_failure_reason(&config.worker_id);
     if !work_item.worker_run_id.trim().is_empty() {
         if let Err(report_error) = post_paw_orchestration_action(
@@ -510,6 +568,7 @@ async fn fail_recovered_directed_evolution_work_item(
                 "FailureReason": failure_reason,
                 "EvidenceArtifactId": "",
             }),
+            Some(&observe_metadata),
         )
         .await
         {
@@ -523,6 +582,7 @@ async fn fail_recovered_directed_evolution_work_item(
         &work_item.worker_run_id,
         &failure_reason,
         "",
+        Some(&observe_metadata),
     )
     .await
     {
@@ -538,6 +598,7 @@ async fn fail_recovered_directed_evolution_work_item(
             "FailureReason": failure_reason,
             "EvidenceArtifactId": "",
         }),
+        Some(&observe_metadata),
     )
     .await?;
     warn!(
@@ -554,8 +615,9 @@ async fn post_directed_evolution_action(
     entity_id: &str,
     action: &str,
     body: Value,
+    observe_metadata: Option<&str>,
 ) -> Result<()> {
-    post_entity_action_with_namespace(
+    post_entity_action_with_namespace_observed(
         client,
         config,
         entity_set,
@@ -563,6 +625,7 @@ async fn post_directed_evolution_action(
         DIRECTED_EVOLUTION_NAMESPACE,
         action,
         body,
+        observe_metadata,
     )
     .await
 }
@@ -574,8 +637,9 @@ async fn post_paw_orchestration_action(
     entity_id: &str,
     action: &str,
     body: Value,
+    observe_metadata: Option<&str>,
 ) -> Result<()> {
-    post_entity_action_with_namespace(
+    post_entity_action_with_namespace_observed(
         client,
         config,
         entity_set,
@@ -583,6 +647,7 @@ async fn post_paw_orchestration_action(
         PAW_ORCHESTRATION_NAMESPACE,
         action,
         body,
+        observe_metadata,
     )
     .await
 }
@@ -591,7 +656,9 @@ async fn run_directed_evolution_codex_role(
     client: &reqwest::Client,
     config: &Config,
     work_item: &DirectedEvolutionWorkItemState,
+    worker_run_id: &str,
 ) -> Result<String> {
+    let join_fields = directed_evolution_join_fields(&work_item.correlation_json);
     let mut prompt = directed_evolution_prompt(work_item);
     info!(
         work_item_id = %work_item.id,
@@ -628,9 +695,16 @@ async fn run_directed_evolution_codex_role(
 
     let workdir = resolve_directed_evolution_workdir(client, config, work_item).await?;
     if work_item.role == "observer" {
-        let inventory =
-            directed_evolution_observer_source_inventory_prompt(client, config, work_item, &workdir)
-                .await?;
+        let observe_metadata =
+            directed_evolution_work_item_observe_metadata(work_item, worker_run_id, &join_fields);
+        let inventory = directed_evolution_observer_source_inventory_prompt(
+            client,
+            config,
+            work_item,
+            &workdir,
+            &observe_metadata,
+        )
+        .await?;
         prompt.push_str(
             "\n\nObserver source inventory:\n\
 The following JSON is a source map, not a script. Use it to orient yourself, then inspect any \
@@ -649,11 +723,20 @@ additional available source that could confirm, contradict, or refine the observ
     } else {
         directed_evolution_git_status_snapshot(&workdir.path).await?
     };
-    let output = match run_codex_exec_command(
+    // ADR-0041: the Codex child inherits the correlation context mechanically
+    // (TEMPER_OBSERVE_METADATA + DD_TAGS), not just via prompt text.
+    let child_env = directed_evolution_codex_child_env(
+        work_item,
+        worker_run_id,
+        &join_fields,
+        env::var("DD_TAGS").ok().as_deref(),
+    );
+    let output = match run_codex_exec_command_with_env(
         config,
         &workdir.path,
         prompt,
         "run Directed Evolution Codex role",
+        &child_env,
     )
     .await
     {
@@ -784,3 +867,4 @@ include!("directed_evolution/mechanical_evaluator.rs");
 include!("directed_evolution/prompt.rs");
 include!("directed_evolution/tests.rs");
 include!("directed_evolution/prompt_tests.rs");
+include!("directed_evolution/observe_metadata_tests.rs");

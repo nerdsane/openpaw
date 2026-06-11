@@ -1,3 +1,4 @@
+#[allow(clippy::too_many_arguments)]
 async fn record_directed_evolution_worker_evidence(
     client: &reqwest::Client,
     config: &Config,
@@ -6,13 +7,21 @@ async fn record_directed_evolution_worker_evidence(
     artifact_kind: &str,
     output_json: &str,
     summary: &str,
+    observe_metadata: Option<&str>,
 ) -> Result<String> {
     let output_value = serde_json::from_str::<Value>(output_json).unwrap_or_else(|_| {
         json!({
             "raw": output_json,
         })
     });
-    let evidence_id = create_entity(client, config, "EvidenceArtifacts", json!({})).await?;
+    let evidence_id = create_entity_with_observe_metadata(
+        client,
+        config,
+        "EvidenceArtifacts",
+        json!({}),
+        observe_metadata,
+    )
+    .await?;
     let uri = directed_evolution_evidence_uri(work_item, &output_value);
     let correlation =
         directed_evolution_evidence_correlation(work_item, worker_run_id, output_value.clone());
@@ -36,6 +45,7 @@ async fn record_directed_evolution_worker_evidence(
             "ZeroResultMeaning": evidence_summary.zero_result_meaning,
             "EvidenceProvenance": directed_evolution_evidence_provenance(&work_item.role, &output_value),
         }),
+        observe_metadata,
     )
     .await?;
     post_directed_evolution_action(
@@ -45,6 +55,7 @@ async fn record_directed_evolution_worker_evidence(
         &evidence_id,
         "LinkEvidenceArtifact",
         directed_evolution_evidence_link_body(worker_run_id),
+        observe_metadata,
     )
     .await?;
     Ok(evidence_id)
