@@ -110,6 +110,76 @@ fn adversary_prompt(
     )
 }
 
+/// Workspace name for a world — the cross-module rendezvous key. Every
+/// session-spawning module must resolve the same per-world workspace by
+/// this exact name.
+fn workspace_name(world_id: &str) -> String {
+    format!("world-{world_id}")
+}
+
+/// Resolve (or create) the per-world PawFS workspace and return its id.
+/// Sessions are Configured with this id so temper.write lands inside a
+/// workspace PawFS Cedar accepts — without it, File create is denied
+/// (resource.workspaceId must match the principal's workspace).
+fn ensure_world_workspace(
+    ctx: &Context,
+    api: &str,
+    headers: &[(String, String)],
+    world_id: &str,
+) -> Result<String, String> {
+    let name = workspace_name(world_id);
+    let list_resp = ctx.http_call(
+        "GET",
+        &format!("{api}/tdata/Workspaces?$filter=name eq '{name}'"),
+        headers,
+        "",
+    )?;
+    if list_resp.status < 200 || list_resp.status >= 300 {
+        return Err(format!(
+            "list Workspaces for {name} failed (HTTP {})",
+            list_resp.status
+        ));
+    }
+    let body: Value = serde_json::from_str(&list_resp.body).unwrap_or(json!({}));
+    let rows = body
+        .as_array()
+        .cloned()
+        .or_else(|| body.get("value").and_then(|v| v.as_array()).cloned())
+        .unwrap_or_default();
+    for row in &rows {
+        let row_name = row
+            .get("fields")
+            .and_then(|f| f.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if row_name == name {
+            if let Some(id) = row.get("entity_id").and_then(|v| v.as_str()) {
+                return Ok(id.to_string());
+            }
+        }
+    }
+    let create_resp = ctx.http_call(
+        "POST",
+        &format!("{api}/tdata/Workspaces"),
+        headers,
+        &json!({ "name": name, "quota_limit": "104857600" }).to_string(),
+    )?;
+    if create_resp.status < 200 || create_resp.status >= 300 {
+        return Err(format!(
+            "create Workspace {name} failed (HTTP {})",
+            create_resp.status
+        ));
+    }
+    serde_json::from_str::<Value>(&create_resp.body)
+        .ok()
+        .and_then(|v| {
+            v.get("entity_id")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        })
+        .ok_or_else(|| format!("Workspace {name} create returned no entity_id"))
+}
+
 fn create_agent(
     ctx: &Context,
     api: &str,
@@ -152,6 +222,7 @@ fn start_session(
     tools: &str,
     max_turns: &str,
     user_message: &str,
+    workspace_id: &str,
 ) -> Result<String, String> {
     let session_resp = ctx.http_call(
         "POST",
@@ -184,6 +255,7 @@ fn start_session(
         "max_turns": max_turns,
         "user_message": message,
         "sandbox_url": "none",
+        "workspace_id": workspace_id,
         "temper_api_url": api
     });
     let configure_resp = ctx.http_call(
@@ -263,6 +335,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Err("World.agent_model and World.agent_provider are required".to_string());
         }
         let hindcast = entity_field(&world, "hindcast_mode", "HindcastMode") == "true";
+
+        // One workspace per world: the adversary writes its challenge log
+        // there. Without it, temper.write fails Cedar — hard error.
+        let workspace_id = ensure_world_workspace(&ctx, &api, &headers, &world_id)?;
 
         // The endpoint holds the document bundle the repair claims to reach.
         // Losing it weakens the attack but doesn't block it: warn and proceed.
@@ -354,6 +430,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &tools_enabled(hindcast),
             "40",
             &adversary_msg,
+            &workspace_id,
         )?;
 
         ctx.log(
@@ -446,6 +523,15 @@ mod tests {
         ] {
             assert!(p.contains(needle), "adversary prompt missing: {needle}");
         }
+    }
+
+    #[test]
+    fn workspace_name_is_the_cross_module_rendezvous_key() {
+        // All six session-spawning modules must derive the exact same
+        // workspace name from a world id, or their sessions write into
+        // different workspaces.
+        assert_eq!(workspace_name("w-1"), "world-w-1");
+        assert_eq!(workspace_name("0197abc"), "world-0197abc");
     }
 
     #[test]
