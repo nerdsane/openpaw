@@ -70,6 +70,10 @@ async fn main() -> Result<()> {
 
     if config.poll_on_start {
         recover_boot_running_runs(&client, &config).await?;
+        // Fail-based recovery must run only here, before any work starts:
+        // in the reconnect loop below it would fail work items this
+        // process is still executing.
+        recover_boot_running_directed_evolution_work_items(&client, &config).await?;
         claim_boot_queued_runs(&client, &config).await?;
         claim_boot_requested_review_runs(&client, &config).await?;
         claim_boot_queued_evaluation_runs(&client, &config).await?;

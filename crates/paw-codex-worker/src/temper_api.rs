@@ -563,6 +563,12 @@ fn directed_evolution_work_item_from_odata_value(
             &["correlation_json", "CorrelationJson"],
             &["correlation_json", "CorrelationJson"],
         ),
+        worker_run_id: first_string(
+            &value,
+            &fields,
+            &["worker_run_id", "WorkerRunId"],
+            &["worker_run_id", "WorkerRunId"],
+        ),
     })
 }
 

@@ -110,7 +110,11 @@ async fn handle_queued_directed_evolution_work_item(
                 }),
             )
             .await?;
-            let receipt_id = route_directed_evolution_success_receipt(
+            // Receipt routing is best-effort, mirroring the failure path: a
+            // routing error must not leave the WorkItem stranded in Running
+            // with a succeeded WorkerRun. ResultJson still lands on the
+            // WorkItem via SucceedWorkItem below.
+            let receipt_id = match route_directed_evolution_success_receipt(
                 client,
                 config,
                 &work_item,
@@ -119,7 +123,14 @@ async fn handle_queued_directed_evolution_work_item(
                 &evidence_artifact_id,
                 &summary,
             )
-            .await?;
+            .await
+            {
+                Ok(receipt_id) => receipt_id,
+                Err(report_error) => {
+                    warn!(%report_error, work_item_id, worker_run_id, "failed to route Directed Evolution success receipt");
+                    String::new()
+                }
+            };
             post_paw_orchestration_action(
                 client,
                 config,
@@ -448,6 +459,92 @@ async fn route_directed_evolution_failure_receipt(
     )
     .await?;
     Ok(receipt_id)
+}
+
+fn directed_evolution_running_recovery_filter(worker_id: &str) -> String {
+    // OData escapes a single quote inside a string literal by doubling it.
+    let escaped = worker_id.replace('\'', "''");
+    format!("Status eq 'Running' and ClaimedBy eq '{escaped}'")
+}
+
+fn directed_evolution_restart_failure_reason(worker_id: &str) -> String {
+    format!(
+        "worker {worker_id} restarted while this work item was running; failed for control-plane re-dispatch"
+    )
+}
+
+async fn recover_boot_running_directed_evolution_work_items(
+    client: &reqwest::Client,
+    config: &Config,
+) -> Result<()> {
+    let filter = directed_evolution_running_recovery_filter(&config.worker_id);
+    let ids = query_boot_entity_ids_filtered(client, config, "WorkItems", &filter).await?;
+    for work_item_id in ids {
+        if let Err(error) =
+            fail_recovered_directed_evolution_work_item(client, config, &work_item_id).await
+        {
+            warn!(%error, work_item_id, "failed to recover Running Directed Evolution WorkItem");
+        }
+    }
+    Ok(())
+}
+
+async fn fail_recovered_directed_evolution_work_item(
+    client: &reqwest::Client,
+    config: &Config,
+    work_item_id: &str,
+) -> Result<()> {
+    let work_item = fetch_directed_evolution_work_item(client, config, work_item_id).await?;
+    if work_item.status != "Running" {
+        return Ok(());
+    }
+    let failure_reason = directed_evolution_restart_failure_reason(&config.worker_id);
+    if !work_item.worker_run_id.trim().is_empty() {
+        if let Err(report_error) = post_paw_orchestration_action(
+            client,
+            config,
+            "WorkerRuns",
+            &work_item.worker_run_id,
+            "FailWorkerRun",
+            json!({
+                "FailureReason": failure_reason,
+                "EvidenceArtifactId": "",
+            }),
+        )
+        .await
+        {
+            warn!(%report_error, work_item_id, worker_run_id = %work_item.worker_run_id, "failed to fail recovered Directed Evolution WorkerRun");
+        }
+    }
+    if let Err(report_error) = route_directed_evolution_failure_receipt(
+        client,
+        config,
+        &work_item,
+        &work_item.worker_run_id,
+        &failure_reason,
+        "",
+    )
+    .await
+    {
+        warn!(%report_error, work_item_id, "failed to route recovered Directed Evolution failure receipt");
+    }
+    post_paw_orchestration_action(
+        client,
+        config,
+        "WorkItems",
+        &work_item.id,
+        "FailWorkItem",
+        json!({
+            "FailureReason": failure_reason,
+            "EvidenceArtifactId": "",
+        }),
+    )
+    .await?;
+    warn!(
+        work_item_id,
+        "failed Running Directed Evolution WorkItem after worker restart"
+    );
+    Ok(())
 }
 
 async fn post_directed_evolution_action(

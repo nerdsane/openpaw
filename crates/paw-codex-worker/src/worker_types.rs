@@ -277,6 +277,8 @@ struct DirectedEvolutionWorkItemState {
     output_schema_ref: String,
     #[serde(default, rename = "CorrelationJson")]
     correlation_json: String,
+    #[serde(default, rename = "WorkerRunId")]
+    worker_run_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

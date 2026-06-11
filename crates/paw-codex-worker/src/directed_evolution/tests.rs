@@ -33,6 +33,44 @@ mod directed_evolution_tests {
     }
 
     #[test]
+    fn directed_evolution_work_item_parses_worker_run_id() {
+        let value = json!({
+            "entity_id": "wi-7",
+            "status": "Running",
+            "fields": {
+                "Role": "simulated_user",
+                "WorkerRunId": "run-9"
+            }
+        });
+
+        let work_item =
+            directed_evolution_work_item_from_odata_value(value).expect("WorkItem should parse");
+
+        assert_eq!(work_item.status, "Running");
+        assert_eq!(work_item.worker_run_id, "run-9");
+    }
+
+    #[test]
+    fn running_recovery_filter_scopes_to_this_worker_and_escapes_quotes() {
+        assert_eq!(
+            directed_evolution_running_recovery_filter("mac-mini-codex-prod"),
+            "Status eq 'Running' and ClaimedBy eq 'mac-mini-codex-prod'"
+        );
+        assert_eq!(
+            directed_evolution_running_recovery_filter("o'brien"),
+            "Status eq 'Running' and ClaimedBy eq 'o''brien'"
+        );
+    }
+
+    #[test]
+    fn restart_recovery_failure_reason_names_worker_restart() {
+        let reason = directed_evolution_restart_failure_reason("mac-mini-codex-prod");
+
+        assert!(reason.contains("mac-mini-codex-prod"));
+        assert!(reason.contains("restart"));
+    }
+
+    #[test]
     fn directed_evolution_prompt_uses_literal_prompt_ref() {
         let work_item = DirectedEvolutionWorkItemState {
             id: "wi-1".to_string(),
@@ -44,6 +82,7 @@ mod directed_evolution_tests {
             context_ref: "ctx-1".to_string(),
             output_schema_ref: "schema-1".to_string(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let prompt = directed_evolution_prompt(&work_item);
@@ -66,6 +105,7 @@ mod directed_evolution_tests {
             context_ref: "signal:sig-1".to_string(),
             output_schema_ref: "schema-1".to_string(),
             correlation_json: "{\"source\":\"datadog\"}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let prompt = directed_evolution_prompt(&work_item);
@@ -90,6 +130,7 @@ mod directed_evolution_tests {
             context_ref: "stage-result:sr-1".to_string(),
             output_schema_ref: "schema-1".to_string(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let prompt = directed_evolution_prompt(&work_item);
@@ -121,6 +162,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let reason = stale_directed_evolution_stage_work_reason(
@@ -145,6 +187,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let reason = stale_directed_evolution_stage_work_reason(
@@ -169,6 +212,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let reason = stale_directed_evolution_stage_work_reason(
@@ -208,6 +252,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         assert!(stale_stage_work_targets_stage_result(&work_item));
@@ -230,6 +275,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let output = directed_evolution_state_verifier_output(
@@ -263,6 +309,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let output = directed_evolution_state_verifier_output(
@@ -295,6 +342,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let output = directed_evolution_state_verifier_output(
@@ -347,6 +395,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{\"batch_id\":\"batch-1\"}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let body = directed_evolution_start_worker_run_body(
@@ -392,6 +441,7 @@ mod directed_evolution_tests {
             context_ref: "organism:agent-answers".to_string(),
             output_schema_ref: "schema:observer".to_string(),
             correlation_json: "{}".to_string(),
+            worker_run_id: String::new(),
         };
         let output = json!({
             "summary": "Inventory found enough runtime state and telemetry to suggest one pressure."
@@ -422,6 +472,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{\"phase\":\"seed-observation\"}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let body = directed_evolution_success_receipt_body(
@@ -455,6 +506,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: "{\"phase\":\"seed-observation\"}".to_string(),
+            worker_run_id: String::new(),
         };
 
         let body = directed_evolution_failure_receipt_body(
@@ -523,6 +575,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: String::new(),
+            worker_run_id: String::new(),
         };
 
         let tenant = directed_evolution_variant_tenant("de-variant", &work_item);
@@ -566,6 +619,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: String::new(),
+            worker_run_id: String::new(),
         };
         let mut payload = json!({
             "summary": "Adds answer evidence confidence.",
@@ -661,6 +715,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: String::new(),
+            worker_run_id: String::new(),
         };
 
         let uri = directed_evolution_evidence_uri(
@@ -685,6 +740,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: String::new(),
+            worker_run_id: String::new(),
         };
 
         let uri = directed_evolution_evidence_uri(
@@ -728,6 +784,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: String::new(),
+            worker_run_id: String::new(),
         };
 
         let summary = directed_evolution_summary(
@@ -761,6 +818,7 @@ mod directed_evolution_tests {
             context_ref: String::new(),
             output_schema_ref: String::new(),
             correlation_json: String::new(),
+            worker_run_id: String::new(),
         };
 
         let context = directed_evolution_datadog_context(&work_item);
