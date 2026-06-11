@@ -1,23 +1,354 @@
-//! seed_world — corridor engine module (ADR-002).
+//! seed_world — spawns the skeleton builders for a world (ADR-002).
 //!
-//! Stub: the corridor WASM implementations land in the A3 phase under TDD.
-//! Dispatching the owning action before then fails loudly by design.
+//! On World.Seed: spawn a surveyor session (determined facts only — the
+//! skeleton) and a bookmaker session (market-priced marginals — enrichment
+//! that must never block the world). The surveyor self-reports
+//! World.SeedComplete; the bookmaker just adds EventNodes while it can.
+//!
+//! Hindcast worlds (hindcast_mode = "true") get web tools stripped at
+//! Configure time: evidence comes only from the frozen corpus.
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
 use temper_wasm_sdk::prelude::*;
+
+const SURVEYOR_TOOLS: &str =
+    "temper_get,temper_list,temper_create,temper_action,temper_read,temper_write";
+const WEB_TOOLS: &str = ",temper_web_search,temper_web_fetch";
+
+fn tools_enabled(hindcast: bool) -> String {
+    if hindcast {
+        SURVEYOR_TOOLS.to_string()
+    } else {
+        format!("{SURVEYOR_TOOLS}{WEB_TOOLS}")
+    }
+}
+
+/// The surveyor's working contract. Single source of truth for the action
+/// and parameter names it must use — tested below, asserted nowhere else.
+fn surveyor_prompt(
+    world_id: &str,
+    agent_id: &str,
+    name: &str,
+    domain: &str,
+    description: &str,
+    target_date: &str,
+    corpus_file_id: &str,
+    hindcast: bool,
+) -> String {
+    let corpus_line = if corpus_file_id.is_empty() {
+        "No corpus file was provided.".to_string()
+    } else {
+        format!(
+            "Read the world corpus first: temper.read(\"{corpus_file_id}\") — it holds the \
+             domain documents this world is grounded in."
+        )
+    };
+    let research_line = if hindcast {
+        "This is a HINDCAST world: you have NO web access by design. Use only the corpus. \
+         Never state anything dated after the world's vantage."
+            .to_string()
+    } else {
+        "Use temper.web_search / temper.web_fetch to verify what is already determined."
+            .to_string()
+    };
+    format!(
+        "You are the Surveyor for world {world_id} (\"{name}\", domain: {domain}).\n\
+         {description}\n\n\
+         Your job is the skeleton: record what is ALREADY DETERMINED about this domain \
+         between today and {target_date}. You are forbidden from predicting. Determined \
+         means: demographics already alive, infrastructure already funded or under \
+         construction, dated commitments (elections, expirations, scheduled releases, \
+         contract cliffs), regulations already enacted with future effect. If a claim \
+         needs a probability, it is not yours to record.\n\n\
+         {corpus_line}\n{research_line}\n\n\
+         For each determined fact, create an EventNode:\n\
+         temper.create(\"EventNodes\", {{\"world_id\": \"{world_id}\", \"statement\": \"...\", \
+         \"layer\": \"slow|mid\", \"probability\": \"1.0\", \"provenance\": \"determined\", \
+         \"source_refs\": \"[\\\"<url-or-corpus-ref>\\\"]\", \"resolve_by\": \"YYYY-MM-DD\", \
+         \"author_agent_id\": \"{agent_id}\"}})\n\
+         Aim for 8-20 load-bearing facts, slow layer first. Every statement needs a source.\n\n\
+         Then write a one-page skeleton summary with temper.write (markdown), and finish by \
+         self-reporting:\n\
+         temper.action(\"Worlds\", \"{world_id}\", \"SeedComplete\", \
+         {{\"skeleton_node_count\": \"<n>\", \"graph_snapshot_file_id\": \"<file-id-from-temper.write>\"}})\n\
+         Then call temper.done(\"complete\")."
+    )
+}
+
+/// The bookmaker's working contract: import live market-priced questions as
+/// EventNodes. Enrichment only — it never reports world completion.
+fn bookmaker_prompt(
+    world_id: &str,
+    agent_id: &str,
+    domain: &str,
+    target_date: &str,
+    hindcast: bool,
+) -> String {
+    let source_line = if hindcast {
+        "This is a HINDCAST world: no web access. If the frozen corpus contains recorded \
+         market prices, import those; otherwise create nothing and finish."
+            .to_string()
+    } else {
+        "Search public prediction markets (Polymarket, Kalshi, Metaculus) with \
+         temper.web_search / temper.web_fetch for questions resolving before the target \
+         date that bear on this domain."
+            .to_string()
+    };
+    format!(
+        "You are the Bookmaker for world {world_id} (domain: {domain}, target: {target_date}).\n\n\
+         {source_line}\n\n\
+         For each relevant market question, create an EventNode with the market's current \
+         price as the probability:\n\
+         temper.create(\"EventNodes\", {{\"world_id\": \"{world_id}\", \"statement\": \"<the \
+         market question, verbatim>\", \"layer\": \"mid\", \"probability\": \"<0.00-1.00>\", \
+         \"provenance\": \"market\", \"source_refs\": \"[\\\"<market-url>\\\"]\", \
+         \"resolve_by\": \"YYYY-MM-DD\", \"author_agent_id\": \"{agent_id}\"}})\n\
+         Import at most 10. Markets are enrichment: if none exist or fetches fail, that is \
+         fine — never invent prices. When done (or stuck), call temper.done(\"complete\") \
+         with a one-line summary."
+    )
+}
+
+fn spawn_session(
+    ctx: &Context,
+    api: &str,
+    headers: &[(String, String)],
+    name: &str,
+    role: &str,
+    model: &str,
+    provider: &str,
+    tools: &str,
+    max_turns: &str,
+    user_message: &str,
+) -> Result<String, String> {
+    let agent_body = json!({ "Name": name, "Role": role });
+    let agent_resp = ctx.http_call(
+        "POST",
+        &format!("{api}/tdata/Agents"),
+        headers,
+        &agent_body.to_string(),
+    )?;
+    if agent_resp.status < 200 || agent_resp.status >= 300 {
+        return Err(format!(
+            "create Agent {name} failed (HTTP {})",
+            agent_resp.status
+        ));
+    }
+    let agent_id = serde_json::from_str::<Value>(&agent_resp.body)
+        .ok()
+        .and_then(|v| {
+            v.get("entity_id")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        })
+        .ok_or("Agent create returned no entity_id")?;
+
+    let session_resp = ctx.http_call(
+        "POST",
+        &format!("{api}/tdata/Sessions"),
+        headers,
+        &json!({ "agent_id": agent_id }).to_string(),
+    )?;
+    if session_resp.status < 200 || session_resp.status >= 300 {
+        return Err(format!(
+            "create Session for {name} failed (HTTP {})",
+            session_resp.status
+        ));
+    }
+    let session_id = serde_json::from_str::<Value>(&session_resp.body)
+        .ok()
+        .and_then(|v| {
+            v.get("entity_id")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        })
+        .ok_or("Session create returned no entity_id")?;
+
+    // The prompt needs the real agent id for author fields; substitute now.
+    let message = user_message.replace("{AGENT_ID}", &agent_id);
+    let configure_body = json!({
+        "model": model,
+        "provider": provider,
+        "agent_name": role,
+        "tools_enabled": tools,
+        "max_turns": max_turns,
+        "user_message": message,
+        "sandbox_url": "none",
+        "temper_api_url": api
+    });
+    let configure_resp = ctx.http_call(
+        "POST",
+        &format!("{api}/tdata/Sessions('{session_id}')/TemperPaw.Configure"),
+        headers,
+        &configure_body.to_string(),
+    )?;
+    if configure_resp.status < 200 || configure_resp.status >= 300 {
+        return Err(format!(
+            "Configure for {name} failed (HTTP {}): {}",
+            configure_resp.status,
+            &configure_resp.body[..configure_resp.body.len().min(200)]
+        ));
+    }
+    ctx.log(
+        "info",
+        &format!("seed_world: spawned {role} agent {agent_id} session {session_id}"),
+    );
+    Ok(agent_id)
+}
 
 /// Entry point.
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
-        ctx.log("error", "seed_world: not implemented (corridor engine A3 pending)");
-        Err("seed_world is not implemented yet".to_string())
+        let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+        let get = |k: &str| -> String {
+            fields
+                .get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        let world_id = ctx.entity_id.clone();
+        let model = get("agent_model");
+        let provider = get("agent_provider");
+        if model.trim().is_empty() || provider.trim().is_empty() {
+            return Err("World.agent_model and World.agent_provider are required".to_string());
+        }
+        let hindcast = get("hindcast_mode") == "true";
+        let tools = tools_enabled(hindcast);
+
+        let api = ctx
+            .config
+            .get("temper_api_url")
+            .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+            .cloned()
+            .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
+        let headers = vec![
+            ("content-type".to_string(), "application/json".to_string()),
+            ("x-tenant-id".to_string(), ctx.tenant.clone()),
+            ("x-temper-principal-kind".to_string(), "agent".to_string()),
+            ("x-temper-principal-id".to_string(), world_id.clone()),
+            ("x-temper-agent-type".to_string(), "system".to_string()),
+        ];
+
+        let surveyor_msg = surveyor_prompt(
+            &world_id,
+            "{AGENT_ID}",
+            &get("name"),
+            &get("domain"),
+            &get("description"),
+            &get("target_date"),
+            &get("corpus_file_id"),
+            hindcast,
+        );
+        spawn_session(
+            &ctx,
+            &api,
+            &headers,
+            &format!("Surveyor-{world_id}"),
+            "surveyor",
+            &model,
+            &provider,
+            &tools,
+            "40",
+            &surveyor_msg,
+        )?;
+
+        // Bookmaker is enrichment: a spawn failure is logged, never fatal.
+        let bookmaker_msg = bookmaker_prompt(
+            &world_id,
+            "{AGENT_ID}",
+            &get("domain"),
+            &get("target_date"),
+            hindcast,
+        );
+        if let Err(e) = spawn_session(
+            &ctx,
+            &api,
+            &headers,
+            &format!("Bookmaker-{world_id}"),
+            "bookmaker",
+            &model,
+            &provider,
+            &tools,
+            "30",
+            &bookmaker_msg,
+        ) {
+            ctx.log("warn", &format!("seed_world: bookmaker spawn failed: {e}"));
+        }
+
+        ctx.log("info", "seed_world: done (surveyor will report SeedComplete)");
+        Ok(())
     })();
 
     if let Err(e) = result {
         set_error_result(&e);
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Prompt-contract tests: the generated prompts must reference the exact
+    // entity sets, action names, and parameter names the specs declare.
+    // The API silently drops unknown fields — drift here is a silent failure.
+
+    #[test]
+    fn surveyor_prompt_carries_the_event_node_and_seed_complete_contract() {
+        let p = surveyor_prompt(
+            "w-1",
+            "a-1",
+            "Test",
+            "ai coding tools",
+            "desc",
+            "2026-12-11",
+            "file-9",
+            false,
+        );
+        for needle in [
+            "temper.create(\"EventNodes\"",
+            "\"world_id\": \"w-1\"",
+            "\"provenance\": \"determined\"",
+            "\"author_agent_id\": \"a-1\"",
+            "temper.action(\"Worlds\", \"w-1\", \"SeedComplete\"",
+            "skeleton_node_count",
+            "graph_snapshot_file_id",
+            "temper.read(\"file-9\")",
+            "forbidden from predicting",
+        ] {
+            assert!(p.contains(needle), "surveyor prompt missing: {needle}");
+        }
+    }
+
+    #[test]
+    fn bookmaker_prompt_imports_market_provenance_only() {
+        let p = bookmaker_prompt("w-1", "a-1", "ai coding tools", "2026-12-11", false);
+        for needle in [
+            "temper.create(\"EventNodes\"",
+            "\"provenance\": \"market\"",
+            "never invent prices",
+        ] {
+            assert!(p.contains(needle), "bookmaker prompt missing: {needle}");
+        }
+        assert!(
+            !p.contains("SeedComplete"),
+            "bookmaker must not report world completion"
+        );
+    }
+
+    #[test]
+    fn hindcast_mode_strips_web_tools_everywhere() {
+        assert!(!tools_enabled(true).contains("web"));
+        assert!(tools_enabled(false).contains("temper_web_search"));
+        let p = surveyor_prompt("w", "a", "n", "d", "", "2026-01-01", "", true);
+        assert!(p.contains("NO web access"));
+        assert!(!p.contains("temper.web_search /"));
+        let b = bookmaker_prompt("w", "a", "d", "2026-01-01", true);
+        assert!(b.contains("no web access"));
+    }
 }
