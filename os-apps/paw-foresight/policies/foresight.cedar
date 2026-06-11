@@ -70,3 +70,326 @@ permit(
 ) when {
   ["spawn_seed_agent", "spawn_probes", "handle_probe_done", "handle_convergence", "handle_projection_updated"].contains(context.module)
 };
+
+// ============================================================
+// Corridor world engine (ADR-002). Separations that carry the
+// engine's honesty: forecasts immutable, scoring system-only,
+// publication WASM-gated, peers confirm what authors propose.
+// ============================================================
+
+// --- World ---
+permit(principal is Admin, action, resource is World);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is World
+);
+
+// Operating a world: humans, supervisors, and system flows drive it.
+permit(
+  principal,
+  action in [Action::"Configure", Action::"Seed", Action::"SampleEndpoints",
+             Action::"IngestEvidence", Action::"Render", Action::"BeginUpdate",
+             Action::"Archive"],
+  resource is World
+) when {
+  ["system", "supervisor", "human"].contains(principal.agent_type)
+};
+
+// Session self-reports: the surveyor reports SeedComplete; spawn callbacks
+// report EndpointsSampled.
+permit(
+  principal,
+  action in [Action::"SeedComplete", Action::"EndpointsSampled"],
+  resource is World
+) when {
+  ["system", "agent"].contains(principal.agent_type)
+};
+
+// Pass results and update completion are aggregate_costs / evidence territory.
+permit(
+  principal,
+  action in [Action::"PathsScored", Action::"UpdateComplete"],
+  resource is World
+) when {
+  principal.agent_type == "system"
+};
+
+// Failure must never be blocked.
+permit(principal, action == Action::"Fail", resource is World);
+
+// --- EventNode ---
+permit(principal is Admin, action, resource is EventNode);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is EventNode
+);
+
+// Peer confirmation: anyone may confirm — except the author (Gate 2).
+permit(
+  principal,
+  action == Action::"Confirm",
+  resource is EventNode
+);
+
+forbid(
+  principal,
+  action == Action::"Confirm",
+  resource is EventNode
+) when {
+  resource.AuthorAgentId == principal.id
+};
+
+// Probability, edges, and resolution move only with evidence (system flows).
+permit(
+  principal,
+  action in [Action::"UpdateProbability", Action::"UpdateEdges", Action::"Resolve"],
+  resource is EventNode
+) when {
+  principal.agent_type == "system"
+};
+
+permit(
+  principal,
+  action == Action::"Retire",
+  resource is EventNode
+) when {
+  ["system", "supervisor", "human"].contains(principal.agent_type)
+};
+
+// --- Endpoint ---
+permit(principal is Admin, action, resource is Endpoint);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is Endpoint
+);
+
+// The writer self-reports its bundle; only the author submits its endpoint.
+permit(
+  principal,
+  action == Action::"SubmitForRepair",
+  resource is Endpoint
+) when {
+  ["system", "agent"].contains(principal.agent_type)
+};
+
+permit(
+  principal,
+  action in [Action::"PathsAttached", Action::"ScoreComplete",
+             Action::"MarkWeighted", Action::"Reweigh"],
+  resource is Endpoint
+) when {
+  principal.agent_type == "system"
+};
+
+permit(
+  principal,
+  action == Action::"Discard",
+  resource is Endpoint
+) when {
+  ["system", "supervisor", "human"].contains(principal.agent_type)
+};
+
+permit(principal, action == Action::"Fail", resource is Endpoint);
+
+// --- Path ---
+permit(principal is Admin, action, resource is Path);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is Path
+);
+
+// Only the assigned repairer reports its repair; only the assigned adversary
+// reports its challenge. Assignment (repairer never the endpoint's author)
+// is enforced by spawn_repairers at spawn time.
+permit(
+  principal,
+  action == Action::"RepairComplete",
+  resource is Path
+) when {
+  principal.agent_type == "system" || resource.RepairerAgentId == principal.id
+};
+
+permit(
+  principal,
+  action == Action::"ChallengeComplete",
+  resource is Path
+) when {
+  principal.agent_type == "system" || resource.AdversaryAgentId == principal.id
+};
+
+// Costing and classification are deterministic WASM territory.
+permit(
+  principal,
+  action in [Action::"Score", Action::"ClassifyCanonical", Action::"ClassifyTail",
+             Action::"Reject", Action::"Rescore"],
+  resource is Path
+) when {
+  principal.agent_type == "system"
+};
+
+permit(principal, action == Action::"Fail", resource is Path);
+
+// --- Artifact ---
+permit(principal is Admin, action, resource is Artifact);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is Artifact
+);
+
+// Authors submit their own drafts.
+permit(
+  principal,
+  action == Action::"SubmitForCheck",
+  resource is Artifact
+) when {
+  principal.agent_type == "system" || resource.AuthorAgentId == principal.id
+};
+
+// Checker sessions self-report verdicts; the gate validates the schema.
+permit(
+  principal,
+  action == Action::"CheckerVerdict",
+  resource is Artifact
+) when {
+  ["system", "agent"].contains(principal.agent_type)
+};
+
+// The gate itself: no session passes, publishes, or retcons directly.
+permit(
+  principal,
+  action in [Action::"PassCheck", Action::"FailCheck", Action::"Publish",
+             Action::"Retcon"],
+  resource is Artifact
+) when {
+  principal.agent_type == "system"
+};
+
+permit(
+  principal,
+  action == Action::"Reject",
+  resource is Artifact
+) when {
+  ["system", "supervisor", "human"].contains(principal.agent_type)
+    || resource.AuthorAgentId == principal.id
+};
+
+// --- Dweller ---
+permit(principal is Admin, action, resource is Dweller);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is Dweller
+);
+
+permit(
+  principal,
+  action in [Action::"Activate", Action::"Retire"],
+  resource is Dweller
+) when {
+  ["system", "supervisor", "human"].contains(principal.agent_type)
+};
+
+// A dweller is animated only by its own backing agent (or system flows).
+permit(
+  principal,
+  action in [Action::"RecordTraversal", Action::"RecordContradiction"],
+  resource is Dweller
+) when {
+  principal.agent_type == "system" || resource.AgentId == principal.id
+};
+
+// Track records are graded, never self-reported.
+permit(
+  principal,
+  action == Action::"UpdateTrackRecord",
+  resource is Dweller
+) when {
+  principal.agent_type == "system"
+};
+
+// --- Forecast (the scoreboard: immutable once registered) ---
+permit(principal is Admin, action, resource is Forecast);
+
+permit(
+  principal,
+  action in [Action::"read", Action::"list"],
+  resource is Forecast
+);
+
+// Only register_forecasts creates; only evidence resolves and grades.
+permit(
+  principal,
+  action in [Action::"create", Action::"Resolve", Action::"Score", Action::"Void"],
+  resource is Forecast
+) when {
+  principal.agent_type == "system"
+};
+
+// --- Hindcast ---
+permit(principal is Admin, action, resource is Hindcast);
+
+permit(
+  principal,
+  action in [Action::"read", Action::"list"],
+  resource is Hindcast
+);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"Start", Action::"Grade"],
+  resource is Hindcast
+) when {
+  ["system", "supervisor", "human"].contains(principal.agent_type)
+};
+
+permit(
+  principal,
+  action == Action::"ScoreComplete",
+  resource is Hindcast
+) when {
+  principal.agent_type == "system"
+};
+
+permit(principal, action == Action::"Fail", resource is Hindcast);
+
+// --- Lens ---
+permit(principal is Admin, action, resource is Lens);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list",
+             Action::"Activate", Action::"Reconfigure", Action::"Archive"],
+  resource is Lens
+);
+
+// --- Corridor WASM module HTTP + secret access ---
+permit(
+  principal is Agent,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  ["seed_world", "sample_endpoints", "spawn_repairers", "spawn_adversaries",
+   "aggregate_costs", "evidence_ingest", "register_forecasts",
+   "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
+};
+
+permit(
+  principal is Agent,
+  action == Action::"access_secret",
+  resource is Secret
+) when {
+  ["seed_world", "sample_endpoints", "spawn_repairers", "spawn_adversaries",
+   "aggregate_costs", "evidence_ingest", "register_forecasts",
+   "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
+};

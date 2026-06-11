@@ -1,4 +1,58 @@
 name = "paw-foresight"
-description = "Product direction engine — projections, observations, entropy-based simulation"
+description = "Corridor world engine — scored worlds: skeleton forward, endpoints backward, adversarial repair, reality-graded forecasts"
 version = "0.1.0"
+startup_install = "core"
 dependencies = ["paw-agent"]
+
+# Corridor engine modules (ADR-002). Legacy 0.1 projection modules remain
+# undeclared/auto-discovered until their removal commit (ADR-003).
+
+[[wasm_modules]]
+name = "seed_world"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "sample_endpoints"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "spawn_repairers"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "spawn_adversaries"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "aggregate_costs"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "evidence_ingest"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "register_forecasts"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "render_artifacts"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "consistency_gate"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "grade_hindcast"
+criticality = "app-required"
+startup_loading = "lazy"
