@@ -636,8 +636,8 @@ async fn fail_recovered_directed_evolution_work_item(
         &join_fields,
     );
     let failure_reason = directed_evolution_restart_failure_reason(&config.worker_id);
-    if !work_item.worker_run_id.trim().is_empty() {
-        if let Err(report_error) = post_paw_orchestration_action(
+    if !work_item.worker_run_id.trim().is_empty()
+        && let Err(report_error) = post_paw_orchestration_action(
             client,
             config,
             "WorkerRuns",
@@ -650,9 +650,8 @@ async fn fail_recovered_directed_evolution_work_item(
             Some(&observe_metadata),
         )
         .await
-        {
-            warn!(%report_error, work_item_id, worker_run_id = %work_item.worker_run_id, "failed to fail recovered Directed Evolution WorkerRun");
-        }
+    {
+        warn!(%report_error, work_item_id, worker_run_id = %work_item.worker_run_id, "failed to fail recovered Directed Evolution WorkerRun");
     }
     if let Err(report_error) = route_directed_evolution_failure_receipt(
         client,
