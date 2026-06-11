@@ -33,3 +33,30 @@ After the prod deploy reconciles the 0.2.0 bundle, run the prune script against 
 ## Residual
 
 - Live corridor e2e (the A6 flagship runs + hindcast) still pending — next step.
+
+## Addendum: deterministic-spine live validation (same day)
+
+With LLM sessions blocked on provider credit, the corridor's deterministic
+spine was driven end to end by hand-dispatching the agent self-reports via
+admin OData on a fresh store (fixture world, 2 paths):
+
+- Costing: 17.50 and 50.00 — exact formula values from the flag fixtures.
+- Classification: exactly one Canonical (cheapest), one Tail, with notes.
+- Endpoint: ScoreComplete + MarkWeighted, weight 1.0000.
+- World: PathsScored landed (Active, canonical_path_id set).
+- register_forecasts: one Forecast preregistered from the qualifying node
+  (p=0.7, engine_version 0.2.0); determined/p=1.0 nodes correctly excluded.
+- Deep Sci-Fi 2.0 rendered all of it live in a real browser (worlds catalog,
+  standings league table, world receipts) through the same-origin proxy.
+
+Bugs found by this gate (all fixed and unit-pinned): WASM must always set a
+result; OData envelope row shape vs PascalCase reads (engine + frontend);
+$filter uses snake_case field names; query-projection lag in the settle
+check; duplicate PathsScored under concurrent Score triggers. Sessions also
+surfaced provider errors cleanly (billing 400 recorded on the Session row).
+
+Still pending for full A6: LLM-driven corridor run (surveyor → writers →
+repairers → adversaries → renderer), the 2045 fiction world, and the
+hindcast run — all blocked on a funded provider key. A failed seed session
+currently leaves a world in Seeding indefinitely (no state_timeout yet) —
+recorded as the top ADR-0050 follow-up.
