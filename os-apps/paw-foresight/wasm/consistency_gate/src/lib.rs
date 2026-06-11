@@ -86,13 +86,14 @@ fn validate_verdict(raw: &str) -> Verdict {
 
 /// The checker's working contract. Single source of truth for the entity
 /// sets, action, and parameter names it must use — tested below.
-fn checker_prompt(artifact_id: &str, content_file_id: &str, cited_node_ids: &str) -> String {
+fn checker_prompt(artifact_id: &str, content_text: &str, cited_node_ids: &str) -> String {
     format!(
         "You are the consistency checker for artifact {artifact_id}. The artifact wants to \
          enter its world's canon; your verdict is the only thing standing between it and \
          publication. Judge it, do not fix it.\n\n\
-         1. Read the artifact text: temper.read(\"{content_file_id}\")\n\
-         2. Read every cited EventNode: for each id in {cited_node_ids} call \
+         The artifact text is included below in full (sessions cannot reliably read \
+         cross-workspace files, so the gate inlines it).\n\n\
+         1. Read every cited EventNode: for each id in {cited_node_ids} call \
          temper.get(\"EventNodes\", \"<id>\")\n\n\
          Verify:\n\
          - Every citation exists: each cited node id must resolve to a real EventNode.\n\
@@ -107,8 +108,23 @@ fn checker_prompt(artifact_id: &str, content_file_id: &str, cited_node_ids: &str
          \\\"...\\\"}}]}}\", \"checker_session_id\": \"{{SESSION_ID}}\"}})\n\
          pass=true requires an empty violations array. If you find violations, list every \
          one (kind, where, note) and set pass=false.\n\n\
-         Then call temper.done(\"complete\")."
+         Then call temper.done(\"complete\").\n\n\
+         ===== ARTIFACT TEXT =====\n{content_text}\n===== END ARTIFACT TEXT ====="
     )
+}
+
+/// Truncate inline artifact content at a char boundary; the verdict must
+/// never be based on silently-missing text, so the truncation is loud.
+fn inline_content(raw: &str) -> String {
+    const CAP: usize = 30_000;
+    if raw.len() <= CAP {
+        return raw.to_string();
+    }
+    let mut end = CAP;
+    while !raw.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n\n[TRUNCATED BY GATE AT 30KB — flag kind \"truncated_content\" if the remainder matters]", &raw[..end])
 }
 
 // --- Session spawning --------------------------------------------------------
@@ -368,7 +384,20 @@ fn spawn_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
         }
     };
 
-    let prompt = checker_prompt(&artifact_id, &content_file_id, &get("cited_node_ids"));
+    // The gate fetches the artifact content itself and inlines it: session
+    // file reads are workspace-scoped and the author's file may live in a
+    // directory tree with no workspace at all (live runs 8a/8b both failed
+    // honestly on artifact_unreadable before this).
+    let content_url = format!("{api}/tdata/Files('{content_file_id}')/$value");
+    let content_resp = ctx.http_call("GET", &content_url, &headers, "")?;
+    if content_resp.status < 200 || content_resp.status >= 300 {
+        return Err(format!(
+            "gate could not fetch artifact content {content_file_id} (HTTP {})",
+            content_resp.status
+        ));
+    }
+    let content_text = inline_content(&content_resp.body);
+    let prompt = checker_prompt(&artifact_id, &content_text, &get("cited_node_ids"));
     spawn_session(
         ctx,
         &api,
@@ -519,9 +548,10 @@ mod tests {
 
     #[test]
     fn checker_prompt_carries_the_verdict_contract() {
-        let p = checker_prompt("art-1", "file-7", r#"["n-1", "n-2"]"#);
+        let p = checker_prompt("art-1", "The artifact body text.", r#"["n-1", "n-2"]"#);
         for needle in [
-            "temper.read(\"file-7\")",
+            "===== ARTIFACT TEXT =====",
+            "The artifact body text.",
             "temper.get(\"EventNodes\"",
             "[\"n-1\", \"n-2\"]",
             "temper.action(\"Artifacts\", \"art-1\", \"CheckerVerdict\"",
