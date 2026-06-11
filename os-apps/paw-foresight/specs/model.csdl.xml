@@ -316,6 +316,7 @@
         <Property Name="HindcastMode" Type="Edm.String"/>
         <Property Name="SkeletonNodeCount" Type="Edm.String"/>
         <Property Name="CanonicalPathId" Type="Edm.String"/>
+        <Property Name="LastIngestDate" Type="Edm.String"/>
         <Property Name="UpdateCauseNodeId" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
       </EntityType>
@@ -496,6 +497,7 @@
       </Action>
       <Action Name="IngestEvidence" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
+        <Parameter Name="last_ingest_date" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.World"/>
       </Action>
       <Action Name="Render" IsBound="true">

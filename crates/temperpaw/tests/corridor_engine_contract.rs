@@ -292,6 +292,40 @@ fn event_node_confirmation_is_peer_gated_and_resolution_is_final() {
 }
 
 #[test]
+fn ingest_evidence_carries_the_as_of_date() {
+    // WASM has no clock: the evidence-ingest as-of date is data the caller
+    // supplies, persisted on the world so registered_at / resolved_at are
+    // auditable. Both the IOA action and the CSDL bound action must carry it.
+    let path = spec_path("world.ioa.toml");
+    let spec = parse_spec(&path);
+
+    let ingest = action(&spec, "IngestEvidence", &path);
+    assert!(
+        action_params(ingest).contains("last_ingest_date"),
+        "World.IngestEvidence must accept last_ingest_date (the caller-supplied as-of date)"
+    );
+    assert!(
+        field_names(&spec).contains("last_ingest_date"),
+        "World must declare the last_ingest_date state var"
+    );
+
+    let csdl = read(repo_root().join("os-apps/paw-foresight/specs/model.csdl.xml"));
+    assert!(
+        csdl.contains("<Property Name=\"LastIngestDate\" Type=\"Edm.String\"/>"),
+        "model.csdl.xml must serve World.LastIngestDate"
+    );
+    let ingest_action = csdl
+        .split("<Action Name=\"IngestEvidence\"")
+        .nth(1)
+        .and_then(|rest| rest.split("</Action>").next())
+        .unwrap_or("");
+    assert!(
+        ingest_action.contains("<Parameter Name=\"last_ingest_date\""),
+        "CSDL IngestEvidence bound action must declare the last_ingest_date parameter"
+    );
+}
+
+#[test]
 fn corridor_documents_are_paw_fs_refs() {
     for (file, field) in [
         ("endpoint.ioa.toml", "bundle_file_id"),
