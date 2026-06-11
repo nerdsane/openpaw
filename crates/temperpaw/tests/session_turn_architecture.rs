@@ -60,6 +60,8 @@ fn session_routes_llm_calls_through_codex_auth_gate() {
     let root = repo_root();
     let spec = fs::read_to_string(root.join("os-apps/paw-agent/specs/session.ioa.toml"))
         .expect("session.ioa.toml should exist");
+    let csdl = fs::read_to_string(root.join("os-apps/paw-agent/specs/model.csdl.xml"))
+        .expect("paw-agent model CSDL should exist");
     let build_sh = fs::read_to_string(root.join("os-apps/paw-agent/wasm/build.sh"))
         .expect("paw-agent wasm build script should exist");
 
@@ -97,6 +99,26 @@ fn session_routes_llm_calls_through_codex_auth_gate() {
             && spec.contains("effect = [\n  { type = \"increment\", var = \"input_tokens\" },\n  { type = \"increment\", var = \"output_tokens\" },\n  { type = \"trigger\", name = \"ensure_compaction_auth\" }\n]"),
         "NeedsCompaction should enter the compaction auth gate before calling the compactor"
     );
+    assert!(
+        spec.contains("name = \"compaction_skipped_reason\"")
+            && spec.contains("name = \"compaction_skipped_leaf_id\"")
+            && spec.contains("params = [\"session_leaf_id\", \"context_tokens\", \"system_prompt_hash\", \"system_prompt_file_id\", \"compaction_skipped_reason\", \"compaction_skipped_leaf_id\"]"),
+        "CompactionComplete should persist explicit skip markers so PreparingContext cannot re-run the same impossible compaction forever"
+    );
+    let compaction_complete_action = csdl
+        .split(r#"<Action Name="CompactionComplete" IsBound="true">"#)
+        .nth(1)
+        .and_then(|tail| tail.split("</Action>").next())
+        .expect("CompactionComplete CSDL action should exist");
+    for needle in [
+        r#"<Parameter Name="compaction_skipped_reason" Type="Edm.String" Nullable="true"/>"#,
+        r#"<Parameter Name="compaction_skipped_leaf_id" Type="Edm.String" Nullable="true"/>"#,
+    ] {
+        assert!(
+            compaction_complete_action.contains(needle),
+            "CompactionComplete CSDL action should expose skip marker parameter: {needle}"
+        );
+    }
     assert!(
         build_sh.contains("provider_auth_gate"),
         "provider_auth_gate must be built with the paw-agent wasm bundle"

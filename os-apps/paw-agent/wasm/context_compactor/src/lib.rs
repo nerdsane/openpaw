@@ -63,10 +63,11 @@ use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     create_content_file_ref, is_session_entries_ref, read_content_file, read_content_file_version,
     read_session_from_temperfs, read_text_file_versions_batch, read_text_files_batch,
-    resolve_temper_api_url, write_session_to_temperfs,
+    resolve_temper_api_url, runtime_headers, write_session_to_temperfs,
 };
 
 const COMPACTION_AUTH_EXPIRED_PREFIX: &str = "compaction_auth_expired:";
+const LARGE_SESSION_TREE_SKIP_ENTRIES: usize = 900;
 
 /// Entry point.
 #[unsafe(no_mangle)]
@@ -100,6 +101,25 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             );
         }
 
+        if should_skip_repeated_compaction(&fields, session_leaf_id) {
+            let context_tokens = read_usize_field(&fields, "context_tokens")
+                .or_else(|| read_usize_field(&fields, "input_tokens"))
+                .unwrap_or(0);
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_compactor: repeated compaction guard skipping compaction for leaf {session_leaf_id}"
+                ),
+            );
+            set_compaction_skipped_success_result(
+                &fields,
+                session_leaf_id,
+                context_tokens,
+                "repeated_compaction_guard",
+            );
+            return Ok(());
+        }
+
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let tenant = &ctx.tenant;
         let workspace_id = fields
@@ -121,6 +141,23 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
+        if tree.len() >= LARGE_SESSION_TREE_SKIP_ENTRIES {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_compactor: large session tree has {} entries; skipping compaction for leaf {session_leaf_id}",
+                    tree.len()
+                ),
+            );
+            set_compaction_skipped_success_result(
+                &fields,
+                session_leaf_id,
+                tree.estimate_tokens(session_leaf_id),
+                "large_session_tree_guard",
+            );
+            return Ok(());
+        }
+
         // 2. Find cut point
         let cut_point = match tree.find_cut_point(session_leaf_id, keep_recent_tokens) {
             Some(cp) => cp,
@@ -129,12 +166,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "warn",
                     "context_compactor: no valid cut point found, skipping compaction",
                 );
-                set_success_result(
-                    "CompactionComplete",
-                    &json!({
-                        "session_leaf_id": session_leaf_id,
-                        "context_tokens": tree.estimate_tokens(session_leaf_id),
-                    }),
+                set_compaction_skipped_result(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &fields,
+                    session_leaf_id,
+                    tree.estimate_tokens(session_leaf_id),
+                    "no_valid_cut_point",
                 );
                 return Ok(());
             }
@@ -156,12 +195,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         );
         if messages_to_summarize.is_empty() {
             ctx.log("warn", "context_compactor: no messages to summarize");
-            set_success_result(
-                "CompactionComplete",
-                &json!({
-                    "session_leaf_id": session_leaf_id,
-                    "context_tokens": tree.estimate_tokens(session_leaf_id),
-                }),
+            set_compaction_skipped_result(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                &fields,
+                session_leaf_id,
+                tree.estimate_tokens(session_leaf_id),
+                "no_messages_to_summarize",
             );
             return Ok(());
         }
@@ -268,6 +309,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &json!({
                 "session_leaf_id": compaction_id,
                 "context_tokens": new_token_estimate,
+                "compaction_skipped_leaf_id": "",
+                "compaction_skipped_reason": "",
             }),
         );
 
@@ -278,6 +321,130 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+fn set_compaction_skipped_result(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_leaf_id: &str,
+    context_tokens: usize,
+    reason: &str,
+) {
+    persist_compaction_skip_marker(ctx, temper_api_url, tenant, fields, session_leaf_id, reason);
+    set_compaction_skipped_success_result(fields, session_leaf_id, context_tokens, reason);
+}
+
+fn set_compaction_skipped_success_result(
+    fields: &Value,
+    session_leaf_id: &str,
+    context_tokens: usize,
+    reason: &str,
+) {
+    set_success_result(
+        "CompactionComplete",
+        &json!({
+            "session_leaf_id": session_leaf_id,
+            "context_tokens": context_tokens,
+            "system_prompt_hash": fields
+                .get("system_prompt_hash")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            "system_prompt_file_id": fields
+                .get("system_prompt_file_id")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            "compaction_skipped_leaf_id": session_leaf_id,
+            "compaction_skipped_reason": reason,
+        }),
+    );
+}
+
+fn should_skip_repeated_compaction(fields: &Value, session_leaf_id: &str) -> bool {
+    let compaction_count = read_usize_field(fields, "compaction_count").unwrap_or(0);
+    if compaction_count >= 3 {
+        return true;
+    }
+
+    let previous_reason = fields
+        .get("compaction_skipped_reason")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if previous_reason.is_empty() {
+        return false;
+    }
+
+    let previous_leaf = fields
+        .get("compaction_skipped_leaf_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    !previous_leaf.is_empty() && previous_leaf != session_leaf_id
+}
+
+fn read_usize_field(fields: &Value, field_name: &str) -> Option<usize> {
+    fields.get(field_name).and_then(|value| match value {
+        Value::Number(number) => number
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok()),
+        Value::String(value) => value.parse::<usize>().ok(),
+        _ => None,
+    })
+}
+
+fn persist_compaction_skip_marker(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_leaf_id: &str,
+    reason: &str,
+) {
+    let session_id = fields
+        .get("Id")
+        .or_else(|| fields.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or(&ctx.entity_id);
+    let url = format!("{temper_api_url}/tdata/Sessions('{session_id}')");
+    let headers = runtime_headers(
+        ctx,
+        tenant,
+        fields,
+        Some("application/json"),
+        Some("application/json"),
+    );
+    let body = json!({
+        "compaction_skipped_reason": reason,
+        "compaction_skipped_leaf_id": session_leaf_id,
+    });
+    match ctx.http_call("PATCH", &url, &headers, &body.to_string()) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            ctx.log(
+                "info",
+                &format!(
+                    "context_compactor: persisted compaction skip marker for leaf {session_leaf_id}"
+                ),
+            );
+        }
+        Ok(resp) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "context_compactor: skip marker PATCH failed (HTTP {}): {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ),
+            );
+        }
+        Err(err) => {
+            ctx.log(
+                "warn",
+                &format!("context_compactor: skip marker PATCH failed: {err}"),
+            );
+        }
+    }
 }
 
 fn resolve_context_refs_for_compaction(
@@ -911,6 +1078,43 @@ mod tests {
             default_compaction_provider_api_url("openai_codex"),
             "https://chatgpt.com/backend-api/codex/responses"
         );
+    }
+
+    #[test]
+    fn repeated_compaction_guard_catches_hot_loop_sessions() {
+        let fields = json!({
+            "compaction_count": 3,
+            "session_leaf_id": "t-1080",
+        });
+        assert!(should_skip_repeated_compaction(&fields, "t-1080"));
+
+        let stale_skip = json!({
+            "compaction_count": 0,
+            "compaction_skipped_reason": "no_valid_cut_point",
+            "compaction_skipped_leaf_id": "t-1078",
+        });
+        assert!(should_skip_repeated_compaction(&stale_skip, "t-1080"));
+
+        let current_skip = json!({
+            "compaction_count": 0,
+            "compaction_skipped_reason": "no_valid_cut_point",
+            "compaction_skipped_leaf_id": "t-1080",
+        });
+        assert!(!should_skip_repeated_compaction(&current_skip, "t-1080"));
+    }
+
+    #[test]
+    fn read_usize_field_accepts_string_and_numeric_session_fields() {
+        let fields = json!({
+            "string_counter": "2328",
+            "numeric_counter": 2348,
+            "invalid_counter": "many",
+        });
+
+        assert_eq!(read_usize_field(&fields, "string_counter"), Some(2328));
+        assert_eq!(read_usize_field(&fields, "numeric_counter"), Some(2348));
+        assert_eq!(read_usize_field(&fields, "invalid_counter"), None);
+        assert_eq!(read_usize_field(&fields, "missing_counter"), None);
     }
 
     #[test]

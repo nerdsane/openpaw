@@ -13,8 +13,8 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    entity_field_str, find_channel_session_by_agent, find_connected_channel_by_external_id,
-    resolve_temper_api_url, runtime_headers,
+    entity_field_str, find_channel_session_for_session_or_agent,
+    find_connected_channel_by_external_id, resolve_temper_api_url, runtime_headers,
 };
 
 const PLAN_SNIPPET_LIMIT: usize = 600;
@@ -41,7 +41,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         let session =
-            find_session_by_agent(&ctx, &temper_api_url, tenant, agent_id, parent_session_id)?;
+            find_session_by_agent(&ctx, &temper_api_url, tenant, session_id, agent_id, parent_session_id)?;
         let Some((session, bound_agent_id)) = session else {
             ctx.log(
                 "warn",
@@ -258,23 +258,18 @@ fn find_session_by_agent(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
+    current_session_id: &str,
     agent_id: &str,
     parent_session_id: &str,
 ) -> Result<Option<(Value, String)>, String> {
-    if let Some(session) = find_channel_session_by_agent(ctx, temper_api_url, tenant, agent_id)? {
-        return Ok(Some((session, agent_id.to_string())));
-    }
-
-    let parent_session_id = parent_session_id.trim();
-    if !parent_session_id.is_empty() && parent_session_id != agent_id {
-        if let Some(session) =
-            find_channel_session_by_agent(ctx, temper_api_url, tenant, parent_session_id)?
-        {
-            return Ok(Some((session, parent_session_id.to_string())));
-        }
-    }
-
-    Ok(None)
+    find_channel_session_for_session_or_agent(
+        ctx,
+        temper_api_url,
+        tenant,
+        current_session_id,
+        agent_id,
+        parent_session_id,
+    )
 }
 
 fn fetch_plan_preview(

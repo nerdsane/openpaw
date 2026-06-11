@@ -1584,17 +1584,105 @@ pub fn find_channel_session_by_agent(
     tenant: &str,
     agent_id: &str,
 ) -> Result<Option<Value>, String> {
-    let escaped = agent_id.replace('\'', "''");
-    let active_filter =
-        format!("$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1");
-    let active_url = format!("{temper_api_url}/tdata/ChannelSessions?{active_filter}");
-    if let Some(session) = list_entities(ctx, &active_url, tenant)?.into_iter().next() {
-        return Ok(Some(session));
+    Ok(find_channel_session_for_session_or_agent(
+        ctx,
+        temper_api_url,
+        tenant,
+        "",
+        agent_id,
+        "",
+    )?
+    .map(|(session, _)| session))
+}
+
+/// Find the best ChannelSession for a session-bound notification route.
+///
+/// Prefer the current Session's channel binding, then its parent Session, and
+/// only then fall back to the newest agent-level binding. Older proof and perf
+/// ChannelSessions may remain Active for the same agent, so the agent fallback
+/// must not be the first lookup.
+pub fn find_channel_session_for_session_or_agent(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    current_session_id: &str,
+    agent_id: &str,
+    parent_session_id: &str,
+) -> Result<Option<(Value, String)>, String> {
+    for candidate in channel_session_lookup_candidates(
+        current_session_id,
+        agent_id,
+        parent_session_id,
+    ) {
+        let url = format!(
+            "{temper_api_url}/tdata/ChannelSessions?{}",
+            candidate.filter
+        );
+        if let Some(session) = list_entities(ctx, &url, tenant)?.into_iter().next() {
+            return Ok(Some((session, candidate.bound_id)));
+        }
     }
 
-    let any_filter = format!("$filter=agent_entity_id eq '{escaped}'&$top=1");
-    let any_url = format!("{temper_api_url}/tdata/ChannelSessions?{any_filter}");
-    Ok(list_entities(ctx, &any_url, tenant)?.into_iter().next())
+    Ok(None)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChannelSessionLookup {
+    filter: String,
+    bound_id: String,
+}
+
+fn channel_session_lookup_candidates(
+    current_session_id: &str,
+    agent_id: &str,
+    parent_session_id: &str,
+) -> Vec<ChannelSessionLookup> {
+    let mut candidates = Vec::new();
+    let current_session_id = current_session_id.trim();
+    let parent_session_id = parent_session_id.trim();
+    let agent_id = agent_id.trim();
+
+    if !current_session_id.is_empty() {
+        let escaped = escape_odata_value(current_session_id);
+        candidates.push(ChannelSessionLookup {
+            filter: format!(
+                "$filter=Status eq 'Active' and session_entity_id eq '{escaped}'&$top=1"
+            ),
+            bound_id: agent_id.to_string(),
+        });
+    }
+
+    if !parent_session_id.is_empty() && parent_session_id != current_session_id {
+        let escaped = escape_odata_value(parent_session_id);
+        candidates.push(ChannelSessionLookup {
+            filter: format!(
+                "$filter=Status eq 'Active' and session_entity_id eq '{escaped}'&$top=1"
+            ),
+            bound_id: parent_session_id.to_string(),
+        });
+    }
+
+    if !agent_id.is_empty() {
+        let escaped = escape_odata_value(agent_id);
+        candidates.push(ChannelSessionLookup {
+            filter: format!(
+                "$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$orderby=last_message_at desc&$top=1"
+            ),
+            bound_id: agent_id.to_string(),
+        });
+        candidates.push(ChannelSessionLookup {
+            filter: format!(
+                "$filter=agent_entity_id eq '{escaped}'&$orderby=last_message_at desc&$top=1"
+            ),
+            bound_id: agent_id.to_string(),
+        });
+    }
+
+    candidates
+}
+
+fn escape_odata_value(value: &str) -> String {
+    value.replace('\'', "''")
 }
 
 /// Find the connected Channel entity for a platform-specific channel ID.
@@ -1661,6 +1749,50 @@ pub fn parse_iso8601_to_epoch_secs(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_session_lookup_prefers_session_routes_before_agent_fallback() {
+        let candidates =
+            channel_session_lookup_candidates("ss-current", "aj-agent", "ss-parent");
+        let filters: Vec<_> = candidates
+            .iter()
+            .map(|candidate| candidate.filter.as_str())
+            .collect();
+
+        assert_eq!(
+            filters,
+            vec![
+                "$filter=Status eq 'Active' and session_entity_id eq 'ss-current'&$top=1",
+                "$filter=Status eq 'Active' and session_entity_id eq 'ss-parent'&$top=1",
+                "$filter=Status eq 'Active' and agent_entity_id eq 'aj-agent'&$orderby=last_message_at desc&$top=1",
+                "$filter=agent_entity_id eq 'aj-agent'&$orderby=last_message_at desc&$top=1",
+            ]
+        );
+        assert_eq!(candidates[0].bound_id, "aj-agent");
+        assert_eq!(candidates[1].bound_id, "ss-parent");
+    }
+
+    #[test]
+    fn channel_session_lookup_escapes_odata_values() {
+        let candidates = channel_session_lookup_candidates("ss'oops", "aj'agent", "");
+
+        assert_eq!(
+            candidates[0].filter,
+            "$filter=Status eq 'Active' and session_entity_id eq 'ss''oops'&$top=1"
+        );
+        assert_eq!(
+            candidates[1].filter,
+            "$filter=Status eq 'Active' and agent_entity_id eq 'aj''agent'&$orderby=last_message_at desc&$top=1"
+        );
+    }
+
+    #[test]
+    fn discord_snowflake_guard_rejects_synthetic_threads() {
+        assert!(is_discord_snowflake("1018228973869727785"));
+        assert!(!is_discord_snowflake(""));
+        assert!(!is_discord_snowflake("codex-live-proof-thread"));
+        assert!(!is_discord_snowflake("123abc"));
+    }
 
     #[test]
     fn parse_batch_text_file_read_response_deserializes_found_and_missing_items() {
@@ -2098,20 +2230,19 @@ fn send_typing_indicator_inner(
         .cloned()
         .unwrap_or_else(|| json!({}));
     let headers = runtime_headers(ctx, tenant, &fields, None, Some("application/json"));
-    let parent_session_id =
-        entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])
-            .unwrap_or("");
+    let current_session_id = ctx.entity_id.as_str();
+    let parent_session_id = entity_field_str(&fields, &["parent_session_id", "ParentSessionId"])
+        .unwrap_or("");
 
-    // Find ChannelSession for this agent
-    let session = find_channel_session(ctx, temper_api_url, &headers, agent_entity_id)
-        .or_else(|| {
-            if parent_session_id.is_empty() || parent_session_id == agent_entity_id {
-                None
-            } else {
-                find_channel_session(ctx, temper_api_url, &headers, parent_session_id)
-            }
-        })
-        .ok_or("no session")?;
+    let session = find_channel_session_for_typing(
+        ctx,
+        temper_api_url,
+        &headers,
+        current_session_id,
+        agent_entity_id,
+        parent_session_id,
+    )
+    .ok_or("no session")?;
 
     let channel_id = entity_field_str(&session, &["ChannelId", "channel_id"]).unwrap_or("");
     let thread_id = entity_field_str(&session, &["ThreadId", "thread_id"]).unwrap_or("");
@@ -2141,6 +2272,17 @@ fn send_typing_indicator_inner(
         return Ok(());
     }
 
+    let channel_type = entity_field_str(channel, &["ChannelType", "channel_type"]).unwrap_or("");
+    if channel_type.eq_ignore_ascii_case("discord") && !is_discord_snowflake(thread_id) {
+        ctx.log(
+            "warn",
+            &format!(
+                "send_typing_indicator: skipping invalid Discord thread_id for channel_id={channel_id}"
+            ),
+        );
+        return Ok(());
+    }
+
     // POST to /typing endpoint
     let typing_url = format!(
         "{}/typing",
@@ -2152,20 +2294,29 @@ fn send_typing_indicator_inner(
     Ok(())
 }
 
-fn find_channel_session(
+fn find_channel_session_for_typing(
     ctx: &Context,
     temper_api_url: &str,
     headers: &[(String, String)],
+    current_session_id: &str,
     agent_entity_id: &str,
+    parent_session_id: &str,
 ) -> Option<Value> {
-    let escaped = agent_entity_id.replace('\'', "''");
-    let active_url = format!(
-        "{temper_api_url}/tdata/ChannelSessions?$filter=Status eq 'Active' and agent_entity_id eq '{escaped}'&$top=1"
-    );
-    let active_resp = ctx.http_call("GET", &active_url, headers, "").ok()?;
-    if active_resp.status == 200 {
+    for candidate in channel_session_lookup_candidates(
+        current_session_id,
+        agent_entity_id,
+        parent_session_id,
+    ) {
+        let url = format!(
+            "{temper_api_url}/tdata/ChannelSessions?{}",
+            candidate.filter
+        );
+        let resp = ctx.http_call("GET", &url, headers, "").ok()?;
+        if resp.status != 200 {
+            continue;
+        }
         let sessions: Value =
-            serde_json::from_str(&active_resp.body).unwrap_or_else(|_| json!({"value": []}));
+            serde_json::from_str(&resp.body).unwrap_or_else(|_| json!({"value": []}));
         if let Some(session) = sessions
             .get("value")
             .and_then(Value::as_array)
@@ -2175,18 +2326,10 @@ fn find_channel_session(
         }
     }
 
-    let fallback_url = format!(
-        "{temper_api_url}/tdata/ChannelSessions?$filter=agent_entity_id eq '{escaped}'&$top=1"
-    );
-    let fallback_resp = ctx.http_call("GET", &fallback_url, headers, "").ok()?;
-    if fallback_resp.status != 200 {
-        return None;
-    }
-    let sessions: Value =
-        serde_json::from_str(&fallback_resp.body).unwrap_or_else(|_| json!({"value": []}));
-    sessions
-        .get("value")
-        .and_then(Value::as_array)
-        .and_then(|arr| arr.first())
-        .cloned()
+    None
+}
+
+fn is_discord_snowflake(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value.as_bytes().iter().all(u8::is_ascii_digit)
 }
