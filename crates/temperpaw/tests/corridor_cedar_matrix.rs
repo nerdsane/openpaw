@@ -16,10 +16,9 @@ fn repo_root() -> PathBuf {
 }
 
 fn engine() -> AuthzEngine {
-    let policy = fs::read_to_string(
-        repo_root().join("os-apps/paw-foresight/policies/foresight.cedar"),
-    )
-    .expect("read foresight.cedar");
+    let policy =
+        fs::read_to_string(repo_root().join("os-apps/paw-foresight/policies/foresight.cedar"))
+            .expect("read foresight.cedar");
     AuthzEngine::new(&policy).expect("foresight.cedar should parse")
 }
 
@@ -46,7 +45,9 @@ fn forecasts_are_created_and_graded_only_by_system() {
     let system = ctx("evidence-wasm", "system");
     for action in ["create", "Resolve", "Score", "Void"] {
         assert!(
-            engine.authorize(&system, action, "Forecast", &a).is_allowed(),
+            engine
+                .authorize(&system, action, "Forecast", &a)
+                .is_allowed(),
             "system must be able to {action} forecasts"
         );
     }
@@ -54,13 +55,23 @@ fn forecasts_are_created_and_graded_only_by_system() {
     let agent = ctx("some-session-agent", "agent");
     for action in ["create", "Resolve", "Score", "Void"] {
         assert!(
-            !engine.authorize(&agent, action, "Forecast", &a).is_allowed(),
+            !engine
+                .authorize(&agent, action, "Forecast", &a)
+                .is_allowed(),
             "plain agents must never {action} forecasts — the scoreboard is system-only"
         );
     }
     // Everyone reads the scoreboard.
-    assert!(engine.authorize(&agent, "read", "Forecast", &a).is_allowed());
-    assert!(engine.authorize(&agent, "list", "Forecast", &a).is_allowed());
+    assert!(
+        engine
+            .authorize(&agent, "read", "Forecast", &a)
+            .is_allowed()
+    );
+    assert!(
+        engine
+            .authorize(&agent, "list", "Forecast", &a)
+            .is_allowed()
+    );
 }
 
 #[test]
@@ -73,14 +84,26 @@ fn path_scoring_and_classification_are_wasm_territory() {
     ]);
 
     let agent = ctx("rep-1", "agent");
-    for action in ["Score", "ClassifyCanonical", "ClassifyTail", "Reject", "Rescore"] {
+    for action in [
+        "Score",
+        "ClassifyCanonical",
+        "ClassifyTail",
+        "Reject",
+        "Rescore",
+    ] {
         assert!(
             !engine.authorize(&agent, action, "Path", &a).is_allowed(),
             "sessions must never {action} paths — costing is deterministic WASM"
         );
     }
     let system = ctx("aggregate-costs", "system");
-    for action in ["Score", "ClassifyCanonical", "ClassifyTail", "Reject", "Rescore"] {
+    for action in [
+        "Score",
+        "ClassifyCanonical",
+        "ClassifyTail",
+        "Reject",
+        "Rescore",
+    ] {
         assert!(engine.authorize(&system, action, "Path", &a).is_allowed());
     }
 }
@@ -137,13 +160,20 @@ fn artifact_publication_is_gated_to_system() {
     );
     assert!(
         !engine
-            .authorize(&ctx("not-author", "agent"), "SubmitForCheck", "Artifact", &a)
+            .authorize(
+                &ctx("not-author", "agent"),
+                "SubmitForCheck",
+                "Artifact",
+                &a
+            )
             .is_allowed(),
         "non-authors cannot submit someone else's draft"
     );
     for action in ["PassCheck", "FailCheck", "Publish", "Retcon"] {
         assert!(
-            !engine.authorize(&author, action, "Artifact", &a).is_allowed(),
+            !engine
+                .authorize(&author, action, "Artifact", &a)
+                .is_allowed(),
             "no session may {action} — the gate owns publication"
         );
         assert!(
@@ -215,7 +245,12 @@ fn dwellers_are_animated_only_by_their_backing_agent() {
     }
     assert!(
         !engine
-            .authorize(&ctx("backing-1", "agent"), "UpdateTrackRecord", "Dweller", &a)
+            .authorize(
+                &ctx("backing-1", "agent"),
+                "UpdateTrackRecord",
+                "Dweller",
+                &a
+            )
             .is_allowed(),
         "track records are graded, never self-reported"
     );

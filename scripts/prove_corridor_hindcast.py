@@ -42,11 +42,10 @@ def upload_file(c: Client, name: str, path: str) -> str:
     create_req = urllib.request.Request(f"{c.base}/tdata/Files", method="POST")
     for k, v in sys_headers:
         create_req.add_header(k, v)
-    import json as _json
     with urllib.request.urlopen(
-        create_req, data=_json.dumps({"name": name}).encode(), timeout=120
+        create_req, data=json.dumps({"name": name}).encode(), timeout=120
     ) as r:
-        created = _json.loads(r.read().decode())
+        created = json.loads(r.read().decode())
     fid = created["entity_id"]
     req = urllib.request.Request(
         f"{c.base}/tdata/Files('{fid}')/$value", method="PUT"
@@ -55,9 +54,9 @@ def upload_file(c: Client, name: str, path: str) -> str:
         req.add_header(k, v)
     with open(path, "rb") as fh:
         data = fh.read()
-    with urllib.request.urlopen(req, data=data, timeout=120) as r:
-        if r.status >= 300:
-            raise RuntimeError(f"file upload failed: HTTP {r.status}")
+    # urlopen raises HTTPError on any non-2xx status — errors stay loud.
+    with urllib.request.urlopen(req, data=data, timeout=120):
+        pass
     return fid
 
 

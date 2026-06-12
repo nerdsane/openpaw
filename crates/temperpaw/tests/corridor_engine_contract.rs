@@ -281,7 +281,10 @@ fn event_node_confirmation_is_peer_gated_and_resolution_is_final() {
         "edges",
         "author_agent_id",
     ] {
-        assert!(fields.contains(required), "EventNode missing field {required}");
+        assert!(
+            fields.contains(required),
+            "EventNode missing field {required}"
+        );
     }
 
     let text = read(&path);
@@ -371,10 +374,20 @@ fn csdl_serves_all_corridor_entity_sets() {
     // never serves (found the hard way during the A1 boot gate).
     let csdl = read(repo_root().join("os-apps/paw-foresight/specs/model.csdl.xml"));
     for set in [
-        "Worlds", "EventNodes", "Endpoints", "Paths", "Artifacts", "Dwellers",
-        "Forecasts", "Hindcasts", "Lenses",
+        "Worlds",
+        "EventNodes",
+        "Endpoints",
+        "Paths",
+        "Artifacts",
+        "Dwellers",
+        "Forecasts",
+        "Hindcasts",
+        "Lenses",
         // Legacy sets remain served until the ADR-003 removal commit.
-        "Projections", "ForesightModels", "Observations", "Directions",
+        "Projections",
+        "ForesightModels",
+        "Observations",
+        "Directions",
     ] {
         assert!(
             csdl.contains(&format!("EntitySet Name=\"{set}\"")),
