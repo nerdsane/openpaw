@@ -355,6 +355,24 @@
         <Property Name="ErrorMessage" Type="Edm.String"/>
       </EntityType>
 
+      <EntityType Name="Claim">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="WorldId" Type="Edm.String"/>
+        <Property Name="EndpointId" Type="Edm.String"/>
+        <Property Name="OriginalText" Type="Edm.String"/>
+        <Property Name="CurrentText" Type="Edm.String"/>
+        <Property Name="AmendmentLog" Type="Edm.String"/>
+        <Property Name="RouteCount" Type="Edm.String"/>
+        <Property Name="PathIds" Type="Edm.String"/>
+        <Property Name="SettledRouteId" Type="Edm.String"/>
+        <Property Name="BestRouteCost" Type="Edm.String"/>
+        <Property Name="Classification" Type="Edm.String"/>
+        <Property Name="UnreachableReason" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+      </EntityType>
+
       <EntityType Name="Path">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -592,6 +610,54 @@
         <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
       </Action>
 
+      <Action Name="SubmitForBridge" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="RoutesAttached" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="path_ids" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="route_count" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="AmendText" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="old_text" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="new_text" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="justification" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="agent_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="RouteSettled" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="path_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="route_cost" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="Settle" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="settled_route_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="best_route_cost" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="classification" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="Reprice" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="best_route_cost" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="classification" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="MarkUnreachable" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="unreachable_reason" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+      <Action Name="Fail" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <Parameter Name="error_message" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
+
       <Action Name="RepairComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Path"/>
         <Parameter Name="repair_log_file_id" Type="Edm.String" Nullable="true"/>
@@ -766,6 +832,7 @@
         <EntitySet Name="Worlds" EntityType="TemperPaw.Foresight.World"/>
         <EntitySet Name="EventNodes" EntityType="TemperPaw.Foresight.EventNode"/>
         <EntitySet Name="Endpoints" EntityType="TemperPaw.Foresight.Endpoint"/>
+        <EntitySet Name="Claims" EntityType="TemperPaw.Foresight.Claim"/>
         <EntitySet Name="Paths" EntityType="TemperPaw.Foresight.Path"/>
         <EntitySet Name="Artifacts" EntityType="TemperPaw.Foresight.Artifact"/>
         <EntitySet Name="Dwellers" EntityType="TemperPaw.Foresight.Dweller"/>

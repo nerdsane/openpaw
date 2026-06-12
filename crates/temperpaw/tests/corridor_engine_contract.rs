@@ -97,6 +97,7 @@ const CORRIDOR_SPECS: &[(&str, &str)] = &[
     ("world.ioa.toml", "World"),
     ("event_node.ioa.toml", "EventNode"),
     ("endpoint.ioa.toml", "Endpoint"),
+    ("claim.ioa.toml", "Claim"),
     ("path.ioa.toml", "Path"),
     ("artifact.ioa.toml", "Artifact"),
     ("dweller.ioa.toml", "Dweller"),
