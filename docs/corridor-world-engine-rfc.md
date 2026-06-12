@@ -1,8 +1,25 @@
-# RFC: Corridor World Engine (paw-foresight 0.2)
+# RFC: Corridor World Engine (paw-foresight 0.2 → 0.3)
 
 Status: Draft
-Date: 2026-06-11
+Date: 2026-06-11 (0.2) · 2026-06-12 (0.3, the searched corridor)
 Repos affected: temperpaw (this RFC), deep-sci-fi (consumer)
+
+## The engine in one paragraph
+
+Sample worlds at several fixed distances from consensus. For each, search
+backward through a graph of small, dependent, individually-priceable steps
+for the cheapest connection to today — allowing the world to be amended,
+but pricing every amendment so that drifting back to consensus is never
+free. Rank what survives. The intelligence is in the imagining, the
+decomposing, and the route-proposing; the arithmetic is in the pricing and
+the pruning; reality, arriving later, grades everything.
+
+A prediction-market question is a world projected down to one coordinate;
+this engine builds the joint object — the world and its dependency
+structure — and the single-question forecasts fall out of it for free. The
+0.3 revision (ADR-004) turns the middle of the corridor from a priced
+single chain into that search: per-claim decomposition, alternate routes,
+and the drift constraint.
 
 ## What we are addressing
 
