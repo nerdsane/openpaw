@@ -265,6 +265,18 @@ permit(
   ["system", "agent"].contains(principal.agent_type)
 };
 
+// Adjudicator sessions self-report judged verdicts; the module validates
+// them and alone owns Resolve/FlagForHuman (ADR-004 commitment 2). Mirrors
+// the CheckerVerdict permit: session principals may surface either as
+// agents or through the wasm-runtime relay.
+permit(
+  principal,
+  action == Action::"AdjudicationVerdict",
+  resource is EventNode
+) when {
+  ["system", "agent"].contains(principal.agent_type)
+};
+
 // The gate itself: no session passes, publishes, or retcons directly.
 permit(
   principal,
