@@ -66,6 +66,14 @@ name = "path_ids"
 type = "string"
 initial = "[]"
 
+# Alternate-route brief: when the costing module spawns another route, the
+# standing objections the new repairer must beat (PATCHed by aggregate_costs
+# before SubmitForBridge).
+[[state]]
+name = "revision_brief"
+type = "string"
+initial = ""
+
 # Single-writer guard: set exactly once, by the costing module, when the
 # claim settles (the per-claim analogue of World.canonical_path_id).
 [[state]]
@@ -100,10 +108,10 @@ initial = ""
 [[action]]
 name = "SubmitForBridge"
 kind = "input"
-from = ["Proposed"]
+from = ["Proposed", "Bridging"]
 to = "Bridging"
 params = []
-hint = "Dispatched by decompose_endpoint (chunked under admission caps). Spawns the first repairer route."
+hint = "Dispatched by decompose_endpoint for the first route, and by aggregate_costs for alternate routes (revision_brief carries the standing objections). Spawns a repairer route."
 effect = [{ type = "trigger", name = "spawn_repairers" }]
 
 [[action.triggers]]

@@ -15,7 +15,7 @@
 
 [automaton]
 name = "Path"
-states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail", "Rejected", "Failed"]
+states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail", "Rejected", "Pruned", "Failed"]
 initial = "Solving"
 
 # ADR-0050: Solving/Repaired/Challenged are bounded by repairer/adversary
@@ -123,13 +123,69 @@ kind = "input"
 from = ["Solving"]
 to = "Repaired"
 params = ["repair_log_file_id", "required_node_ids", "cost_flags"]
-hint = "Repairer self-reports the backward path with its flags. Spawns the adversary."
+hint = "Repairer self-reports the backward route with its flags. Triggers the prune gate: routes already too expensive are cut before any adversary session is spent (ADR-004)."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "RequestChallenge"
+kind = "input"
+from = ["Repaired"]
+params = []
+hint = "Prune gate passed: spawn the adversary. System principals only."
 effect = [{ type = "trigger", name = "spawn_adversaries" }]
 
 [[action.triggers]]
 name = "spawn_adversaries"
 kind = "wasm"
 module = "spawn_adversaries"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "Prune"
+kind = "input"
+from = ["Repaired"]
+to = "Pruned"
+params = ["classification_note"]
+hint = "Repairer-phase cost already exceeds what the claim's best route allows; cut before adversary spend. System principals only."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "RevisionRequested"
+kind = "input"
+from = ["Challenged"]
+to = "Solving"
+params = ["revision_brief", "round_count"]
+hint = "An adversary objection was expensive and the round budget allows a revision: the repairer answers the specific objections on this same route. System principals only."
+effect = [{ type = "trigger", name = "spawn_repairers" }]
+
+[[action.triggers]]
+name = "spawn_repairers"
+kind = "wasm"
+module = "spawn_repairers"
 on_failure = "Fail"
 
 [action.triggers.config]
@@ -218,6 +274,11 @@ hint = "Unrecoverable error during repair or challenge."
 [[invariant]]
 name = "RejectedIsFinal"
 when = ["Rejected"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "PrunedIsFinal"
+when = ["Pruned"]
 assert = "no_further_transitions"
 
 [[invariant]]

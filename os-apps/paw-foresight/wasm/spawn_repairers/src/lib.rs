@@ -294,6 +294,109 @@ fn start_session(
 }
 
 /// Entry point.
+/// Revision mode: the Path itself re-enters Solving; spawn a repairer for
+/// the same route with the adversary's objections inlined. No new Path, no
+/// claim bookkeeping — the route keeps its identity and its round counter.
+fn revise_route(
+    ctx: &Context,
+    _fields: &Value,
+    get: &dyn Fn(&str) -> String,
+) -> Result<(), String> {
+    let path_id = ctx.entity_id.clone();
+    let claim_id = get("claim_id");
+    let world_id = get("world_id");
+    let revision_brief = get("revision_brief");
+    if claim_id.is_empty() {
+        return Err("RevisionRequested on a path without claim_id (legacy routes do not revise)".to_string());
+    }
+
+    let api = ctx
+        .config
+        .get("temper_api_url")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
+    let headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("x-tenant-id".to_string(), ctx.tenant.clone()),
+        ("x-temper-principal-kind".to_string(), "agent".to_string()),
+        ("x-temper-principal-id".to_string(), path_id.clone()),
+        ("x-temper-agent-type".to_string(), "system".to_string()),
+    ];
+
+    let world_resp = ctx.http_call(
+        "GET",
+        &format!("{api}/tdata/Worlds('{world_id}')"),
+        &headers,
+        "",
+    )?;
+    if world_resp.status < 200 || world_resp.status >= 300 {
+        return Err(format!(
+            "fetch World {world_id} failed (HTTP {})",
+            world_resp.status
+        ));
+    }
+    let world: Value = serde_json::from_str(&world_resp.body).unwrap_or(json!({}));
+    let model = entity_field(&world, "agent_model", "AgentModel");
+    let provider = entity_field(&world, "agent_provider", "AgentProvider");
+    let hindcast = entity_field(&world, "hindcast_mode", "HindcastMode") == "true";
+
+    let claim_resp = ctx.http_call(
+        "GET",
+        &format!("{api}/tdata/Claims('{claim_id}')"),
+        &headers,
+        "",
+    )?;
+    let claim: Value = serde_json::from_str(&claim_resp.body).unwrap_or(json!({}));
+    let claim_text = {
+        let current = entity_field(&claim, "current_text", "CurrentText");
+        if current.trim().is_empty() {
+            entity_field(&claim, "original_text", "OriginalText")
+        } else {
+            current
+        }
+    };
+
+    let workspace_id = ensure_world_workspace(ctx, &api, &headers, &world_id)?;
+    let repairer_agent_id = create_agent(
+        ctx,
+        &api,
+        &headers,
+        &format!("Repairer-{path_id}-rev"),
+        "repairer",
+    )?;
+    let repairer_msg = repairer_prompt(
+        &path_id,
+        &claim_id,
+        &claim_text,
+        &world_id,
+        "{AGENT_ID}",
+        "",
+        &revision_brief,
+        hindcast,
+    );
+    start_session(
+        ctx,
+        &api,
+        &headers,
+        &repairer_agent_id,
+        "repairer",
+        &model,
+        &provider,
+        &tools_enabled(hindcast),
+        "50",
+        &repairer_msg,
+        &workspace_id,
+    )?;
+    ctx.log(
+        "info",
+        &format!("spawn_repairers: revision repairer spawned for route {path_id}"),
+    );
+    // No dispatch: the repairer self-reports RepairComplete on this path.
+    set_success_result("", &json!({}));
+    Ok(())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
@@ -306,6 +409,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 .unwrap_or("")
                 .to_string()
         };
+
+        // Two spawn modes (ADR-004):
+        // - Claim.SubmitForBridge: the triggering entity is a Claim; create a
+        //   NEW Path (route) and spawn its repairer.
+        // - Path.RevisionRequested: the triggering entity is the Path itself;
+        //   spawn a repairer against the SAME route, briefed on the
+        //   objections it must answer.
+        if ctx.trigger_action == "RevisionRequested" {
+            return revise_route(&ctx, &fields, &get);
+        }
 
         // The triggering entity is a Claim (ADR-004): one SubmitForBridge =
         // one new route for this claim.

@@ -228,7 +228,8 @@ permit(
 permit(
   principal,
   action in [Action::"Score", Action::"ClassifyCanonical", Action::"ClassifyTail",
-             Action::"Reject", Action::"Rescore"],
+             Action::"Reject", Action::"Rescore", Action::"RequestChallenge",
+             Action::"Prune", Action::"RevisionRequested"],
   resource is Path
 ) when {
   principal.agent_type == "system"
