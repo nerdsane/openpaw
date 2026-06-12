@@ -40,6 +40,9 @@
 | 9 | Checker sessions cannot read cross-workspace/directory files | Gate inlines artifact content into the checker prompt (30KB cap, loud truncation) |
 | 10 | Gate phase split keyed on stale verdict_json after resubmits | Split on ctx.trigger_action |
 | 11 | Rebuilt WASM never rebinds on a persistent store | Platform bug filed (repro included); fresh store for run 9 |
+| 12 | Fixture upload 403: api-key-holder has no File-create permit and the decision approval bound to a different principal | Hindcast harness uploads as a system-agent principal (X-Temper-Agent-Type: system), which the paw-fs bundle already permits |
+| 13 | Session temper.read denied: file reads authorize as a capitalized action family (Read/Download/GetContent/GetValue/Stream/Open/GetText/FetchContent/Content) relayed as service:wasm-runtime; only lowercase read/list were permitted | Read-action family added to the paw-fs any-principal read permit (0800a2a1); corridor runs never hit this because wall 9 made the gate inline content — the hindcast surveyor is the first soul that must read a file |
+| 14 | Session death on Cedar denial: PauseForApproval dispatches WASM module `request_approval`, which does not exist — the session fails instead of pausing | Not fixed here (platform gap, paw-agent); with wall 13 closed the corridor never reaches this path. Filed as a follow-up |
 
 ## Operational notes for A7 (prod runbook additions)
 

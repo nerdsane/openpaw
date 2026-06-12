@@ -24,6 +24,46 @@ fn tools_enabled(hindcast: bool) -> String {
     }
 }
 
+/// Truncate inlined corpus content at a char boundary; the skeleton must
+/// never be grounded in silently-missing text, so the truncation is loud.
+fn inline_corpus(raw: &str) -> String {
+    const CAP: usize = 30_000;
+    if raw.len() <= CAP {
+        return raw.to_string();
+    }
+    let mut end = CAP;
+    while !raw.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n\n[TRUNCATED AT 30KB — record only facts whose sources survived the cut]",
+        &raw[..end]
+    )
+}
+
+/// Fetch the corpus content for prompt inlining. A configured corpus that
+/// cannot be read is a hard error — a world grounded in a corpus nobody can
+/// see is not a world.
+fn fetch_corpus(
+    ctx: &Context,
+    api: &str,
+    headers: &[(String, String)],
+    corpus_file_id: &str,
+) -> Result<String, String> {
+    if corpus_file_id.is_empty() {
+        return Ok(String::new());
+    }
+    let url = format!("{api}/tdata/Files('{corpus_file_id}')/$value");
+    let resp = ctx.http_call("GET", &url, headers, "")?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "seed_world: could not fetch corpus {corpus_file_id} (HTTP {})",
+            resp.status
+        ));
+    }
+    Ok(inline_corpus(&resp.body))
+}
+
 /// The surveyor's working contract. Single source of truth for the action
 /// and parameter names it must use — tested below, asserted nowhere else.
 fn surveyor_prompt(
@@ -33,15 +73,20 @@ fn surveyor_prompt(
     domain: &str,
     description: &str,
     target_date: &str,
-    corpus_file_id: &str,
+    corpus_inline: &str,
     hindcast: bool,
 ) -> String {
-    let corpus_line = if corpus_file_id.is_empty() {
+    let corpus_line = if corpus_inline.is_empty() {
         "No corpus file was provided.".to_string()
     } else {
+        // Inlined, not temper.read: session file reads resolve by path inside
+        // the session's workspace, and a harness-uploaded corpus has neither —
+        // three live surveyor sessions died thrashing on this before the
+        // gate's inline pattern (wall 9) was applied here too.
         format!(
-            "Read the world corpus first: temper.read(\"{corpus_file_id}\") — it holds the \
-             domain documents this world is grounded in."
+            "The world corpus — the domain documents this world is grounded in — is \
+             inlined below between BEGIN CORPUS and END CORPUS.\n\n\
+             --- BEGIN CORPUS ---\n{corpus_inline}\n--- END CORPUS ---"
         )
     };
     let research_line = if hindcast {
@@ -83,12 +128,22 @@ fn bookmaker_prompt(
     agent_id: &str,
     domain: &str,
     target_date: &str,
+    corpus_inline: &str,
     hindcast: bool,
 ) -> String {
     let source_line = if hindcast {
-        "This is a HINDCAST world: no web access. If the frozen corpus contains recorded \
-         market prices, import those; otherwise create nothing and finish."
-            .to_string()
+        let corpus_block = if corpus_inline.is_empty() {
+            "No corpus was provided".to_string()
+        } else {
+            format!(
+                "The frozen corpus is inlined below between BEGIN CORPUS and END \
+                 CORPUS.\n\n--- BEGIN CORPUS ---\n{corpus_inline}\n--- END CORPUS ---"
+            )
+        };
+        format!(
+            "This is a HINDCAST world: no web access. If the frozen corpus contains recorded \
+             market prices, import those; otherwise create nothing and finish.\n{corpus_block}"
+        )
     } else {
         "Search public prediction markets (Polymarket, Kalshi, Metaculus) with \
          temper.web_search / temper.web_fetch for questions resolving before the target \
@@ -286,6 +341,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // its files there. Without it, temper.write fails Cedar — hard error.
         let workspace_id = ensure_world_workspace(&ctx, &api, &headers, &world_id)?;
 
+        let corpus_inline = fetch_corpus(&ctx, &api, &headers, &get("corpus_file_id"))?;
+
         let surveyor_msg = surveyor_prompt(
             &world_id,
             "{AGENT_ID}",
@@ -293,7 +350,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &get("domain"),
             &get("description"),
             &get("target_date"),
-            &get("corpus_file_id"),
+            &corpus_inline,
             hindcast,
         );
         spawn_session(
@@ -316,6 +373,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "{AGENT_ID}",
             &get("domain"),
             &get("target_date"),
+            &corpus_inline,
             hindcast,
         );
         if let Err(e) = spawn_session(
@@ -364,7 +422,7 @@ mod tests {
             "ai coding tools",
             "desc",
             "2026-12-11",
-            "file-9",
+            "frozen corpus body text",
             false,
         );
         for needle in [
@@ -375,16 +433,23 @@ mod tests {
             "temper.action(\"Worlds\", \"w-1\", \"SeedComplete\"",
             "skeleton_node_count",
             "graph_snapshot_file_id",
-            "temper.read(\"file-9\")",
+            "BEGIN CORPUS",
+            "frozen corpus body text",
             "forbidden from predicting",
         ] {
             assert!(p.contains(needle), "surveyor prompt missing: {needle}");
         }
+        // Sessions cannot resolve harness-uploaded files by id (path+workspace
+        // resolution) — the corpus must be inlined, never temper.read.
+        assert!(
+            !p.contains("temper.read("),
+            "surveyor prompt must not ask the session to read the corpus"
+        );
     }
 
     #[test]
     fn bookmaker_prompt_imports_market_provenance_only() {
-        let p = bookmaker_prompt("w-1", "a-1", "ai coding tools", "2026-12-11", false);
+        let p = bookmaker_prompt("w-1", "a-1", "ai coding tools", "2026-12-11", "", false);
         for needle in [
             "temper.create(\"EventNodes\"",
             "\"provenance\": \"market\"",
@@ -396,6 +461,31 @@ mod tests {
             !p.contains("SeedComplete"),
             "bookmaker must not report world completion"
         );
+    }
+
+    #[test]
+    fn hindcast_bookmaker_sees_the_corpus_inline() {
+        let p = bookmaker_prompt(
+            "w-1",
+            "a-1",
+            "ai coding tools",
+            "2025-12-11",
+            "recorded market prices live here",
+            true,
+        );
+        assert!(p.contains("BEGIN CORPUS"));
+        assert!(p.contains("recorded market prices live here"));
+        assert!(!p.contains("temper.read("));
+    }
+
+    #[test]
+    fn corpus_inlining_truncates_loudly_at_cap() {
+        let big = "x".repeat(40_000);
+        let inlined = inline_corpus(&big);
+        assert!(inlined.len() < 31_000);
+        assert!(inlined.contains("TRUNCATED AT 30KB"));
+        let small = inline_corpus("tiny");
+        assert_eq!(small, "tiny");
     }
 
     #[test]
@@ -414,7 +504,7 @@ mod tests {
         let p = surveyor_prompt("w", "a", "n", "d", "", "2026-01-01", "", true);
         assert!(p.contains("NO web access"));
         assert!(!p.contains("temper.web_search /"));
-        let b = bookmaker_prompt("w", "a", "d", "2026-01-01", true);
+        let b = bookmaker_prompt("w", "a", "d", "2026-01-01", "", true);
         assert!(b.contains("no web access"));
     }
 }

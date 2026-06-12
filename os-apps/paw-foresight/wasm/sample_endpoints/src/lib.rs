@@ -52,6 +52,46 @@ fn driver_stance(i: usize) -> String {
     }
 }
 
+/// Truncate inlined file content at a char boundary; endpoints must never be
+/// grounded in silently-missing text, so the truncation is loud.
+fn inline_file(raw: &str) -> String {
+    const CAP: usize = 30_000;
+    if raw.len() <= CAP {
+        return raw.to_string();
+    }
+    let mut end = CAP;
+    while !raw.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n\n[TRUNCATED AT 30KB — ground claims only in text that survived the cut]",
+        &raw[..end]
+    )
+}
+
+/// Fetch a world file's content for prompt inlining. A configured file that
+/// cannot be read is a hard error.
+fn fetch_world_file(
+    ctx: &Context,
+    api: &str,
+    headers: &[(String, String)],
+    file_id: &str,
+    label: &str,
+) -> Result<String, String> {
+    if file_id.is_empty() {
+        return Ok(String::new());
+    }
+    let url = format!("{api}/tdata/Files('{file_id}')/$value");
+    let resp = ctx.http_call("GET", &url, headers, "")?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "sample_endpoints: could not fetch {label} {file_id} (HTTP {})",
+            resp.status
+        ));
+    }
+    Ok(inline_file(&resp.body))
+}
+
 /// The endpoint writer's working contract. Single source of truth for the
 /// action and parameter names it must use — tested below, asserted nowhere
 /// else.
@@ -64,24 +104,28 @@ fn endpoint_writer_prompt(
     domain: &str,
     target_date: &str,
     stance: &str,
-    corpus_file_id: &str,
-    driver_config_file_id: &str,
+    corpus_inline: &str,
+    driver_basis_inline: &str,
     hindcast: bool,
 ) -> String {
-    let corpus_line = if corpus_file_id.is_empty() {
+    let corpus_line = if corpus_inline.is_empty() {
         "No corpus file was provided.".to_string()
     } else {
+        // Inlined, not temper.read: session file reads resolve by path inside
+        // the session's workspace, and harness-uploaded world files have
+        // neither — same wall the gate (and seed_world) hit before inlining.
         format!(
-            "Read the world corpus: temper.read(\"{corpus_file_id}\") — the domain documents \
-             this world is grounded in."
+            "The world corpus — the domain documents this world is grounded in — is \
+             inlined below between BEGIN CORPUS and END CORPUS.\n\
+             --- BEGIN CORPUS ---\n{corpus_inline}\n--- END CORPUS ---"
         )
     };
-    let driver_line = if driver_config_file_id.is_empty() {
+    let driver_line = if driver_basis_inline.is_empty() {
         String::new()
     } else {
         format!(
-            "Read the driver basis: temper.read(\"{driver_config_file_id}\") — the named \
-             drivers your stance bends.\n"
+            "The driver basis — the named drivers your stance bends — is inlined below.\n\
+             --- BEGIN DRIVER BASIS ---\n{driver_basis_inline}\n--- END DRIVER BASIS ---\n"
         )
     };
     let research_line = if hindcast {
@@ -294,6 +338,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // fails Cedar — hard error.
         let workspace_id = ensure_world_workspace(&ctx, &api, &headers, &world_id)?;
 
+        let corpus_inline =
+            fetch_world_file(&ctx, &api, &headers, &get("corpus_file_id"), "corpus")?;
+        let driver_basis_inline = fetch_world_file(
+            &ctx,
+            &api,
+            &headers,
+            &get("driver_config_file_id"),
+            "driver basis",
+        )?;
+
         for i in 0..budget {
             let stance = driver_stance(i);
 
@@ -332,8 +386,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 &get("domain"),
                 &get("target_date"),
                 &stance,
-                &get("corpus_file_id"),
-                &get("driver_config_file_id"),
+                &corpus_inline,
+                &driver_basis_inline,
                 hindcast,
             );
             spawn_session(
@@ -382,10 +436,31 @@ mod tests {
             "ai coding tools",
             "2026-12-11",
             stance,
-            "file-9",
-            "file-7",
+            "corpus body text",
+            "driver basis text",
             hindcast,
         )
+    }
+
+    #[test]
+    fn writer_prompt_inlines_world_files_instead_of_temper_read() {
+        // Sessions cannot resolve harness-uploaded files by id (path+workspace
+        // resolution) — world files must be inlined, never temper.read.
+        let p = writer_prompt(&driver_stance(0), true);
+        assert!(p.contains("BEGIN CORPUS"));
+        assert!(p.contains("corpus body text"));
+        assert!(p.contains("BEGIN DRIVER BASIS"));
+        assert!(p.contains("driver basis text"));
+        assert!(!p.contains("temper.read("));
+    }
+
+    #[test]
+    fn file_inlining_truncates_loudly_at_cap() {
+        let big = "x".repeat(40_000);
+        let inlined = inline_file(&big);
+        assert!(inlined.len() < 31_000);
+        assert!(inlined.contains("TRUNCATED AT 30KB"));
+        assert_eq!(inline_file("tiny"), "tiny");
     }
 
     #[test]
