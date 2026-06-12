@@ -1,0 +1,146 @@
+# EventNode — a node in a world's joint conditional event graph.
+#
+# A statement about the world with a pace layer (slow/mid/fast), a
+# probability, provenance, conditional edges to other nodes, and a
+# resolve-by date. Skeleton nodes (provenance = "determined") are facts the
+# surveyor recorded; repairers propose the intermediate nodes their paths
+# require; the bookmaker imports market-priced nodes.
+#
+# Gate 1: any agent may create (Proposed). Gate 2: a different agent must
+# Confirm (Cedar enforces confirmer != author). Probability updates and
+# resolution are evidence_ingest territory (Cedar: system principals only).
+
+[automaton]
+name = "EventNode"
+states = ["Proposed", "Confirmed", "Resolved", "Retired"]
+initial = "Proposed"
+
+# ADR-0050: Proposed awaits peer confirmation, which arrives with the next
+# corridor or update pass rather than on a wall-clock deadline. Confirmed
+# nodes live until their resolve_by date passes (evidence_ingest resolves or
+# retires them); the deadline is domain data, not a state timeout.
+allow_indefinite_states = ["Proposed", "Confirmed"]
+
+# --- State Variables ---
+
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "statement"
+type = "string"
+initial = ""
+
+# Pace layer: slow (demography, infrastructure), mid (institutions, markets),
+# fast (sampled texture). Slow-layer contradictions cost the most in repair.
+[[state]]
+name = "layer"
+type = "string"
+initial = ""
+
+[[state]]
+name = "probability"
+type = "string"
+initial = ""
+
+# determined | market | ensemble | base_rate | authored
+[[state]]
+name = "provenance"
+type = "string"
+initial = ""
+
+# JSON array of source references (URLs, market tickers, paw-fs snapshot ids).
+[[state]]
+name = "source_refs"
+type = "string"
+initial = "[]"
+
+# JSON array of conditional edges: [{"to_id": "...", "kind": "requires|moves|excludes", "note": "..."}]
+[[state]]
+name = "edges"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "resolve_by"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolution"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolved_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "author_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "confirmer_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "retire_reason"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Confirm"
+kind = "input"
+from = ["Proposed"]
+to = "Confirmed"
+params = ["confirmer_agent_id"]
+hint = "Peer confirmation. Cedar denies when confirmer is the author."
+
+[[action]]
+name = "UpdateProbability"
+kind = "input"
+from = ["Confirmed"]
+params = ["probability", "provenance", "source_refs"]
+hint = "Evidence moved the probability. System principals only (Cedar)."
+
+[[action]]
+name = "UpdateEdges"
+kind = "input"
+from = ["Proposed", "Confirmed"]
+params = ["edges"]
+hint = "Conditional structure refined during repair. System principals only (Cedar)."
+
+[[action]]
+name = "Resolve"
+kind = "input"
+from = ["Confirmed"]
+to = "Resolved"
+params = ["resolution", "resolved_at", "source_refs"]
+hint = "Reality settled it. Dispatched by evidence_ingest with the resolving sources."
+
+[[action]]
+name = "Retire"
+kind = "input"
+from = ["Proposed", "Confirmed"]
+to = "Retired"
+params = ["retire_reason"]
+hint = "Node left the graph: superseded, malformed, or its path was rejected."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "ResolvedIsFinal"
+when = ["Resolved"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RetiredIsFinal"
+when = ["Retired"]
+assert = "no_further_transitions"

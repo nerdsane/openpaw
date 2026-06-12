@@ -1,0 +1,110 @@
+# Forecast — a preregistered marginal: the engine's public, gradeable word.
+#
+# Derived by register_forecasts from the weighted paths' inside-frontier
+# claims. Immutable once created: there is deliberately NO action that can
+# alter the question, probability, or resolve-by date. Resolution and
+# scoring are evidence_ingest territory (Cedar: system principals only).
+# This entity is the scoreboard — the entire credibility story rests on it.
+
+[automaton]
+name = "Forecast"
+states = ["Preregistered", "Resolved", "Scored"]
+initial = "Preregistered"
+
+# ADR-0050: Preregistered lives until its resolve_by date passes; resolution
+# is driven by evidence_ingest reading the deadline as domain data, not by a
+# state timeout. Resolved is transient (scored in the same ingest pass, but
+# kept distinct so the outcome and its grading are separately auditable).
+allow_indefinite_states = ["Preregistered", "Resolved"]
+
+# --- State Variables ---
+
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "event_node_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "question"
+type = "string"
+initial = ""
+
+[[state]]
+name = "probability"
+type = "string"
+initial = ""
+
+[[state]]
+name = "registered_at"
+type = "string"
+initial = ""
+
+[[state]]
+name = "resolve_by"
+type = "string"
+initial = ""
+
+# Optional market reference this question maps to (ticker / slug).
+[[state]]
+name = "market_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "engine_version"
+type = "string"
+initial = ""
+
+# yes | no | void
+[[state]]
+name = "outcome"
+type = "string"
+initial = ""
+
+[[state]]
+name = "outcome_source_refs"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "brier"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Resolve"
+kind = "input"
+from = ["Preregistered"]
+to = "Resolved"
+params = ["outcome", "outcome_source_refs"]
+hint = "Reality settled it. Dispatched by evidence_ingest with sources. System principals only (Cedar)."
+
+[[action]]
+name = "Score"
+kind = "input"
+from = ["Resolved"]
+to = "Scored"
+params = ["brier"]
+hint = "Grade the registered probability against the outcome. System principals only (Cedar)."
+
+[[action]]
+name = "Void"
+kind = "input"
+from = ["Preregistered"]
+to = "Scored"
+params = ["outcome_source_refs"]
+hint = "Question became unresolvable (ambiguous, superseded). Recorded, not graded. System principals only."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "ScoredIsFinal"
+when = ["Scored"]
+assert = "no_further_transitions"

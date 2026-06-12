@@ -1,0 +1,203 @@
+# Path — a corridor solution: the repaired history connecting one endpoint
+# back to the world's skeleton.
+#
+# A repairer derives the intermediate events the endpoint requires (proposed
+# as EventNodes), flagging every place it had to bend an actor against its
+# incentives, compress a lag, or contradict the skeleton. An adversary then
+# attacks the repair. aggregate_costs turns both sides' flags into a single
+# deterministic repair cost — sessions never compute their own score.
+#
+# Repair → challenge loop:
+#   (spawn_repairers creates Path in Solving)
+#   → repairer self-reports RepairComplete with flags → (spawn_adversaries)
+#   → adversary self-reports ChallengeComplete with flags → (aggregate_costs)
+#   → Score (system) → ClassifyCanonical | ClassifyTail | Reject
+
+[automaton]
+name = "Path"
+states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail", "Rejected", "Failed"]
+initial = "Solving"
+
+# ADR-0050: Solving/Repaired/Challenged are bounded by repairer/adversary
+# session timeouts plus heartbeat monitoring. Scored/Canonical/Tail persist
+# for the life of the world and are re-scored on update (Rescore).
+# Revisit with state_timeout once corridor run-time envelopes are measured.
+allow_indefinite_states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail"]
+
+# --- State Variables ---
+
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "endpoint_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "repairer_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "adversary_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "repair_log_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "challenge_log_file_id"
+type = "string"
+initial = ""
+
+# JSON array of EventNode ids this path requires (proposed during repair).
+[[state]]
+name = "required_node_ids"
+type = "string"
+initial = "[]"
+
+# JSON array of cost flags raised by the repairer during backward repair:
+# [{"kind": "contradiction|incentive|lag|miracle", "severity": "low|medium|high", "note": "..."}]
+[[state]]
+name = "cost_flags"
+type = "string"
+initial = "[]"
+
+# JSON array of cost flags raised by the adversary's attack (same shape).
+# Kept separate so neither side can overwrite the other's flags; costing
+# reads the union.
+[[state]]
+name = "challenge_flags"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "repair_cost"
+type = "string"
+initial = ""
+
+[[state]]
+name = "classification_note"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "RepairComplete"
+kind = "input"
+from = ["Solving"]
+to = "Repaired"
+params = ["repair_log_file_id", "required_node_ids", "cost_flags"]
+hint = "Repairer self-reports the backward path with its flags. Spawns the adversary."
+effect = [{ type = "trigger", name = "spawn_adversaries" }]
+
+[[action.triggers]]
+name = "spawn_adversaries"
+kind = "wasm"
+module = "spawn_adversaries"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "ChallengeComplete"
+kind = "input"
+from = ["Repaired"]
+to = "Challenged"
+params = ["challenge_log_file_id", "challenge_flags"]
+hint = "Adversary self-reports its attack flags. Triggers deterministic costing over the union of both sides' flags."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "Score"
+kind = "input"
+from = ["Challenged"]
+to = "Scored"
+params = ["repair_cost"]
+hint = "Deterministic cost from aggregate_costs. System principals only (Cedar). Triggers the world-wide classification check."
+effect = [{ type = "trigger", name = "aggregate_costs_classify" }]
+
+[[action.triggers]]
+name = "aggregate_costs_classify"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "ClassifyCanonical"
+kind = "input"
+from = ["Scored"]
+to = "Canonical"
+params = ["classification_note"]
+hint = "Path carries the world's main probability mass. System principals only."
+
+[[action]]
+name = "ClassifyTail"
+kind = "input"
+from = ["Scored"]
+to = "Tail"
+params = ["classification_note"]
+hint = "Coherent but improbable — fiction territory, with the receipts attached. System principals only."
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Scored"]
+to = "Rejected"
+params = ["classification_note"]
+hint = "Repair cost beyond the world's tolerance. The endpoint loses this path."
+
+[[action]]
+name = "Rescore"
+kind = "input"
+from = ["Canonical", "Tail"]
+to = "Scored"
+params = ["repair_cost"]
+hint = "World update re-derived this path's cost (a resolved EventNode moved the graph). System principals only."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Solving", "Repaired", "Challenged"]
+to = "Failed"
+params = ["error_message"]
+hint = "Unrecoverable error during repair or challenge."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "RejectedIsFinal"
+when = ["Rejected"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

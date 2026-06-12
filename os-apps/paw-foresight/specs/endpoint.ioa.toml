@@ -1,0 +1,149 @@
+# Endpoint — a sampled future, materialized as documents native to the
+# target date.
+#
+# An endpoint writer (house soul or external agent) produces a document
+# bundle — postmortems, filings, reviews dated at the world's target date —
+# under a driver configuration assigned by sample_endpoints. The bundle is
+# what repair connects backward to the skeleton; its weight is earned, not
+# asserted: it comes from the repair costs of its paths.
+
+[automaton]
+name = "Endpoint"
+states = ["Sampled", "UnderRepair", "Scored", "Weighted", "Discarded", "Failed"]
+initial = "Sampled"
+
+# ADR-0050: Sampled and UnderRepair are bounded in practice by the session
+# timeouts of the writer/repairer agents plus heartbeat monitoring; Scored
+# and Weighted persist for the life of the world (re-weighed on update).
+# Revisit with state_timeout once corridor run-time envelopes are measured.
+allow_indefinite_states = ["Sampled", "UnderRepair", "Scored", "Weighted"]
+
+# --- State Variables ---
+
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+# JSON object of driver values assigned by the solver (anti-modal spread),
+# e.g. {"ai_capability_slope": "p85", "rates_regime": "tightening"}.
+[[state]]
+name = "driver_config"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "bundle_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "author_agent_id"
+type = "string"
+initial = ""
+
+# JSON array of Path entity ids repairing this endpoint.
+[[state]]
+name = "path_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "weight"
+type = "string"
+initial = ""
+
+[[state]]
+name = "discard_reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "SubmitForRepair"
+kind = "input"
+from = ["Sampled"]
+to = "UnderRepair"
+params = ["bundle_file_id", "summary", "author_agent_id"]
+hint = "Writer self-reports the bundle. Spawns repairer sessions (Cedar: repairer is never the author)."
+effect = [{ type = "trigger", name = "spawn_repairers" }]
+
+[[action.triggers]]
+name = "spawn_repairers"
+kind = "wasm"
+module = "spawn_repairers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "PathsAttached"
+kind = "input"
+from = ["UnderRepair"]
+params = ["path_ids"]
+hint = "Callback after repairer sessions are spawned and Path entities created."
+
+[[action]]
+name = "ScoreComplete"
+kind = "input"
+from = ["UnderRepair"]
+to = "Scored"
+params = ["weight"]
+hint = "All paths for this endpoint scored; weight derived by aggregate_costs. System principals only."
+
+[[action]]
+name = "MarkWeighted"
+kind = "input"
+from = ["Scored"]
+to = "Weighted"
+params = []
+hint = "Endpoint carries probability mass in the world's current solution."
+
+[[action]]
+name = "Reweigh"
+kind = "input"
+from = ["Weighted"]
+to = "Scored"
+params = ["weight"]
+hint = "World update re-derived this endpoint's weight. System principals only."
+
+[[action]]
+name = "Discard"
+kind = "input"
+from = ["Sampled", "UnderRepair", "Scored", "Weighted"]
+to = "Discarded"
+params = ["discard_reason"]
+hint = "Repair cost too high, or the world moved away from this future."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Sampled", "UnderRepair"]
+to = "Failed"
+params = ["error_message"]
+hint = "Unrecoverable error during writing or repair."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "DiscardedIsFinal"
+when = ["Discarded"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

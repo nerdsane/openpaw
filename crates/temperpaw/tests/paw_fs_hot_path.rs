@@ -178,6 +178,42 @@ fn paw_fs_hot_path_entities_allow_agent_read_and_list_queries() {
 }
 
 #[test]
+fn paw_fs_file_policy_permits_the_session_read_alias_family() {
+    // temper.read from sessions authorizes content access through a family
+    // of capitalized action names relayed as service:wasm-runtime. Dropping
+    // any of them silently re-breaks every session file read (the session
+    // dies instead of pausing — found live, hindcast surveyor, wall 13).
+    let policy = repo_file("os-apps/paw-fs/policies/file.cedar");
+    for action in [
+        "Read",
+        "Download",
+        "GetContent",
+        "GetValue",
+        "Stream",
+        "Open",
+        "GetText",
+        "FetchContent",
+        "Content",
+    ] {
+        assert!(
+            policy.contains(&format!("Action::\"{action}\"")),
+            "file.cedar must permit the {action} read alias for the wasm-runtime relay"
+        );
+    }
+    assert!(
+        policy.contains("Agent::\"service:wasm-runtime\""),
+        "the read alias family is scoped to the session relay principal"
+    );
+    // The scoping is only real if the any-principal permit stays narrow: a
+    // revert that folds the aliases back into it would still satisfy the
+    // substring above via the write permit.
+    assert!(
+        policy.contains("action in [Action::\"read\", Action::\"list\"]"),
+        "the any-principal File permit must stay exactly lowercase read/list"
+    );
+}
+
+#[test]
 fn paw_fs_file_policy_allows_value_upload_update_on_direct_hot_path() {
     let policy = repo_file("os-apps/paw-fs/policies/file.cedar");
     assert!(
