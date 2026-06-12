@@ -36,6 +36,29 @@ name = "endpoint_id"
 type = "string"
 initial = ""
 
+# ADR-004: a Path is one ROUTE for one claim. route_index orders the routes
+# a claim has tried; round_count counts revision rounds on this route;
+# revision_brief carries the prior objections a search step must beat.
+[[state]]
+name = "claim_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "route_index"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "round_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "revision_brief"
+type = "string"
+initial = ""
+
 [[state]]
 name = "repairer_agent_id"
 type = "string"

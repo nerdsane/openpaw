@@ -19,6 +19,11 @@ criticality = "app-required"
 startup_loading = "lazy"
 
 [[wasm_modules]]
+name = "decompose_endpoint"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
 name = "spawn_repairers"
 criticality = "app-required"
 startup_loading = "lazy"

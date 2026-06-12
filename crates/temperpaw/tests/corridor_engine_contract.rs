@@ -369,6 +369,87 @@ fn path_scoring_is_deterministic_wasm_territory() {
 }
 
 #[test]
+fn endpoint_decomposition_bridges_bundles_to_claims() {
+    // ADR-004: SubmitForRepair no longer spawns repairers directly — it
+    // spawns the decomposer, which splits the bundle into Claims; each
+    // claim bridges independently. Chunked claim fan-out runs through a
+    // bounded self-loop, never a Rust loop over sessions.
+    let path = spec_path("endpoint.ioa.toml");
+    let spec = parse_spec(&path);
+
+    let submit = action(&spec, "SubmitForRepair", &path);
+    let trigger_module = submit
+        .get("triggers")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|t| t.as_table())
+        .and_then(|t| t.get("module"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert_eq!(
+        trigger_module, "decompose_endpoint",
+        "SubmitForRepair must trigger the decomposer, not spawn repairers directly"
+    );
+
+    let done = action(&spec, "DecompositionComplete", &path);
+    assert!(
+        action_params(done).contains("claims_json"),
+        "the decomposer self-reports the extracted claims"
+    );
+
+    let next = action(&spec, "SpawnNextBridge", &path);
+    assert!(
+        action_params(next).contains("check_count"),
+        "chunked bridge fan-out is a bounded self-loop (ADR-0005: no Rust loops over sessions)"
+    );
+}
+
+#[test]
+fn claim_amendment_is_explicit_and_settlement_is_single_writer() {
+    // ADR-004 commitment 4: the only way a claim's text changes is the
+    // diff-carrying AmendText action; original_text is a frozen field so
+    // drift is auditable. Settle carries the costing module's verdict.
+    let path = spec_path("claim.ioa.toml");
+    let spec = parse_spec(&path);
+
+    let fields = field_names(&spec);
+    for required in [
+        "original_text",
+        "current_text",
+        "amendment_log",
+        "settled_route_id",
+    ] {
+        assert!(fields.contains(required), "Claim missing field {required}");
+    }
+
+    let amend = action(&spec, "AmendText", &path);
+    for p in ["old_text", "new_text", "justification", "agent_id"] {
+        assert!(
+            action_params(amend).contains(p),
+            "AmendText must carry the diff ({p})"
+        );
+    }
+
+    let settle = action(&spec, "Settle", &path);
+    for p in ["settled_route_id", "best_route_cost", "classification"] {
+        assert!(action_params(settle).contains(p), "Settle missing {p}");
+    }
+    // Sessions never settle claims: RouteSettled re-enters costing, and
+    // costing alone dispatches Settle. The spec encodes this by routing
+    // RouteSettled through the aggregate_costs trigger.
+    let route_settled = action(&spec, "RouteSettled", &path);
+    let trigger_module = route_settled
+        .get("triggers")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|t| t.as_table())
+        .and_then(|t| t.get("module"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert_eq!(trigger_module, "aggregate_costs");
+}
+
+#[test]
 fn csdl_serves_all_corridor_entity_sets() {
     // The OData layer serves entity sets from specs/model.csdl.xml, not from
     // the .ioa.toml automatons — a spec without a CSDL entry registers but
@@ -378,6 +459,7 @@ fn csdl_serves_all_corridor_entity_sets() {
         "Worlds",
         "EventNodes",
         "Endpoints",
+        "Claims",
         "Paths",
         "Artifacts",
         "Dwellers",
@@ -415,6 +497,7 @@ fn app_manifest_declares_corridor_wasm_modules() {
     for module in [
         "seed_world",
         "sample_endpoints",
+        "decompose_endpoint",
         "spawn_repairers",
         "spawn_adversaries",
         "aggregate_costs",

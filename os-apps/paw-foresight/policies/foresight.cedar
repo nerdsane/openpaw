@@ -169,6 +169,33 @@ permit(
 
 permit(principal, action == Action::"Fail", resource is Endpoint);
 
+// --- Claim (ADR-004) ---
+permit(principal is Admin, action, resource is Claim);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is Claim
+);
+
+// The search loop is system territory: only WASM submits bridges, records
+// routes, settles, re-prices, or declares a claim unreachable. The single
+// session-writable surface is AmendText, relayed below — and even that is
+// priced (deformation flags).
+permit(
+  principal,
+  action in [
+    Action::"SubmitForBridge", Action::"RoutesAttached", Action::"RouteSettled",
+    Action::"Settle", Action::"Reprice", Action::"MarkUnreachable"
+  ],
+  resource is Claim
+) when {
+  principal.agent_type == "system"
+};
+
+// Failure must never be blocked.
+permit(principal, action == Action::"Fail", resource is Claim);
+
 // --- Path ---
 permit(principal is Admin, action, resource is Path);
 
@@ -386,8 +413,17 @@ permit(
 
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"SubmitForRepair", Action::"Fail"],
+  action in [Action::"SubmitForRepair", Action::"DecompositionComplete", Action::"Fail"],
   resource is Endpoint
+);
+
+// The repairer's drift-constrained amendment channel (ADR-004): AmendText
+// carries the diff; the deformation flag prices it. Settle/Reprice/
+// MarkUnreachable stay system-only — sessions never decide verdicts.
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action == Action::"AmendText",
+  resource is Claim
 );
 
 permit(
@@ -404,7 +440,7 @@ permit(
 
 permit(
   principal == Agent::"service:wasm-runtime",
-  action == Action::"Confirm",
+  action in [Action::"Confirm", Action::"UpdateEdges"],
   resource is EventNode
 );
 

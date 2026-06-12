@@ -144,6 +144,65 @@ fn only_the_assigned_repairer_and_adversary_self_report() {
 }
 
 #[test]
+fn claim_amendment_is_relay_writable_but_verdicts_are_system_only() {
+    // ADR-004: the repairer (relayed as service:wasm-runtime) may amend a
+    // claim through the diff-carrying AmendText — but the verdict actions
+    // (Settle, Reprice, MarkUnreachable) belong to the costing module
+    // alone. A session that could settle its own claim would be scoring
+    // its own work.
+    let engine = engine();
+    let a = attrs(&[("id", serde_json::json!("c-1"))]);
+
+    let relay = ctx("service:wasm-runtime", "service");
+    assert!(
+        engine
+            .authorize(&relay, "AmendText", "Claim", &a)
+            .is_allowed()
+    );
+    for verdict in ["Settle", "Reprice", "MarkUnreachable", "RouteSettled"] {
+        assert!(
+            !engine.authorize(&relay, verdict, "Claim", &a).is_allowed(),
+            "sessions must never dispatch Claim.{verdict}"
+        );
+    }
+
+    let system = ctx("aggregate-costs-wasm", "system");
+    for verdict in ["Settle", "Reprice", "MarkUnreachable", "RouteSettled"] {
+        assert!(
+            engine.authorize(&system, verdict, "Claim", &a).is_allowed(),
+            "system must dispatch Claim.{verdict}"
+        );
+    }
+}
+
+#[test]
+fn decomposition_and_edges_ride_the_relay() {
+    let engine = engine();
+
+    let relay = ctx("service:wasm-runtime", "service");
+    let e = attrs(&[("id", serde_json::json!("e-1"))]);
+    assert!(
+        engine
+            .authorize(&relay, "DecompositionComplete", "Endpoint", &e)
+            .is_allowed()
+    );
+
+    let n = attrs(&[("id", serde_json::json!("n-1"))]);
+    assert!(
+        engine
+            .authorize(&relay, "UpdateEdges", "EventNode", &n)
+            .is_allowed()
+    );
+    // Resolution stays system-only: edges describe structure, Resolve
+    // decides truth.
+    assert!(
+        !engine
+            .authorize(&relay, "Resolve", "EventNode", &n)
+            .is_allowed()
+    );
+}
+
+#[test]
 fn artifact_publication_is_gated_to_system() {
     let engine = engine();
     let a = attrs(&[

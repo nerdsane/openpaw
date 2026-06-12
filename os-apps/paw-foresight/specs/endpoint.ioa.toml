@@ -53,6 +53,24 @@ name = "path_ids"
 type = "string"
 initial = "[]"
 
+# Decomposition working state (ADR-004): the decomposer's claims, the Claim
+# entity ids created from them, and the fan-out cursor for the bounded
+# SpawnNextBridge self-loop.
+[[state]]
+name = "claims_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "claim_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "check_count"
+type = "string"
+initial = "0"
+
 [[state]]
 name = "weight"
 type = "string"
@@ -77,12 +95,66 @@ from = ["Sampled"]
 to = "UnderRepair"
 params = ["bundle_file_id", "summary", "author_agent_id"]
 hint = "Writer self-reports the bundle. Spawns repairer sessions (Cedar: repairer is never the author)."
-effect = [{ type = "trigger", name = "spawn_repairers" }]
+effect = [{ type = "trigger", name = "decompose_endpoint" }]
 
 [[action.triggers]]
-name = "spawn_repairers"
+name = "decompose_endpoint"
 kind = "wasm"
-module = "spawn_repairers"
+module = "decompose_endpoint"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "DecompositionComplete"
+kind = "input"
+from = ["UnderRepair"]
+params = ["claims_json"]
+hint = "Decomposer self-reports 3-8 separable load-bearing claims. Re-enters decompose_endpoint to create Claim entities and start the chunked bridge fan-out."
+effect = [{ type = "trigger", name = "decompose_endpoint" }]
+
+[[action.triggers]]
+name = "decompose_endpoint"
+kind = "wasm"
+module = "decompose_endpoint"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "SpawnNextBridge"
+kind = "input"
+from = ["UnderRepair"]
+params = ["check_count"]
+hint = "Bounded self-loop: dispatch SubmitForBridge for the next chunk of claims under session admission caps (ADR-0005: no Rust loops over sessions)."
+effect = [{ type = "trigger", name = "decompose_endpoint" }]
+
+[[action.triggers]]
+name = "decompose_endpoint"
+kind = "wasm"
+module = "decompose_endpoint"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "ClaimsAttached"
+kind = "input"
+from = ["UnderRepair"]
+params = ["claim_ids"]
+hint = "Callback after Claim entities are created from claims_json. Starts the chunked bridge fan-out."
+effect = [{ type = "trigger", name = "decompose_endpoint" }]
+
+[[action.triggers]]
+name = "decompose_endpoint"
+kind = "wasm"
+module = "decompose_endpoint"
 on_failure = "Fail"
 
 [action.triggers.config]

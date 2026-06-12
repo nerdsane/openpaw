@@ -350,6 +350,9 @@
         <Property Name="Summary" Type="Edm.String"/>
         <Property Name="AuthorAgentId" Type="Edm.String"/>
         <Property Name="PathIds" Type="Edm.String"/>
+        <Property Name="ClaimsJson" Type="Edm.String"/>
+        <Property Name="ClaimIds" Type="Edm.String"/>
+        <Property Name="CheckCount" Type="Edm.String"/>
         <Property Name="Weight" Type="Edm.String"/>
         <Property Name="DiscardReason" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
@@ -379,6 +382,10 @@
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="WorldId" Type="Edm.String"/>
         <Property Name="EndpointId" Type="Edm.String"/>
+        <Property Name="ClaimId" Type="Edm.String"/>
+        <Property Name="RouteIndex" Type="Edm.String"/>
+        <Property Name="RoundCount" Type="Edm.String"/>
+        <Property Name="RevisionBrief" Type="Edm.String"/>
         <Property Name="RepairerAgentId" Type="Edm.String"/>
         <Property Name="AdversaryAgentId" Type="Edm.String"/>
         <Property Name="RepairLogFileId" Type="Edm.String"/>
@@ -583,6 +590,21 @@
       <Action Name="PathsAttached" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
         <Parameter Name="path_ids" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
+      </Action>
+      <Action Name="ClaimsAttached" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
+        <Parameter Name="claim_ids" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
+      </Action>
+      <Action Name="DecompositionComplete" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
+        <Parameter Name="claims_json" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
+      </Action>
+      <Action Name="SpawnNextBridge" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
+        <Parameter Name="check_count" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
       </Action>
       <Action Name="ScoreComplete" IsBound="true">
