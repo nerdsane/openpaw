@@ -63,7 +63,7 @@ permit(
   principal,
   action in [Action::"Configure", Action::"Seed", Action::"SampleEndpoints",
              Action::"IngestEvidence", Action::"Render", Action::"BeginUpdate",
-             Action::"Archive"],
+             Action::"Archive", Action::"AnimateDwellers", Action::"AdjudicateNodes"],
   resource is World
 ) when {
   ["system", "supervisor", "human"].contains(principal.agent_type)
@@ -82,7 +82,7 @@ permit(
 // Pass results and update completion are aggregate_costs / evidence territory.
 permit(
   principal,
-  action in [Action::"PathsScored", Action::"UpdateComplete"],
+  action in [Action::"PathsScored", Action::"UpdateComplete", Action::"SpawnNextDweller"],
   resource is World
 ) when {
   principal.agent_type == "system"
@@ -118,7 +118,8 @@ forbid(
 // Probability, edges, and resolution move only with evidence (system flows).
 permit(
   principal,
-  action in [Action::"UpdateProbability", Action::"UpdateEdges", Action::"Resolve"],
+  action in [Action::"UpdateProbability", Action::"UpdateEdges", Action::"Resolve",
+             Action::"FlagForHuman"],
   resource is EventNode
 ) when {
   principal.agent_type == "system"
@@ -408,7 +409,7 @@ permit(
 
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"Fail"],
+  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"DwellersCast", Action::"Fail"],
   resource is World
 );
 
@@ -441,7 +442,7 @@ permit(
 
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"Confirm", Action::"UpdateEdges"],
+  action in [Action::"Confirm", Action::"UpdateEdges", Action::"AdjudicationVerdict"],
   resource is EventNode
 );
 

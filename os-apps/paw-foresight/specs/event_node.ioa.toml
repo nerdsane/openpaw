@@ -58,6 +58,28 @@ type = "string"
 initial = "[]"
 
 # JSON array of conditional edges: [{"to_id": "...", "kind": "requires|moves|excludes", "note": "..."}]
+# Judged-resolution working state (ADR-004 commitment 2): the adjudicator's
+# verdict, validated by adjudicate_nodes before any Resolve is dispatched.
+[[state]]
+name = "adjudicated_outcome"
+type = "string"
+initial = ""
+
+[[state]]
+name = "adjudication_evidence_refs"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "adjudication_confidence"
+type = "string"
+initial = ""
+
+[[state]]
+name = "needs_human_resolution"
+type = "string"
+initial = ""
+
 [[state]]
 name = "edges"
 type = "string"
@@ -116,6 +138,31 @@ kind = "input"
 from = ["Proposed", "Confirmed"]
 params = ["edges"]
 hint = "Conditional structure refined during repair. System principals only (Cedar)."
+
+[[action]]
+name = "AdjudicationVerdict"
+kind = "input"
+from = ["Confirmed"]
+params = ["adjudicated_outcome", "adjudication_evidence_refs", "adjudication_confidence"]
+hint = "Adjudicator session self-reports its judged verdict with evidence refs and confidence. The module validates (confidence threshold, evidence present) and owns the Resolve transition — sessions never decide truth directly."
+effect = [{ type = "trigger", name = "adjudicate_nodes" }]
+
+[[action.triggers]]
+name = "adjudicate_nodes"
+kind = "wasm"
+module = "adjudicate_nodes"
+on_failure = "Retire"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "FlagForHuman"
+kind = "input"
+from = ["Confirmed"]
+params = ["needs_human_resolution"]
+hint = "Adjudication confidence below threshold: the node stays open, flagged for a human resolver (surfaced in DSF standings). System principals only."
 
 [[action]]
 name = "Resolve"

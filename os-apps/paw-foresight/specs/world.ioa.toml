@@ -135,6 +135,28 @@ name = "update_cause_node_id"
 type = "string"
 initial = ""
 
+# Living-worlds state (ADR-004 C4): cast personas, created dweller ids, and
+# the bounded fan-out cursor for SpawnNextDweller.
+[[state]]
+name = "personas_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "dweller_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "check_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "last_adjudication_date"
+type = "string"
+initial = ""
+
 [[state]]
 name = "error_message"
 type = "string"
@@ -249,6 +271,78 @@ effect = [{ type = "trigger", name = "render_artifacts" }]
 name = "render_artifacts"
 kind = "wasm"
 module = "render_artifacts"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "AnimateDwellers"
+kind = "input"
+from = ["Active"]
+params = []
+hint = "Spawn the casting session: 2-3 personas grounded in the settled claims. Dwellers traverse the canonical routes, file contradictions, and write first-person stories through the gate."
+effect = [{ type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "DwellersCast"
+kind = "input"
+from = ["Active"]
+params = ["personas_json"]
+hint = "Casting session self-reports the proposed personas. Re-enters animate_dwellers to create Dweller entities and start the chunked traversal fan-out."
+effect = [{ type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "SpawnNextDweller"
+kind = "input"
+from = ["Active"]
+params = ["check_count"]
+hint = "Bounded self-loop: spawn the next chunk of dweller sessions under admission caps (ADR-0005)."
+effect = [{ type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "AdjudicateNodes"
+kind = "input"
+from = ["Active"]
+params = ["last_adjudication_date"]
+hint = "Judged resolution for overdue authored nodes (ADR-004 commitment 2): spawn adjudicator sessions with snapshotted evidence; the module validates verdicts and owns Resolve. The caller supplies the as-of date — WASM has no clock."
+effect = [{ type = "trigger", name = "adjudicate_nodes" }]
+
+[[action.triggers]]
+name = "adjudicate_nodes"
+kind = "wasm"
+module = "adjudicate_nodes"
 on_failure = "Fail"
 
 [action.triggers.config]

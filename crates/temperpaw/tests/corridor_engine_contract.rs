@@ -506,6 +506,8 @@ fn app_manifest_declares_corridor_wasm_modules() {
         "render_artifacts",
         "consistency_gate",
         "grade_hindcast",
+        "animate_dwellers",
+        "adjudicate_nodes",
     ] {
         assert!(
             declared.contains(module),
