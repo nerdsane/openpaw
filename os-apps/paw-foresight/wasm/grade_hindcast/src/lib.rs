@@ -115,6 +115,33 @@ fn parse_actuals(body: &str) -> Result<Vec<Actual>, String> {
         .collect())
 }
 
+/// Parse a Forecasts list response into rows. Field values live in the
+/// envelope (`fields.snake_case`) on live servers — the first hindcast
+/// grading run matched 0/18 because this read PascalCase top-level only,
+/// so every question was empty. row_str checks all observed shapes.
+fn parse_forecast_rows(fbody: &Value) -> Vec<ForecastRow> {
+    fbody
+        .get("value")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|f| {
+            let id = row_id(f).to_string();
+            if id.is_empty() {
+                return None;
+            }
+            Some(ForecastRow {
+                id,
+                event_node_id: row_str(f, "EventNodeId").to_string(),
+                question: row_str(f, "Question").to_string(),
+                probability: row_str(f, "Probability").to_string(),
+                status: row_status(f).to_string(),
+            })
+        })
+        .collect()
+}
+
 /// Match an actual to a forecast: exact event_node_id when given, otherwise
 /// case-insensitive substring on the registered question.
 fn match_forecast<'a>(actual: &Actual, forecasts: &'a [ForecastRow]) -> Option<&'a ForecastRow> {
@@ -233,36 +260,7 @@ fn grade(ctx: &Context) -> Result<(), String> {
         return Err(format!("failed to list Forecasts (HTTP {})", fresp.status));
     }
     let fbody: Value = serde_json::from_str(&fresp.body).unwrap_or(json!({}));
-    let forecasts: Vec<ForecastRow> = fbody
-        .get("value")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|f| {
-            let str_of = |k: &str| {
-                f.get(k)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            };
-            let id = f
-                .get("entity_id").or_else(|| f.get("Id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if id.is_empty() {
-                return None;
-            }
-            Some(ForecastRow {
-                id,
-                event_node_id: str_of("EventNodeId"),
-                question: str_of("Question"),
-                probability: str_of("Probability"),
-                status: str_of("Status"),
-            })
-        })
-        .collect();
+    let forecasts = parse_forecast_rows(&fbody);
 
     // 3. Match, resolve, score.
     let outcome_refs = json!([format!("file:{actuals_file_id}")]).to_string();
@@ -491,6 +489,31 @@ mod tests {
                 .contains("graded 2/4 forecasts")
         );
     }
+    #[test]
+    fn forecast_rows_parse_from_the_live_envelope_shape() {
+        // The shape a live /tdata list actually returns — fields nested,
+        // snake_case. The 0/18 grading run is pinned here: a parser that
+        // reads top-level PascalCase produces empty questions and every
+        // substring match fails silently.
+        let body = json!({"value": [{
+            "entity_id": "fc-1",
+            "status": "Registered",
+            "fields": {
+                "event_node_id": "n-7",
+                "question": "By 2025-09-30, Cursor converts its spring momentum",
+                "probability": "0.64"
+            }
+        }]});
+        let rows = parse_forecast_rows(&body);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].question, "By 2025-09-30, Cursor converts its spring momentum");
+        assert_eq!(rows[0].event_node_id, "n-7");
+        assert_eq!(rows[0].probability, "0.64");
+        assert_eq!(rows[0].status, "Registered");
+        let m = match_forecast(&actual("", "cursor", "yes"), &rows);
+        assert!(m.is_some(), "envelope-shaped rows must be matchable");
+    }
+
     #[test]
     fn row_readers_handle_both_odata_shapes() {
         let nested = json!({"entity_id": "e-1", "status": "Scored",
