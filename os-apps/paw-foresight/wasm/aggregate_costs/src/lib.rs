@@ -38,21 +38,26 @@ const MAX_ROUNDS: usize = 2;
 /// Routes (Paths) allowed per claim.
 const MAX_ROUTES: usize = 3;
 
-/// A single flag at or above this many points triggers a revision round
-/// (40×low=20 qualifies; 10×medium=10 does not).
-const REVISION_FLAG_THRESHOLD: f64 = 20.0;
+/// A single flag at or above this many points triggers a revision round —
+/// miracle/medium (40) and above. Calibrated against run 1 (2026-06-12):
+/// at 20, nearly every route revised and session spend tripled for little
+/// cost movement.
+const REVISION_FLAG_THRESHOLD: f64 = 40.0;
 
 /// A claim whose best route costs more than this is not settled — search
 /// continues, or the claim is honestly Unreachable when the budget is spent.
-const ACCEPTABLE_CLAIM_COST: f64 = 60.0;
+/// Calibrated against run 1's live distribution (15 scored routes,
+/// 90–312.5, median ~245): the original 60 marked everything unreachable.
+/// Still a prior; the hindcast calibrator owns the next revision.
+const ACCEPTABLE_CLAIM_COST: f64 = 240.0;
 
 /// Settled claims at or under this are "reachable"; above it (but within
 /// the acceptability bound) they are "strained".
-const REACHABLE_MAX: f64 = 30.0;
+const REACHABLE_MAX: f64 = 120.0;
 
 /// An unreachable claim's contribution to its endpoint's cost: at least the
 /// acceptability bound, since no route under it exists.
-const UNREACHABLE_PENALTY: f64 = 60.0;
+const UNREACHABLE_PENALTY: f64 = 240.0;
 
 /// Read a string field from an OData row. List/GET rows nest snake_case
 /// values under "fields" with lowercase status/entity_id at the top level;
@@ -1197,12 +1202,12 @@ mod tests {
     #[test]
     fn routes_revise_only_on_expensive_objections_within_round_budget() {
         // 20-point objection (miracle/low) at round 0: revise.
-        assert_eq!(route_decision(0, 20.0), RouteDecision::Revise);
+        assert_eq!(route_decision(0, 40.0), RouteDecision::Revise);
         // Cheap objections never trigger revision.
-        assert_eq!(route_decision(0, 15.0), RouteDecision::Score);
+        assert_eq!(route_decision(0, 30.0), RouteDecision::Score);
         // Round budget spent: score regardless.
         assert_eq!(route_decision(MAX_ROUNDS, 80.0), RouteDecision::Score);
-        assert_eq!(route_decision(1, 25.0), RouteDecision::Revise);
+        assert_eq!(route_decision(1, 50.0), RouteDecision::Revise);
     }
 
     #[test]
@@ -1232,12 +1237,12 @@ mod tests {
         ));
         // Best above the bound, budget left: alternate.
         assert_eq!(
-            claim_decision(1, false, &scored(&[("p-1", 61.0)])),
+            claim_decision(1, false, &scored(&[("p-1", 241.0)])),
             ClaimDecision::Alternate
         );
         // Best above the bound, budget spent: unreachable, honestly.
         assert!(matches!(
-            claim_decision(MAX_ROUTES, false, &scored(&[("p-1", 61.0)])),
+            claim_decision(MAX_ROUTES, false, &scored(&[("p-1", 241.0)])),
             ClaimDecision::Unreachable { .. }
         ));
         // Acceptable best settles on the cheapest with id tiebreak.
@@ -1252,16 +1257,16 @@ mod tests {
 
     #[test]
     fn claim_classification_splits_reachable_from_strained() {
-        assert_eq!(claim_classification(30.0), "reachable");
-        assert_eq!(claim_classification(30.1), "strained");
+        assert_eq!(claim_classification(120.0), "reachable");
+        assert_eq!(claim_classification(120.1), "strained");
         assert_eq!(claim_classification(0.0), "reachable");
     }
 
     #[test]
     fn endpoint_cost_averages_settled_and_penalizes_unreachable() {
-        // Two settled at 20 and 40, one unreachable at the 60 penalty:
-        // (20+40+60)/3 = 40.
-        assert_eq!(endpoint_cost(&[20.0, 40.0], 1), 40.0);
+        // Two settled at 100 and 200, one unreachable at the 240 penalty:
+        // (100+200+240)/3 = 180.
+        assert_eq!(endpoint_cost(&[100.0, 200.0], 1), 180.0);
         assert_eq!(endpoint_cost(&[], 2), UNREACHABLE_PENALTY);
         assert_eq!(endpoint_cost(&[], 0), f64::MAX);
     }

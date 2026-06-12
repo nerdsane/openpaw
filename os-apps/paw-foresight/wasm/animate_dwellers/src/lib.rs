@@ -40,7 +40,7 @@ const CONTRADICTION_REPRICE: f64 = 12.5;
 
 /// Repriced claims above this are "strained" (mirrors
 /// aggregate_costs::REACHABLE_MAX).
-const REACHABLE_MAX: f64 = 30.0;
+const REACHABLE_MAX: f64 = 120.0;
 
 const CASTER_TOOLS: &str = "temper_get,temper_list,temper_action";
 const DWELLER_TOOLS: &str = "temper_get,temper_list,temper_create,temper_action,temper_write";
@@ -972,11 +972,11 @@ mod tests {
 
     #[test]
     fn contradiction_reprice_adds_a_low_contradiction() {
-        let (cost, class) = contradiction_reprice(17.5);
-        assert_eq!(cost, 30.0);
+        let (cost, class) = contradiction_reprice(107.5);
+        assert_eq!(cost, 120.0);
         assert_eq!(class, "reachable");
-        let (cost2, class2) = contradiction_reprice(25.0);
-        assert_eq!(cost2, 37.5);
+        let (cost2, class2) = contradiction_reprice(115.0);
+        assert_eq!(cost2, 127.5);
         assert_eq!(class2, "strained");
     }
 

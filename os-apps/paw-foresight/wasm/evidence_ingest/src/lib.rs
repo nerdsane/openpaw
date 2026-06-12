@@ -97,7 +97,7 @@ const INVALIDATION_PENALTY: f64 = 50.0;
 
 /// Settled claims at or under this stay "reachable" after a reprice; above
 /// it they are "strained" (mirrors aggregate_costs::REACHABLE_MAX).
-const REACHABLE_MAX: f64 = 30.0;
+const REACHABLE_MAX: f64 = 120.0;
 
 /// Bound on the transitive dependents walk (a corridor bridge is ~10 nodes;
 /// anything deeper is a data error, not a deeper world).
@@ -895,9 +895,9 @@ mod tests {
 
     #[test]
     fn reprice_adds_the_invalidation_penalty_and_reclassifies() {
-        // 17.5 + 50 = 67.5 -> strained
-        let (cost, class) = repriced(17.5, 1);
-        assert_eq!(cost, 67.5);
+        // 80 + 50 = 130 -> strained (REACHABLE_MAX 120)
+        let (cost, class) = repriced(80.0, 1);
+        assert_eq!(cost, 130.0);
         assert_eq!(class, "strained");
         // Zero dead nodes is the identity.
         assert_eq!(repriced(20.0, 0), (20.0, "reachable"));
