@@ -43,6 +43,8 @@
 | 12 | Fixture upload 403: api-key-holder has no File-create permit and the decision approval bound to a different principal | Hindcast harness uploads as a system-agent principal (X-Temper-Agent-Type: system), which the paw-fs bundle already permits |
 | 13 | Session temper.read denied: file reads authorize as a capitalized action family (Read/Download/GetContent/GetValue/Stream/Open/GetText/FetchContent/Content) relayed as service:wasm-runtime; only lowercase read/list were permitted | Read-action family added to the paw-fs any-principal read permit (0800a2a1); corridor runs never hit this because wall 9 made the gate inline content — the hindcast surveyor is the first soul that must read a file |
 | 14 | Session death on Cedar denial: PauseForApproval dispatches WASM module `request_approval`, which does not exist — the session fails instead of pausing | Not fixed here (platform gap, paw-agent); with wall 13 closed the corridor never reaches this path. Filed as a follow-up |
+| 15 | `temper.read` resolves by path inside the session's workspace — a harness-uploaded corpus has neither path nor workspace, so the read-permit fix (wall 13) was necessary but not sufficient; three surveyor sessions died thrashing | Corpus (and driver basis) inlined into seed/endpoint prompts, the gate's wall-9 pattern, 30KB loud-truncation cap (04a4d44d). Inline-corpus seed completed in ~60s where read-thrash burned 20-40 turns |
+| 16 | First live hindcast graded 0/18: grade_hindcast parsed Forecast rows as PascalCase top-level, but live rows nest snake_case under `fields` (wall 4's shape) — every question parsed empty and substring matching failed silently | parse_forecast_rows now uses the module's own row_str dual-shape reader; envelope shape pinned end-to-end through parse + match (097dffc1) |
 
 ## Operational notes for A7 (prod runbook additions)
 
@@ -55,10 +57,51 @@
 - Codex device login on prod happens via the same /paw/setup/openai-codex
   endpoints (or Discord re-auth flow per ADR-009..016).
 
-## Pending (run 9, fresh store, all current modules)
+## A6 results — all three flagship runs GREEN (2026-06-12)
 
-- Full clean pass end-to-end including the consistency gate verdict on real
-  content, the ~2045 fiction-path world, and the 2025-vantage hindcast
-  (fixtures committed at scripts/fixtures/hindcast-2025h2/).
-- Session cost accounting (cost_cents) recorded once a run completes within
-  a single store generation.
+### Run 10 — six-month world, fully unattended
+World en-019eb8d6-ab25-7c82-9aa2-3c335e107684 ("AI coding tools — six months
+out", target 2026-12-11): 15 skeleton nodes at ~4 min, corridor settled with a
+canonical path at ~7 min, **17 forecasts preregistered**, 2/2 rendered
+artifacts through the consistency gate and **Published** (decision brief +
+in-world document, both fully cited).
+
+### 2045 fiction-path world
+World en-019eb8e2-e2b0-7601-9a05-d512d6307563 (target 2045): 11 skeleton
+nodes, canonical path, **3 forecasts** (the frontier correctly excludes
+far-future nodes from preregistration), 2/2 artifacts through the gate and
+**Published** ("Decision Brief: Signed Software-Change Ledger…" +
+"Procurement Addendum…").
+
+### Hindcast — vantage 2025-06-11, graded against December 2025 reality
+Hindcast en-019eb935-7807-7b72-8d9b-b1a66b43f19c on world
+en-019eb92b-3dcd-78e0-8e72-a338a7870c5b (frozen June-2025 corpus, no web
+tools, corpus inlined into every prompt):
+
+- 15 determined skeleton nodes, all corpus-grounded, nothing dated past the
+  vantage; bookmaker correctly created nothing (no recorded market prices in
+  the corpus).
+- Corridor settled in ~5 min: canonical path en-019eb92d-8393…
+  (repair_cost 207.50, honest lag flags), **18 forecasts preregistered**.
+- **Graded 6/18, mean Brier 0.1512** (coin-flip ignorance = 0.25). Derivation:
+  (0.1024 + 0.2025 + 0.1296 + 0.1024 + 0.3025 + 0.0676) / 6 = 0.1512.
+  - SWE-bench as procurement benchmark p=0.68 → yes (0.1024)
+  - Copilot centered at GitHub Universe p=0.55 → yes (0.2025)
+  - Cursor converts spring momentum p=0.64 → yes (0.1296)
+  - Claude Code expands beyond terminal p=0.68 → yes (0.1024)
+  - OpenAI closes Windsurf acquisition p=0.55 → **no** (0.3025) — the one
+    honest miss: the deal collapsed in July 2025; the engine hedged
+  - Vendors converge on usage-tiered pricing p=0.74 → yes (0.0676)
+- Coverage note (recorded on the entity): "graded 6/18 forecasts; anachronism
+  check not yet implemented; residual model-prior contamination applies
+  (vantage vs training cutoff)". 6 of 12 actuals matched a forecast; the
+  unmatched actuals (gpt-5, gemini 3, open-weight share, regulation,
+  built-in IDE review) had no preregistered counterpart — match coverage is
+  a soul-tuning surface, not a scoring bug.
+- Run economics: 8 sessions, ~31 turns end to end. cost_cents is not
+  populated under openai_codex device-login (subscription, no metered
+  per-token price surface) — noted, not hidden.
+
+The world remains Active with its canonical path bound — the corridor's
+update loop (IngestEvidence → BeginUpdate) stays exercisable for B-track
+walkthroughs.
