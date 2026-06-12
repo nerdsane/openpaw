@@ -392,9 +392,10 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["seed_world", "sample_endpoints", "spawn_repairers", "spawn_adversaries",
-   "aggregate_costs", "evidence_ingest", "register_forecasts",
-   "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
+  ["seed_world", "sample_endpoints", "decompose_endpoint", "spawn_repairers",
+   "spawn_adversaries", "aggregate_costs", "evidence_ingest",
+   "register_forecasts", "render_artifacts", "consistency_gate",
+   "grade_hindcast", "animate_dwellers", "adjudicate_nodes"].contains(context.module)
 };
 
 permit(
@@ -402,9 +403,10 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  ["seed_world", "sample_endpoints", "spawn_repairers", "spawn_adversaries",
-   "aggregate_costs", "evidence_ingest", "register_forecasts",
-   "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
+  ["seed_world", "sample_endpoints", "decompose_endpoint", "spawn_repairers",
+   "spawn_adversaries", "aggregate_costs", "evidence_ingest",
+   "register_forecasts", "render_artifacts", "consistency_gate",
+   "grade_hindcast", "animate_dwellers", "adjudicate_nodes"].contains(context.module)
 };
 
 // ── Session relay (v1 trust model) ─────────────────────────────
