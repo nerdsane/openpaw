@@ -3,8 +3,11 @@
 //! On World.IngestEvidence: re-fetch market prices for market-provenance
 //! EventNodes, snapshot every raw response to paw-fs, update probabilities,
 //! resolve overdue nodes the evidence settles, grade the forecasts those
-//! resolutions touch, and — if a resolved-"no" node is load-bearing for the
-//! canonical path — dispatch World.BeginUpdate.
+//! resolutions touch, walk the depends_on edges to retire everything that
+//! transitively required a dead node, re-price settled claims whose routes
+//! lost required nodes (ADR-004) — and if a settled claim flips
+//! classification or a resolved-"no" node is load-bearing for the canonical
+//! path, dispatch World.BeginUpdate.
 //!
 //! The as-of date comes from the world's last_ingest_date field (set by the
 //! IngestEvidence action params): WASM has no clock, the date is data.
@@ -85,6 +88,67 @@ fn resolution_for_price(price: f64) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Invalidation penalty applied to a settled claim's cost per dead required
+/// node: the bridge now contradicts reality — priced like a
+/// contradiction/high. Tunable prior (ADR-004 commitment 1).
+const INVALIDATION_PENALTY: f64 = 50.0;
+
+/// Settled claims at or under this stay "reachable" after a reprice; above
+/// it they are "strained" (mirrors aggregate_costs::REACHABLE_MAX).
+const REACHABLE_MAX: f64 = 30.0;
+
+/// Bound on the transitive dependents walk (a corridor bridge is ~10 nodes;
+/// anything deeper is a data error, not a deeper world).
+const MAX_EDGE_DEPTH: usize = 10;
+
+/// Transitive dependents of the dead nodes, over the depends_on edges
+/// declared during repair (EventNode.edges = the node ids a node REQUIRES).
+/// Cycle-safe and depth-bounded; the dead nodes themselves are not returned.
+fn transitive_dependents(
+    depends_on: &std::collections::BTreeMap<String, Vec<String>>,
+    dead: &[String],
+) -> Vec<String> {
+    // Reverse adjacency: dependency -> the nodes that require it.
+    let mut dependents_of: std::collections::BTreeMap<&str, Vec<&str>> =
+        std::collections::BTreeMap::new();
+    for (node, deps) in depends_on {
+        for d in deps {
+            dependents_of.entry(d.as_str()).or_default().push(node.as_str());
+        }
+    }
+    let mut hit: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut frontier: Vec<&str> = dead.iter().map(String::as_str).collect();
+    for _ in 0..MAX_EDGE_DEPTH {
+        let mut next: Vec<&str> = Vec::new();
+        for f in &frontier {
+            if let Some(deps) = dependents_of.get(f) {
+                for d in deps {
+                    if !hit.contains(*d) && !dead.iter().any(|x| x == d) {
+                        hit.insert((*d).to_string());
+                        next.push(d);
+                    }
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    hit.into_iter().collect()
+}
+
+/// Reprice a settled claim whose route requires dead or invalidated nodes.
+fn repriced(old_cost: f64, dead_required: usize) -> (f64, &'static str) {
+    let new_cost = old_cost + INVALIDATION_PENALTY * dead_required as f64;
+    let classification = if new_cost <= REACHABLE_MAX {
+        "reachable"
+    } else {
+        "strained"
+    };
+    (new_cost, classification)
 }
 
 /// First polymarket/kalshi URL inside a source_refs JSON array.
@@ -558,7 +622,190 @@ fn ingest(ctx: &Context) -> Result<(), String> {
         }
     }
 
-    // 6. Drift: a load-bearing node resolving "no" demands a re-solve.
+    // 5b. Conditional-edge invalidation (ADR-004): a "no" resolution kills
+    // everything that transitively depends on the dead node, and re-prices
+    // every settled claim whose route required any of them.
+    let dead: Vec<String> = resolved
+        .iter()
+        .filter(|(_, outcome, _)| *outcome == "no")
+        .map(|(id, _, _)| id.clone())
+        .collect();
+    let mut claim_flipped = false;
+    if !dead.is_empty() {
+        // The world's node graph (edges were declared during repair).
+        let nodes_url =
+            format!("{api}/tdata/EventNodes?$filter=world_id eq '{world_id}'");
+        if let Ok(r) = ctx.http_call("GET", &nodes_url, &headers, "") {
+            if (200..300).contains(&r.status) {
+                let body: Value = serde_json::from_str(&r.body).unwrap_or(json!({}));
+                let rows = body
+                    .get("value")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let mut depends_on: std::collections::BTreeMap<String, Vec<String>> =
+                    std::collections::BTreeMap::new();
+                let mut live_status: std::collections::BTreeMap<String, String> =
+                    std::collections::BTreeMap::new();
+                for row in &rows {
+                    let id = row_id(row).to_string();
+                    let deps: Vec<String> = Some(row_str(row, "Edges"))
+                        .filter(|s| !s.is_empty())
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                        .and_then(|v| v.as_array().cloned())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|x| x.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    live_status.insert(id.clone(), row_status(row).to_string());
+                    depends_on.insert(id, deps);
+                }
+                let invalidated = transitive_dependents(&depends_on, &dead);
+                for node_id in &invalidated {
+                    if !matches!(
+                        live_status.get(node_id).map(String::as_str),
+                        Some("Proposed") | Some("Confirmed")
+                    ) {
+                        continue;
+                    }
+                    let retire_url =
+                        format!("{api}/tdata/EventNodes('{node_id}')/TemperPaw.Retire");
+                    let body = json!({
+                        "retire_reason": format!(
+                            "invalidated: transitively depends on a node that resolved no ({})",
+                            dead.join(", ")
+                        )
+                    });
+                    match ctx.http_call("POST", &retire_url, &headers, &body.to_string()) {
+                        Ok(r) if (200..300).contains(&r.status) => ctx.log(
+                            "info",
+                            &format!("evidence_ingest: node {node_id} invalidated (upstream resolved no)"),
+                        ),
+                        Ok(r) => ctx.log(
+                            "warn",
+                            &format!(
+                                "evidence_ingest: Retire on {node_id} failed (HTTP {})",
+                                r.status
+                            ),
+                        ),
+                        Err(e) => ctx.log(
+                            "warn",
+                            &format!("evidence_ingest: Retire on {node_id} failed: {e}"),
+                        ),
+                    }
+                }
+
+                // Re-price settled claims whose settled route requires a dead
+                // or invalidated node.
+                let mut all_dead: Vec<String> = dead.clone();
+                all_dead.extend(invalidated.iter().cloned());
+                let claims_url =
+                    format!("{api}/tdata/Claims?$filter=world_id eq '{world_id}'");
+                if let Ok(cr) = ctx.http_call("GET", &claims_url, &headers, "") {
+                    if (200..300).contains(&cr.status) {
+                        let cbody: Value =
+                            serde_json::from_str(&cr.body).unwrap_or(json!({}));
+                        let crows = cbody
+                            .get("value")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        for c in &crows {
+                            if row_status(c) != "Settled" {
+                                continue;
+                            }
+                            let claim_id = row_id(c).to_string();
+                            let route_id = row_str(c, "SettledRouteId").to_string();
+                            if route_id.is_empty() {
+                                continue;
+                            }
+                            let purl = format!("{api}/tdata/Paths('{route_id}')");
+                            let Ok(pr) = ctx.http_call("GET", &purl, &headers, "") else {
+                                continue;
+                            };
+                            if !(200..300).contains(&pr.status) {
+                                continue;
+                            }
+                            let path: Value =
+                                serde_json::from_str(&pr.body).unwrap_or(json!({}));
+                            let required: Vec<String> = Some(row_str(&path, "RequiredNodeIds"))
+                                .filter(|s| !s.is_empty())
+                                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                                .and_then(|v| v.as_array().cloned())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|x| x.as_str().map(str::to_string))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            let dead_required = required
+                                .iter()
+                                .filter(|r| all_dead.contains(r))
+                                .count();
+                            if dead_required == 0 {
+                                continue;
+                            }
+                            let old_cost = row_str(c, "BestRouteCost")
+                                .parse::<f64>()
+                                .unwrap_or(f64::MAX);
+                            let old_class = row_str(c, "Classification").to_string();
+                            let (new_cost, new_class) = repriced(old_cost, dead_required);
+                            let reprice_url = format!(
+                                "{api}/tdata/Claims('{claim_id}')/TemperPaw.Reprice"
+                            );
+                            let body = json!({
+                                "best_route_cost": format!("{:.2}", new_cost),
+                                "classification": new_class,
+                            });
+                            match ctx.http_call("POST", &reprice_url, &headers, &body.to_string())
+                            {
+                                Ok(r) if (200..300).contains(&r.status) => {
+                                    ctx.log(
+                                        "info",
+                                        &format!(
+                                            "evidence_ingest: claim {claim_id} repriced {} -> {} ({new_class}); {dead_required} required node(s) dead",
+                                            format!("{:.2}", old_cost),
+                                            format!("{:.2}", new_cost)
+                                        ),
+                                    );
+                                    if new_class != old_class {
+                                        claim_flipped = true;
+                                    }
+                                }
+                                Ok(r) => ctx.log(
+                                    "warn",
+                                    &format!(
+                                        "evidence_ingest: Reprice on claim {claim_id} failed (HTTP {})",
+                                        r.status
+                                    ),
+                                ),
+                                Err(e) => ctx.log(
+                                    "warn",
+                                    &format!(
+                                        "evidence_ingest: Reprice on claim {claim_id} failed: {e}"
+                                    ),
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Drift: a load-bearing node resolving "no" — or a settled claim
+    // flipping classification under invalidation — demands a re-solve.
+    if claim_flipped {
+        let culprit = dead.first().cloned().unwrap_or_default();
+        ctx.log(
+            "info",
+            "evidence_ingest: a settled claim flipped classification under invalidation; dispatching BeginUpdate",
+        );
+        set_success_result("BeginUpdate", &json!({ "update_cause_node_id": culprit }));
+        return Ok(());
+    }
     let no_nodes: Vec<&String> = resolved
         .iter()
         .filter(|(_, outcome, _)| *outcome == "no")
@@ -621,6 +868,42 @@ fn ingest(ctx: &Context) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dependents_walk_is_transitive_cycle_safe_and_bounded() {
+        use std::collections::BTreeMap;
+        let mut g: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // c depends on b, b depends on a; d is independent; e<->f is a cycle
+        // attached to a.
+        g.insert("b".into(), vec!["a".into()]);
+        g.insert("c".into(), vec!["b".into()]);
+        g.insert("d".into(), vec![]);
+        g.insert("e".into(), vec!["a".into(), "f".into()]);
+        g.insert("f".into(), vec!["e".into()]);
+        let hit = transitive_dependents(&g, &["a".to_string()]);
+        assert_eq!(hit, vec!["b", "c", "e", "f"]);
+        // Dead nodes are never their own dependents; unknown nodes hit nothing.
+        assert!(transitive_dependents(&g, &["zzz".to_string()]).is_empty());
+        // Diamond: both parents dead, child reported once.
+        let mut d: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        d.insert("child".into(), vec!["p1".into(), "p2".into()]);
+        assert_eq!(
+            transitive_dependents(&d, &["p1".to_string(), "p2".to_string()]),
+            vec!["child"]
+        );
+    }
+
+    #[test]
+    fn reprice_adds_the_invalidation_penalty_and_reclassifies() {
+        // 17.5 + 50 = 67.5 -> strained
+        let (cost, class) = repriced(17.5, 1);
+        assert_eq!(cost, 67.5);
+        assert_eq!(class, "strained");
+        // Zero dead nodes is the identity.
+        assert_eq!(repriced(20.0, 0), (20.0, "reachable"));
+        // Two dead required nodes price twice.
+        assert_eq!(repriced(10.0, 2).0, 110.0);
+    }
 
     #[test]
     fn brier_is_squared_error_to_four_decimals() {
