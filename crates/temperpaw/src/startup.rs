@@ -161,6 +161,43 @@ fn installed_app_runtime_recovery_result(
     }
 }
 
+fn genesis_bootstrap_runtime_recovery_allows_skip(
+    outcome: &InstalledAppRuntimeRecoveryOutcome,
+) -> bool {
+    matches!(
+        outcome,
+        InstalledAppRuntimeRecoveryOutcome::Ready | InstalledAppRuntimeRecoveryOutcome::Healed
+    )
+}
+
+async fn unchanged_genesis_bootstrap_app_runtime_ready(
+    state: &PlatformState,
+    platform_store: &dyn PlatformStore,
+    tenant: &str,
+    app_name: &str,
+    app_ref: &str,
+) -> bool {
+    let outcome =
+        recover_installed_app_runtime_state(state, platform_store, tenant, app_name).await;
+    if genesis_bootstrap_runtime_recovery_allows_skip(&outcome) {
+        tracing::info!(
+            app = %app_name,
+            app_ref = %app_ref,
+            outcome = ?outcome,
+            "Skipping unchanged Genesis bootstrap app"
+        );
+        return true;
+    }
+
+    tracing::info!(
+        app = %app_name,
+        app_ref = %app_ref,
+        outcome = ?outcome,
+        "Reconciling unchanged Genesis bootstrap app because runtime recovery found drift"
+    );
+    false
+}
+
 #[cfg(test)]
 fn runtime_indexes_required_before_reconcile(
     summary: &InstalledAppsRuntimeRecoverySummary,
@@ -435,12 +472,17 @@ async fn bootstrap_configured_genesis_apps(
                     && record.app_ref == app_ref
                     && record.status == "installed" =>
             {
-                tracing::info!(
-                    app = %app_name,
-                    app_ref = %app_ref,
-                    "Skipping unchanged Genesis bootstrap app"
-                );
-                continue;
+                if unchanged_genesis_bootstrap_app_runtime_ready(
+                    state,
+                    platform_store,
+                    tenant,
+                    &app_name,
+                    &app_ref,
+                )
+                .await
+                {
+                    continue;
+                }
             }
             Ok(Some(record)) => {
                 tracing::info!(
@@ -3755,7 +3797,9 @@ mod tests {
 
     use anyhow::anyhow;
     use serde_json::Value;
-    use temper_platform::recovery::InstalledAppsRuntimeRecoverySummary;
+    use temper_platform::recovery::{
+        InstalledAppRuntimeRecoveryOutcome, InstalledAppsRuntimeRecoverySummary,
+    };
     use temper_runtime::tenant::TenantId;
     use temper_server::secrets::vault::SecretsVault;
 
@@ -3767,7 +3811,8 @@ mod tests {
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
-        genesis_bootstrap_app_names, genesis_bootstrap_timeout, genesis_cache_restore_timeout,
+        genesis_bootstrap_app_names, genesis_bootstrap_runtime_recovery_allows_skip,
+        genesis_bootstrap_timeout, genesis_cache_restore_timeout,
         installed_app_runtime_recovery_result, load_or_create_temper_api_key,
         local_wasm_startup_policy, orphaned_session_recovery_limit,
         paw_soul_content_is_personalized, repair_default_agent_tools_enabled,
@@ -4018,6 +4063,25 @@ mod tests {
         unsafe {
             std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS");
         }
+    }
+
+    #[test]
+    fn genesis_bootstrap_skip_requires_runtime_ready_or_healed() {
+        assert!(genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::Ready
+        ));
+        assert!(genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::Healed
+        ));
+        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::NeedsReconcile
+        ));
+        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::MissingBundle
+        ));
+        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::StoreError
+        ));
     }
 
     #[test]
