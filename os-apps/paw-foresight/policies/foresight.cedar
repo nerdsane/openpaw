@@ -73,7 +73,7 @@ permit(
 // report EndpointsSampled.
 permit(
   principal,
-  action in [Action::"SeedComplete", Action::"EndpointsSampled"],
+  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"DwellersCast"],
   resource is World
 ) when {
   ["system", "agent"].contains(principal.agent_type)
@@ -153,11 +153,21 @@ permit(
 
 permit(
   principal,
-  action in [Action::"PathsAttached", Action::"ScoreComplete",
+  action in [Action::"PathsAttached", Action::"ClaimsAttached",
+             Action::"SpawnNextBridge", Action::"ScoreComplete",
              Action::"MarkWeighted", Action::"Reweigh"],
   resource is Endpoint
 ) when {
   principal.agent_type == "system"
+};
+
+// The decomposer session self-reports its claims (mirrors SubmitForRepair).
+permit(
+  principal,
+  action == Action::"DecompositionComplete",
+  resource is Endpoint
+) when {
+  ["system", "agent"].contains(principal.agent_type)
 };
 
 permit(
