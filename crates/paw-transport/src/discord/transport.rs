@@ -53,6 +53,8 @@ pub struct DiscordTransport {
     gateway: GatewayState,
     /// Channel entity ID in Paw (populated on startup).
     channel_entity_id: Arc<RwLock<Option<String>>>,
+    /// Local reply webhook URL used to reconnect Channel entities after recovery.
+    reply_webhook_url: Arc<RwLock<Option<String>>>,
     /// Maps Discord channel_id (DM channel) → user_id for reply routing.
     dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
     /// Last processed Discord message snowflake ID (for catch-up on reconnect).
@@ -366,6 +368,7 @@ impl DiscordTransport {
             http: reqwest::Client::new(),
             gateway: GatewayState::new(),
             channel_entity_id: Arc::new(RwLock::new(None)),
+            reply_webhook_url: Arc::new(RwLock::new(None)),
             dm_channels: Arc::new(RwLock::new(BTreeMap::new())),
             last_message_cursor: Arc::new(RwLock::new(String::new())),
             typing_cancels: Arc::new(RwLock::new(BTreeMap::new())),
@@ -456,6 +459,8 @@ impl DiscordTransport {
     /// (preserving ChannelSessions and conversation state across restarts).
     /// Archives any duplicates. Only creates a new Channel if none exists.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
+        *self.reply_webhook_url.write().await = Some(webhook_url.to_string());
+
         let mut attempt = 0usize;
         let mut backoff = Duration::from_millis(200);
 
@@ -628,6 +633,89 @@ impl DiscordTransport {
         Ok(())
     }
 
+    async fn cancel_typing_loop(&self, thread_id: &str) {
+        if let Some(cancel_tx) = self.typing_cancels.write().await.remove(thread_id) {
+            let _ = cancel_tx.send(true);
+        }
+    }
+
+    async fn recover_archived_channel_binding(
+        &self,
+        failed_channel_entity_id: &str,
+        error: &str,
+    ) -> Result<(), String> {
+        if !is_archived_channel_action_error(error) {
+            return Err(error.to_string());
+        }
+
+        let webhook_url = self.reply_webhook_url.read().await.clone().ok_or_else(|| {
+            "discord Channel is archived, but no reply webhook URL is available for recovery"
+                .to_string()
+        })?;
+
+        tracing::warn!(
+            channel_entity_id = %failed_channel_entity_id,
+            error = %error,
+            "discord Channel binding points at an archived entity; rebootstrap and retry"
+        );
+
+        {
+            let mut channel_entity_id = self.channel_entity_id.write().await;
+            if channel_entity_id.as_deref() == Some(failed_channel_entity_id) {
+                *channel_entity_id = None;
+            }
+        }
+
+        self.bootstrap_channel(&webhook_url).await
+    }
+
+    async fn dispatch_receive_message_with_recovery(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<String, String> {
+        let channel_entity_id = self.channel_entity_id.read().await.clone().ok_or_else(|| {
+            "discord message received before channel bootstrap completed".to_string()
+        })?;
+
+        match self
+            .api
+            .dispatch_action(
+                "Channels",
+                &channel_entity_id,
+                "Paw.Channel.ReceiveMessage",
+                params.clone(),
+            )
+            .await
+        {
+            Ok(_) => Ok(channel_entity_id),
+            Err(error) => {
+                self.recover_archived_channel_binding(&channel_entity_id, &error)
+                    .await?;
+
+                let recovered_channel_entity_id =
+                    self.channel_entity_id.read().await.clone().ok_or_else(|| {
+                        "discord Channel recovery completed without a new channel binding"
+                            .to_string()
+                    })?;
+
+                self.api
+                    .dispatch_action(
+                        "Channels",
+                        &recovered_channel_entity_id,
+                        "Paw.Channel.ReceiveMessage",
+                        params,
+                    )
+                    .await
+                    .map(|_| recovered_channel_entity_id)
+                    .map_err(|retry_error| {
+                        format!(
+                            "Paw.Channel.ReceiveMessage retry after archived Channel recovery failed: {retry_error}"
+                        )
+                    })
+            }
+        }
+    }
+
     /// Catch up on DMs missed while the bot was offline.
     ///
     /// Fetches messages newer than `last_message_cursor` from all DM channels
@@ -733,16 +821,7 @@ impl DiscordTransport {
                     });
                     apply_current_trace_context(&mut params);
 
-                    match self
-                        .api
-                        .dispatch_action(
-                            "Channels",
-                            entity_id,
-                            "Paw.Channel.ReceiveMessage",
-                            params,
-                        )
-                        .await
-                    {
+                    match self.dispatch_receive_message_with_recovery(params).await {
                         Ok(_) => {
                             total_caught_up += 1;
                             let mut c = self.last_message_cursor.write().await;
@@ -798,7 +877,7 @@ impl DiscordTransport {
         let Some(ref entity_id) = channel_entity_id else {
             return;
         };
-        let _ = self
+        if let Err(error) = self
             .api
             .dispatch_action(
                 "Channels",
@@ -806,7 +885,18 @@ impl DiscordTransport {
                 "Paw.Channel.UpdateCursor",
                 serde_json::json!({ "last_discord_message_id": cursor }),
             )
-            .await;
+            .await
+            && let Err(recovery_error) = self
+                .recover_archived_channel_binding(entity_id, &error)
+                .await
+        {
+            tracing::warn!(
+                channel_entity_id = %entity_id,
+                error = %error,
+                recovery_error = %recovery_error,
+                "discord cursor flush failed"
+            );
+        }
     }
 
     /// Connect to Gateway and run the event loop.
@@ -1033,18 +1123,6 @@ impl DiscordTransport {
             });
         }
 
-        // Dispatch Channel.ReceiveMessage — the WASM handles everything else.
-        let channel_entity_id = self.channel_entity_id.read().await.clone();
-        let Some(channel_id) = channel_entity_id else {
-            tracing::warn!(
-                message_id = %msg.id,
-                author_id = %msg.author.id,
-                channel_id = %msg.channel_id,
-                "discord message received before channel bootstrap completed"
-            );
-            return;
-        };
-
         // Fetch text-type attachments and inline their content.
         let enriched_content =
             enrich_content_with_attachments(&self.http, &msg.content, &msg.attachments).await;
@@ -1057,19 +1135,10 @@ impl DiscordTransport {
         });
         apply_current_trace_context(&mut params);
 
-        match self
-            .api
-            .dispatch_action(
-                "Channels",
-                &channel_id,
-                "Paw.Channel.ReceiveMessage",
-                params,
-            )
-            .await
-        {
-            Ok(_) => {
+        match self.dispatch_receive_message_with_recovery(params).await {
+            Ok(channel_entity_id) => {
                 tracing::info!(
-                    channel_entity_id = %channel_id,
+                    channel_entity_id = %channel_entity_id,
                     message_id = %msg.id,
                     author_id = %msg.author.id,
                     username = %msg.author.username,
@@ -1085,8 +1154,8 @@ impl DiscordTransport {
                 }
             }
             Err(e) => {
+                self.cancel_typing_loop(&msg.author.id).await;
                 tracing::warn!(
-                    channel_entity_id = %channel_id,
                     message_id = %msg.id,
                     author_id = %msg.author.id,
                     username = %msg.author.username,
@@ -1818,6 +1887,12 @@ fn is_retryable_local_odata_bootstrap_error(error: &str) -> bool {
     .any(|needle| error.contains(needle))
 }
 
+fn is_archived_channel_action_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("not valid from state 'archived'")
+        || error.contains("not valid from state ''archived''")
+}
+
 /// Read one Gateway payload from the WebSocket with timeout.
 async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, String> {
     let frame = tokio::time::timeout(Duration::from_secs(60), read.next())
@@ -1957,6 +2032,11 @@ mod tests {
         update_config_body: Arc<Mutex<Option<serde_json::Value>>>,
     }
 
+    #[derive(Clone, Default)]
+    struct ArchivedRecoveryProbe {
+        retry_count: Arc<AtomicUsize>,
+    }
+
     async fn spawn_test_server(app: Router) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -2038,6 +2118,104 @@ mod tests {
             update.get("webhook_url").and_then(|value| value.as_str()),
             Some("http://127.0.0.1:3488/reply"),
             "reused discord channels must refresh the reply webhook target"
+        );
+    }
+
+    #[tokio::test]
+    async fn receive_message_reboots_archived_channel_binding_and_retries() {
+        let probe = ArchivedRecoveryProbe::default();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels",
+                get(
+                    |Query(_query): Query<std::collections::HashMap<String, String>>| async move {
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "value": [{
+                                    "entity_id": "ch_recovered",
+                                    "status": "Connected",
+                                    "fields": {
+                                        "WebhookUrl": "",
+                                        "last_discord_message_id": "123"
+                                    },
+                                    "counters": {
+                                        "message_count": 7
+                                    }
+                                }]
+                            })),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/tdata/Channels('ch_recovered')/Paw.Channel.UpdateConfig",
+                post(|| async { (StatusCode::OK, Json(json!({"ok": true}))) }),
+            )
+            .route(
+                "/tdata/Channels('ch_archived')/Paw.Channel.ReceiveMessage",
+                post(|| async {
+                    (
+                        StatusCode::CONFLICT,
+                        Json(json!({
+                            "error": {
+                                "code": "ActionFailed",
+                                "message": "Action 'ReceiveMessage' not valid from state 'Archived'"
+                            }
+                        })),
+                    )
+                }),
+            )
+            .route(
+                "/tdata/Channels('ch_recovered')/Paw.Channel.ReceiveMessage",
+                post(|State(probe): State<ArchivedRecoveryProbe>| async move {
+                    probe.retry_count.fetch_add(1, Ordering::SeqCst);
+                    (StatusCode::OK, Json(json!({"ok": true})))
+                }),
+            )
+            .with_state(probe.clone());
+
+        let base_url = spawn_test_server(app).await;
+        let api = crate::PawApiClient::new(crate::PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+        let transport = DiscordTransport::new(
+            DiscordConfig {
+                bot_token: "token".to_string(),
+                intents: intents::DEFAULT,
+                webhook_port: 3488,
+                public_key: "public-key".to_string(),
+                guild_id: None,
+                feed_channel_id: None,
+                forum_channel_id: None,
+            },
+            api,
+        );
+        *transport.channel_entity_id.write().await = Some("ch_archived".to_string());
+        *transport.reply_webhook_url.write().await =
+            Some("http://127.0.0.1:3488/reply".to_string());
+
+        let channel_id = transport
+            .dispatch_receive_message_with_recovery(json!({
+                "message_id": "msg_1",
+                "author_id": "user_1",
+                "thread_id": "user_1",
+                "content": "hello"
+            }))
+            .await
+            .expect("archived Channel recovery should retry ReceiveMessage");
+
+        assert_eq!(channel_id, "ch_recovered");
+        assert_eq!(
+            transport.channel_entity_id.read().await.as_deref(),
+            Some("ch_recovered")
+        );
+        assert_eq!(
+            probe.retry_count.load(Ordering::SeqCst),
+            1,
+            "expected ReceiveMessage to be retried against the recovered Channel"
         );
     }
 
