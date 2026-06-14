@@ -416,7 +416,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // - Path.RevisionRequested: the triggering entity is the Path itself;
         //   spawn a repairer against the SAME route, briefed on the
         //   objections it must answer.
-        if ctx.trigger_action == "RevisionRequested" {
+        if ctx.trigger_action == "RevisionRequested" || ctx.trigger_action == "ResumeRepair" {
+            // ResumeRepair (self-heal): re-spawn a repairer for this same route
+            // after its session died; same path as a revision, just no new brief.
             return revise_route(&ctx, &fields, &get);
         }
 

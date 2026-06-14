@@ -690,6 +690,10 @@
         <Parameter Name="agent_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.Claim"/>
       </Action>
+      <Action Name="ResumeBridge" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
+        <ReturnType Type="TemperPaw.Foresight.Claim"/>
+      </Action>
       <Action Name="RouteSettled" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Claim"/>
         <Parameter Name="path_id" Type="Edm.String" Nullable="true"/>
@@ -720,6 +724,14 @@
         <ReturnType Type="TemperPaw.Foresight.Claim"/>
       </Action>
 
+      <Action Name="ResumeRepair" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Path"/>
+        <ReturnType Type="TemperPaw.Foresight.Path"/>
+      </Action>
+      <Action Name="ResumeCosting" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Path"/>
+        <ReturnType Type="TemperPaw.Foresight.Path"/>
+      </Action>
       <Action Name="RepairComplete" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Path"/>
         <Parameter Name="repair_log_file_id" Type="Edm.String" Nullable="true"/>

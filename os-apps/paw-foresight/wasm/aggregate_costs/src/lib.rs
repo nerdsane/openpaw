@@ -456,10 +456,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
         match ctx.trigger_action.as_str() {
             "RepairComplete" => prune_gate(&ctx, &fields),
-            "ChallengeComplete" => cost_phase(&ctx, &fields),
+            "ChallengeComplete" | "ResumeCosting" => cost_phase(&ctx, &fields),
             "Score" => route_settled_relay(&ctx, &fields, false),
             "Prune" => route_settled_relay(&ctx, &fields, true),
-            "RouteSettled" => claim_phase(&ctx, &fields),
+            "RouteSettled" | "ResumeBridge" => claim_phase(&ctx, &fields),
             other => {
                 ctx.log(
                     "warn",

@@ -20,7 +20,15 @@ initial = "Proposed"
 # cap how much search a claim may consume; Settled persists for the life of
 # the world (re-priced on evidence updates). Same posture as Endpoint;
 # revisit with state_timeout once 0.3 run-time envelopes are measured.
-allow_indefinite_states = ["Proposed", "Bridging", "Settled"]
+allow_indefinite_states = ["Proposed", "Settled"]
+
+# Self-heal (ADR-007): a Bridging claim whose routes all died gets re-evaluated
+# so it settles or opens an alternate rather than hanging forever.
+[[state_timeout]]
+state = "Bridging"
+after_seconds = 1800
+on_timeout = "ResumeBridge"
+reset_on = ["RouteSettled", "RoutesAttached", "AmendText"]
 
 # --- State Variables ---
 
@@ -137,6 +145,25 @@ kind = "input"
 from = ["Bridging"]
 params = ["old_text", "new_text", "justification", "agent_id"]
 hint = "The ONLY way a claim's text changes. Carries the diff; the amending repairer must also flag deformation on its route (ADR-004). Relayed session principals."
+
+[[action]]
+name = "ResumeBridge"
+kind = "input"
+from = ["Bridging"]
+to = "Bridging"
+params = []
+hint = "Self-heal: re-evaluate this claim (routes may have died). Re-runs the claim decision deterministically. System principals only."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "RouteSettled"

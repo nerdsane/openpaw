@@ -197,7 +197,7 @@ permit(
   principal,
   action in [
     Action::"SubmitForBridge", Action::"RoutesAttached", Action::"RouteSettled",
-    Action::"Settle", Action::"Reprice", Action::"MarkUnreachable"
+    Action::"Settle", Action::"Reprice", Action::"MarkUnreachable", Action::"ResumeBridge"
   ],
   resource is Claim
 ) when {
@@ -240,7 +240,8 @@ permit(
   principal,
   action in [Action::"Score", Action::"ClassifyCanonical", Action::"ClassifyTail",
              Action::"Reject", Action::"Rescore", Action::"RequestChallenge",
-             Action::"Prune", Action::"RevisionRequested"],
+             Action::"Prune", Action::"RevisionRequested", Action::"ResumeRepair",
+             Action::"ResumeCosting"],
   resource is Path
 ) when {
   principal.agent_type == "system"
