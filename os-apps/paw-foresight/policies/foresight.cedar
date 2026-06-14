@@ -79,10 +79,12 @@ permit(
   ["system", "agent"].contains(principal.agent_type)
 };
 
-// Pass results and update completion are aggregate_costs / evidence territory.
+// Pass results, update completion, and the diversity gate (ADR-006) are
+// aggregate_costs / sample_endpoints / evidence territory — system only.
 permit(
   principal,
-  action in [Action::"PathsScored", Action::"UpdateComplete", Action::"SpawnNextDweller"],
+  action in [Action::"PathsScored", Action::"UpdateComplete",
+             Action::"SpawnNextDweller", Action::"GateDiversity"],
   resource is World
 ) when {
   principal.agent_type == "system"
@@ -142,10 +144,13 @@ permit(
   resource is Endpoint
 );
 
-// The writer self-reports its bundle; only the author submits its endpoint.
+// The writer self-reports its bundle via BundleWritten (ADR-006); the endpoint
+// then parks in Written for the diversity gate. The gate — never the writer —
+// releases it via SubmitForRepair or sends it back via ReSteer, so those are
+// system only.
 permit(
   principal,
-  action == Action::"SubmitForRepair",
+  action == Action::"BundleWritten",
   resource is Endpoint
 ) when {
   ["system", "agent"].contains(principal.agent_type)
@@ -153,7 +158,8 @@ permit(
 
 permit(
   principal,
-  action in [Action::"PathsAttached", Action::"ClaimsAttached",
+  action in [Action::"SubmitForRepair", Action::"ReSteer",
+             Action::"PathsAttached", Action::"ClaimsAttached",
              Action::"SpawnNextBridge", Action::"ScoreComplete",
              Action::"MarkWeighted", Action::"Reweigh"],
   resource is Endpoint

@@ -170,6 +170,27 @@ pub fn nearest(query: &[f32], candidates: &[Vec<f32>]) -> Option<(usize, f32)> {
     best
 }
 
+/// Greedy diversity selection: walk `candidates` in order and keep each one
+/// that is at least `threshold` distant from everything kept so far (and from
+/// the fixed `kept` references — worlds already released past the gate in an
+/// earlier round). Returns a keep/re-steer flag per candidate. Deterministic
+/// and order-stable: the first candidate of a near-duplicate pair is kept, the
+/// second re-steered. The diversity gate's accept/re-steer decision (D3).
+pub fn select_diverse(kept: &[Vec<f32>], candidates: &[Vec<f32>], threshold: f32) -> Vec<bool> {
+    let mut acc: Vec<Vec<f32>> = kept.to_vec();
+    candidates
+        .iter()
+        .map(|c| {
+            if is_diverse(c, &acc, threshold) {
+                acc.push(c.clone());
+                true
+            } else {
+                false
+            }
+        })
+        .collect()
+}
+
 /// Parse an embedding-endpoint response into row-aligned vectors. Accepts the
 /// Ollama `/api/embed` shape `{"embeddings": [[...], ...]}`, the single-vector
 /// `{"embedding": [...]}`, and the OpenAI `{"data": [{"embedding": [...]}]}`
@@ -281,6 +302,28 @@ mod tests {
         // Cluster ids are the smallest member index (stable).
         assert_eq!(c[0], 0);
         assert_eq!(c[2], 2);
+    }
+
+    #[test]
+    fn select_diverse_keeps_first_of_a_duplicate_pair_and_re_steers_the_rest() {
+        // [1,0] and [0,1] are far apart (keep both); [0.99,0.02] collapses onto
+        // [1,0] (re-steer); [-1,-1] is far from all (keep).
+        let cands = vec![
+            unit(&[1.0, 0.0]),
+            unit(&[0.0, 1.0]),
+            unit(&[0.99, 0.02]),
+            unit(&[-1.0, -1.0]),
+        ];
+        let keep = select_diverse(&[], &cands, 0.3);
+        assert_eq!(keep, vec![true, true, false, true]);
+        // Fixed references (already-released worlds) suppress a near-duplicate
+        // candidate: [1,0.01] collapses onto the kept reference [1,0].
+        let refs = vec![unit(&[1.0, 0.0])];
+        let keep2 = select_diverse(&refs, &[unit(&[1.0, 0.01]), unit(&[0.0, 1.0])], 0.3);
+        assert_eq!(keep2, vec![false, true]);
+        // Deterministic + empty candidates is empty.
+        assert_eq!(select_diverse(&[], &cands, 0.3), keep);
+        assert!(select_diverse(&refs, &[], 0.3).is_empty());
     }
 
     #[test]

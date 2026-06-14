@@ -9,14 +9,15 @@
 
 [automaton]
 name = "Endpoint"
-states = ["Sampled", "UnderRepair", "Scored", "Weighted", "Discarded", "Failed"]
+states = ["Sampled", "Written", "UnderRepair", "Scored", "Weighted", "Discarded", "Failed"]
 initial = "Sampled"
 
-# ADR-0050: Sampled and UnderRepair are bounded in practice by the session
-# timeouts of the writer/repairer agents plus heartbeat monitoring; Scored
-# and Weighted persist for the life of the world (re-weighed on update).
-# Revisit with state_timeout once corridor run-time envelopes are measured.
-allow_indefinite_states = ["Sampled", "UnderRepair", "Scored", "Weighted"]
+# ADR-0050/ADR-006: Sampled (writer running), Written (bundle written, awaiting
+# the diversity gate), and UnderRepair are bounded in practice by writer/repairer
+# session timeouts + heartbeat monitoring; Scored and Weighted persist for the
+# life of the world (re-weighed on update). Revisit with state_timeout once
+# corridor run-time envelopes are measured.
+allow_indefinite_states = ["Sampled", "Written", "UnderRepair", "Scored", "Weighted"]
 
 # --- State Variables ---
 
@@ -81,6 +82,13 @@ name = "discard_reason"
 type = "string"
 initial = ""
 
+# ADR-006: the differentiate brief the diversity gate hands a re-steered writer
+# — which sibling future this endpoint collapsed onto, and to diverge from it.
+[[state]]
+name = "revision_brief"
+type = "string"
+initial = ""
+
 [[state]]
 name = "error_message"
 type = "string"
@@ -88,13 +96,42 @@ initial = ""
 
 # --- Actions ---
 
+# ADR-006: the writer self-reports its bundle here — NOT straight to repair.
+# The endpoint parks in Written until the diversity gate has seen every world's
+# bundle; the gate then releases the diverse ones via SubmitForRepair and
+# re-steers the collapsed ones via ReSteer. The trigger re-enters
+# sample_endpoints to run the all-written barrier check.
+[[action]]
+name = "BundleWritten"
+kind = "input"
+from = ["Sampled"]
+to = "Written"
+params = ["bundle_file_id", "summary", "author_agent_id"]
+hint = "Writer self-reports the bundle. Parks in Written for the diversity gate (ADR-006); the gate, not the writer, starts repair."
+effect = [{ type = "trigger", name = "sample_endpoints" }]
+
+[[action.triggers]]
+name = "sample_endpoints"
+kind = "wasm"
+module = "sample_endpoints"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
+
+
+# ADR-006: the diversity gate releases a world that survived the gate into
+# repair. System-only (the gate dispatches it; the writer no longer does). The
+# bundle was already recorded by BundleWritten.
 [[action]]
 name = "SubmitForRepair"
 kind = "input"
-from = ["Sampled"]
+from = ["Written"]
 to = "UnderRepair"
-params = ["bundle_file_id", "summary", "author_agent_id"]
-hint = "Writer self-reports the bundle. Spawns repairer sessions (Cedar: repairer is never the author)."
+params = []
+hint = "Diversity gate released this endpoint into repair (ADR-006). Spawns decomposer then repairer sessions. System principals only."
 effect = [{ type = "trigger", name = "decompose_endpoint" }]
 
 [[action.triggers]]
@@ -105,6 +142,30 @@ on_failure = "Fail"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+
+
+# ADR-006: the diversity gate found this world too close to a sibling and sends
+# it back to be rewritten with a brief to diverge. System-only. Re-enters
+# sample_endpoints to re-spawn the writer with the differentiate brief.
+[[action]]
+name = "ReSteer"
+kind = "input"
+from = ["Written"]
+to = "Sampled"
+params = ["revision_brief"]
+hint = "Diversity gate re-steers a collapsed world (ADR-006): rewrite to diverge from the named sibling. System principals only."
+effect = [{ type = "trigger", name = "sample_endpoints" }]
+
+[[action.triggers]]
+name = "sample_endpoints"
+kind = "wasm"
+module = "sample_endpoints"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
 
 
 [[action]]
@@ -195,10 +256,10 @@ hint = "World update re-derived this endpoint's weight. System principals only."
 [[action]]
 name = "Discard"
 kind = "input"
-from = ["Sampled", "UnderRepair", "Scored", "Weighted"]
+from = ["Sampled", "Written", "UnderRepair", "Scored", "Weighted"]
 to = "Discarded"
 params = ["discard_reason"]
-hint = "Repair cost too high, or the world moved away from this future."
+hint = "Repair cost too high, the world moved away from this future, or the diversity gate gave up re-steering a persistent near-duplicate (ADR-006)."
 
 [[action]]
 name = "Fail"

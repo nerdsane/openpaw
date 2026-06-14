@@ -1,6 +1,6 @@
 # ADR-006: Diverse worlds — named axes + an embedding diversity gate
 
-Status: Proposed (embedding capability Accepted/implemented; the gate is the open decision)
+Status: Accepted — option A (World barrier) chosen and implemented 2026-06-13
 Date: 2026-06-13
 
 ## Context
@@ -69,10 +69,24 @@ Cedar. First consumer shipped: the D2 reconcile backstop (ADR-005).
      `decompose_endpoint`.
 
    Recommendation: (A) — the barrier models the guarantee honestly and keeps
-   writer-spawning in one module; the cost is one orchestration phase. To be
-   confirmed before implementation, and verified live in a flagship run (the
-   gate's correctness — that it actually re-steers a collapsed world — can only
-   be seen end-to-end).
+   writer-spawning in one module; the cost is one orchestration phase.
+
+   **Decided: option A, implemented.** The writer self-reports `BundleWritten`
+   (Endpoint Sampled→Written, no decompose). `sample_endpoints` runs the
+   all-written barrier on each `BundleWritten`; when no endpoint is still
+   `Sampled`, it dispatches `World.GateDiversity` (round counter on the World).
+   The gate embeds each Written world's bundle-head (mxbai caps at 512 tokens,
+   so a ~1800-char head, not the 30KB bundle; claims don't exist pre-decompose),
+   greedily keeps the diverse ones via `select_diverse` against the already-
+   released references, releases them with `Endpoint.SubmitForRepair` (→
+   decompose → repair), and re-steers the collapsed ones with `Endpoint.ReSteer`
+   (re-spawn the writer with a "diverge from <nearest world's summary>" brief).
+   After `GATE_MAX_ROUNDS` (2) re-steer rounds a persistent near-duplicate is
+   Discarded. `DIVERSITY_MIN_DISTANCE` (0.15) is a tunable prior; the gate logs
+   per-round counts so it calibrates from real bundle distances. If the embedder
+   is unreachable the gate releases everything (loudly) rather than wedge the
+   pass. Correctness — that it actually re-steers a collapsed world — is verified
+   live in the flagship run.
 
 ## Consequences
 

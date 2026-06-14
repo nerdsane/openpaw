@@ -152,6 +152,14 @@ name = "check_count"
 type = "string"
 initial = "0"
 
+# ADR-006: how many diversity-gate rounds this pass has run. Bounds the
+# re-steer loop — after the cap, the gate discards persistent near-duplicates
+# rather than re-steering forever.
+[[state]]
+name = "gate_rounds"
+type = "string"
+initial = "0"
+
 [[state]]
 name = "last_adjudication_date"
 type = "string"
@@ -214,6 +222,31 @@ on_failure = "Fail"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+
+
+# ADR-006: the diversity gate. Dispatched by the all-written barrier (in
+# sample_endpoints, on Endpoint.BundleWritten) once every endpoint has a
+# bundle. Re-enters sample_endpoints to embed the written worlds, release the
+# diverse ones into repair (Endpoint.SubmitForRepair) and re-steer the
+# collapsed ones (Endpoint.ReSteer). gate_rounds bounds the loop. System only.
+[[action]]
+name = "GateDiversity"
+kind = "input"
+from = ["Active"]
+params = ["gate_rounds"]
+hint = "Run the diversity gate over the written worlds (ADR-006). System principals only."
+effect = [{ type = "trigger", name = "sample_endpoints" }]
+
+[[action.triggers]]
+name = "sample_endpoints"
+kind = "wasm"
+module = "sample_endpoints"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
 
 
 [[action]]

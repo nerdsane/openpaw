@@ -319,6 +319,7 @@
         <Property Name="PersonasJson" Type="Edm.String"/>
         <Property Name="DwellerIds" Type="Edm.String"/>
         <Property Name="CheckCount" Type="Edm.String"/>
+        <Property Name="GateRounds" Type="Edm.String"/>
         <Property Name="LastAdjudicationDate" Type="Edm.String"/>
         <Property Name="LastIngestDate" Type="Edm.String"/>
         <Property Name="UpdateCauseNodeId" Type="Edm.String"/>
@@ -363,6 +364,7 @@
         <Property Name="CheckCount" Type="Edm.String"/>
         <Property Name="Weight" Type="Edm.String"/>
         <Property Name="DiscardReason" Type="Edm.String"/>
+        <Property Name="RevisionBrief" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
       </EntityType>
 
@@ -524,6 +526,11 @@
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
         <ReturnType Type="TemperPaw.Foresight.World"/>
       </Action>
+      <Action Name="GateDiversity" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
+        <Parameter Name="gate_rounds" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.World"/>
+      </Action>
       <Action Name="PathsScored" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
         <Parameter Name="canonical_path_id" Type="Edm.String" Nullable="true"/>
@@ -621,11 +628,20 @@
         <ReturnType Type="TemperPaw.Foresight.EventNode"/>
       </Action>
 
-      <Action Name="SubmitForRepair" IsBound="true">
+      <Action Name="BundleWritten" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
         <Parameter Name="bundle_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="summary" Type="Edm.String" Nullable="true"/>
         <Parameter Name="author_agent_id" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
+      </Action>
+      <Action Name="SubmitForRepair" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
+        <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
+      </Action>
+      <Action Name="ReSteer" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.Endpoint"/>
+        <Parameter Name="revision_brief" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.Endpoint"/>
       </Action>
       <Action Name="PathsAttached" IsBound="true">
