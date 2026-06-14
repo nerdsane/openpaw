@@ -317,8 +317,8 @@ temper_api_url = "{secret:temper_api_url}"
 name = "SpawnNextDweller"
 kind = "input"
 from = ["Active"]
-params = ["check_count"]
-hint = "Bounded self-loop: spawn the next chunk of dweller sessions under admission caps (ADR-0005)."
+params = ["dweller_ids", "check_count"]
+hint = "Bounded self-loop: spawn the next chunk of dweller sessions under admission caps (ADR-0005). dweller_ids is set on the first tick (from DwellersCast) and persists across re-ticks; Cedar permits this action but not a raw World PATCH, so the roster rides as a param."
 effect = [{ type = "trigger", name = "animate_dwellers" }]
 
 [[action.triggers]]

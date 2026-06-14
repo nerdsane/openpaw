@@ -545,6 +545,7 @@
       </Action>
       <Action Name="SpawnNextDweller" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
+        <Parameter Name="dweller_ids" Type="Edm.String" Nullable="true"/>
         <Parameter Name="check_count" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.World"/>
       </Action>

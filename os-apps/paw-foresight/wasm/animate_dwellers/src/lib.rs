@@ -659,21 +659,19 @@ fn phase_create_dwellers(ctx: &Context, fields: &Value) -> Result<(), String> {
         dweller_ids.push(dweller_id);
     }
 
-    // Persist the roster for the fan-out loop, then start it.
-    let patch = json!({ "dweller_ids": serde_json::to_string(&dweller_ids).unwrap_or_default() });
-    let r = ctx.http_call(
-        "PATCH",
-        &format!("{api}/tdata/Worlds('{world_id}')"),
-        &headers,
-        &patch.to_string(),
-    )?;
-    if r.status >= 400 {
-        return Err(format!(
-            "PATCH Worlds('{world_id}') dweller_ids failed (HTTP {})",
-            r.status
-        ));
-    }
-    set_success_result("SpawnNextDweller", &json!({ "check_count": "0" }));
+    // Persist the roster and start the fan-out in one transition. dweller_ids
+    // rides as a SpawnNextDweller param (like check_count) rather than a raw
+    // PATCH: Cedar permits system flows to dispatch the action but not to PATCH
+    // a World's fields, and state vars are set via action params anyway
+    // (entity-first). Once set here it persists across the omitting re-ticks,
+    // exactly as name/target_date/canonical_path_id do.
+    set_success_result(
+        "SpawnNextDweller",
+        &json!({
+            "dweller_ids": serde_json::to_string(&dweller_ids).unwrap_or_default(),
+            "check_count": "0",
+        }),
+    );
     Ok(())
 }
 
