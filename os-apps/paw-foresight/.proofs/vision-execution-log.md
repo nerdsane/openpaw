@@ -44,9 +44,9 @@ never touch the corridor, "diverse" worlds with ~0 embedding distance.
 | M5 | Diversity gate (D3): barrier + embed + re-steer | ✅ shipped + **verified live in run-1c** (gate fired, re-steered, discarded duplicate) |
 | M5b | Named-axes sampling (D3 sampling side) | ✅ shipped (960845b6) — surveyor names axes, anti-modal worlds invert distinct named axes |
 | M6 | D4: synthesis panel (DSF) + hindcast embedding matching | ✅ shipped — synthesis panel (DSF, type-clean) + grade_hindcast embedding match (01533476) |
-| M7 | Full flagship run WITH dweller stories, in DSF 2.0 UI | 🔨 run-1b launched 2026-06-13 23:54 |
-| M8 | Quality evaluation: true-foresight vs performative critique | ⏳ |
-| M9 | Iterate (fix → re-run) until vision executed | ⏳ |
+| M7 | Full flagship run WITH dweller stories, in DSF 2.0 UI | ✅ **run-1c**: 8 claims, 85 forecasts, 3 dwellers, 3 stories, all visible at localhost:3000/world/en-019ec480… |
+| M8 | Quality evaluation: true-foresight vs performative critique | ✅ **verdict: genuine foresight** (evidence below) |
+| M9 | Iterate (fix → re-run) until vision executed | 🔨 next: diverse multi-endpoint named-axes run + 2045 showcase |
 | M10 | Deploy + cutover (C7/C8) | ⏳ needs Rita gates |
 
 ## Iteration log
@@ -118,6 +118,50 @@ The file-backed SQLite (turso `file:`) contends under session concurrency — th
 OTS-trajectory writes throw `database is locked` (handled, non-fatal) and the
 shared write lock throttles dispatch. Inherent to local dev; Postgres on Railway
 won't have it. So local runs are slow but progress; not a bug.
+
+## Evaluation — run-1c: genuine foresight, not performative (2026-06-14)
+
+World `en-019ec480…` (six-month AI coding tools). Judged against the vision bar
+above — structural metrics (`evaluate_world.py`) + reading the actual content.
+
+**Verdict: genuine foresight.** Evidence:
+- **Dates earned** — 83 authored nodes, only 6% round/tidy (06-15, 06-29, 08-12,
+  10-07, 11-25…). The repairer derived irregular, reasoned dates.
+- **Grounding held** — 85 forecasts, **0 restate a determined fact** (the
+  reconcile backstop worked; G1's free-resolving-fact poison is gone).
+- **Routes are real causal chains** — every route has 4–6 dated intermediate
+  EventNodes; 79/100 nodes carry `depends_on` edges (a real dependency graph);
+  repair costs vary 125–310 (real strain, not uniform).
+- **Claims are specific + falsifiable** — EU AI Act/CRA obligations active by
+  Dec 2026; GitHub's spring Copilot capacity controls restrict sign-ups;
+  multi-vendor market (Copilot/Cursor/Claude Code/Amazon Q/Gemini); seats→runs
+  consumption shift. Not prompt restatements.
+- **Dwellers grounded + engaged** — 3 specific personas (a payments eng-enablement
+  director, an EU-reg security reviewer in Munich, an AWS logistics platform
+  lead), each traversed the canonical route; 3/3 stories Published through the gate.
+- **The story is load-bearing on the corridor** — "The Named Owner" (Maya)
+  dramatizes the exact claims and the route's dated steps (Aug vendor compliance
+  docs → Sept gate live → Sept 11 incident paths), and even captures the
+  *strained* verdict ("the gain is real but not magical"). It cites the world's
+  node ids. This is embodied foresight, not generic sci-fi.
+
+**Findings / next-iteration tuning (not blockers):**
+- All 8 claims settled *strained* (cost 125–205, > the reachable bound 120): the
+  engine genuinely finds these near-term futures hard to bridge honestly —
+  itself a real foresight signal, but worth watching that nothing settles
+  *reachable*.
+- Diversity: budget-2 generic stances collapsed; the gate re-steered then
+  discarded the twin — but the discarded twin's FINAL summary was actually
+  distinct (0.298 > 0.15). The re-steer was working; `GATE_MAX_ROUNDS=2` cut it
+  off one round early. Moot once **named axes** make worlds distinct from the
+  start (shipped); consider raising the cap to 3 for generic-stance fallback.
+- 1 surviving endpoint → the synthesis panel renders but has no cross-world
+  agreement to show. It needs a multi-endpoint run (named axes) to shine.
+- Corridor is slow locally (file-SQLite write contention); fine on Postgres.
+
+**Next iteration:** a diverse multi-endpoint run on the named-axes engine
+(restart + budget 3) to exercise distinct worlds + the synthesis panel, then the
+2045 deep-sci-fi showcase world.
 
 ## Plan status — D0–D4 fully implemented (2026-06-14)
 
