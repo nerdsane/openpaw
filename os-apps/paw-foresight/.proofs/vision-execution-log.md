@@ -197,7 +197,60 @@ So named-axes + summary-gate → 2 distinct worlds kept. The only thing unproven
 live is the full 2-world *corridor* (claims/routes/stories for both + the
 synthesis panel showing cross-world agreement), which needs a clean environment.
 
+### Run-2 (budget 3, fixed gate) — the summary-gate fix was necessary but NOT sufficient
+
+Re-examining the settled worlds on 2026-06-14 (continuation session) overturned
+the "diversity is proven" claim below. Two worlds produced *with* the summary-gate
+code (6ab85c3d) were still collapsed to one:
+- **run-1c (`en-019ec480`)**: EP1 "managed-enterprise consolidation" vs EP2
+  "maintainer-priced patch-market / escrowed provenance-rich PRs". Final stored
+  summaries measured **0.298 apart** (distinct), yet EP2 is `Discarded`
+  ("near-duplicate after 2 re-steer rounds"). So run-1c is a **single live world**
+  — the DSF synthesis panel correctly reports "this run produced 1".
+- **ec4d2 (run-1d)**: EP "mature market" vs EP "enterprise autonomy collapses to
+  read-only/draft". Final summaries **0.254 apart** (distinct), yet one Discarded.
+  The gate log shows the decision: `gate round 1 — 2 candidates, 0 references,
+  kept 1` at 06:35:42 — measured <0.15 *at gate time*.
+
+**Deeper root cause (the real bug):** `phase_gate` read each endpoint's `Summary`
+from the **OData list projection**, which lags the authoritative state that
+`BundleWritten` had just committed. When the just-written endpoint showed up with
+an empty summary, the code fell back to the **bundle-HEAD** — the exact 0.11
+false-collapse signal 6ab85c3d was meant to retire. So 6ab85c3d embedded the
+summary *only when the projection happened to carry it*; under projection lag it
+silently reverted to the head and collapsed distinct worlds. The offline
+calibration (0.298 measured by hand) never exercised the lag, so the gap hid.
+
+**Complete fix (this session, TDD'd — sample_endpoints):**
+- `phase_gate` now re-reads every endpoint **authoritatively** (`fetch_entity`,
+  the single-entity GET that hits the actor's committed state), never the lagging
+  list projection, for the summary.
+- The **bundle-head fallback is deleted** (`fetch_bundle_head` + `BUNDLE_HEAD_CHARS`
+  removed). The head is a known-bad signal; it must never drive a discard.
+- New pure `gate_decision(has_summary, diverse, rounds)` (host-tested): a world we
+  **cannot measure** (summary still absent after the authoritative read) is
+  **Released, never collapsed** — missing signal is never grounds for a discard.
+- Default `endpoint_budget` is already 3, so after a correct gate ≥2 distinct
+  worlds survive (the stale worlds were created with explicit budget 2).
+
+Verified: 12/12 host tests green; wasm rebuilt (`8360a1ef…`); server restarted on
+the same DB (2.7 GB backed up to `corridor-e2e.db.bak` — it holds the Codex OAuth
+tokens) and confirmed it registered `sample_endpoints` hash `8360a1ef…`. Launched
+**run-2 `en-019ec671`** (six-month world, budget 3) on the corrected gate;
+monitored to stories. (Correction to run-1e's note: `en-019ec4db` wedged because
+the **surveyor stalled at seed** and World `Seeding` has no `state_timeout` to
+recover — a one-off transient, since three sibling worlds seeded fine; the 2.7 GB
+DB is real but did not block run-2's seed.)
+
 ## Conclusion (2026-06-14)
+
+> **Superseded by Run-2 above (continuation session).** The "diversity is proven"
+> claim here was premature: it rested on an offline summary-distance measurement,
+> not a live gate decision. Live, the gate still false-collapsed distinct worlds
+> (run-1c and ec4d2 both settled as single live worlds) until the
+> authoritative-read fix above. run-1c remains a genuine engine-made world with
+> stories; it is just not the *diverse portfolio* the vision requires. The
+> diverse-portfolio proof is run-2 (`en-019ec671`), in flight.
 
 **The vision is executed.** run-1c is a full engine-made world with grounded
 dweller stories, live in DSF 2.0, evaluated as genuine foresight — every artifact

@@ -355,10 +355,39 @@ const DIVERSITY_MIN_DISTANCE: f32 = 0.15;
 /// near-duplicate (bounds the loop; ADR-006).
 const GATE_MAX_ROUNDS: usize = 2;
 
-/// Chars of each bundle to embed. mxbai-embed-large caps at ~512 tokens, so the
-/// whole 30KB bundle cannot be embedded; the head (the dated retrospective that
-/// opens every bundle) is the diversity signal available pre-decomposition.
-const BUNDLE_HEAD_CHARS: usize = 1800;
+/// The gate's per-candidate verdict. Factored out of `phase_gate` so the policy
+/// is pure and testable without HTTP.
+#[derive(Debug, PartialEq, Eq)]
+enum GateVerdict {
+    /// Release the world into repair (distinct, or not yet measurable).
+    Release,
+    /// Near-duplicate, rounds remain — rewrite it on a divergence brief.
+    ReSteer,
+    /// Near-duplicate after the round cap — drop it.
+    Discard,
+}
+
+/// Decide a candidate world's fate. Two invariants beyond the obvious
+/// distinct→Release / duplicate→ReSteer→Discard ladder:
+///
+/// 1. A world we *cannot measure* (`has_summary == false`) is NEVER collapsed.
+///    The diversity decision keys on the SUMMARY (a world's thesis); the
+///    OData list projection can lag the authoritative summary that
+///    `BundleWritten` just committed. Gating on an absent summary used to fall
+///    back to the bundle-HEAD — a known false-collapse signal (two 0.25-distinct
+///    futures measured 0.11 on their shared dated-market heads, run-1c/ec4d2).
+///    So missing signal → Release, never Discard.
+/// 2. Discard only fires once the re-steer rounds are spent (`rounds >=
+///    GATE_MAX_ROUNDS`), so a persistent duplicate is bounded, not immortal.
+fn gate_decision(has_summary: bool, diverse: bool, rounds: usize) -> GateVerdict {
+    if !has_summary || diverse {
+        GateVerdict::Release
+    } else if rounds < GATE_MAX_ROUNDS {
+        GateVerdict::ReSteer
+    } else {
+        GateVerdict::Discard
+    }
+}
 
 fn row_str<'a>(row: &'a Value, pascal: &str) -> &'a str {
     fn snake(p: &str) -> String {
@@ -527,39 +556,6 @@ fn fetch_embeddings(ctx: &Context, texts: &[String]) -> Option<Vec<Vec<f32>>> {
         return None;
     }
     Some(vecs)
-}
-
-/// The first BUNDLE_HEAD_CHARS chars of an endpoint's bundle, at a char
-/// boundary — the diversity signal. Empty string if unreadable.
-fn fetch_bundle_head(
-    ctx: &Context,
-    api: &str,
-    headers: &[(String, String)],
-    bundle_file_id: &str,
-) -> String {
-    if bundle_file_id.is_empty() {
-        return String::new();
-    }
-    match ctx.http_call(
-        "GET",
-        &format!("{api}/tdata/Files('{bundle_file_id}')/$value"),
-        headers,
-        "",
-    ) {
-        Ok(r) if (200..300).contains(&r.status) => {
-            let body = r.body;
-            if body.len() <= BUNDLE_HEAD_CHARS {
-                body
-            } else {
-                let mut end = BUNDLE_HEAD_CHARS;
-                while !body.is_char_boundary(end) {
-                    end -= 1;
-                }
-                body[..end].to_string()
-            }
-        }
-        _ => String::new(),
-    }
 }
 
 /// The per-world context every writer session needs, gathered once.
@@ -777,35 +773,39 @@ fn phase_gate(ctx: &Context) -> Result<(), String> {
     let headers = system_headers(ctx, &world_id);
     let rounds = world.get("gate_rounds").and_then(|v| v.as_str()).unwrap_or("0").parse::<usize>().unwrap_or(0);
 
-    let endpoints = list(ctx, &api, &headers, "Endpoints", &format!("world_id eq '{world_id}'"))?;
-    // Released worlds are fixed references; written worlds are this round's candidates.
-    let mut ref_heads: Vec<String> = Vec::new();
+    let endpoint_rows = list(ctx, &api, &headers, "Endpoints", &format!("world_id eq '{world_id}'"))?;
+
+    // Re-read each endpoint AUTHORITATIVELY. The OData list projection lags the
+    // summary that BundleWritten just committed; the old gate read the lagging
+    // (empty) summary, fell back to the bundle-HEAD, and false-collapsed distinct
+    // futures (two 0.25-apart worlds measured 0.11 on their shared dated-market
+    // heads — run-1c/ec4d2). We now gate on the SUMMARY only, read from the
+    // entity actor's committed state. Released worlds (UnderRepair/Scored/
+    // Weighted) are fixed references; Written worlds are this round's candidates.
     let mut ref_summaries: Vec<String> = Vec::new();
     let mut cand_ids: Vec<String> = Vec::new();
-    let mut cand_heads: Vec<String> = Vec::new();
     let mut cand_summaries: Vec<String> = Vec::new();
-    for e in &endpoints {
-        let id = row_id(e).to_string();
-        let summary = row_str(e, "Summary").to_string();
-        // ADR-006 (calibrated on run-1d): gate on the SUMMARY — it carries a
-        // world's thesis/divergence (modal vs anti-modal-on-axis measured 0.298
-        // apart), while the bundle-HEAD's shared dated-market retrospective
-        // drowns a single-axis fork (the same pair measured only 0.111, a false
-        // collapse). Fall back to the bundle-head only when a summary is missing.
-        let text = if !summary.trim().is_empty() {
-            summary.clone()
-        } else {
-            fetch_bundle_head(ctx, &api, &headers, &row_str(e, "BundleFileId").to_string())
+    for row in &endpoint_rows {
+        let id = row_id(row).to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let entity = fetch_entity(ctx, &api, &headers, "Endpoints", &id);
+        let (status, summary) = match &entity {
+            Some(e) => (row_status(e).to_string(), row_str(e, "Summary").trim().to_string()),
+            // Authoritative read failed: trust the list row's status and treat the
+            // summary as unmeasurable -> Release (never collapse on missing signal).
+            None => (row_status(row).to_string(), String::new()),
         };
-        match row_status(e) {
+        match status.as_str() {
             "Written" => {
                 cand_ids.push(id);
-                cand_heads.push(text);
                 cand_summaries.push(summary);
             }
             "UnderRepair" | "Scored" | "Weighted" => {
-                ref_heads.push(text);
-                ref_summaries.push(summary);
+                if !summary.is_empty() {
+                    ref_summaries.push(summary);
+                }
             }
             _ => {}
         }
@@ -816,71 +816,81 @@ fn phase_gate(ctx: &Context) -> Result<(), String> {
         return Ok(());
     }
 
-    // Embed references + candidates in one batch.
-    let mut all = ref_heads.clone();
-    all.extend(cand_heads.clone());
-    let keep: Vec<bool> = match fetch_embeddings(ctx, &all) {
-        Some(vecs) => {
-            let ref_vecs = vecs[..ref_heads.len()].to_vec();
-            let cand_vecs = vecs[ref_heads.len()..].to_vec();
-            // For the re-steer brief: which kept/ref world each collapsed one is nearest.
-            let decisions = corridor_embed::select_diverse(&ref_vecs, &cand_vecs, DIVERSITY_MIN_DISTANCE);
-            // Log the round's pairwise floor for calibration.
-            ctx.log(
-                "info",
-                &format!(
-                    "sample_endpoints: gate round {rounds} — {} candidates, {} references, kept {}",
-                    cand_ids.len(),
-                    ref_heads.len(),
-                    decisions.iter().filter(|k| **k).count()
-                ),
-            );
-            // Stash vectors for nearest-sibling briefs.
-            // (kept candidates also become references as select_diverse walks.)
-            let _ = &cand_vecs;
-            decisions
+    // Only candidates with a readable summary are measured. Default diverse=true
+    // so an unmeasurable candidate (or a down embedder) is released, never
+    // collapsed.
+    let measurable: Vec<usize> = (0..cand_ids.len())
+        .filter(|&i| !cand_summaries[i].is_empty())
+        .collect();
+    let mut diverse = vec![true; cand_ids.len()];
+    if !measurable.is_empty() {
+        let mut batch = ref_summaries.clone();
+        for &i in &measurable {
+            batch.push(cand_summaries[i].clone());
         }
-        None => {
-            // No embedder: never wedge the pass — release everything, loudly.
-            ctx.log(
-                "warn",
-                "sample_endpoints: embedder unreachable; gate releasing all worlds undiverse-checked",
-            );
-            vec![true; cand_ids.len()]
-        }
-    };
-
-    for (i, keep_it) in keep.iter().enumerate() {
-        if *keep_it {
-            dispatch(ctx, &api, &headers, "Endpoints", &cand_ids[i], "SubmitForRepair", &json!({}))?;
-            ctx.log("info", &format!("sample_endpoints: gate released world {} into repair", cand_ids[i]));
-        } else if rounds < GATE_MAX_ROUNDS {
-            // Brief the rewrite on the kept world it most resembles.
-            let nearest_summary = ref_summaries
-                .iter()
-                .chain(cand_summaries.iter())
-                .find(|s| !s.is_empty())
-                .cloned()
-                .unwrap_or_else(|| "another world being explored in parallel".to_string());
-            let brief = format!(
-                "Your future read too close to: \"{}\". Diverge on the load-bearing mechanism, not the wording.",
-                nearest_summary
-            );
-            dispatch(ctx, &api, &headers, "Endpoints", &cand_ids[i], "ReSteer", &json!({ "revision_brief": brief }))?;
-            ctx.log("info", &format!("sample_endpoints: gate re-steering collapsed world {} (round {rounds})", cand_ids[i]));
-        } else {
-            dispatch(
-                ctx,
-                &api,
-                &headers,
-                "Endpoints",
-                &cand_ids[i],
-                "Discard",
-                &json!({ "discard_reason": format!("diversity gate: still a near-duplicate after {GATE_MAX_ROUNDS} re-steer rounds") }),
-            )?;
-            ctx.log("info", &format!("sample_endpoints: gate discarded persistent near-duplicate {}", cand_ids[i]));
+        match fetch_embeddings(ctx, &batch) {
+            Some(vecs) => {
+                let ref_vecs = vecs[..ref_summaries.len()].to_vec();
+                let cand_vecs = vecs[ref_summaries.len()..].to_vec();
+                let decisions = corridor_embed::select_diverse(&ref_vecs, &cand_vecs, DIVERSITY_MIN_DISTANCE);
+                for (k, &i) in measurable.iter().enumerate() {
+                    diverse[i] = *decisions.get(k).unwrap_or(&true);
+                }
+            }
+            None => {
+                ctx.log(
+                    "warn",
+                    "sample_endpoints: embedder unreachable; gate releasing all worlds undiverse-checked",
+                );
+            }
         }
     }
+
+    let nearest_summary = ref_summaries
+        .iter()
+        .chain(cand_summaries.iter())
+        .find(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "another world being explored in parallel".to_string());
+    let mut released = 0usize;
+    for i in 0..cand_ids.len() {
+        let has_summary = !cand_summaries[i].is_empty();
+        match gate_decision(has_summary, diverse[i], rounds) {
+            GateVerdict::Release => {
+                dispatch(ctx, &api, &headers, "Endpoints", &cand_ids[i], "SubmitForRepair", &json!({}))?;
+                ctx.log("info", &format!("sample_endpoints: gate released world {} into repair", cand_ids[i]));
+                released += 1;
+            }
+            GateVerdict::ReSteer => {
+                let brief = format!(
+                    "Your future read too close to: \"{}\". Diverge on the load-bearing mechanism, not the wording.",
+                    nearest_summary
+                );
+                dispatch(ctx, &api, &headers, "Endpoints", &cand_ids[i], "ReSteer", &json!({ "revision_brief": brief }))?;
+                ctx.log("info", &format!("sample_endpoints: gate re-steering collapsed world {} (round {rounds})", cand_ids[i]));
+            }
+            GateVerdict::Discard => {
+                dispatch(
+                    ctx,
+                    &api,
+                    &headers,
+                    "Endpoints",
+                    &cand_ids[i],
+                    "Discard",
+                    &json!({ "discard_reason": format!("diversity gate: still a near-duplicate after {GATE_MAX_ROUNDS} re-steer rounds") }),
+                )?;
+                ctx.log("info", &format!("sample_endpoints: gate discarded persistent near-duplicate {}", cand_ids[i]));
+            }
+        }
+    }
+    ctx.log(
+        "info",
+        &format!(
+            "sample_endpoints: gate round {rounds} — {} candidates, {} references, released {released}",
+            cand_ids.len(),
+            ref_summaries.len()
+        ),
+    );
     set_success_result("", &json!({}));
     Ok(())
 }
@@ -1009,6 +1019,30 @@ mod tests {
         // No axes at all -> modal first, generic anti-modal after.
         assert!(driver_stance(0, &[]).starts_with("modal:"));
         assert!(driver_stance(1, &[]).starts_with("anti-modal:"));
+    }
+
+    #[test]
+    fn gate_never_collapses_a_world_it_cannot_measure() {
+        // The bug behind run-1c/ec4d2: the gate read the SUMMARY from the lagging
+        // list projection, found it empty, fell back to the bundle-HEAD (a false
+        // 0.11 collapse on shared dated-market heads), and discarded a genuinely
+        // distinct future. A world with no readable summary must be RELEASED, not
+        // collapsed — even at the round cap.
+        assert_eq!(gate_decision(false, false, 0), GateVerdict::Release);
+        assert_eq!(gate_decision(false, false, GATE_MAX_ROUNDS), GateVerdict::Release);
+        assert_eq!(gate_decision(false, true, 0), GateVerdict::Release);
+    }
+
+    #[test]
+    fn gate_releases_distinct_resteers_then_discards_duplicates() {
+        // Distinct world -> straight into repair.
+        assert_eq!(gate_decision(true, true, 0), GateVerdict::Release);
+        assert_eq!(gate_decision(true, true, GATE_MAX_ROUNDS), GateVerdict::Release);
+        // Near-duplicate with rounds left -> re-steer.
+        assert_eq!(gate_decision(true, false, 0), GateVerdict::ReSteer);
+        assert_eq!(gate_decision(true, false, GATE_MAX_ROUNDS - 1), GateVerdict::ReSteer);
+        // Near-duplicate past the round cap -> discard (the loop is bounded).
+        assert_eq!(gate_decision(true, false, GATE_MAX_ROUNDS), GateVerdict::Discard);
     }
 
     #[test]

@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "corridor-embed"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -36,6 +43,7 @@ dependencies = [
 name = "sample-endpoints"
 version = "0.1.0"
 dependencies = [
+ "corridor-embed",
  "serde_json",
  "temper-wasm-sdk",
 ]
