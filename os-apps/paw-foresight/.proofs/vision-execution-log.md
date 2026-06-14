@@ -41,9 +41,9 @@ never touch the corridor, "diverse" worlds with ~0 embedding distance.
 | M2 | Dweller-spine fix (World-PATCH→param) — stories can now be produced | ✅ shipped |
 | M3 | Embedding capability (D1) + reconcile + lag table (D2) | ✅ shipped, live-calibrated |
 | M4 | ADR-005 grounding + ADR-006 diversity | ✅ written |
-| M5 | Diversity gate (D3): barrier + embed + re-steer | 🔨 in progress |
-| M6 | D4: synthesis panel (DSF) + hindcast embedding matching | ⏳ |
-| M7 | Full flagship run WITH dweller stories, in DSF 2.0 UI | ⏳ (the headline) |
+| M5 | Diversity gate (D3): barrier + embed + re-steer | ✅ shipped (871b41c1); live in run-1b |
+| M6 | D4: synthesis panel (DSF) + hindcast embedding matching | ⏳ (after first evaluation) |
+| M7 | Full flagship run WITH dweller stories, in DSF 2.0 UI | 🔨 run-1b launched 2026-06-13 23:54 |
 | M8 | Quality evaluation: true-foresight vs performative critique | ⏳ |
 | M9 | Iterate (fix → re-run) until vision executed | ⏳ |
 | M10 | Deploy + cutover (C7/C8) | ⏳ needs Rita gates |
@@ -64,8 +64,17 @@ Also surfaced: liveness deadlock on wedged stragglers (M1), grounding gaps G1/G2
   bundle-heads, reconcile embeds statements.
 - `frontier_date` is the scoreable horizon, NOT "today" (no stored present-date).
 
+### Run-1b (six-month world, budget 2) — first run on the D0–D3 engine
+World `en-019ec443-…4ceb6b08a74f`. Engine restarted clean on the release build
+(all 13 modules registered; sample_endpoints hash verified = my D3 build).
+Ollama embedder live (:11434). Watching for: the diversity gate firing
+(BundleWritten → barrier → GateDiversity → release/re-steer — the live D3 proof),
+the dweller spine producing stories (live M2/C4 proof), and grounding/reconcile.
+Launched 2026-06-13 23:54; monitor armed.
+
 ## Next actions
-1. Finish D3 diversity gate (barrier + gate + re-steer), specs/CSDL/Cedar + tests.
-2. D4 synthesis panel + hindcast matching.
-3. Reinstall app on the release server; launch the flagship run; drive to stories.
-4. Evaluate the produced world against the vision bar above; log findings; iterate.
+1. [in flight] Run-1b → stories; verify gate fired + dweller stories Published.
+2. Evaluate run-1b against the vision bar above (true foresight vs performative);
+   log findings here.
+3. Build D4 synthesis panel (DSF) informed by the evaluation; D4 hindcast matching.
+4. Iterate (fix → re-run), scale budget up, then the 2045 deep-sci-fi showcase world.
