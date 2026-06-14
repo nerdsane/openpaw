@@ -41,7 +41,8 @@ never touch the corridor, "diverse" worlds with ~0 embedding distance.
 | M2 | Dweller-spine fix (World-PATCH→param) — stories can now be produced | ✅ shipped |
 | M3 | Embedding capability (D1) + reconcile + lag table (D2) | ✅ shipped, live-calibrated |
 | M4 | ADR-005 grounding + ADR-006 diversity | ✅ written |
-| M5 | Diversity gate (D3): barrier + embed + re-steer | ✅ shipped (871b41c1); live in run-1b |
+| M5 | Diversity gate (D3): barrier + embed + re-steer | ✅ shipped + **verified live in run-1c** (gate fired, re-steered, discarded duplicate) |
+| M5b | Named-axes sampling (D3 sampling side) | ✅ shipped (960845b6) — surveyor names axes, anti-modal worlds invert distinct named axes |
 | M6 | D4: synthesis panel (DSF) + hindcast embedding matching | ⏳ (after first evaluation) |
 | M7 | Full flagship run WITH dweller stories, in DSF 2.0 UI | 🔨 run-1b launched 2026-06-13 23:54 |
 | M8 | Quality evaluation: true-foresight vs performative critique | ⏳ |
@@ -85,8 +86,38 @@ relay permits. Fixed (275030a3) + regression test. Run-1b abandoned.
 
 ### Run-1c (six-month world, budget 2) — on the relay-fixed engine
 World `en-019ec480-…c594ada8bbd8`. Server restarted with the fixed Cedar (active
-policy verified to grant BundleWritten at the relay). Launched 2026-06-14 00:59;
-monitor armed. Watching the same milestones (gate firing, stories).
+policy verified to grant BundleWritten at the relay). Launched 2026-06-14 00:59.
+
+**Live proofs (the gate works):**
+- BundleWritten succeeded for both writers → relay fix verified end-to-end.
+- The barrier correctly waited for the 2nd writer, then fired GateDiversity.
+- Round 1: released the diverse world into repair, re-steered the collapsed twin.
+- Round 2: the twin was still a near-duplicate → **discarded** after the cap.
+- The surviving world decomposed into 8 claims and entered the corridor.
+
+**Key finding — diversity GATE works, but diversity SAMPLING is weak.** The
+generic "anti-modal" stance converged onto the modal one (run-1's exact G2
+failure), so budget-2 collapsed to ONE distinct world (gate correctly refused to
+spend corridor sessions on the duplicate). The gate is the safety net; it cannot
+manufacture diversity that the sampling never created. **#1 iteration item: the
+named-axes sampling (the deferred half of D3, ADR-006) — the surveyor names the
+top-K uncertainty axes and each anti-modal world inverts a NAMED axis, so the
+stances are genuinely divergent before the gate ever runs.** Until then, a real
+multi-world portfolio needs higher budget AND named axes, not budget alone.
+
+(Consequence for this run: 1 endpoint → the synthesis panel has no cross-world
+agreement to show; it shines only with >=2 distinct endpoints.)
+
+**Named-axes fix shipped (960845b6)** while run-1c grinds — the next run will
+produce distinct worlds by construction. run-1c keeps running on the loaded
+(pre-named-axes) wasm to finish a 1-endpoint world with stories (the spine
+proof); a diverse multi-world run comes next, after evaluating run-1c.
+
+**Corridor pace note:** ~16 min for the first claim to settle (8 claims total).
+The file-backed SQLite (turso `file:`) contends under session concurrency — the
+OTS-trajectory writes throw `database is locked` (handled, non-fatal) and the
+shared write lock throttles dispatch. Inherent to local dev; Postgres on Railway
+won't have it. So local runs are slow but progress; not a bug.
 
 ## Next actions
 1. [in flight] Run-1b → stories; verify gate fired + dweller stories Published.
