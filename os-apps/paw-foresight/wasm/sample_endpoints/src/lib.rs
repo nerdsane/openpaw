@@ -32,24 +32,58 @@ fn endpoint_budget(raw: &str) -> usize {
     raw.trim().parse::<usize>().unwrap_or(3).min(5)
 }
 
-/// Deterministic driver stance for the i-th endpoint writer. Slot 0 is the
-/// modal future; every later slot is anti-modal on one load-bearing
-/// uncertainty so the pass spans the distribution instead of resampling
-/// consensus. Pure: same i, same stance, on every rerun.
-fn driver_stance(i: usize) -> String {
-    match i {
-        0 => "modal: take the consensus view on every major uncertainty".to_string(),
-        1 => "anti-modal: take the 85th-percentile-surprise view on the domain's single most \
-              load-bearing uncertainty, consensus elsewhere"
-            .to_string(),
-        2 => "anti-modal: take the 15th-percentile (disappointment) view on the domain's single \
-              most load-bearing uncertainty, consensus elsewhere"
-            .to_string(),
-        _ => format!(
-            "anti-modal: pick the {i}-th most load-bearing uncertainty and take a tail view on \
-             it, consensus elsewhere"
-        ),
+/// Parse the surveyor's named uncertainty axes (ADR-006): a JSON array of
+/// {"axis": "...", "consensus_pole": "..."}.
+fn parse_axes(raw: &str) -> Vec<(String, String)> {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| {
+                    let axis = o.get("axis").and_then(|x| x.as_str())?.trim();
+                    if axis.is_empty() {
+                        return None;
+                    }
+                    let pole = o
+                        .get("consensus_pole")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    Some((axis.to_string(), pole.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Deterministic driver stance for the i-th endpoint writer (ADR-006). Slot 0
+/// is the modal future. Each later slot inverts a DIFFERENT named uncertainty
+/// axis from the surveyor, so the anti-modal worlds are distinct by
+/// construction (not generic percentile stances that converge — the run-1 G2
+/// failure). Falls back to a generic tail stance when there are fewer named
+/// axes than budget slots. Pure: same (i, axes), same stance, every rerun.
+fn driver_stance(i: usize, axes: &[(String, String)]) -> String {
+    if i == 0 {
+        return "modal: take the consensus view on every major uncertainty".to_string();
     }
+    if let Some((axis, pole)) = axes.get(i - 1) {
+        let pole_clause = if pole.is_empty() {
+            String::new()
+        } else {
+            format!(" (consensus expects: {pole})")
+        };
+        return format!(
+            "anti-modal on the \"{axis}\" axis: take a position genuinely OPPOSITE the \
+             consensus{pole_clause}; hold the consensus on every OTHER axis. This world exists \
+             to explore that one fork — make it concrete and specific to that axis."
+        );
+    }
+    // Fewer named axes than budget slots: generic tail stance (no axis to name).
+    format!(
+        "anti-modal: pick the {i}-th most load-bearing uncertainty and take a tail view on it, \
+         consensus elsewhere"
+    )
 }
 
 /// Truncate inlined file content at a char boundary; endpoints must never be
@@ -95,7 +129,6 @@ fn fetch_world_file(
 /// The endpoint writer's working contract. Single source of truth for the
 /// action and parameter names it must use — tested below, asserted nowhere
 /// else.
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn endpoint_writer_prompt(
     world_id: &str,
@@ -629,9 +662,16 @@ fn phase_sample(ctx: &Context) -> Result<(), String> {
     let world_wrapped = json!({ "entity_id": world_id, "fields": world });
     let wc = load_writer_ctx(ctx, &api, &headers, &world_wrapped)?;
     let budget = endpoint_budget(row_str(&world_wrapped, "EndpointBudget"));
+    // ADR-006: the surveyor's named axes steer the anti-modal worlds so they
+    // are distinct by construction; empty -> generic tail stances.
+    let axes = parse_axes(row_str(&world_wrapped, "UncertaintyAxes"));
+    ctx.log(
+        "info",
+        &format!("sample_endpoints: sampling {budget} worlds across {} named axes", axes.len()),
+    );
 
     for i in 0..budget {
-        let stance = driver_stance(i);
+        let stance = driver_stance(i, &axes);
         let endpoint_resp = ctx.http_call(
             "POST",
             &format!("{api}/tdata/Endpoints"),
@@ -921,7 +961,7 @@ mod tests {
     fn writer_prompt_inlines_world_files_instead_of_temper_read() {
         // Sessions cannot resolve harness-uploaded files by id (path+workspace
         // resolution) — world files must be inlined, never temper.read.
-        let p = writer_prompt(&driver_stance(0), true);
+        let p = writer_prompt(&driver_stance(0, &[]), true);
         assert!(p.contains("BEGIN CORPUS"));
         assert!(p.contains("corpus body text"));
         assert!(p.contains("BEGIN DRIVER BASIS"));
@@ -939,21 +979,27 @@ mod tests {
     }
 
     #[test]
-    fn stance_assignment_is_deterministic_modal_first_anti_modal_after() {
-        assert_eq!(driver_stance(0), driver_stance(0));
-        assert_eq!(driver_stance(4), driver_stance(4));
-        assert!(driver_stance(0).starts_with("modal:"));
-        for i in 1..6 {
-            assert!(
-                driver_stance(i).starts_with("anti-modal:"),
-                "stance {i} must be anti-modal"
-            );
-        }
-        assert!(driver_stance(1).contains("85th-percentile"));
-        assert!(driver_stance(2).contains("15th-percentile"));
-        assert!(driver_stance(3).contains('3'));
-        assert!(driver_stance(4).contains('4'));
-        assert_ne!(driver_stance(3), driver_stance(4));
+    fn stance_assignment_inverts_named_axes_and_falls_back() {
+        // ADR-006: each anti-modal slot inverts a DIFFERENT named axis, so the
+        // worlds are distinct by construction (not generic converging stances).
+        let axes = vec![
+            ("capability slope".to_string(), "incremental gains".to_string()),
+            ("regulation".to_string(), "light-touch".to_string()),
+        ];
+        assert!(driver_stance(0, &axes).starts_with("modal:"));
+        let s1 = driver_stance(1, &axes);
+        let s2 = driver_stance(2, &axes);
+        assert!(s1.contains("capability slope") && s1.contains("incremental gains"));
+        assert!(s2.contains("regulation") && s2.contains("light-touch"));
+        assert_ne!(s1, s2, "different axes -> genuinely different stances");
+        // Deterministic.
+        assert_eq!(driver_stance(1, &axes), s1);
+        // Fewer axes than slots -> generic tail fallback, never a panic.
+        let s3 = driver_stance(3, &axes);
+        assert!(s3.starts_with("anti-modal:"));
+        // No axes at all -> modal first, generic anti-modal after.
+        assert!(driver_stance(0, &[]).starts_with("modal:"));
+        assert!(driver_stance(1, &[]).starts_with("anti-modal:"));
     }
 
     #[test]
@@ -970,7 +1016,7 @@ mod tests {
     fn writer_prompt_carries_the_bundle_written_contract() {
         // ADR-006: the writer parks the bundle in Written via BundleWritten; the
         // diversity gate, not the writer, starts repair.
-        let p = writer_prompt(&driver_stance(0), false);
+        let p = writer_prompt(&driver_stance(0, &[]), false);
         for needle in [
             "temper.action(\"Endpoints\", \"e-1\", \"BundleWritten\"",
             "\"bundle_file_id\"",
@@ -988,7 +1034,7 @@ mod tests {
     fn re_steer_brief_demands_divergence_not_rewording() {
         let p = endpoint_writer_prompt(
             "w-1", "e-1", "a-1", "Test", "ai coding tools", "2026-12-11",
-            &driver_stance(1), "", "",
+            &driver_stance(1, &[]), "", "",
             "Your future read too close to: \"agents replace junior devs\".",
             false,
         );
@@ -996,12 +1042,12 @@ mod tests {
         assert!(p.contains("agents replace junior devs"));
         assert!(p.contains("GENUINELY DIFFERENT"));
         // First drafts carry no re-steer banner.
-        assert!(!writer_prompt(&driver_stance(1), false).contains("THIS IS A RE-STEER"));
+        assert!(!writer_prompt(&driver_stance(1, &[]), false).contains("THIS IS A RE-STEER"));
     }
 
     #[test]
     fn writer_prompt_is_native_to_the_target_date_under_its_stance() {
-        let stance = driver_stance(1);
+        let stance = driver_stance(1, &[]);
         let p = writer_prompt(&stance, false);
         assert!(p.contains("NATIVE TO 2026-12-11"));
         assert!(p.contains("dated AT 2026-12-11"));
@@ -1010,7 +1056,7 @@ mod tests {
 
     #[test]
     fn writer_prompt_enforces_the_skeleton_constraint() {
-        let p = writer_prompt(&driver_stance(0), false);
+        let p = writer_prompt(&driver_stance(0, &[]), false);
         assert!(p.contains("temper.list(\"EventNodes\", \"world_id eq 'w-1'\")"));
         assert!(p.contains("may not contradict any \"determined\" node"));
     }
@@ -1028,11 +1074,11 @@ mod tests {
     fn hindcast_mode_strips_web_tools_and_pins_the_vantage() {
         assert!(!tools_enabled(true).contains("web"));
         assert!(tools_enabled(false).contains("temper_web_search"));
-        let p = writer_prompt(&driver_stance(0), true);
+        let p = writer_prompt(&driver_stance(0, &[]), true);
         assert!(p.contains("NO web access"));
         assert!(p.contains("never reference anything dated after the world's vantage"));
         assert!(!p.contains("temper.web_search /"));
-        let open = writer_prompt(&driver_stance(0), false);
+        let open = writer_prompt(&driver_stance(0, &[]), false);
         assert!(open.contains("temper.web_search"));
     }
 }

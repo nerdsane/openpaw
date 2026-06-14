@@ -113,10 +113,17 @@ fn surveyor_prompt(
          \"source_refs\": \"[\\\"<url-or-corpus-ref>\\\"]\", \"resolve_by\": \"YYYY-MM-DD\", \
          \"author_agent_id\": \"{agent_id}\"}})\n\
          Aim for 8-20 load-bearing facts, slow layer first. Every statement needs a source.\n\n\
+         THEN name the 3-5 load-bearing UNCERTAINTY AXES of this domain (ADR-006): the \
+         dimensions on which {target_date} genuinely FORKS — not determined, the questions \
+         whose answers most change the world. For each, give a short axis name and the \
+         CONSENSUS POLE (what most informed observers currently expect). These are the \
+         dimensions the engine will sample diverse futures across, so make them orthogonal \
+         and genuinely contested — not restatements of one another.\n\n\
          Then write a one-page skeleton summary with temper.write (markdown), and finish by \
-         self-reporting:\n\
+         self-reporting (uncertainty_axes is a JSON array of {{\"axis\": \"...\", \"consensus_pole\": \"...\"}}):\n\
          temper.action(\"Worlds\", \"{world_id}\", \"SeedComplete\", \
-         {{\"skeleton_node_count\": \"<n>\", \"graph_snapshot_file_id\": \"<file-id-from-temper.write>\"}})\n\
+         {{\"skeleton_node_count\": \"<n>\", \"graph_snapshot_file_id\": \"<file-id-from-temper.write>\", \
+         \"uncertainty_axes\": \"[{{\\\"axis\\\": \\\"...\\\", \\\"consensus_pole\\\": \\\"...\\\"}}, ...]\"}})\n\
          Then call temper.done(\"complete\")."
     )
 }
@@ -436,6 +443,11 @@ mod tests {
             "BEGIN CORPUS",
             "frozen corpus body text",
             "forbidden from predicting",
+            // ADR-006: the surveyor also names the uncertainty axes that steer
+            // the diverse worlds, reported in SeedComplete.
+            "UNCERTAINTY AXES",
+            "consensus_pole",
+            "\"uncertainty_axes\":",
         ] {
             assert!(p.contains(needle), "surveyor prompt missing: {needle}");
         }

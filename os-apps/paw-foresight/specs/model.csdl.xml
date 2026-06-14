@@ -315,6 +315,7 @@
         <Property Name="AgentProvider" Type="Edm.String"/>
         <Property Name="HindcastMode" Type="Edm.String"/>
         <Property Name="SkeletonNodeCount" Type="Edm.String"/>
+        <Property Name="UncertaintyAxes" Type="Edm.String"/>
         <Property Name="CanonicalPathId" Type="Edm.String"/>
         <Property Name="PersonasJson" Type="Edm.String"/>
         <Property Name="DwellerIds" Type="Edm.String"/>
@@ -516,6 +517,7 @@
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
         <Parameter Name="skeleton_node_count" Type="Edm.String" Nullable="true"/>
         <Parameter Name="graph_snapshot_file_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="uncertainty_axes" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.World"/>
       </Action>
       <Action Name="SampleEndpoints" IsBound="true">
