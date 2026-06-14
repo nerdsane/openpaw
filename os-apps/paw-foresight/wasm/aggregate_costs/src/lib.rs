@@ -673,6 +673,7 @@ fn claim_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
         &format!("claim_id eq '{claim_id}'"),
     )?;
     let mut in_flight = false;
+    let mut in_flight_ids: Vec<String> = Vec::new();
     let mut scored: Vec<(String, f64)> = Vec::new();
     let mut last_flags: Value = json!([]);
     for row in &rows {
@@ -686,7 +687,10 @@ fn claim_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
             }
         }
         match status.as_str() {
-            "Solving" | "Repaired" | "Challenged" => in_flight = true,
+            "Solving" | "Repaired" | "Challenged" => {
+                in_flight = true;
+                in_flight_ids.push(id.clone());
+            }
             "Scored" | "Canonical" | "Tail" => {
                 let cost = cost_src.parse::<f64>().unwrap_or(f64::MAX);
                 scored.push((id.clone(), cost));
@@ -812,6 +816,36 @@ fn claim_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
                 &claim_id,
                 Some((route_id, cost)),
             )?;
+            // Terminalize any in-flight straggler routes: the claim has its
+            // answer and its route budget is spent (claim_decision only
+            // settles past an in-flight route when route_count >= MAX_ROUTES),
+            // so a route still churning is no longer needed. Failing it stops
+            // its self-heal timeout (ADR-007) from re-spawning a route nobody
+            // will use — closing the only unbounded self-heal left after the
+            // settle. A live route normally would have been in `scored`; this
+            // fires only for the wedged-straggler case the liveness fix added.
+            for straggler in &in_flight_ids {
+                if let Err(e) = dispatch(
+                    ctx,
+                    &api,
+                    &headers,
+                    "Paths",
+                    straggler,
+                    "Fail",
+                    &json!({
+                        "error_message": format!(
+                            "superseded: claim {claim_id} settled on its cheapest acceptable \
+                             route while this route was still in flight; route budget spent, \
+                             no longer needed"
+                        )
+                    }),
+                ) {
+                    ctx.log(
+                        "warn",
+                        &format!("aggregate_costs: failing straggler {straggler}: {e}"),
+                    );
+                }
+            }
             set_success_result("", &json!({}));
             Ok(())
         }
