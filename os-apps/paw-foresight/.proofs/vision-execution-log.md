@@ -163,6 +163,26 @@ above — structural metrics (`evaluate_world.py`) + reading the actual content.
 (restart + budget 3) to exercise distinct worlds + the synthesis panel, then the
 2045 deep-sci-fi showcase world.
 
+### Run-1d (named-axes) — diversity sampling works; gate SIGNAL was wrong
+World `en-019ec4d2…`. The surveyor named **5 genuine uncertainty axes** (agent
+autonomy envelope; enterprise governance/data boundaries; model cost/latency
+curve; competitive bundling vs specialists; regulatory/IP/security friction),
+and the anti-modal world inverted a NAMED axis ("anti-modal on the Agent
+autonomy envelope axis…"). So named-axes sampling works end to end.
+
+But the gate **re-steered then discarded** the anti-modal twin — a false
+collapse. Root cause, measured live: the gate embedded the bundle-HEAD, and two
+worlds that share consensus on 4 of 5 axes have near-identical dated-market
+retrospectives → **0.111 apart** (< 0.15). Their SUMMARIES (the writers'
+theses: "mature market" vs "policy-gated autonomous production") were **0.298
+apart** — correctly distinct. Fix (6ab85c3d): the gate now embeds the SUMMARY,
+not the bundle-head. A real finding the run surfaced and the iteration fixed.
+
+### Run-1e (named-axes + summary-gate) — verifying the gate KEEPS 2 distinct
+World `en-019ec4db…`. Launched on the summary-gate engine; watching whether the
+gate now keeps both named-axis worlds (0.298 > 0.15 predicts yes) — the live
+diversity proof.
+
 ## Plan status — D0–D4 fully implemented (2026-06-14)
 
 Every plan phase is implemented, tested, committed, pushed (PR temperpaw#398),
