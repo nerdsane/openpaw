@@ -60,6 +60,48 @@ fn inline_file(raw: &str) -> String {
     )
 }
 
+/// Fetch and inline the world's lag table file, if it has one. Empty string
+/// when the world declares no lag table or the file is unreadable (the prompt
+/// degrades to a loud "no lag table" instruction rather than failing the
+/// route — a missing table must never silently produce confident dates).
+fn fetch_lag_table(
+    ctx: &Context,
+    api: &str,
+    headers: &[(String, String)],
+    world: &Value,
+) -> String {
+    let file_id = entity_field(world, "lag_table_file_id", "LagTableFileId");
+    if file_id.is_empty() {
+        return String::new();
+    }
+    match ctx.http_call(
+        "GET",
+        &format!("{api}/tdata/Files('{file_id}')/$value"),
+        headers,
+        "",
+    ) {
+        Ok(r) if (200..300).contains(&r.status) => inline_file(&r.body),
+        Ok(r) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "spawn_repairers: lag table {file_id} unreadable (HTTP {}); repairer will \
+                     justify dates from cited durations instead",
+                    r.status
+                ),
+            );
+            String::new()
+        }
+        Err(e) => {
+            ctx.log(
+                "warn",
+                &format!("spawn_repairers: lag table {file_id} fetch failed ({e})"),
+            );
+            String::new()
+        }
+    }
+}
+
 /// The repairer's working contract. Single source of truth for the action
 /// and parameter names it must use — tested below, asserted nowhere else.
 #[allow(clippy::too_many_arguments)]
@@ -70,6 +112,8 @@ fn repairer_prompt(
     world_id: &str,
     agent_id: &str,
     bundle_inline: &str,
+    lag_table_inline: &str,
+    target_date: &str,
     revision_brief: &str,
     hindcast: bool,
 ) -> String {
@@ -105,11 +149,58 @@ fn repairer_prompt(
          incentives against reality."
             .to_string()
     };
+    // The lag table is the world's record of how long transitions in this
+    // domain have HISTORICALLY taken. Inlined as the date anchor so the
+    // repairer derives resolve_by dates from real durations rather than
+    // eyeballing tidy month/quarter ends (D2 grounding).
+    let lag_block = if lag_table_inline.trim().is_empty() {
+        "No lag table was provided for this world. Justify every date from historical \
+         durations you can cite, and flag any step that must move faster than its real-world \
+         precedent."
+            .to_string()
+    } else {
+        format!(
+            "The world's LAG TABLE — historical durations for the kinds of transitions this \
+             domain has seen — is inlined below. It is your date anchor.\n\
+             --- BEGIN LAG TABLE ---\n{lag_table_inline}\n--- END LAG TABLE ---"
+        )
+    };
+    let horizon = if target_date.trim().is_empty() {
+        "the world's horizon".to_string()
+    } else {
+        target_date.to_string()
+    };
+    // "Today" is rhetorical, exactly as the surveyor frames it: there is no
+    // stored present-date field, so the repairer resolves the present from the
+    // web in live mode and from the corpus vantage in hindcast mode. The only
+    // stored anchor is the horizon (target_date); the claim's own date is in
+    // the claim text.
+    let today_clause = if hindcast {
+        "TODAY (this world's vantage — never date anything after it, and read it from the \
+         corpus, not from your training cutoff)"
+    } else {
+        "TODAY (this world's present — verify the current date with web search rather than \
+         assuming your training cutoff)"
+    };
+    let date_contract = format!(
+        "DATE DISCIPLINE — every resolve_by must be earned, not rounded:\n\
+         - Place every intermediate event between {today_clause} and the claim's own date \
+         (the world's horizon is {horizon}).\n\
+         - Date each node by adding the HISTORICAL LAG for that kind of transition (from the \
+         LAG TABLE above) to the date of the prerequisite it depends on — never to a tidy \
+         month- or quarter-end chosen for neatness.\n\
+         - If a step must happen FASTER than its historical lag, that is a compressed lag: \
+         raise a \"lag\" cost flag (severity by how far below history you pushed it) and name \
+         the compressed transition in the note. A plausible-but-rushed date is still a cost.\n\
+         - If the table has no row for a transition, derive the date from the closest analogue \
+         it does list and name that analogue in your repair log.\n\n"
+    );
     format!(
         "You are the Repairer for route {path_id} of claim {claim_id}, world {world_id}.\n\n\
          THE CLAIM you must bridge — this one assertion, not the whole future:\n\
          \"{claim_text}\"\n\n\
          {bundle_block}\n\n\
+         {lag_block}\n\n\
          {revision_block}Read the skeleton: temper.list(\"EventNodes\", \"world_id eq \
          '{world_id}'\"). Nodes with provenance \"determined\" are settled facts your bridge \
          may not contradict.\n\
@@ -117,6 +208,7 @@ fn repairer_prompt(
          Work BACKWARD from the claim: for THIS claim to hold by its date, what must have \
          happened, by when, done by whom? Derive the chain of intermediate events from the \
          claim back to the skeleton.\n\n\
+         {date_contract}\
          For each required intermediate event, propose an EventNode:\n\
          temper.create(\"EventNodes\", {{\"world_id\": \"{world_id}\", \"statement\": \"...\", \
          \"layer\": \"mid|fast\", \"probability\": \"<honest 0-1>\", \"provenance\": \
@@ -340,6 +432,8 @@ fn revise_route(
     let model = entity_field(&world, "agent_model", "AgentModel");
     let provider = entity_field(&world, "agent_provider", "AgentProvider");
     let hindcast = entity_field(&world, "hindcast_mode", "HindcastMode") == "true";
+    let target_date = entity_field(&world, "target_date", "TargetDate");
+    let lag_table_inline = fetch_lag_table(ctx, &api, &headers, &world);
 
     let claim_resp = ctx.http_call(
         "GET",
@@ -372,6 +466,8 @@ fn revise_route(
         &world_id,
         "{AGENT_ID}",
         "",
+        &lag_table_inline,
+        &target_date,
         &revision_brief,
         hindcast,
     );
@@ -478,6 +574,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             return Err("World.agent_model and World.agent_provider are required".to_string());
         }
         let hindcast = entity_field(&world, "hindcast_mode", "HindcastMode") == "true";
+        let target_date = entity_field(&world, "target_date", "TargetDate");
+        let lag_table_inline = fetch_lag_table(&ctx, &api, &headers, &world);
 
         // The endpoint's bundle is the claim's context — inlined, because
         // session file reads cannot resolve WASM/harness-created file ids
@@ -598,6 +696,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             &world_id,
             "{AGENT_ID}",
             &bundle_inline,
+            &lag_table_inline,
+            &target_date,
             &revision_brief,
             hindcast,
         );
@@ -655,6 +755,8 @@ mod tests {
             "w-1",
             "a-1",
             "bundle body text",
+            "design review: median 4-6 weeks; standards adoption: 12-18 months",
+            "2026-12-13",
             "",
             hindcast,
         )
@@ -721,6 +823,8 @@ mod tests {
             "w-1",
             "a-1",
             "",
+            "",
+            "2026-12-13",
             "lag/high: standards converge too fast via voluntary adoption",
             false,
         );
@@ -743,6 +847,67 @@ mod tests {
         ] {
             assert!(p.contains(needle), "repairer prompt missing: {needle}");
         }
+    }
+
+    #[test]
+    fn lag_table_and_date_discipline_anchor_dates_to_history() {
+        // D2 grounding: the repairer must derive resolve_by dates from the
+        // world's lag table, anchored to TODAY (rhetorical — there is no
+        // present-date field) and the horizon, and price compression as a lag
+        // cost — never eyeball tidy month/quarter ends.
+        let p = prompt(false);
+        for needle in [
+            "BEGIN LAG TABLE",
+            "standards adoption: 12-18 months",
+            "DATE DISCIPLINE",
+            "TODAY",
+            "verify the current date with web search", // live mode: not the cutoff
+            "2026-12-13",                              // target date is the horizon
+            "HISTORICAL LAG",
+            "compressed lag",
+            "\"lag\" cost flag",
+            "never to a tidy",
+        ] {
+            assert!(p.contains(needle), "repairer prompt missing: {needle}");
+        }
+        // frontier_date (the scoreable horizon) is NOT the present and must
+        // never be presented to the repairer as "today".
+        assert!(
+            !p.contains("present (\"today\") is"),
+            "frontier_date must not be mislabeled as today"
+        );
+    }
+
+    #[test]
+    fn hindcast_date_discipline_pins_the_vantage_not_the_clock() {
+        // A hindcast repairer reads "today" from the corpus vantage, never the
+        // live web or its training cutoff.
+        let p = prompt(true);
+        assert!(p.contains("this world's vantage"));
+        assert!(p.contains("read it from the corpus"));
+        assert!(!p.contains("verify the current date with web search"));
+    }
+
+    #[test]
+    fn missing_lag_table_degrades_loudly_not_silently() {
+        // No lag table for the world: the repairer is told so explicitly and
+        // still must justify dates from cited durations — never a silent pass.
+        let p = repairer_prompt(
+            "p-1", "c-1", "claim", "w-1", "a-1", "bundle", "", "2026-12-13", "", false,
+        );
+        assert!(p.contains("No lag table was provided"));
+        assert!(p.contains("DATE DISCIPLINE"));
+        assert!(!p.contains("BEGIN LAG TABLE"));
+    }
+
+    #[test]
+    fn empty_horizon_falls_back_to_a_descriptive_phrase() {
+        // A world that never set a target date still gets a coherent date
+        // contract rather than an empty placeholder.
+        let p = repairer_prompt("p-1", "c-1", "claim", "w-1", "a-1", "", "", "", "", false);
+        assert!(p.contains("the world's horizon"));
+        assert!(p.contains("DATE DISCIPLINE"));
+        assert!(p.contains("TODAY"));
     }
 
     #[test]
