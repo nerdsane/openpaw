@@ -118,6 +118,15 @@ name = "skeleton_node_count"
 type = "string"
 initial = "0"
 
+# ADR-006: the surveyor's named uncertainty axes — JSON array of
+# {"axis": "...", "consensus_pole": "..."}. sample_endpoints assigns each
+# anti-modal world a different named axis to invert, so the diverse worlds are
+# distinct by construction (not just generic percentile stances).
+[[state]]
+name = "uncertainty_axes"
+type = "string"
+initial = "[]"
+
 [[state]]
 name = "canonical_path_id"
 type = "string"
@@ -132,6 +141,36 @@ initial = ""
 
 [[state]]
 name = "update_cause_node_id"
+type = "string"
+initial = ""
+
+# Living-worlds state (ADR-004 C4): cast personas, created dweller ids, and
+# the bounded fan-out cursor for SpawnNextDweller.
+[[state]]
+name = "personas_json"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "dweller_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "check_count"
+type = "string"
+initial = "0"
+
+# ADR-006: how many diversity-gate rounds this pass has run. Bounds the
+# re-steer loop — after the cap, the gate discards persistent near-duplicates
+# rather than re-steering forever.
+[[state]]
+name = "gate_rounds"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "last_adjudication_date"
 type = "string"
 initial = ""
 
@@ -173,8 +212,8 @@ name = "SeedComplete"
 kind = "input"
 from = ["Seeding"]
 to = "Active"
-params = ["skeleton_node_count", "graph_snapshot_file_id"]
-hint = "Surveyor self-reports the skeleton is recorded. World becomes active."
+params = ["skeleton_node_count", "graph_snapshot_file_id", "uncertainty_axes"]
+hint = "Surveyor self-reports the skeleton is recorded plus the named uncertainty axes (ADR-006). World becomes active."
 
 [[action]]
 name = "SampleEndpoints"
@@ -192,6 +231,31 @@ on_failure = "Fail"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+
+
+# ADR-006: the diversity gate. Dispatched by the all-written barrier (in
+# sample_endpoints, on Endpoint.BundleWritten) once every endpoint has a
+# bundle. Re-enters sample_endpoints to embed the written worlds, release the
+# diverse ones into repair (Endpoint.SubmitForRepair) and re-steer the
+# collapsed ones (Endpoint.ReSteer). gate_rounds bounds the loop. System only.
+[[action]]
+name = "GateDiversity"
+kind = "input"
+from = ["Active"]
+params = ["gate_rounds"]
+hint = "Run the diversity gate over the written worlds (ADR-006). System principals only."
+effect = [{ type = "trigger", name = "sample_endpoints" }]
+
+[[action.triggers]]
+name = "sample_endpoints"
+kind = "wasm"
+module = "sample_endpoints"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
 
 
 [[action]]
@@ -249,6 +313,78 @@ effect = [{ type = "trigger", name = "render_artifacts" }]
 name = "render_artifacts"
 kind = "wasm"
 module = "render_artifacts"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "AnimateDwellers"
+kind = "input"
+from = ["Active"]
+params = []
+hint = "Spawn the casting session: 2-3 personas grounded in the settled claims. Dwellers traverse the canonical routes, file contradictions, and write first-person stories through the gate."
+effect = [{ type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "DwellersCast"
+kind = "input"
+from = ["Active"]
+params = ["personas_json"]
+hint = "Casting session self-reports the proposed personas. Re-enters animate_dwellers to create Dweller entities and start the chunked traversal fan-out."
+effect = [{ type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "SpawnNextDweller"
+kind = "input"
+from = ["Active"]
+params = ["dweller_ids", "check_count"]
+hint = "Bounded self-loop: spawn the next chunk of dweller sessions under admission caps (ADR-0005). dweller_ids is set on the first tick (from DwellersCast) and persists across re-ticks; Cedar permits this action but not a raw World PATCH, so the roster rides as a param."
+effect = [{ type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "AdjudicateNodes"
+kind = "input"
+from = ["Active"]
+params = ["last_adjudication_date"]
+hint = "Judged resolution for overdue authored nodes (ADR-004 commitment 2): spawn adjudicator sessions with snapshotted evidence; the module validates verdicts and owns Resolve. The caller supplies the as-of date — WASM has no clock."
+effect = [{ type = "trigger", name = "adjudicate_nodes" }]
+
+[[action.triggers]]
+name = "adjudicate_nodes"
+kind = "wasm"
+module = "adjudicate_nodes"
 on_failure = "Fail"
 
 [action.triggers.config]

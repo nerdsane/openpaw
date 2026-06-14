@@ -2,6 +2,7 @@
 
 Status: Accepted
 Date: 2026-06-11
+Amended-by: ADR-004 (searched corridor; governing commitments on cost constants, judged resolution, pluggable adapters, and priced amendment live there)
 
 ## Context
 

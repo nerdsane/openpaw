@@ -137,7 +137,17 @@ kind = "input"
 from = ["Checking"]
 to = "ConsistencyChecked"
 params = []
-hint = "Gate validated the verdict: citations resolve, dates agree, no canon contradiction. System principals only."
+hint = "Gate validated the verdict: citations resolve, dates agree, no canon contradiction. System principals only. Gate-cleared artifacts publish automatically (deterministic policy, ADR-004 C4)."
+effect = [{ type = "trigger", name = "consistency_gate_publish" }]
+
+[[action.triggers]]
+name = "consistency_gate_publish"
+kind = "wasm"
+module = "consistency_gate"
+on_failure = "Reject"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
 
 [[action]]
 name = "FailCheck"

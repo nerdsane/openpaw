@@ -63,7 +63,7 @@ permit(
   principal,
   action in [Action::"Configure", Action::"Seed", Action::"SampleEndpoints",
              Action::"IngestEvidence", Action::"Render", Action::"BeginUpdate",
-             Action::"Archive"],
+             Action::"Archive", Action::"AnimateDwellers", Action::"AdjudicateNodes"],
   resource is World
 ) when {
   ["system", "supervisor", "human"].contains(principal.agent_type)
@@ -73,16 +73,18 @@ permit(
 // report EndpointsSampled.
 permit(
   principal,
-  action in [Action::"SeedComplete", Action::"EndpointsSampled"],
+  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"DwellersCast"],
   resource is World
 ) when {
   ["system", "agent"].contains(principal.agent_type)
 };
 
-// Pass results and update completion are aggregate_costs / evidence territory.
+// Pass results, update completion, and the diversity gate (ADR-006) are
+// aggregate_costs / sample_endpoints / evidence territory — system only.
 permit(
   principal,
-  action in [Action::"PathsScored", Action::"UpdateComplete"],
+  action in [Action::"PathsScored", Action::"UpdateComplete",
+             Action::"SpawnNextDweller", Action::"GateDiversity"],
   resource is World
 ) when {
   principal.agent_type == "system"
@@ -118,7 +120,8 @@ forbid(
 // Probability, edges, and resolution move only with evidence (system flows).
 permit(
   principal,
-  action in [Action::"UpdateProbability", Action::"UpdateEdges", Action::"Resolve"],
+  action in [Action::"UpdateProbability", Action::"UpdateEdges", Action::"Resolve",
+             Action::"FlagForHuman"],
   resource is EventNode
 ) when {
   principal.agent_type == "system"
@@ -141,10 +144,13 @@ permit(
   resource is Endpoint
 );
 
-// The writer self-reports its bundle; only the author submits its endpoint.
+// The writer self-reports its bundle via BundleWritten (ADR-006); the endpoint
+// then parks in Written for the diversity gate. The gate — never the writer —
+// releases it via SubmitForRepair or sends it back via ReSteer, so those are
+// system only.
 permit(
   principal,
-  action == Action::"SubmitForRepair",
+  action == Action::"BundleWritten",
   resource is Endpoint
 ) when {
   ["system", "agent"].contains(principal.agent_type)
@@ -152,11 +158,22 @@ permit(
 
 permit(
   principal,
-  action in [Action::"PathsAttached", Action::"ScoreComplete",
+  action in [Action::"SubmitForRepair", Action::"ReSteer",
+             Action::"PathsAttached", Action::"ClaimsAttached",
+             Action::"SpawnNextBridge", Action::"ScoreComplete",
              Action::"MarkWeighted", Action::"Reweigh"],
   resource is Endpoint
 ) when {
   principal.agent_type == "system"
+};
+
+// The decomposer session self-reports its claims (mirrors SubmitForRepair).
+permit(
+  principal,
+  action == Action::"DecompositionComplete",
+  resource is Endpoint
+) when {
+  ["system", "agent"].contains(principal.agent_type)
 };
 
 permit(
@@ -168,6 +185,33 @@ permit(
 };
 
 permit(principal, action == Action::"Fail", resource is Endpoint);
+
+// --- Claim (ADR-004) ---
+permit(principal is Admin, action, resource is Claim);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"read", Action::"list"],
+  resource is Claim
+);
+
+// The search loop is system territory: only WASM submits bridges, records
+// routes, settles, re-prices, or declares a claim unreachable. The single
+// session-writable surface is AmendText, relayed below — and even that is
+// priced (deformation flags).
+permit(
+  principal,
+  action in [
+    Action::"SubmitForBridge", Action::"RoutesAttached", Action::"RouteSettled",
+    Action::"Settle", Action::"Reprice", Action::"MarkUnreachable", Action::"ResumeBridge"
+  ],
+  resource is Claim
+) when {
+  principal.agent_type == "system"
+};
+
+// Failure must never be blocked.
+permit(principal, action == Action::"Fail", resource is Claim);
 
 // --- Path ---
 permit(principal is Admin, action, resource is Path);
@@ -201,7 +245,9 @@ permit(
 permit(
   principal,
   action in [Action::"Score", Action::"ClassifyCanonical", Action::"ClassifyTail",
-             Action::"Reject", Action::"Rescore"],
+             Action::"Reject", Action::"Rescore", Action::"RequestChallenge",
+             Action::"Prune", Action::"RevisionRequested", Action::"ResumeRepair",
+             Action::"ResumeCosting"],
   resource is Path
 ) when {
   principal.agent_type == "system"
@@ -232,6 +278,18 @@ permit(
   principal,
   action == Action::"CheckerVerdict",
   resource is Artifact
+) when {
+  ["system", "agent"].contains(principal.agent_type)
+};
+
+// Adjudicator sessions self-report judged verdicts; the module validates
+// them and alone owns Resolve/FlagForHuman (ADR-004 commitment 2). Mirrors
+// the CheckerVerdict permit: session principals may surface either as
+// agents or through the wasm-runtime relay.
+permit(
+  principal,
+  action == Action::"AdjudicationVerdict",
+  resource is EventNode
 ) when {
   ["system", "agent"].contains(principal.agent_type)
 };
@@ -351,9 +409,10 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["seed_world", "sample_endpoints", "spawn_repairers", "spawn_adversaries",
-   "aggregate_costs", "evidence_ingest", "register_forecasts",
-   "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
+  ["seed_world", "sample_endpoints", "decompose_endpoint", "spawn_repairers",
+   "spawn_adversaries", "aggregate_costs", "evidence_ingest",
+   "register_forecasts", "render_artifacts", "consistency_gate",
+   "grade_hindcast", "animate_dwellers", "adjudicate_nodes"].contains(context.module)
 };
 
 permit(
@@ -361,9 +420,10 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  ["seed_world", "sample_endpoints", "spawn_repairers", "spawn_adversaries",
-   "aggregate_costs", "evidence_ingest", "register_forecasts",
-   "render_artifacts", "consistency_gate", "grade_hindcast"].contains(context.module)
+  ["seed_world", "sample_endpoints", "decompose_endpoint", "spawn_repairers",
+   "spawn_adversaries", "aggregate_costs", "evidence_ingest",
+   "register_forecasts", "render_artifacts", "consistency_gate",
+   "grade_hindcast", "animate_dwellers", "adjudicate_nodes"].contains(context.module)
 };
 
 // ── Session relay (v1 trust model) ─────────────────────────────
@@ -380,14 +440,27 @@ permit(
 
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"Fail"],
+  action in [Action::"SeedComplete", Action::"EndpointsSampled", Action::"DwellersCast", Action::"Fail"],
   resource is World
 );
 
+// The endpoint writer self-reports BundleWritten through the relay (ADR-006);
+// the decomposer self-reports DecompositionComplete. SubmitForRepair and
+// ReSteer are NOT here — the diversity gate (system) dispatches them, never a
+// session.
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"SubmitForRepair", Action::"Fail"],
+  action in [Action::"BundleWritten", Action::"DecompositionComplete", Action::"Fail"],
   resource is Endpoint
+);
+
+// The repairer's drift-constrained amendment channel (ADR-004): AmendText
+// carries the diff; the deformation flag prices it. Settle/Reprice/
+// MarkUnreachable stay system-only — sessions never decide verdicts.
+permit(
+  principal == Agent::"service:wasm-runtime",
+  action == Action::"AmendText",
+  resource is Claim
 );
 
 permit(
@@ -404,7 +477,7 @@ permit(
 
 permit(
   principal == Agent::"service:wasm-runtime",
-  action == Action::"Confirm",
+  action in [Action::"Confirm", Action::"UpdateEdges", Action::"AdjudicationVerdict"],
   resource is EventNode
 );
 

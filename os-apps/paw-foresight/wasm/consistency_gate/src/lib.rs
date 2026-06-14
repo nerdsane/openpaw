@@ -288,6 +288,19 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         match ctx.trigger_action.as_str() {
             "SubmitForCheck" => spawn_phase(&ctx, &fields),
             "CheckerVerdict" => validate_phase(&ctx, &get("verdict_json")),
+            "PassCheck" => {
+                // Gate-cleared artifacts publish automatically (deterministic
+                // policy, ADR-004 C4): the gate owns both transitions.
+                ctx.log(
+                    "info",
+                    &format!(
+                        "consistency_gate: artifact {} gate-cleared; publishing",
+                        ctx.entity_id
+                    ),
+                );
+                set_success_result("Publish", &json!({}));
+                Ok(())
+            }
             other => {
                 // Backward-compatible fallback for unexpected wiring.
                 ctx.log(

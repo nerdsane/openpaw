@@ -15,14 +15,34 @@
 
 [automaton]
 name = "Path"
-states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail", "Rejected", "Failed"]
+states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail", "Rejected", "Pruned", "Failed"]
 initial = "Solving"
 
-# ADR-0050: Solving/Repaired/Challenged are bounded by repairer/adversary
-# session timeouts plus heartbeat monitoring. Scored/Canonical/Tail persist
-# for the life of the world and are re-scored on update (Rescore).
-# Revisit with state_timeout once corridor run-time envelopes are measured.
-allow_indefinite_states = ["Solving", "Repaired", "Challenged", "Scored", "Canonical", "Tail"]
+# ADR-0050: Solving/Repaired/Challenged now carry state_timeouts (below) that
+# re-drive a dead session's work — self-healing corridors (ADR-007, Track D0):
+# if a repairer/adversary session dies (or the server restarts mid-run), the
+# timeout re-spawns rather than leaving the route orphaned. Scored/Canonical/
+# Tail persist for the world's life and are re-scored on update (Rescore).
+allow_indefinite_states = ["Scored", "Canonical", "Tail"]
+
+# Self-heal timeouts. Budgets sit above a healthy session's wall-clock so a
+# live route is never double-spawned; on restart the hydration re-arm
+# (ADR-0056) fires overdue ones on the next dispatch.
+[[state_timeout]]
+state = "Solving"
+after_seconds = 1200
+on_timeout = "ResumeRepair"
+reset_on = ["RevisionRequested"]
+
+[[state_timeout]]
+state = "Repaired"
+after_seconds = 600
+on_timeout = "RequestChallenge"
+
+[[state_timeout]]
+state = "Challenged"
+after_seconds = 600
+on_timeout = "ResumeCosting"
 
 # --- State Variables ---
 
@@ -33,6 +53,29 @@ initial = ""
 
 [[state]]
 name = "endpoint_id"
+type = "string"
+initial = ""
+
+# ADR-004: a Path is one ROUTE for one claim. route_index orders the routes
+# a claim has tried; round_count counts revision rounds on this route;
+# revision_brief carries the prior objections a search step must beat.
+[[state]]
+name = "claim_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "route_index"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "round_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "revision_brief"
 type = "string"
 initial = ""
 
@@ -94,19 +137,118 @@ initial = ""
 
 # --- Actions ---
 
+# Self-heal (ADR-007): re-spawn a dead repairer for this same route. Fired by
+# the Solving state_timeout; spawns a fresh repairer session against the
+# existing Path (no new route, no claim bookkeeping).
+[[action]]
+name = "ResumeRepair"
+kind = "input"
+from = ["Solving"]
+to = "Solving"
+params = []
+hint = "Repairer session died or the server restarted; re-spawn for this route. System principals only."
+effect = [{ type = "trigger", name = "spawn_repairers" }]
+
+[[action.triggers]]
+name = "spawn_repairers"
+kind = "wasm"
+module = "spawn_repairers"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+# Self-heal (ADR-007): the adversary reported but aggregate_costs never ran
+# (crash between ChallengeComplete and costing). Re-run the deterministic cost.
+[[action]]
+name = "ResumeCosting"
+kind = "input"
+from = ["Challenged"]
+to = "Challenged"
+params = []
+hint = "Costing did not run after the challenge; re-trigger it. System principals only."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
 [[action]]
 name = "RepairComplete"
 kind = "input"
 from = ["Solving"]
 to = "Repaired"
 params = ["repair_log_file_id", "required_node_ids", "cost_flags"]
-hint = "Repairer self-reports the backward path with its flags. Spawns the adversary."
+hint = "Repairer self-reports the backward route with its flags. Triggers the prune gate: routes already too expensive are cut before any adversary session is spent (ADR-004)."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "RequestChallenge"
+kind = "input"
+from = ["Repaired"]
+params = []
+hint = "Prune gate passed: spawn the adversary. System principals only."
 effect = [{ type = "trigger", name = "spawn_adversaries" }]
 
 [[action.triggers]]
 name = "spawn_adversaries"
 kind = "wasm"
 module = "spawn_adversaries"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "Prune"
+kind = "input"
+from = ["Repaired"]
+to = "Pruned"
+params = ["classification_note"]
+hint = "Repairer-phase cost already exceeds what the claim's best route allows; cut before adversary spend. System principals only."
+effect = [{ type = "trigger", name = "aggregate_costs" }]
+
+[[action.triggers]]
+name = "aggregate_costs"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "RevisionRequested"
+kind = "input"
+from = ["Challenged"]
+to = "Solving"
+params = ["revision_brief", "round_count"]
+hint = "An adversary objection was expensive and the round budget allows a revision: the repairer answers the specific objections on this same route. System principals only."
+effect = [{ type = "trigger", name = "spawn_repairers" }]
+
+[[action.triggers]]
+name = "spawn_repairers"
+kind = "wasm"
+module = "spawn_repairers"
 on_failure = "Fail"
 
 [action.triggers.config]
@@ -195,6 +337,11 @@ hint = "Unrecoverable error during repair or challenge."
 [[invariant]]
 name = "RejectedIsFinal"
 when = ["Rejected"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "PrunedIsFinal"
+when = ["Pruned"]
 assert = "no_further_transitions"
 
 [[invariant]]

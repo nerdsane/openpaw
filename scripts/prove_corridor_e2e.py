@@ -88,6 +88,7 @@ def main() -> int:
     ap.add_argument("--budget", default="2")
     ap.add_argument("--far-future", action="store_true")
     ap.add_argument("--timeout-min", type=int, default=45)
+    ap.add_argument("--skip-dwellers", action="store_true", help="stop before the living-worlds pass")
     args = ap.parse_args()
 
     c = Client(args.base_url, args.tenant, args.api_key)
@@ -175,6 +176,19 @@ def main() -> int:
             f"weight={field(e, 'weight', 'Weight')}"
         )
 
+    print("=== 3b. Claims (per-claim verdicts, ADR-004) ===")
+    claims = c.list("Claims", f"world_id eq '{wid}'")
+    for cl in claims:
+        text = field(cl, "current_text", "CurrentText") or field(cl, "original_text", "OriginalText")
+        amended = " [AMENDED]" if field(cl, "amendment_log", "AmendmentLog") not in ("", "[]") else ""
+        print(
+            f"  claim {cl.get('entity_id') or cl.get('Id')}: {status_of(cl)} "
+            f"{field(cl, 'classification', 'Classification')} "
+            f"cost={field(cl, 'best_route_cost', 'BestRouteCost')} "
+            f"routes={field(cl, 'route_count', 'RouteCount')}{amended} | {text[:70]}"
+        )
+    print(f"claims: {len(claims)}")
+
     print("=== 4. Forecasts (the scoreboard) ===")
     forecasts = c.list("Forecasts", f"world_id eq '{wid}'")
     for f in forecasts:
@@ -203,6 +217,45 @@ def main() -> int:
             f"{field(a, 'kind', 'Kind')} title={field(a, 'title', 'Title')[:60]}"
         )
 
+    print("=== 6. AnimateDwellers -> traversals, contradictions, stories ===")
+    if args.skip_dwellers:
+        print("  skipped (--skip-dwellers)")
+        dwellers, stories = [], []
+    else:
+        c.action("Worlds", wid, "AnimateDwellers", {})
+
+        def stories_published():
+            arts2 = c.list("Artifacts", f"world_id eq '{wid}'")
+            st = [
+                a
+                for a in arts2
+                if field(a, "kind", "Kind") == "story" and status_of(a) == "Published"
+            ]
+            dws = c.list("Dwellers", f"world_id eq '{wid}'")
+            if st and dws:
+                return f"{len(st)} story(ies) Published by {len(dws)} dweller(s)"
+            return None
+
+        wait("dweller stories through the gate", stories_published, t)
+        dwellers = c.list("Dwellers", f"world_id eq '{wid}'")
+        for d in dwellers:
+            print(
+                f"  dweller {d.get('entity_id') or d.get('Id')}: {field(d, 'name', 'Name')} "
+                f"({field(d, 'role', 'Role')}) traversals={field(d, 'traversal_count', 'TraversalCount')} "
+                f"contradictions={field(d, 'contradiction_count', 'ContradictionCount')}"
+            )
+        stories = [
+            a
+            for a in c.list("Artifacts", f"world_id eq '{wid}'")
+            if field(a, "kind", "Kind") == "story"
+        ]
+        for s in stories:
+            print(
+                f"  story {s.get('entity_id') or s.get('Id')}: {status_of(s)} "
+                f"\"{field(s, 'title', 'Title')[:60]}\" by dweller "
+                f"{field(s, 'author_dweller_id', 'AuthorDwellerId')}"
+            )
+
     print("=== SUMMARY ===")
     print(
         json.dumps(
@@ -213,6 +266,9 @@ def main() -> int:
                 "paths": len(paths),
                 "forecasts": len(forecasts),
                 "artifacts": len(arts),
+                "claims": len(claims),
+                "dwellers": len(dwellers),
+                "stories": len(stories),
             },
             indent=2,
         )
