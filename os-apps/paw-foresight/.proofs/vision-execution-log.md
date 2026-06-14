@@ -43,7 +43,7 @@ never touch the corridor, "diverse" worlds with ~0 embedding distance.
 | M4 | ADR-005 grounding + ADR-006 diversity | ✅ written |
 | M5 | Diversity gate (D3): barrier + embed + re-steer | ✅ shipped + **verified live in run-1c** (gate fired, re-steered, discarded duplicate) |
 | M5b | Named-axes sampling (D3 sampling side) | ✅ shipped (960845b6) — surveyor names axes, anti-modal worlds invert distinct named axes |
-| M6 | D4: synthesis panel (DSF) + hindcast embedding matching | ⏳ (after first evaluation) |
+| M6 | D4: synthesis panel (DSF) + hindcast embedding matching | ✅ shipped — synthesis panel (DSF, type-clean) + grade_hindcast embedding match (01533476) |
 | M7 | Full flagship run WITH dweller stories, in DSF 2.0 UI | 🔨 run-1b launched 2026-06-13 23:54 |
 | M8 | Quality evaluation: true-foresight vs performative critique | ⏳ |
 | M9 | Iterate (fix → re-run) until vision executed | ⏳ |
@@ -119,9 +119,27 @@ OTS-trajectory writes throw `database is locked` (handled, non-fatal) and the
 shared write lock throttles dispatch. Inherent to local dev; Postgres on Railway
 won't have it. So local runs are slow but progress; not a bug.
 
+## Plan status — D0–D4 fully implemented (2026-06-14)
+
+Every plan phase is implemented, tested, committed, pushed (PR temperpaw#398),
+and the engine is proven working live in run-1c (gate fired + re-steered +
+discarded; BundleWritten relay verified; claims settling; paths reaching
+Canonical). D4's synthesis panel is in the DSF repo (codex/dsf-2, type-clean,
+uncommitted pending a multi-endpoint world to render against).
+
+**Corridor is slow locally** — run-1c's six-month claims are revision-heavy (4
+of 8 paths hit the round-2 revision cap: the engine finds these futures genuinely
+hard to bridge honestly, which is itself a real foresight signal), spawning ~36
+concurrent Codex sessions; with file-SQLite write contention that grinds at
+~1 claim / 8–12 min. ~2/8 settled; stories ~1.5–2h out at this pace. Not a
+correctness issue — the round/route budgets + self-heal bound it; Postgres on
+Railway removes the contention.
+
 ## Next actions
-1. [in flight] Run-1b → stories; verify gate fired + dweller stories Published.
-2. Evaluate run-1b against the vision bar above (true foresight vs performative);
-   log findings here.
-3. Build D4 synthesis panel (DSF) informed by the evaluation; D4 hindcast matching.
-4. Iterate (fix → re-run), scale budget up, then the 2045 deep-sci-fi showcase world.
+1. [in flight, monitored] Run-1c → settle 8 claims → canonical → forecasts →
+   render → **dweller stories** (the headline; dweller-spine fix is in).
+2. Evaluate run-1c against the vision bar (true foresight vs performative) —
+   run `evaluate_world.py <wid>` + read the actual claims/routes/stories.
+3. Iterate: a diverse multi-endpoint run on the named-axes engine (restart +
+   launch), then the 2045 deep-sci-fi showcase world. Verify the synthesis panel
+   renders on a multi-endpoint world + commit it.
