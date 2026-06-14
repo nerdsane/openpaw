@@ -63,14 +63,30 @@ Also surfaced: liveness deadlock on wedged stragglers (M1), grounding gaps G1/G2
 - mxbai-embed-large caps at 512 tokens → cannot embed full 30KB bundles; gate embeds
   bundle-heads, reconcile embeds statements.
 - `frontier_date` is the scoreable horizon, NOT "today" (no stored present-date).
+- Session self-reports arrive as the `service:wasm-runtime` relay principal
+  (agent_type "service"), so they need an explicit relay permit — the generic
+  `["system","agent"]` permit does NOT cover them. Renaming a writer's
+  self-report action (SubmitForRepair→BundleWritten) without updating the relay
+  permit silently denies it (→ missing request_approval → session Failed).
+  Wedged run-1b for 60 min before diagnosis.
 
-### Run-1b (six-month world, budget 2) — first run on the D0–D3 engine
-World `en-019ec443-…4ceb6b08a74f`. Engine restarted clean on the release build
-(all 13 modules registered; sample_endpoints hash verified = my D3 build).
-Ollama embedder live (:11434). Watching for: the diversity gate firing
-(BundleWritten → barrier → GateDiversity → release/re-steer — the live D3 proof),
-the dweller spine producing stories (live M2/C4 proof), and grounding/reconcile.
-Launched 2026-06-13 23:54; monitor armed.
+### Run-1b (six-month world, budget 2) — first run on the D0–D3 engine — WEDGED
+World `en-019ec443-…4ceb6b08a74f`. Engine restarted clean (all 13 modules
+registered; sample_endpoints hash verified = my D3 build); Ollama live. Both
+endpoint writers ran, then **wedged in Sampled** for 60 min. Root cause: the
+writers' `BundleWritten` self-report was **Cedar-denied** (→ routed to the
+missing `request_approval` module → session Failed). D3 renamed the writer's
+self-report SubmitForRepair→BundleWritten but the `service:wasm-runtime` relay
+permit still listed only SubmitForRepair; the generic ["system","agent"] permit
+doesn't match the relay principal (agent_type "service"). **Lesson:** a renamed
+session-self-report action must be added to the relay permit, not just the
+generic permit — same class as [[feedback_temper_wasm_patch_denied]] but for
+relay permits. Fixed (275030a3) + regression test. Run-1b abandoned.
+
+### Run-1c (six-month world, budget 2) — on the relay-fixed engine
+World `en-019ec480-…c594ada8bbd8`. Server restarted with the fixed Cedar (active
+policy verified to grant BundleWritten at the relay). Launched 2026-06-14 00:59;
+monitor armed. Watching the same milestones (gate firing, stories).
 
 ## Next actions
 1. [in flight] Run-1b → stories; verify gate fired + dweller stories Published.
