@@ -786,16 +786,25 @@ fn phase_gate(ctx: &Context) -> Result<(), String> {
     let mut cand_summaries: Vec<String> = Vec::new();
     for e in &endpoints {
         let id = row_id(e).to_string();
-        let bundle = row_str(e, "BundleFileId").to_string();
         let summary = row_str(e, "Summary").to_string();
+        // ADR-006 (calibrated on run-1d): gate on the SUMMARY — it carries a
+        // world's thesis/divergence (modal vs anti-modal-on-axis measured 0.298
+        // apart), while the bundle-HEAD's shared dated-market retrospective
+        // drowns a single-axis fork (the same pair measured only 0.111, a false
+        // collapse). Fall back to the bundle-head only when a summary is missing.
+        let text = if !summary.trim().is_empty() {
+            summary.clone()
+        } else {
+            fetch_bundle_head(ctx, &api, &headers, &row_str(e, "BundleFileId").to_string())
+        };
         match row_status(e) {
             "Written" => {
                 cand_ids.push(id);
-                cand_heads.push(fetch_bundle_head(ctx, &api, &headers, &bundle));
+                cand_heads.push(text);
                 cand_summaries.push(summary);
             }
             "UnderRepair" | "Scored" | "Weighted" => {
-                ref_heads.push(fetch_bundle_head(ctx, &api, &headers, &bundle));
+                ref_heads.push(text);
                 ref_summaries.push(summary);
             }
             _ => {}
