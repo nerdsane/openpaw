@@ -16,6 +16,51 @@
 
 use temper_wasm_sdk::prelude::*;
 
+// --- Embedding-matched grading (D4, ADR-006) ---------------------------------
+//
+// An actual is matched to its forecast by event_node_id when given, else by
+// nearest embedding of the actual's descriptor to the forecast questions —
+// retiring the brittle, ordering-sensitive case-insensitive substring `.find`
+// (which silently took the FIRST of several matches). Degrades to substring
+// matching when no embedder is reachable, so grading never depends on it.
+const MATCH_MAX_DISTANCE: f32 = 0.55;
+
+fn embed_config(ctx: &Context) -> (String, String) {
+    let nonempty = |k: &str| {
+        ctx.config
+            .get(k)
+            .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+            .cloned()
+    };
+    (
+        nonempty("embedding_endpoint")
+            .unwrap_or_else(|| "http://127.0.0.1:11434/api/embed".to_string()),
+        nonempty("embedding_model").unwrap_or_else(|| "mxbai-embed-large".to_string()),
+    )
+}
+
+fn fetch_embeddings(ctx: &Context, texts: &[String]) -> Option<Vec<Vec<f32>>> {
+    if texts.is_empty() {
+        return Some(Vec::new());
+    }
+    let (endpoint, model) = embed_config(ctx);
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
+    let body = corridor_embed::build_embed_request(&model, texts);
+    let r = ctx.http_call("POST", &endpoint, &headers, &body).ok()?;
+    if !(200..300).contains(&r.status) {
+        ctx.log(
+            "warn",
+            &format!("grade_hindcast: embedding endpoint {endpoint} HTTP {}; substring fallback", r.status),
+        );
+        return None;
+    }
+    let vecs = corridor_embed::parse_embeddings(&r.body);
+    if vecs.len() != texts.len() {
+        return None;
+    }
+    Some(vecs)
+}
+
 /// Read a string field from an OData row. List/GET rows nest snake_case
 /// values under "fields" with lowercase status/entity_id at the top level;
 /// some surfaces serve PascalCase top-level properties. Check both.
@@ -142,13 +187,13 @@ fn parse_forecast_rows(fbody: &Value) -> Vec<ForecastRow> {
         .collect()
 }
 
-/// Match an actual to a forecast: exact event_node_id when given, otherwise
-/// case-insensitive substring on the registered question.
-fn match_forecast<'a>(actual: &Actual, forecasts: &'a [ForecastRow]) -> Option<&'a ForecastRow> {
+/// Substring fallback (no embedder): exact event_node_id, else the first
+/// case-insensitive substring match. Returns the forecast INDEX.
+fn match_index_substring(actual: &Actual, forecasts: &[ForecastRow]) -> Option<usize> {
     if !actual.event_node_id.is_empty() {
         return forecasts
             .iter()
-            .find(|f| f.event_node_id == actual.event_node_id);
+            .position(|f| f.event_node_id == actual.event_node_id);
     }
     if actual.question_contains.is_empty() {
         return None;
@@ -156,7 +201,64 @@ fn match_forecast<'a>(actual: &Actual, forecasts: &'a [ForecastRow]) -> Option<&
     let needle = actual.question_contains.to_lowercase();
     forecasts
         .iter()
-        .find(|f| f.question.to_lowercase().contains(&needle))
+        .position(|f| f.question.to_lowercase().contains(&needle))
+}
+
+/// Resolve every actual to a forecast index (D4): event_node_id exact first,
+/// then nearest-embedding of the actual's descriptor to the forecast questions
+/// (deterministic — retires the order-sensitive substring `.find`), then the
+/// substring fallback when the embedder is unreachable. Logs each embedding
+/// match with its distance for calibration.
+fn resolve_matches(
+    ctx: &Context,
+    actuals: &[Actual],
+    forecasts: &[ForecastRow],
+) -> Vec<Option<usize>> {
+    let mut out: Vec<Option<usize>> = vec![None; actuals.len()];
+    let mut need: Vec<usize> = Vec::new();
+    for (i, a) in actuals.iter().enumerate() {
+        if !a.event_node_id.is_empty() {
+            out[i] = forecasts.iter().position(|f| f.event_node_id == a.event_node_id);
+        } else if !a.question_contains.is_empty() {
+            need.push(i);
+        }
+    }
+    if need.is_empty() || forecasts.is_empty() {
+        return out;
+    }
+
+    let questions: Vec<String> = forecasts.iter().map(|f| f.question.clone()).collect();
+    let needles: Vec<String> = need.iter().map(|&i| actuals[i].question_contains.clone()).collect();
+    let mut all = questions.clone();
+    all.extend(needles);
+    match fetch_embeddings(ctx, &all) {
+        Some(vecs) => {
+            let qvecs = vecs[..questions.len()].to_vec();
+            for (k, &ai) in need.iter().enumerate() {
+                let nv = &vecs[questions.len() + k];
+                match corridor_embed::nearest(nv, &qvecs) {
+                    Some((idx, d)) if d <= MATCH_MAX_DISTANCE => {
+                        ctx.log(
+                            "info",
+                            &format!(
+                                "grade_hindcast: matched actual {:?} -> forecast {} (dist {:.3})",
+                                actuals[ai].question_contains, forecasts[idx].id, d
+                            ),
+                        );
+                        out[ai] = Some(idx);
+                    }
+                    // Nearest too far: fall back to substring (may still hit).
+                    _ => out[ai] = match_index_substring(&actuals[ai], forecasts),
+                }
+            }
+        }
+        None => {
+            for &ai in &need {
+                out[ai] = match_index_substring(&actuals[ai], forecasts);
+            }
+        }
+    }
+    out
 }
 
 /// Brier score for a registered probability against a yes/no outcome
@@ -262,12 +364,13 @@ fn grade(ctx: &Context) -> Result<(), String> {
     let fbody: Value = serde_json::from_str(&fresp.body).unwrap_or(json!({}));
     let forecasts = parse_forecast_rows(&fbody);
 
-    // 3. Match, resolve, score.
+    // 3. Match (D4: id-exact -> nearest-embedding -> substring), resolve, score.
+    let matches = resolve_matches(ctx, &actuals, &forecasts);
     let outcome_refs = json!([format!("file:{actuals_file_id}")]).to_string();
     let mut briers: Vec<f64> = Vec::new();
     let mut graded_ids: Vec<String> = Vec::new();
-    for actual in &actuals {
-        let Some(forecast) = match_forecast(actual, &forecasts) else {
+    for (ai, actual) in actuals.iter().enumerate() {
+        let Some(forecast) = matches[ai].map(|idx| &forecasts[idx]) else {
             ctx.log(
                 "info",
                 &format!(
@@ -411,10 +514,10 @@ mod tests {
             forecast("f-1", "n-1", "Will rates fall?", "0.6", "Preregistered"),
             forecast("f-2", "n-2", "Will rates rise?", "0.4", "Preregistered"),
         ];
-        let m = match_forecast(&actual("n-2", "", "yes"), &forecasts).unwrap();
+        let m = &forecasts[match_index_substring(&actual("n-2", "", "yes"), &forecasts).unwrap()];
         assert_eq!(m.id, "f-2");
         // An id match is exact even when a substring would hit another row.
-        let m = match_forecast(&actual("n-1", "rates rise", "yes"), &forecasts).unwrap();
+        let m = &forecasts[match_index_substring(&actual("n-1", "rates rise", "yes"), &forecasts).unwrap()];
         assert_eq!(m.id, "f-1");
     }
 
@@ -424,17 +527,17 @@ mod tests {
             forecast("f-1", "n-1", "Will GPT-6 ship before July?", "0.7", "Preregistered"),
             forecast("f-2", "n-2", "Will rates rise?", "0.4", "Preregistered"),
         ];
-        let m = match_forecast(&actual("", "gpt-6 SHIP", "yes"), &forecasts).unwrap();
+        let m = &forecasts[match_index_substring(&actual("", "gpt-6 SHIP", "yes"), &forecasts).unwrap()];
         assert_eq!(m.id, "f-1");
     }
 
     #[test]
     fn unmatched_actuals_match_nothing() {
         let forecasts = vec![forecast("f-1", "n-1", "Will rates fall?", "0.6", "Preregistered")];
-        assert!(match_forecast(&actual("n-9", "", "yes"), &forecasts).is_none());
-        assert!(match_forecast(&actual("", "quantum", "no"), &forecasts).is_none());
+        assert!(match_index_substring(&actual("n-9", "", "yes"), &forecasts).is_none());
+        assert!(match_index_substring(&actual("", "quantum", "no"), &forecasts).is_none());
         // Neither key given: nothing to match on.
-        assert!(match_forecast(&actual("", "", "yes"), &forecasts).is_none());
+        assert!(match_index_substring(&actual("", "", "yes"), &forecasts).is_none());
     }
 
     #[test]
@@ -510,7 +613,7 @@ mod tests {
         assert_eq!(rows[0].event_node_id, "n-7");
         assert_eq!(rows[0].probability, "0.64");
         assert_eq!(rows[0].status, "Registered");
-        let m = match_forecast(&actual("", "cursor", "yes"), &rows);
+        let m = match_index_substring(&actual("", "cursor", "yes"), &rows);
         assert!(m.is_some(), "envelope-shaped rows must be matchable");
     }
 

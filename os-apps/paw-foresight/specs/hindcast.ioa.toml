@@ -115,6 +115,8 @@ on_failure = "Fail"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
 
 
 [[action]]
