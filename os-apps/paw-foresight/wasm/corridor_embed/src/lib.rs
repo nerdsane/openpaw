@@ -20,7 +20,17 @@
 //! endpoint lives in each consumer (a ~15-line ctx.http_call), and its
 //! response is parsed by `parse_embeddings` here.
 
-use serde_json::Value;
+use serde_json::{json, Value};
+
+/// Build the request body for an embedding endpoint. `{"model", "input": [...]}`
+/// is accepted by both Ollama `/api/embed` and OpenAI `/v1/embeddings`, so the
+/// same body works for the dev (local Ollama) and prod (hosted) endpoints —
+/// only the endpoint URL and model id change, via config. The model id is
+/// passed by the consumer and stamped on the stored vectors for reproducibility
+/// (ADR-006: a vector is only comparable to others from the same model).
+pub fn build_embed_request(model: &str, texts: &[String]) -> String {
+    json!({ "model": model, "input": texts }).to_string()
+}
 
 /// Cosine similarity of two equal-length vectors. Returns 0.0 for a length
 /// mismatch or a zero-norm vector (degenerate — treated as "unrelated").
@@ -280,6 +290,19 @@ mod tests {
         assert_eq!(i, 0);
         assert!(d < 1e-6);
         assert!(nearest(&[1.0, 0.0], &[]).is_none());
+    }
+
+    #[test]
+    fn build_embed_request_is_portable_across_ollama_and_openai() {
+        let body = build_embed_request("mxbai-embed-large", &["a".to_string(), "b".to_string()]);
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["model"], "mxbai-embed-large");
+        assert_eq!(v["input"][0], "a");
+        assert_eq!(v["input"][1], "b");
+        // Round-trips back through our own parser shape contract: input is an
+        // array even for a single text (consumers always batch).
+        let one = build_embed_request("m", &["solo".to_string()]);
+        assert_eq!(serde_json::from_str::<Value>(&one).unwrap()["input"][0], "solo");
     }
 
     #[test]

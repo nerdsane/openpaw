@@ -9,7 +9,219 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
+use corridor_embed::{build_embed_request, nearest, parse_embeddings};
 use temper_wasm_sdk::prelude::*;
+
+// --- Reconcile / dedup (D2 grounding, ADR-005) -------------------------------
+//
+// An authored node that merely restates an already-determined fact must not be
+// registered as a forecast (it would resolve "yes" for free and poison
+// calibration — the G1 "first-party agents grow as rivals" bug). This is a
+// CONSERVATIVE, logged backstop: collapse only on a very-near embedding match
+// to a determined node, log every decision with its distance, and degrade to
+// exact-text matching when no embedder is reachable (never a silent pass). The
+// primary G1 fixes are upstream — the web-grounded surveyor capturing the fact
+// as determined, and the repairer not minting already-true facts. Embedding
+// distance cannot tell "restates a present fact" from "a future change to
+// something currently true", so the threshold stays strict to avoid dropping a
+// real forecast; it is a tunable prior, calibratable from logged distances.
+const RECONCILE_MAX_DISTANCE: f32 = 0.10;
+
+/// Embedding endpoint + model id, from config (secrets) with dev defaults
+/// (local Ollama). The model id is informational here but kept for parity with
+/// the other consumers, which stamp it on stored vectors.
+fn embed_config(ctx: &Context) -> (String, String) {
+    let nonempty = |k: &str| {
+        ctx.config
+            .get(k)
+            .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+            .cloned()
+    };
+    (
+        nonempty("embedding_endpoint")
+            .unwrap_or_else(|| "http://127.0.0.1:11434/api/embed".to_string()),
+        nonempty("embedding_model").unwrap_or_else(|| "mxbai-embed-large".to_string()),
+    )
+}
+
+/// Fetch row-aligned embeddings for `texts`, or None if the endpoint is
+/// unreachable / returns the wrong count (the caller then degrades to text
+/// matching). A wrong-count response is treated as a miss, never silently
+/// mapped to the wrong rows.
+fn fetch_embeddings(ctx: &Context, texts: &[String]) -> Option<Vec<Vec<f32>>> {
+    if texts.is_empty() {
+        return Some(Vec::new());
+    }
+    let (endpoint, model) = embed_config(ctx);
+    let headers = vec![("content-type".to_string(), "application/json".to_string())];
+    let body = build_embed_request(&model, texts);
+    let r = ctx.http_call("POST", &endpoint, &headers, &body).ok()?;
+    if !(200..300).contains(&r.status) {
+        ctx.log(
+            "warn",
+            &format!(
+                "register_forecasts: embedding endpoint {endpoint} returned HTTP {}; \
+                 reconcile falls back to exact-text matching",
+                r.status
+            ),
+        );
+        return None;
+    }
+    let vecs = parse_embeddings(&r.body);
+    if vecs.len() != texts.len() {
+        ctx.log(
+            "warn",
+            &format!(
+                "register_forecasts: embedding count {} != {} requested; reconcile falls back \
+                 to exact-text matching",
+                vecs.len(),
+                texts.len()
+            ),
+        );
+        return None;
+    }
+    Some(vecs)
+}
+
+/// Normalize a statement for exact-text comparison: lowercase, collapse
+/// whitespace, drop trailing punctuation. The no-embedder fallback only
+/// collapses verbatim restatements — anything looser risks dropping a real
+/// forecast.
+fn normalize(s: &str) -> String {
+    let lowered = s.to_lowercase();
+    let collapsed = lowered.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed
+        .trim_end_matches(['.', '!', '?', ' '])
+        .to_string()
+}
+
+/// Per candidate, the nearest determined node (index, distance) when it is
+/// within `threshold` — i.e. the candidate is covered by that determined fact.
+/// Pure over the vectors; the embedding judgment came from the model.
+fn covered_by_embedding(
+    cand_vecs: &[Vec<f32>],
+    det_vecs: &[Vec<f32>],
+    threshold: f32,
+) -> Vec<Option<(usize, f32)>> {
+    cand_vecs
+        .iter()
+        .map(|c| match nearest(c, det_vecs) {
+            Some((i, d)) if d <= threshold => Some((i, d)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The exact-text fallback: a candidate is covered only if its normalized
+/// statement equals a determined node's. Returns the matched determined index.
+fn covered_by_text(candidates: &[String], determined: &[String]) -> Vec<Option<usize>> {
+    let norm_det: Vec<String> = determined.iter().map(|s| normalize(s)).collect();
+    candidates
+        .iter()
+        .map(|c| {
+            let nc = normalize(c);
+            norm_det.iter().position(|d| !d.is_empty() && *d == nc)
+        })
+        .collect()
+}
+
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(n).collect();
+    out.push('…');
+    out
+}
+
+/// The set of registrable authored node ids that merely restate a determined
+/// fact (and so must not become forecasts). Embeds the determined reference and
+/// the candidates in one batch and matches with the strict distance threshold;
+/// degrades to exact-text matching when no embedder is reachable. Every
+/// collapse is logged with its distance and the matched fact.
+fn compute_covered(
+    ctx: &Context,
+    nodes: &[Value],
+    frontier: &str,
+) -> std::collections::HashSet<String> {
+    let mut covered = std::collections::HashSet::new();
+
+    let mut det_stmts: Vec<String> = Vec::new();
+    for n in nodes {
+        if row_str(n, "Provenance") == "determined" {
+            let s = row_str(n, "Statement");
+            if !s.is_empty() {
+                det_stmts.push(s.to_string());
+            }
+        }
+    }
+    if det_stmts.is_empty() {
+        return covered; // nothing to reconcile against
+    }
+
+    let mut cand_ids: Vec<String> = Vec::new();
+    let mut cand_stmts: Vec<String> = Vec::new();
+    for n in nodes {
+        let id = row_id(n).to_string();
+        if id.is_empty() || row_str(n, "Provenance") != "authored" {
+            continue;
+        }
+        if !should_register(
+            row_str(n, "Status"),
+            row_str(n, "Probability"),
+            row_str(n, "Provenance"),
+            row_str(n, "ResolveBy"),
+            frontier,
+        ) {
+            continue;
+        }
+        let s = row_str(n, "Statement");
+        if s.is_empty() {
+            continue;
+        }
+        cand_ids.push(id);
+        cand_stmts.push(s.to_string());
+    }
+    if cand_stmts.is_empty() {
+        return covered;
+    }
+
+    // One batch embed of [determined ++ candidates], split back by length.
+    let mut all = det_stmts.clone();
+    all.extend(cand_stmts.clone());
+    let matched: Vec<Option<(String, f32)>> = match fetch_embeddings(ctx, &all) {
+        Some(vecs) => {
+            let det_vecs = vecs[..det_stmts.len()].to_vec();
+            let cand_vecs = vecs[det_stmts.len()..].to_vec();
+            covered_by_embedding(&cand_vecs, &det_vecs, RECONCILE_MAX_DISTANCE)
+                .into_iter()
+                .map(|m| m.map(|(di, d)| (det_stmts[di].clone(), d)))
+                .collect()
+        }
+        None => covered_by_text(&cand_stmts, &det_stmts)
+            .into_iter()
+            .map(|m| m.map(|di| (det_stmts[di].clone(), 0.0)))
+            .collect(),
+    };
+
+    for (ci, m) in matched.into_iter().enumerate() {
+        if let Some((det, dist)) = m {
+            covered.insert(cand_ids[ci].clone());
+            ctx.log(
+                "info",
+                &format!(
+                    "register_forecasts: reconcile — node {} restates a determined fact \
+                     (dist {:.3}): \"{}\" ~= \"{}\"; not registering it as a forecast",
+                    cand_ids[ci],
+                    dist,
+                    clip(&cand_stmts[ci], 60),
+                    clip(&det, 60)
+                ),
+            );
+        }
+    }
+    covered
+}
 
 /// Read a string field from an OData row. List/GET rows nest snake_case
 /// values under "fields" with lowercase status/entity_id at the top level;
@@ -149,7 +361,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .cloned()
             .unwrap_or_default();
 
+        // Reconcile (D2): authored nodes that merely restate a determined fact
+        // are collapsed here, before they can become free-resolving forecasts.
+        let covered = compute_covered(&ctx, &nodes, &frontier);
+
         let mut registered = 0usize;
+        let mut reconciled = 0usize;
         for node in &nodes {
             let str_of = |k: &str| row_str(node, k);
             let node_id = node
@@ -168,6 +385,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 str_of("ResolveBy"),
                 &frontier,
             ) {
+                continue;
+            }
+            // Already-true fact restated as a forecast: skip (logged in
+            // compute_covered with the matched fact + distance).
+            if covered.contains(&node_id) {
+                reconciled += 1;
                 continue;
             }
 
@@ -243,7 +466,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         ctx.log(
             "info",
             &format!(
-                "register_forecasts: world {world_id} — {registered} forecast(s) registered from {} node(s)",
+                "register_forecasts: world {world_id} — {registered} forecast(s) registered, \
+                 {reconciled} collapsed as determined-restating, from {} node(s)",
                 nodes.len()
             ),
         );
@@ -378,4 +602,42 @@ mod tests {
         assert_eq!(row_str(&pascal, "RepairCost"), "50.00");
     }
 
+    // --- Reconcile / dedup (D2) ---
+
+    fn v(seed: &[f32]) -> Vec<f32> {
+        seed.to_vec()
+    }
+
+    #[test]
+    fn covered_by_embedding_collapses_only_within_the_strict_threshold() {
+        let det = vec![v(&[1.0, 0.0, 0.0]), v(&[0.0, 1.0, 0.0])];
+        // c0 ~= det[0] (distance ~0) -> covered; c1 orthogonal -> not covered.
+        let cands = vec![v(&[1.0, 0.0, 0.0]), v(&[0.0, 0.0, 1.0])];
+        let out = covered_by_embedding(&cands, &det, RECONCILE_MAX_DISTANCE);
+        assert!(matches!(out[0], Some((0, d)) if d < 1e-6));
+        assert!(out[1].is_none(), "an orthogonal claim is a real forecast");
+        // A near-but-not-identical claim above the strict threshold is NOT
+        // collapsed — we must never drop a genuine forecast.
+        let near = vec![v(&[0.9, 0.44, 0.0])]; // distance ~0.10+ from det[0]
+        let near_out = covered_by_embedding(&near, &det, 0.05);
+        assert!(near_out[0].is_none());
+    }
+
+    #[test]
+    fn covered_by_text_collapses_only_verbatim_restatements() {
+        let det = vec!["EU AI Act applies from 2026-08-02.".to_string()];
+        let cands = vec![
+            "eu ai act applies from 2026-08-02".to_string(), // normalized-equal
+            "The EU AI Act will reshape enterprise procurement.".to_string(), // different claim
+        ];
+        let out = covered_by_text(&cands, &det);
+        assert_eq!(out[0], Some(0));
+        assert!(out[1].is_none(), "a distinct claim is not a restatement");
+    }
+
+    #[test]
+    fn normalize_is_case_whitespace_and_trailing_punct_insensitive() {
+        assert_eq!(normalize("  Foo   Bar.  "), normalize("foo bar"));
+        assert_eq!(normalize("Done!"), "done");
+    }
 }
