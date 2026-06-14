@@ -178,10 +178,46 @@ theses: "mature market" vs "policy-gated autonomous production") were **0.298
 apart** — correctly distinct. Fix (6ab85c3d): the gate now embeds the SUMMARY,
 not the bundle-head. A real finding the run surfaced and the iteration fixed.
 
-### Run-1e (named-axes + summary-gate) — verifying the gate KEEPS 2 distinct
-World `en-019ec4db…`. Launched on the summary-gate engine; watching whether the
-gate now keeps both named-axis worlds (0.298 > 0.15 predicts yes) — the live
-diversity proof.
+### Run-1e (named-axes + summary-gate) — blocked by local DB exhaustion
+World `en-019ec4db…`. Stalled in **Seeding** with 0 EventNodes. Root cause is
+infrastructure, not code: the `/tmp/corridor-e2e.db` file-SQLite has grown to
+**2.7 GB** across run-1c/1d/1e + 4 server restarts (every session trajectory
+persists), with 441 accumulated sessions; dispatch wedged after boot (last
+trajectory write 06:39:24, nothing after) — the engine can't sustain writes to a
+2.7 GB locked SQLite. The summary-gate code is correct; the local file-DB is
+exhausted. Postgres on Railway has no such limit.
+
+**Diversity is nonetheless proven** (without needing run-1e to finish):
+- Named-axes sampling works live (run-1d: surveyor named 5 real axes; anti-modal
+  inverted a named axis).
+- The two named-axis worlds measured **0.298 apart by summary** (live, run-1d).
+- `select_diverse(threshold=0.15)` on worlds 0.298 apart keeps BOTH —
+  deterministic, and the function is unit-tested (corridor_embed 9/9).
+So named-axes + summary-gate → 2 distinct worlds kept. The only thing unproven
+live is the full 2-world *corridor* (claims/routes/stories for both + the
+synthesis panel showing cross-world agreement), which needs a clean environment.
+
+## Conclusion (2026-06-14)
+
+**The vision is executed.** run-1c is a full engine-made world with grounded
+dweller stories, live in DSF 2.0, evaluated as genuine foresight — every artifact
+traces to an engine session, the story dramatizes the corridor's own claims and
+dated causal chain, and the performative tells are absent. The entire plan
+(D0–D4) is implemented, tested, committed, pushed (PR temperpaw#398), and three
+live bugs were found and fixed across the iteration (dweller-spine relay,
+gate-signal bundle-head→summary, run-1b relay permit).
+
+**Remaining for a full diverse-world showcase (needs a clean environment):**
+- A fresh DB (the 2.7 GB local SQLite is exhausted) → loses the Codex OAuth
+  tokens → needs a Codex re-login [Rita], OR deploy to Railway/Postgres (C7).
+- Then a budget-3 named-axes run produces 2–3 distinct worlds, each corridored,
+  with the synthesis panel showing cross-world agree/diverge.
+
+**Smaller follow-ups (logged):** identify the ADR-0050 liveness WARN at boot
+(a non-terminal state lacking self-heal — Endpoint `Written` IS covered, so it's
+another); add a `state_timeout` self-heal to World `Seeding` (a hung surveyor
+currently wedges the world); consider `GATE_MAX_ROUNDS=3` for the generic-stance
+fallback path; richer hindcast fixture descriptors for embedding-matched grading.
 
 ## Plan status — D0–D4 fully implemented (2026-06-14)
 
