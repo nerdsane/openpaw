@@ -58,6 +58,15 @@ The corridor entities had `allow_indefinite_states` on their wait states
   entities are created (ResumeRepair spawns into the existing Path;
   RequestChallenge/ResumeCosting/ResumeBridge re-trigger pure WASM on the
   existing entity).
-- Worst case on a flapping session is repeated re-spawns until the route's own
-  round/route budget (ADR-004) is exhausted, after which the claim settles or
-  is honestly marked Unreachable — the search budget bounds the self-heal too.
+- Worst case on a flapping session (a route whose adversary keeps dying, so
+  its `Repaired` timeout keeps re-firing `RequestChallenge`) is bounded at the
+  claim level, not the route level: a single stuck Path has no per-Path cap on
+  re-challenges, but `aggregate_costs::claim_decision` settles the claim on its
+  cheapest acceptable route once the route budget (ADR-004, `MAX_ROUTES`) is
+  spent — it does not wait on an in-flight straggler when it already has a
+  good-enough answer and no budget to open a fresh alternate. So the search
+  budget bounds the self-heal: a flapping route can delay, never deadlock, a
+  claim that is already reachable. A claim with no acceptable route yet still
+  waits for its last in-flight route (that route is its only path to
+  reachable) and is marked Unreachable only when the route both terminates and
+  fails to clear the bound.

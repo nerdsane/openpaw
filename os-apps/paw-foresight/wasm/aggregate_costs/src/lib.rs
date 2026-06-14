@@ -242,9 +242,6 @@ enum ClaimDecision {
 /// Scored route (id, cost); `in_flight` is true while any route is still
 /// being repaired or challenged.
 fn claim_decision(route_count: usize, in_flight: bool, scored: &[(String, f64)]) -> ClaimDecision {
-    if in_flight {
-        return ClaimDecision::Wait;
-    }
     let best = scored
         .iter()
         .min_by(|a, b| {
@@ -253,6 +250,25 @@ fn claim_decision(route_count: usize, in_flight: bool, scored: &[(String, f64)])
                 .then_with(|| a.0.cmp(&b.0))
         })
         .cloned();
+
+    // A still-churning route normally means "wait for it before deciding."
+    // The exception is the wedged straggler: once the route budget is spent
+    // (no fresh alternate can open) AND an acceptable route already exists,
+    // the claim's answer is determined. A stuck or flapping route can only
+    // ever match or slightly beat a route we'd already accept, so it must not
+    // block settlement forever. This is what bounds the ADR-007 self-heal —
+    // the search budget caps it, exactly as the ADR promises. With budget
+    // still left, or with no acceptable route yet, the in-flight route can
+    // still change the outcome, so we wait (Path self-heal re-drives a dead
+    // session in that case).
+    if in_flight {
+        let budget_spent = route_count >= MAX_ROUTES;
+        let settleable = matches!(&best, Some((_, cost)) if *cost <= ACCEPTABLE_CLAIM_COST);
+        if !(budget_spent && settleable) {
+            return ClaimDecision::Wait;
+        }
+    }
+
     match best {
         None => {
             if route_count < MAX_ROUTES {
@@ -1252,6 +1268,32 @@ mod tests {
                 route_id: "p-a".to_string(),
                 cost: 25.0
             }
+        );
+        // Liveness: a wedged straggler must NOT block a claim that already has
+        // an acceptable route once the route budget is spent. The search has
+        // its answer; a dead/flapping route can only match or slightly beat a
+        // route we'd already accept, so settle on the cheapest acceptable
+        // instead of waiting forever (this is what bounds the ADR-007
+        // self-heal — the budget caps it).
+        assert_eq!(
+            claim_decision(MAX_ROUTES, true, &scored(&[("p-2", 142.5), ("p-1", 300.0)])),
+            ClaimDecision::Settle {
+                route_id: "p-2".to_string(),
+                cost: 142.5
+            }
+        );
+        // Budget left: an in-flight route still blocks. Path self-heal owns
+        // the stuck-route case here; we don't settle early while a fresh
+        // alternate could still open.
+        assert_eq!(
+            claim_decision(1, true, &scored(&[("p-1", 142.5)])),
+            ClaimDecision::Wait
+        );
+        // Budget spent and in flight, but no acceptable route yet: keep
+        // waiting on the only route that could still make the claim reachable.
+        assert_eq!(
+            claim_decision(MAX_ROUTES, true, &scored(&[("p-1", 300.0)])),
+            ClaimDecision::Wait
         );
     }
 
