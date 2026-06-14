@@ -444,9 +444,13 @@ permit(
   resource is World
 );
 
+// The endpoint writer self-reports BundleWritten through the relay (ADR-006);
+// the decomposer self-reports DecompositionComplete. SubmitForRepair and
+// ReSteer are NOT here — the diversity gate (system) dispatches them, never a
+// session.
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"SubmitForRepair", Action::"DecompositionComplete", Action::"Fail"],
+  action in [Action::"BundleWritten", Action::"DecompositionComplete", Action::"Fail"],
   resource is Endpoint
 );
 

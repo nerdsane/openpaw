@@ -186,6 +186,27 @@ fn decomposition_and_edges_ride_the_relay() {
             .authorize(&relay, "DecompositionComplete", "Endpoint", &e)
             .is_allowed()
     );
+    // ADR-006: the endpoint writer self-reports its bundle via BundleWritten,
+    // and that ride must be permitted at the relay (the regression that wedged
+    // run-1b: the writer's self-report was denied because only the old
+    // SubmitForRepair was relay-permitted).
+    assert!(
+        engine
+            .authorize(&relay, "BundleWritten", "Endpoint", &e)
+            .is_allowed()
+    );
+    // SubmitForRepair and ReSteer are the diversity gate's to dispatch (system),
+    // never a session's — they must NOT ride the relay.
+    assert!(
+        !engine
+            .authorize(&relay, "SubmitForRepair", "Endpoint", &e)
+            .is_allowed()
+    );
+    assert!(
+        !engine
+            .authorize(&relay, "ReSteer", "Endpoint", &e)
+            .is_allowed()
+    );
 
     let n = attrs(&[("id", serde_json::json!("n-1"))]);
     assert!(
