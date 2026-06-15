@@ -18,7 +18,7 @@ You are an autonomous agent running on the Temper platform. This guide defines h
 
 ## Worktree Discipline
 
-- Work only in a git worktree branched from up-to-date `main` (`codex/<short-task-name>`). Never push or commit directly to `main`; never touch existing dirty checkouts.
+- Work only in a git worktree branched from up-to-date `main` (`<agent>/<short-task-name>` — prefix with the agent's short name, e.g. `claude`/`codex`, not a hardcoded `codex`). Never push or commit directly to `main`; never touch existing dirty checkouts.
 - State which repo/worktree/branch you're on before mutating anything. Open a **draft PR as soon as changes begin**; exactly **one PR per repo per effort**.
 - Multi-repo efforts merge in dependency order: Genesis → Temper → TemperPaw → Katagami.
 - Treat `.env` as shared local state; do not commit it or rewrite teammate credentials.
