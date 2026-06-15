@@ -81,6 +81,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "slack_bot_token",
         "slack_signing_secret",
         "github_token",
+        "genesis_token",
         "exa_api_key",
         "tensorlake_api_key",
         "temper_api_key",
@@ -253,6 +254,13 @@ fn secrets_schema() -> Vec<SecretSchema> {
             label: "GitHub Token",
             required: false,
             description: "For repo cloning and PR flows",
+        },
+        SecretSchema {
+            key: "genesis_token",
+            category: "integrations",
+            label: "Genesis Token",
+            required: false,
+            description: "For pushing app bundles to the Genesis registry (Basic-auth username)",
         },
         // DD_* keys are infrastructure config set via Railway env vars (by `temperpaw deploy`).
         // They don't belong in the dashboard — change them in Railway if needed.
@@ -3241,6 +3249,21 @@ mod tests {
     use std::sync::Arc;
     use temper_server::secrets::SecretsVault;
     use temper_store_turso::TursoEventStore;
+
+    #[test]
+    fn genesis_token_is_a_known_integration_secret() {
+        // Genesis push credential for Paw agents: it must be both an allowed
+        // secret key and present in the setup schema (mirrors github_token), so
+        // `temper.get_secret("genesis_token")` resolves the seeded value.
+        assert!(
+            allowed_secret_keys().contains(&"genesis_token"),
+            "genesis_token must be an allowed secret key"
+        );
+        assert!(
+            secrets_schema().iter().any(|s| s.key == "genesis_token"),
+            "genesis_token must appear in the setup secrets schema"
+        );
+    }
 
     #[test]
     fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
