@@ -95,6 +95,13 @@ fn normalize_provider(provider: &str) -> String {
     match provider.trim().to_ascii_lowercase().as_str() {
         "codex" | "openai-codex" => "openai_codex".to_string(),
         "open_router" => "openrouter".to_string(),
+        "hf" | "hugging_face" | "hugging-face" => "huggingface".to_string(),
+        "fireworks_ai" | "fireworks-ai" => "fireworks".to_string(),
+        "sakana" | "sakana-fugu" | "fugu" => "sakana_fugu".to_string(),
+        "ollama" | "local" | "local-openai" => "local_openai".to_string(),
+        "openai-compatible" | "openai_compat" | "openai-compat" | "custom_openai" => {
+            "openai_compatible".to_string()
+        }
         other => other.to_string(),
     }
 }

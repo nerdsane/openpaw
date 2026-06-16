@@ -793,8 +793,16 @@ fn dispatch_temper(
                 .unwrap_or_default();
             let model = input.get("model").and_then(|v| v.as_str()).unwrap_or("");
             let provider = input.get("provider").and_then(|v| v.as_str()).unwrap_or("");
-            if model.is_empty() && provider.is_empty() {
-                return Err("switch_provider requires at least one of: model, provider".into());
+            let provider_options_json = input
+                .get("provider_options_json")
+                .or_else(|| input.get("providerOptionsJson"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if model.is_empty() && provider.is_empty() && provider_options_json.is_empty() {
+                return Err(
+                    "switch_provider requires at least one of: model, provider, provider_options_json"
+                        .into(),
+                );
             }
             let agent_id = ctx
                 .entity_state
@@ -808,6 +816,9 @@ fn dispatch_temper(
             if !provider.is_empty() {
                 body.insert("provider".into(), json!(provider));
             }
+            if !provider_options_json.is_empty() {
+                body.insert("provider_options_json".into(), json!(provider_options_json));
+            }
             let url = format!("{api_url}/tdata/Sessions('{agent_id}')/TemperPaw.SwitchProvider");
             let headers = internal_headers();
             let resp = ctx.http_call("POST", &url, &headers, &json!(body).to_string())?;
@@ -819,6 +830,7 @@ fn dispatch_temper(
                     "switched": true,
                     "model": if model.is_empty() { "unchanged" } else { model },
                     "provider": if provider.is_empty() { "unchanged" } else { provider },
+                    "provider_options_json": if provider_options_json.is_empty() { "unchanged" } else { provider_options_json },
                 }))
             } else {
                 Err(format!(

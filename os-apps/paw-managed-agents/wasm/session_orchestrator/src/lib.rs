@@ -4,9 +4,10 @@ mod common;
 use common::{
     create_entity, create_session_event, entity_id, escape_odata_string, field_i64, field_string,
     finish_agent_session_span, get_entity, is_terminal_status, log_managed_session_event,
-    managed_agent_provider, managed_environment_sandbox_params, managed_session_event_context,
-    managed_tools_enabled, next_session_event_sequence, pending_user_prompt, post_absolute_action,
-    post_action, start_agent_session_span, status_of, system_json_headers, with_session_event_context,
+    managed_agent_provider, managed_agent_provider_options_json, managed_environment_sandbox_params,
+    managed_session_event_context, managed_tools_enabled, next_session_event_sequence,
+    pending_user_prompt, post_absolute_action, post_action, start_agent_session_span, status_of,
+    system_json_headers, with_session_event_context,
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::resolve_temper_api_url;
@@ -241,6 +242,7 @@ fn start_or_resume(
         );
         return Ok(());
     }
+    let provider_options_json = managed_agent_provider_options_json(&managed_agent);
     let system_prompt = {
         let value = field_string(&managed_agent, &["System", "system"]);
         if value.is_empty() {
@@ -257,6 +259,7 @@ fn start_or_resume(
         "user_message": prompt,
         "model": model_id,
         "provider": provider,
+        "provider_options_json": provider_options_json,
         "tools_enabled": tools_enabled,
         "max_turns": max_turns,
         "temper_api_url": base_url,
@@ -439,6 +442,7 @@ fn ensure_inner_agent(
     if provider.is_empty() {
         return Err("ManagedAgent requires Provider before syncing inner Agent".into());
     }
+    let provider_options_json = managed_agent_provider_options_json(managed_agent);
 
     if existing.is_empty() {
         let created = create_entity(ctx, base_url, headers, "Agents", &json!({}))?;
@@ -455,6 +459,7 @@ fn ensure_inner_agent(
                 "source_app_id": "paw-managed-agents",
                 "model": model_id,
                 "provider": provider,
+                "provider_options_json": provider_options_json,
                 "tools_enabled": tools_enabled,
                 "max_turns": "60",
             }),
@@ -480,6 +485,7 @@ fn ensure_inner_agent(
                 "description": description,
                 "model": model_id,
                 "provider": provider,
+                "provider_options_json": provider_options_json,
                 "tools_enabled": tools_enabled,
                 "max_turns": "60",
             }),

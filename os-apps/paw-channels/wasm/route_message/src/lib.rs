@@ -723,8 +723,15 @@ fn create_session_for_agent(
     let config: Value = serde_json::from_str(route_config).unwrap_or_else(|_| json!({}));
 
     // If route points to a persistent Agent, fetch its config
-    let (agent_id, agent_soul_id, agent_model, agent_provider, agent_tools, agent_max_turns) =
-        if !route_agent_id.is_empty() {
+    let (
+        agent_id,
+        agent_soul_id,
+        agent_model,
+        agent_provider,
+        agent_provider_options_json,
+        agent_tools,
+        agent_max_turns,
+    ) = if !route_agent_id.is_empty() {
             let agent = fetch_agent_config(ctx, temper_api_url, tenant, route_agent_id)?;
             let soul_id = nested_str_field(&agent, &["SoulId", "soul_id"])
                 .unwrap_or("")
@@ -744,11 +751,19 @@ fn create_session_for_agent(
             let max_turns = nested_str_field(&agent, &["MaxTurns", "max_turns"])
                 .unwrap_or("200")
                 .to_string();
+            let provider_options_json = config
+                .get("provider_options_json")
+                .or_else(|| config.get("providerOptionsJson"))
+                .and_then(Value::as_str)
+                .or_else(|| nested_str_field(&agent, &["ProviderOptionsJson", "provider_options_json"]))
+                .unwrap_or("")
+                .to_string();
             (
                 route_agent_id.to_string(),
                 soul_id,
                 model,
                 provider,
+                provider_options_json,
                 tools,
                 max_turns,
             )
@@ -781,7 +796,21 @@ fn create_session_for_agent(
                 .and_then(Value::as_str)
                 .unwrap_or("200")
                 .to_string();
-            (String::new(), soul_id, model, provider, tools, max_turns)
+            let provider_options_json = config
+                .get("provider_options_json")
+                .or_else(|| config.get("providerOptionsJson"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            (
+                String::new(),
+                soul_id,
+                model,
+                provider,
+                provider_options_json,
+                tools,
+                max_turns,
+            )
         };
 
     // Create blank Session entity
@@ -799,6 +828,7 @@ fn create_session_for_agent(
         "user_message": user_message,
         "model": agent_model,
         "provider": agent_provider,
+        "provider_options_json": agent_provider_options_json,
         "tools_enabled": tools_enabled,
         "max_turns": agent_max_turns,
         "workdir": config.get("workdir").and_then(Value::as_str).unwrap_or(DEFAULT_WORKDIR),
@@ -951,7 +981,14 @@ fn continue_with_new_session(
     let new_session_id = create_blank_session(ctx, temper_api_url, tenant)?;
 
     // Fetch Agent entity to get soul_id and config (if we have a persistent Agent)
-    let (soul_id, agent_model, agent_provider, agent_tools, agent_max_turns) =
+    let (
+        soul_id,
+        agent_model,
+        agent_provider,
+        agent_provider_options_json,
+        agent_tools,
+        agent_max_turns,
+    ) =
         if !agent_entity_id.is_empty() {
             match fetch_agent_config(ctx, temper_api_url, tenant, agent_entity_id) {
                 Ok(agent) => {
@@ -964,15 +1001,20 @@ fn continue_with_new_session(
                     let provider = nested_str_field(&agent, &["Provider", "provider"])
                         .unwrap_or("")
                         .to_string();
+                    let provider_options_json =
+                        nested_str_field(&agent, &["ProviderOptionsJson", "provider_options_json"])
+                            .unwrap_or("")
+                            .to_string();
                     let tools = nested_str_field(&agent, &["ToolsEnabled", "tools_enabled"])
                         .unwrap_or("")
                         .to_string();
                     let max_turns = nested_str_field(&agent, &["MaxTurns", "max_turns"])
                         .unwrap_or("")
                         .to_string();
-                    (sid, model, provider, tools, max_turns)
+                    (sid, model, provider, provider_options_json, tools, max_turns)
                 }
                 Err(_) => (
+                    String::new(),
                     String::new(),
                     String::new(),
                     String::new(),
@@ -982,6 +1024,7 @@ fn continue_with_new_session(
             }
         } else {
             (
+                String::new(),
                 String::new(),
                 String::new(),
                 String::new(),
@@ -1009,6 +1052,11 @@ fn continue_with_new_session(
         str_field(&fields, &["provider", "Provider"])
             .filter(|value| !value.trim().is_empty())
             .ok_or("route_message requires a configured provider from AgentRoute, Agent, or prior Session")?
+    };
+    let effective_provider_options_json = if !agent_provider_options_json.is_empty() {
+        agent_provider_options_json.as_str()
+    } else {
+        str_field(&fields, &["provider_options_json", "ProviderOptionsJson"]).unwrap_or("")
     };
     let effective_tools = if !agent_tools.is_empty() {
         &agent_tools
@@ -1043,6 +1091,7 @@ fn continue_with_new_session(
         effective_soul_id,
         effective_model,
         effective_provider,
+        effective_provider_options_json,
         effective_tools,
         effective_max_turns,
         &workspace_id,
@@ -1113,6 +1162,7 @@ fn configure_session_from_prior(
     soul_id: &str,
     model: &str,
     provider: &str,
+    provider_options_json: &str,
     tools_enabled: &str,
     max_turns: &str,
     workspace_id: &str,
@@ -1147,6 +1197,7 @@ fn configure_session_from_prior(
         "user_message": user_message,
         "model": model,
         "provider": provider,
+        "provider_options_json": provider_options_json,
         "tools_enabled": effective_tools,
         "max_turns": max_turns,
         "workdir": str_field(fields, &["workdir", "Workdir"]).unwrap_or(DEFAULT_WORKDIR),
