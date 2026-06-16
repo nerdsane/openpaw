@@ -603,6 +603,19 @@ fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, S
         .unwrap_or_default())
 }
 
+fn escape_odata_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn active_session_query(channel_id: &str, thread_id: &str, author_id: &str) -> String {
+    let channel_id = escape_odata_literal(channel_id);
+    let thread_id = escape_odata_literal(thread_id);
+    let author_id = escape_odata_literal(author_id);
+    format!(
+        "$filter=Status eq 'Active' and channel_id eq '{channel_id}' and thread_id eq '{thread_id}' and author_id eq '{author_id}'&$top=1"
+    )
+}
+
 fn find_active_session(
     ctx: &Context,
     temper_api_url: &str,
@@ -611,13 +624,10 @@ fn find_active_session(
     thread_id: &str,
     author_id: &str,
 ) -> Result<Option<Value>, String> {
-    let filter = format!(
-        "$filter=Status eq 'Active' and channel_id eq '{}' and thread_id eq '{}' and author_id eq '{}'",
-        channel_id, thread_id, author_id
-    );
+    let query = active_session_query(channel_id, thread_id, author_id);
     let sessions = list_entities(
         ctx,
-        &format!("{temper_api_url}/tdata/ChannelSessions?{filter}"),
+        &format!("{temper_api_url}/tdata/ChannelSessions?{query}"),
         tenant,
     )?;
     Ok(sessions.into_iter().next())
@@ -663,32 +673,25 @@ fn find_route(
     tenant: &str,
     channel_id: &str,
 ) -> Result<Option<Value>, String> {
-    let routes = list_entities(ctx, &format!("{temper_api_url}/tdata/AgentRoutes"), tenant)?;
-    let mut best_route: Option<(i32, Value)> = None;
-    for route in routes {
-        if nested_str_field(&route, &["Status", "status"]) != Some("Active") {
-            continue;
-        }
-        let route_channel_id = nested_str_field(&route, &["ChannelId", "channel_id"]).unwrap_or("");
-        if !route_channel_id.is_empty() && route_channel_id != channel_id {
-            continue;
-        }
-
-        // Prefer channel-specific routes over the global fallback route.
-        let score = if route_channel_id == channel_id {
-            10
-        } else {
-            0
-        };
-        if best_route
-            .as_ref()
-            .map(|(best_score, _)| score > *best_score)
-            .unwrap_or(true)
-        {
-            best_route = Some((score, route));
+    for query in agent_route_queries(channel_id) {
+        let routes = list_entities(
+            ctx,
+            &format!("{temper_api_url}/tdata/AgentRoutes?{query}"),
+            tenant,
+        )?;
+        if let Some(route) = routes.into_iter().next() {
+            return Ok(Some(route));
         }
     }
-    Ok(best_route.map(|(_, route)| route))
+    Ok(None)
+}
+
+fn agent_route_queries(channel_id: &str) -> Vec<String> {
+    let channel_id = escape_odata_literal(channel_id);
+    vec![
+        format!("$filter=Status eq 'Active' and channel_id eq '{channel_id}'&$top=1"),
+        "$filter=Status eq 'Active' and channel_id eq ''&$top=1".to_string(),
+    ]
 }
 
 /// Fetch the persistent Agent entity and extract its configuration.
@@ -2350,6 +2353,25 @@ mod tests {
         assert_eq!(route.channel_entity_id.as_deref(), Some("ch-entity-1"));
         assert_eq!(route.channel_type.as_deref(), Some("cli"));
         assert_eq!(route.source, "channel_message");
+    }
+
+    #[test]
+    fn active_session_lookup_is_bounded_and_escapes_literals() {
+        assert_eq!(
+            active_session_query("discord-gateway", "thread'one", "author'one"),
+            "$filter=Status eq 'Active' and channel_id eq 'discord-gateway' and thread_id eq 'thread''one' and author_id eq 'author''one'&$top=1"
+        );
+    }
+
+    #[test]
+    fn agent_route_lookup_prefers_specific_route_then_global_fallback() {
+        assert_eq!(
+            agent_route_queries("discord'gateway"),
+            vec![
+                "$filter=Status eq 'Active' and channel_id eq 'discord''gateway'&$top=1",
+                "$filter=Status eq 'Active' and channel_id eq ''&$top=1",
+            ]
+        );
     }
 
     #[test]
