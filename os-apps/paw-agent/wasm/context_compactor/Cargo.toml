@@ -13,3 +13,4 @@ temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "23c45
 session-tree-lib = { path = "../session-tree-lib" }
 wasm-helpers = { path = "../wasm-helpers" }
 openai-codex-wire = { path = "../openai-codex-wire" }
+openai-chat-wire = { path = "../openai-chat-wire" }

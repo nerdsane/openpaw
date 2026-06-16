@@ -126,6 +126,61 @@ fn session_routes_llm_calls_through_codex_auth_gate() {
 }
 
 #[test]
+fn open_weight_providers_use_shared_openai_chat_wire_adapter() {
+    let root = repo_root();
+    let provider_caller =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
+            .expect("provider_caller source should exist");
+    let compactor =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_compactor/src/lib.rs"))
+            .expect("context_compactor source should exist");
+    let provider_manifest =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/provider_caller/Cargo.toml"))
+            .expect("provider_caller manifest should exist");
+    let compactor_manifest =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_compactor/Cargo.toml"))
+            .expect("context_compactor manifest should exist");
+
+    for manifest in [provider_manifest.as_str(), compactor_manifest.as_str()] {
+        assert!(
+            manifest.contains("openai-chat-wire"),
+            "provider caller and compactor should share the OpenAI-compatible chat wire adapter"
+        );
+    }
+
+    for needle in [
+        "call_openai_compatible_chat",
+        "build_chat_completion_body",
+        "parse_headers_json",
+        "\"huggingface\"",
+        "\"fireworks\"",
+        "\"sakana_fugu\"",
+        "\"local_openai\"",
+        "\"openai_compatible\"",
+    ] {
+        assert!(
+            provider_caller.contains(needle),
+            "provider_caller should contain OpenAI-compatible support marker {needle}"
+        );
+    }
+
+    for needle in [
+        "build_chat_completion_body",
+        "parse_chat_completion_response_text",
+        "\"huggingface\"",
+        "\"fireworks\"",
+        "\"sakana_fugu\"",
+        "\"local_openai\"",
+        "\"openai_compatible\"",
+    ] {
+        assert!(
+            compactor.contains(needle),
+            "context_compactor should contain OpenAI-compatible support marker {needle}"
+        );
+    }
+}
+
+#[test]
 fn session_defines_non_codex_provider_auth_fast_path() {
     let spec = fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
         .expect("session.ioa.toml should exist");

@@ -971,6 +971,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .anthropic_api_key
         .clone()
         .or_else(|| config.openrouter_api_key.clone())
+        .or_else(|| config.huggingface_api_key.clone())
+        .or_else(|| config.fireworks_api_key.clone())
+        .or_else(|| config.sakana_fugu_api_key.clone())
+        .or_else(|| config.openai_compatible_api_key.clone())
+        .or_else(|| config.openai_compatible_api_url.clone())
+        .or_else(|| config.local_openai_api_url.clone())
         .or_else(|| config.openai_api_key.clone())
         .or_else(|| config.openai_codex_token.clone());
     let mut state = PlatformState::with_registry(registry, llm_api_key);
@@ -1175,6 +1181,83 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             &tenant,
             "openrouter_api_key",
             config.openrouter_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openrouter_api_url",
+            config.openrouter_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "huggingface_api_key",
+            config.huggingface_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "huggingface_api_url",
+            config.huggingface_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "fireworks_api_key",
+            config.fireworks_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "fireworks_api_url",
+            config.fireworks_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "sakana_fugu_api_key",
+            config.sakana_fugu_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "sakana_fugu_api_url",
+            config.sakana_fugu_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openai_compatible_api_key",
+            config.openai_compatible_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openai_compatible_api_url",
+            config.openai_compatible_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openai_compatible_headers_json",
+            config.openai_compatible_headers_json
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "local_openai_api_url",
+            config.local_openai_api_url
         );
         seed_secret!(
             vault,
@@ -2032,6 +2115,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| {
                 v.get_secret(&tenant, "anthropic_api_key")
                     .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "huggingface_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "hf_token"))
+                    .or_else(|| v.get_secret(&tenant, "fireworks_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "sakana_fugu_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_url"))
+                    .or_else(|| v.get_secret(&tenant, "local_openai_api_url"))
                     .or_else(|| v.get_secret(&tenant, "openai_api_key"))
                     .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
             })
@@ -2092,6 +2182,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| {
                 v.get_secret(&tenant, "anthropic_api_key")
                     .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "huggingface_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "hf_token"))
+                    .or_else(|| v.get_secret(&tenant, "fireworks_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "sakana_fugu_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_url"))
+                    .or_else(|| v.get_secret(&tenant, "local_openai_api_url"))
                     .or_else(|| v.get_secret(&tenant, "openai_api_key"))
                     .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
             })
@@ -3276,6 +3373,7 @@ fn default_agent_config(
     let mut config = serde_json::json!({
         "model": llm_model,
         "provider": llm_provider,
+        "provider_options_json": "",
         "tools_enabled": DEFAULT_AGENT_TOOLS_ENABLED,
         "workdir": DEFAULT_AGENT_WORKDIR,
         "max_turns": "24",

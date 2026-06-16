@@ -58,6 +58,12 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "provider_options_json"
+type = "string"
+initial = ""
+query_indexed = false
+
+[[state]]
 name = "temperature"
 type = "string"
 initial = "1.0"
@@ -111,7 +117,7 @@ initial = ""
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["name", "schedule", "soul_id", "system_prompt", "user_message_template", "model", "provider", "temperature", "tools_enabled", "sandbox_url", "max_turns", "max_runs"]
+params = ["name", "schedule", "soul_id", "system_prompt", "user_message_template", "model", "provider", "provider_options_json", "temperature", "tools_enabled", "sandbox_url", "max_turns", "max_runs"]
 hint = "Configure the cron job with schedule and agent parameters."
 
 [[action]]
@@ -193,7 +199,7 @@ from = ["Active"]
 params = ["next_run_at", "user_message"]
 hint = "Cron computation complete. Spawn Session with copied fields, schedule next run."
 effect = [
-  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,temperature,tools_enabled,soul_id,sandbox_url,max_turns" },
+  { type = "spawn", entity_type = "Session", entity_id_source = "{uuid}", initial_action = "Configure", store_id_in = "last_session_id", copy_fields = "system_prompt,user_message,model,provider,provider_options_json,temperature,tools_enabled,soul_id,sandbox_url,max_turns" },
   { type = "schedule_at", field = "next_run_at", action = "Trigger" },
 ]
 

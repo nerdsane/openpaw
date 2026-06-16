@@ -1,0 +1,630 @@
+//! Small OpenAI-compatible Chat Completions wire helpers.
+//!
+//! This crate intentionally stays below the orchestration boundary: it builds
+//! request/response JSON and parses Chat Completions streams, but it does not
+//! perform HTTP, retries, auth, progress dispatch, or entity transitions.
+
+use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatStreamDelta {
+    pub delta_text: String,
+    pub accumulated_text_chars: usize,
+    pub tool_call_id: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_arguments_delta: Option<String>,
+}
+
+impl ChatStreamDelta {
+    fn text(delta_text: &str, accumulated_text_chars: usize) -> Self {
+        Self {
+            delta_text: delta_text.to_string(),
+            accumulated_text_chars,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments_delta: None,
+        }
+    }
+
+    fn tool(
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+        tool_arguments_delta: Option<String>,
+        accumulated_text_chars: usize,
+    ) -> Self {
+        Self {
+            delta_text: String::new(),
+            accumulated_text_chars,
+            tool_call_id,
+            tool_name,
+            tool_arguments_delta,
+        }
+    }
+
+    pub fn is_semantic(&self) -> bool {
+        !self.delta_text.is_empty()
+            || self.tool_call_id.is_some()
+            || self.tool_name.is_some()
+            || self.tool_arguments_delta.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedChatCompletion {
+    pub content: Vec<Value>,
+    pub stop_reason: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub response_bytes: usize,
+    pub semantic_deltas: Vec<ChatStreamDelta>,
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatStreamParseFailure {
+    pub message: String,
+    pub semantic_output_seen: bool,
+}
+
+impl ChatStreamParseFailure {
+    fn new(message: impl Into<String>, semantic_output_seen: bool) -> Self {
+        Self {
+            message: message.into(),
+            semantic_output_seen,
+        }
+    }
+}
+
+impl std::fmt::Display for ChatStreamParseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+#[derive(Default)]
+struct ChatToolCallAccum {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Default)]
+pub struct ChatCompletionStreamAccumulator {
+    text: String,
+    tool_calls: BTreeMap<usize, ChatToolCallAccum>,
+    finish_reason: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    saw_done: bool,
+    semantic_deltas: Vec<ChatStreamDelta>,
+}
+
+impl ChatCompletionStreamAccumulator {
+    pub fn ingest_data(
+        &mut self,
+        data: &str,
+    ) -> Result<Vec<ChatStreamDelta>, ChatStreamParseFailure> {
+        if data.trim() == "[DONE]" {
+            self.saw_done = true;
+            return Ok(Vec::new());
+        }
+
+        let event: Value = serde_json::from_str(data).map_err(|err| {
+            ChatStreamParseFailure::new(
+                format!("parse OpenAI-compatible chat stream event: {err}"),
+                self.semantic_output_seen(),
+            )
+        })?;
+        let mut deltas = Vec::new();
+
+        if let Some(usage) = event.get("usage") {
+            self.input_tokens = usage
+                .get("prompt_tokens")
+                .and_then(Value::as_i64)
+                .or_else(|| usage.get("input_tokens").and_then(Value::as_i64))
+                .unwrap_or(self.input_tokens);
+            self.output_tokens = usage
+                .get("completion_tokens")
+                .and_then(Value::as_i64)
+                .or_else(|| usage.get("output_tokens").and_then(Value::as_i64))
+                .unwrap_or(self.output_tokens);
+        }
+
+        if let Some(choice) = event
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+        {
+            if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                self.finish_reason = finish_reason.to_string();
+            }
+            if let Some(delta) = choice.get("delta") {
+                self.ingest_message_like(delta, &mut deltas);
+            } else if let Some(message) = choice.get("message") {
+                self.ingest_message_like(message, &mut deltas);
+            }
+        }
+
+        self.semantic_deltas.extend(deltas.clone());
+        Ok(deltas)
+    }
+
+    fn ingest_message_like(&mut self, value: &Value, deltas: &mut Vec<ChatStreamDelta>) {
+        if let Some(text) = value.get("content").and_then(Value::as_str)
+            && !text.is_empty()
+        {
+            self.text.push_str(text);
+            deltas.push(ChatStreamDelta::text(text, self.text.chars().count()));
+        }
+        ingest_tool_call_deltas(
+            value,
+            &mut self.tool_calls,
+            self.text.chars().count(),
+            deltas,
+        );
+    }
+
+    pub fn semantic_output_seen(&self) -> bool {
+        !self.text.is_empty()
+            || !self.tool_calls.is_empty()
+            || self
+                .semantic_deltas
+                .iter()
+                .any(ChatStreamDelta::is_semantic)
+    }
+
+    pub fn finalize(
+        self,
+        response_bytes: usize,
+    ) -> Result<ParsedChatCompletion, ChatStreamParseFailure> {
+        if !self.saw_done && self.finish_reason.is_empty() {
+            return Err(ChatStreamParseFailure::new(
+                "OpenAI-compatible chat stream ended before [DONE] or finish_reason",
+                self.semantic_output_seen(),
+            ));
+        }
+
+        Ok(ParsedChatCompletion {
+            content: chat_content_blocks(&self.text, &self.tool_calls),
+            stop_reason: if !self.tool_calls.is_empty() {
+                "tool_use".to_string()
+            } else {
+                "end_turn".to_string()
+            },
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            response_bytes,
+            semantic_deltas: self.semantic_deltas,
+            completed: true,
+        })
+    }
+}
+
+fn ingest_tool_call_deltas(
+    value: &Value,
+    tool_calls: &mut BTreeMap<usize, ChatToolCallAccum>,
+    accumulated_text_chars: usize,
+    deltas: &mut Vec<ChatStreamDelta>,
+) {
+    let Some(calls) = value.get("tool_calls").and_then(Value::as_array) else {
+        return;
+    };
+    for tool_call in calls {
+        let index = tool_call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let accum = tool_calls.entry(index).or_default();
+        if let Some(id) = tool_call.get("id").and_then(Value::as_str) {
+            accum.id = id.to_string();
+        }
+        if let Some(name) = tool_call
+            .get("function")
+            .and_then(|f| f.get("name"))
+            .and_then(Value::as_str)
+        {
+            accum.name = name.to_string();
+        }
+        let args_delta = tool_call
+            .get("function")
+            .and_then(|f| f.get("arguments"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !args_delta.is_empty() {
+            accum.arguments.push_str(args_delta);
+        }
+        deltas.push(ChatStreamDelta::tool(
+            (!accum.id.is_empty()).then(|| accum.id.clone()),
+            (!accum.name.is_empty()).then(|| accum.name.clone()),
+            (!args_delta.is_empty()).then(|| args_delta.to_string()),
+            accumulated_text_chars,
+        ));
+    }
+}
+
+fn chat_content_blocks(text: &str, tool_calls: &BTreeMap<usize, ChatToolCallAccum>) -> Vec<Value> {
+    let mut content = Vec::<Value>::new();
+    if !text.is_empty() {
+        content.push(json!({
+            "type": "text",
+            "text": text,
+        }));
+    }
+    for (idx, tool_call) in tool_calls {
+        let input = if tool_call.arguments.trim().is_empty() {
+            json!({})
+        } else {
+            serde_json::from_str::<Value>(&tool_call.arguments)
+                .unwrap_or_else(|_| json!({ "raw": tool_call.arguments }))
+        };
+        content.push(json!({
+            "type": "tool_use",
+            "id": if tool_call.id.is_empty() { format!("tool_{}", idx + 1) } else { tool_call.id.clone() },
+            "name": if tool_call.name.is_empty() { "unknown_tool" } else { &tool_call.name },
+            "input": input,
+        }));
+    }
+    content
+}
+
+pub fn parse_chat_completion_stream_events(
+    events: &[String],
+    response_bytes: usize,
+) -> Result<ParsedChatCompletion, ChatStreamParseFailure> {
+    let mut acc = ChatCompletionStreamAccumulator::default();
+    for event in events {
+        acc.ingest_data(event)?;
+    }
+    acc.finalize(response_bytes)
+}
+
+pub fn parse_chat_completion_response_text(body: &str) -> Result<String, String> {
+    let value: Value =
+        serde_json::from_str(body).map_err(|err| format!("parse chat completion JSON: {err}"))?;
+    if let Some(error) = value.get("error") {
+        return Err(error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("OpenAI-compatible chat error")
+            .to_string());
+    }
+    value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "No choices[0].message.content in chat completion response".to_string())
+}
+
+pub fn build_chat_completion_body(
+    model: &str,
+    system_prompt: &str,
+    messages: &[Value],
+    tools: &[Value],
+    max_tokens: i64,
+    temperature: f64,
+    stream: bool,
+    include_usage: bool,
+    provider_options_json: &str,
+) -> Result<Value, String> {
+    let mut body = json!({
+        "model": model,
+        "messages": convert_messages_to_chat(system_prompt, messages),
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": stream,
+    });
+    if stream && include_usage {
+        body["stream_options"] = json!({ "include_usage": true });
+    }
+
+    let chat_tools = convert_tools_to_chat(tools);
+    if !chat_tools.is_empty() {
+        body["tools"] = json!(chat_tools);
+        body["tool_choice"] = json!("auto");
+    }
+
+    merge_provider_options(&mut body, provider_options_json)?;
+    Ok(body)
+}
+
+pub fn merge_provider_options(body: &mut Value, provider_options_json: &str) -> Result<(), String> {
+    let options = provider_options_json.trim();
+    if options.is_empty() {
+        return Ok(());
+    }
+    let parsed: Value = serde_json::from_str(options)
+        .map_err(|err| format!("provider_options_json must be a JSON object: {err}"))?;
+    let object = parsed
+        .as_object()
+        .ok_or_else(|| "provider_options_json must be a JSON object".to_string())?;
+    let Some(body_object) = body.as_object_mut() else {
+        return Err("chat completion body must be an object".to_string());
+    };
+    for (key, value) in object {
+        if is_reserved_provider_option_key(key) {
+            return Err(format!("provider_options_json key '{key}' is reserved"));
+        }
+        body_object.insert(key.clone(), value.clone());
+    }
+    Ok(())
+}
+
+fn is_reserved_provider_option_key(key: &str) -> bool {
+    matches!(key, "messages" | "tools" | "stream" | "model")
+}
+
+pub fn convert_messages_to_chat(system_prompt: &str, messages: &[Value]) -> Vec<Value> {
+    let mut out = Vec::<Value>::new();
+    if !system_prompt.trim().is_empty() {
+        out.push(json!({
+            "role": "system",
+            "content": system_prompt,
+        }));
+    }
+    for msg in messages {
+        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+        let content = msg.get("content").cloned().unwrap_or(json!(""));
+
+        match content {
+            Value::String(text) => out.push(json!({ "role": role, "content": text })),
+            Value::Array(blocks) if role == "assistant" => {
+                let mut text_chunks = Vec::<String>::new();
+                let mut tool_calls = Vec::<Value>::new();
+                for (idx, block) in blocks.iter().enumerate() {
+                    match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                        "text" => {
+                            if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                text_chunks.push(text.to_string());
+                            }
+                        }
+                        "tool_use" => {
+                            let id = block
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("tool_{}", idx + 1));
+                            let name = block
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("unknown_tool");
+                            let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
+                            tool_calls.push(json!({
+                                "id": id,
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": input.to_string(),
+                                }
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+                let mut assistant = json!({
+                    "role": "assistant",
+                    "content": text_chunks.join("\n"),
+                });
+                if !tool_calls.is_empty() {
+                    assistant["tool_calls"] = json!(tool_calls);
+                }
+                out.push(assistant);
+            }
+            Value::Array(blocks) if role == "user" => append_user_blocks(&mut out, &blocks),
+            other => out.push(json!({ "role": role, "content": other })),
+        }
+    }
+    out
+}
+
+fn append_user_blocks(out: &mut Vec<Value>, blocks: &[Value]) {
+    let mut user_text = Vec::<String>::new();
+    for block in blocks {
+        match block.get("type").and_then(Value::as_str).unwrap_or("") {
+            "tool_result" => {
+                let tool_call_id = block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown_tool_call");
+                out.push(json!({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": stringify_content(block.get("content").unwrap_or(&Value::Null)),
+                }));
+            }
+            "text" => {
+                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                    user_text.push(text.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    if !user_text.is_empty() {
+        out.push(json!({ "role": "user", "content": user_text.join("\n") }));
+    }
+}
+
+fn stringify_content(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    Some(text.to_string())
+                } else if let Some(text) = item.as_str() {
+                    Some(text.to_string())
+                } else {
+                    serde_json::to_string(item).ok()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+pub fn convert_tools_to_chat(tools: &[Value]) -> Vec<Value> {
+    let mut out = Vec::<Value>::new();
+    for tool in tools {
+        let Some(name) = tool.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let description = tool
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let parameters = tool
+            .get("input_schema")
+            .cloned()
+            .unwrap_or_else(|| json!({"type": "object", "properties": {}}));
+        out.push(json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        }));
+    }
+    out
+}
+
+pub fn parse_headers_json(headers_json: &str) -> Result<Vec<(String, String)>, String> {
+    let headers_json = headers_json.trim();
+    if headers_json.is_empty() {
+        return Ok(Vec::new());
+    }
+    let parsed: Value = serde_json::from_str(headers_json)
+        .map_err(|err| format!("openai_compatible_headers_json must be a JSON object: {err}"))?;
+    let object = parsed
+        .as_object()
+        .ok_or_else(|| "openai_compatible_headers_json must be a JSON object".to_string())?;
+    let mut headers = Vec::new();
+    for (key, value) in object {
+        validate_header_name(key)?;
+        let Some(value) = value.as_str() else {
+            return Err(format!("header '{key}' must have a string value"));
+        };
+        if value.contains('\r') || value.contains('\n') {
+            return Err(format!("header '{key}' contains a newline"));
+        }
+        headers.push((key.clone(), value.to_string()));
+    }
+    Ok(headers)
+}
+
+fn validate_header_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("header names cannot be empty".to_string());
+    }
+    if name.eq_ignore_ascii_case("authorization")
+        || name.eq_ignore_ascii_case("content-type")
+        || name.eq_ignore_ascii_case("accept")
+    {
+        return Err(format!("header '{name}' is managed by TemperPaw"));
+    }
+    if !name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err(format!("header '{name}' contains unsupported characters"));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn map_from_pairs(pairs: &[(String, String)]) -> Map<String, Value> {
+    pairs
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_chat_body_and_merges_safe_provider_options() {
+        let body = build_chat_completion_body(
+            "openrouter/fusion",
+            "system",
+            &[json!({"role": "user", "content": "hello"})],
+            &[json!({
+                "name": "search",
+                "description": "Search",
+                "input_schema": {"type": "object"}
+            })],
+            1024,
+            0.7,
+            true,
+            true,
+            r#"{"plugins":[{"id":"fusion","preset":"general-budget"}],"provider":{"order":["Fireworks"]}}"#,
+        )
+        .expect("safe options should merge");
+
+        assert_eq!(body["model"], "openrouter/fusion");
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["stream_options"]["include_usage"], true);
+        assert_eq!(body["tools"][0]["function"]["name"], "search");
+        assert_eq!(body["plugins"][0]["id"], "fusion");
+        assert_eq!(body["provider"]["order"][0], "Fireworks");
+    }
+
+    #[test]
+    fn rejects_reserved_provider_options() {
+        let err = build_chat_completion_body(
+            "m",
+            "",
+            &[],
+            &[],
+            1,
+            1.0,
+            true,
+            true,
+            r#"{"messages":[]}"#,
+        )
+        .expect_err("messages must be reserved");
+        assert!(err.contains("reserved"));
+    }
+
+    #[test]
+    fn parses_streaming_text_tool_calls_and_usage() {
+        let events = vec![
+            r#"{"choices":[{"delta":{"content":"hi "}}]}"#.to_string(),
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"temper_list","arguments":"{\"kind\""}}]}}]}"#.to_string(),
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"Session\"}"}}]}}]}"#.to_string(),
+            r#"{"choices":[{"finish_reason":"tool_calls","delta":{}}],"usage":{"prompt_tokens":12,"completion_tokens":7}}"#.to_string(),
+            "[DONE]".to_string(),
+        ];
+
+        let parsed = parse_chat_completion_stream_events(&events, 512).expect("stream parses");
+        assert_eq!(parsed.input_tokens, 12);
+        assert_eq!(parsed.output_tokens, 7);
+        assert_eq!(parsed.stop_reason, "tool_use");
+        assert_eq!(parsed.content[0]["text"], "hi ");
+        assert_eq!(parsed.content[1]["name"], "temper_list");
+        assert_eq!(parsed.content[1]["input"]["kind"], "Session");
+    }
+
+    #[test]
+    fn parses_non_stream_chat_completion_content() {
+        let text = parse_chat_completion_response_text(
+            r#"{"choices":[{"message":{"content":"compact summary"}}],"usage":{"prompt_tokens":1}}"#,
+        )
+        .expect("response parses");
+        assert_eq!(text, "compact summary");
+    }
+
+    #[test]
+    fn parses_safe_extra_headers() {
+        let headers =
+            parse_headers_json(r#"{"X-Provider-Key":"abc","x-team":"paw"}"#).expect("headers");
+        assert_eq!(headers.len(), 2);
+        assert!(parse_headers_json(r#"{"Authorization":"no"}"#).is_err());
+        assert!(parse_headers_json(r#"{"Bad Header":"no"}"#).is_err());
+    }
+}

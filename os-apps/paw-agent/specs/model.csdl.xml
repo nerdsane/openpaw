@@ -9,6 +9,7 @@
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="Model" Type="Edm.String"/>
         <Property Name="Provider" Type="Edm.String"/>
+        <Property Name="ProviderOptionsJson" Type="Edm.String"/>
         <Property Name="ConversationFileId" Type="Edm.String"/>
         <Property Name="WorkspaceId" Type="Edm.String"/>
         <Property Name="PendingToolCalls" Type="Edm.String"/>
@@ -186,6 +187,7 @@
         <Property Name="UserMessageTemplate" Type="Edm.String"/>
         <Property Name="Model" Type="Edm.String"/>
         <Property Name="Provider" Type="Edm.String"/>
+        <Property Name="ProviderOptionsJson" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
         <Property Name="SandboxUrl" Type="Edm.String"/>
         <Property Name="MaxTurns" Type="Edm.String"/>
@@ -212,6 +214,7 @@
         <Parameter Name="user_message" Type="Edm.String" Nullable="false"/>
         <Parameter Name="model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_options_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="max_turns" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tools_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="workdir" Type="Edm.String" Nullable="true"/>
@@ -474,6 +477,7 @@
         <Parameter Name="bindingParameter" Type="TemperPaw.Session"/>
         <Parameter Name="model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_options_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -745,6 +749,7 @@
         <Parameter Name="user_message_template" Type="Edm.String" Nullable="false"/>
         <Parameter Name="model" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider_options_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tools_enabled" Type="Edm.String" Nullable="true"/>
         <Parameter Name="sandbox_url" Type="Edm.String" Nullable="true"/>
         <Parameter Name="max_turns" Type="Edm.String" Nullable="true"/>
@@ -859,6 +864,7 @@
         <Property Name="SourceAppId" Type="Edm.String"/>
         <Property Name="Model" Type="Edm.String"/>
         <Property Name="Provider" Type="Edm.String"/>
+        <Property Name="ProviderOptionsJson" Type="Edm.String"/>
         <Property Name="ToolsEnabled" Type="Edm.String"/>
         <Property Name="MaxTurns" Type="Edm.String"/>
       </EntityType>
@@ -874,6 +880,7 @@
         <Parameter Name="source_app_id" Type="Edm.String"/>
         <Parameter Name="model" Type="Edm.String"/>
         <Parameter Name="provider" Type="Edm.String"/>
+        <Parameter Name="provider_options_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tools_enabled" Type="Edm.String"/>
         <Parameter Name="max_turns" Type="Edm.String"/>
         <ReturnType Type="TemperPaw.Agent"/>
@@ -885,6 +892,7 @@
         <Parameter Name="instructions_file_id" Type="Edm.String"/>
         <Parameter Name="model" Type="Edm.String"/>
         <Parameter Name="provider" Type="Edm.String"/>
+        <Parameter Name="provider_options_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="tools_enabled" Type="Edm.String"/>
         <Parameter Name="max_turns" Type="Edm.String"/>
         <ReturnType Type="TemperPaw.Agent"/>

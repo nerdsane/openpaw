@@ -163,12 +163,53 @@ fn session_spec_uses_provider_specific_llm_secrets_and_urls() {
         "openai_codex_account_id = \"{secret:openai_codex_account_id}\"",
         "openai_codex_token = \"{secret:openai_codex_token}\"",
         "openrouter_api_key = \"{secret:openrouter_api_key}\"",
+        "openrouter_api_url = \"{secret:openrouter_api_url}\"",
+        "huggingface_api_key = \"{secret:huggingface_api_key}\"",
+        "hf_token = \"{secret:hf_token}\"",
+        "fireworks_api_key = \"{secret:fireworks_api_key}\"",
+        "sakana_fugu_api_key = \"{secret:sakana_fugu_api_key}\"",
+        "openai_compatible_api_key = \"{secret:openai_compatible_api_key}\"",
+        "openai_compatible_headers_json = \"{secret:openai_compatible_headers_json}\"",
         "openai_api_url = \"https://api.openai.com/v1/responses\"",
         "openai_codex_api_url = \"https://chatgpt.com/backend-api/codex/responses\"",
+        "huggingface_api_url = \"{secret:huggingface_api_url}\"",
+        "fireworks_api_url = \"{secret:fireworks_api_url}\"",
+        "sakana_fugu_api_url = \"{secret:sakana_fugu_api_url}\"",
+        "openai_compatible_api_url = \"{secret:openai_compatible_api_url}\"",
+        "local_openai_api_url = \"{secret:local_openai_api_url}\"",
     ] {
         assert!(
             spec.contains(needle),
             "session spec should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn agent_and_session_specs_carry_provider_options_json() {
+    let root = repo_root();
+    let agent = read(root.join("os-apps/paw-agent/specs/agent.ioa.toml"));
+    let session = read(root.join("os-apps/paw-agent/specs/session.ioa.toml"));
+    let model = read(root.join("os-apps/paw-agent/specs/model.csdl.xml"));
+
+    for (name, source) in [("Agent", agent.as_str()), ("Session", session.as_str())] {
+        assert!(
+            source.contains("name = \"provider_options_json\""),
+            "{name} spec should define provider_options_json state"
+        );
+        assert!(
+            source.contains("\"provider_options_json\""),
+            "{name} Configure/Update actions should accept provider_options_json"
+        );
+    }
+
+    for needle in [
+        "<Property Name=\"ProviderOptionsJson\" Type=\"Edm.String\"/>",
+        "<Parameter Name=\"provider_options_json\" Type=\"Edm.String\" Nullable=\"true\"/>",
+    ] {
+        assert!(
+            model.contains(needle),
+            "CSDL should expose provider_options_json: {needle}"
         );
     }
 }

@@ -47,6 +47,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
             let model = required_field(&fields, &["model", "Model"], "WikiJob.model")?;
             let provider = required_field(&fields, &["provider", "Provider"], "WikiJob.provider")?;
+            let provider_options_json = fields
+                .get("provider_options_json")
+                .or_else(|| fields.get("ProviderOptionsJson"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             let temperature = fields
                 .get("temperature")
@@ -273,6 +279,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "user_message": user_message,
                 "model": model,
                 "provider": provider,
+                "provider_options_json": provider_options_json,
                 "temperature": temperature,
                 "tools_enabled": tools_enabled,
                 "max_turns": max_turns,

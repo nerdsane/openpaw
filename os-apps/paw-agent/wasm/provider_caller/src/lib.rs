@@ -12,6 +12,10 @@
 
 #[cfg(test)]
 use openai_codex_wire::base64_url_no_pad;
+use openai_chat_wire::{
+    ChatCompletionStreamAccumulator, ChatStreamDelta, ChatStreamParseFailure,
+    build_chat_completion_body, convert_messages_to_chat, parse_headers_json,
+};
 use openai_codex_wire::{
     build_openai_headers, extract_chatgpt_account_id_from_jwt, is_openai_codex_token_expired_error,
     select_openai_responses_url,
@@ -72,6 +76,13 @@ fn normalize_provider(provider: &str) -> String {
     match norm.as_str() {
         "open_router" => "openrouter".to_string(),
         "codex" | "openai-codex" => "openai_codex".to_string(),
+        "hf" | "hugging_face" | "hugging-face" => "huggingface".to_string(),
+        "fireworks_ai" | "fireworks-ai" => "fireworks".to_string(),
+        "sakana" | "sakana-fugu" | "fugu" => "sakana_fugu".to_string(),
+        "ollama" | "local" | "local-openai" => "local_openai".to_string(),
+        "openai-compatible" | "openai_compat" | "openai-compat" | "custom_openai" => {
+            "openai_compatible".to_string()
+        }
         _ => norm,
     }
 }
@@ -95,7 +106,7 @@ fn provider_auth_expired_reason(error: &str) -> Option<&str> {
 
 fn first_non_empty(values: &[Option<String>]) -> String {
     for v in values.iter().flatten() {
-        if !v.trim().is_empty() {
+        if !v.trim().is_empty() && !is_unresolved_secret_template(v) {
             return v.trim().to_string();
         }
     }
@@ -121,9 +132,79 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("openrouter_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
+        "huggingface" => first_non_empty(&[
+            ctx.config.get("huggingface_api_key").cloned(),
+            ctx.config.get("hf_token").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "fireworks" => first_non_empty(&[
+            ctx.config.get("fireworks_api_key").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "sakana_fugu" => first_non_empty(&[
+            ctx.config.get("sakana_fugu_api_key").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "openai_compatible" => first_non_empty(&[
+            ctx.config.get("openai_compatible_api_key").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "local_openai" => String::new(),
         other => return Err(format!("unsupported LLM provider: {other}")),
     };
     Ok(key)
+}
+
+fn default_openai_compatible_api_url(provider: &str) -> &'static str {
+    match provider {
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+        "huggingface" => "https://router.huggingface.co/v1/chat/completions",
+        "fireworks" => "https://api.fireworks.ai/inference/v1/chat/completions",
+        "local_openai" => "http://127.0.0.1:11434/v1/chat/completions",
+        _ => "",
+    }
+}
+
+fn configured_openai_compatible_api_url(ctx: &Context, provider: &str) -> Result<String, String> {
+    let config_key = match provider {
+        "openrouter" => "openrouter_api_url",
+        "huggingface" => "huggingface_api_url",
+        "fireworks" => "fireworks_api_url",
+        "sakana_fugu" => "sakana_fugu_api_url",
+        "openai_compatible" => "openai_compatible_api_url",
+        "local_openai" => "local_openai_api_url",
+        other => return Err(format!("provider={other} is not OpenAI-compatible")),
+    };
+    let configured = ctx
+        .config
+        .get(config_key)
+        .filter(|value| !value.trim().is_empty() && !is_unresolved_secret_template(value))
+        .cloned();
+    let api_url = configured.unwrap_or_else(|| default_openai_compatible_api_url(provider).to_string());
+    if api_url.trim().is_empty() {
+        return Err(format!("provider={provider} requires {config_key}"));
+    }
+    Ok(api_url)
+}
+
+fn configured_openai_compatible_headers(
+    ctx: &Context,
+    provider: &str,
+) -> Result<Vec<(String, String)>, String> {
+    if provider != "openai_compatible" {
+        return Ok(Vec::new());
+    }
+    let headers_json = ctx
+        .config
+        .get("openai_compatible_headers_json")
+        .filter(|value| !is_unresolved_secret_template(value))
+        .map(String::as_str)
+        .unwrap_or("");
+    parse_headers_json(headers_json)
+}
+
+fn provider_allows_empty_api_key(provider: &str) -> bool {
+    matches!(provider, "mock" | "local_openai" | "openai_compatible")
 }
 
 fn call_mock(
@@ -303,6 +384,19 @@ impl LlmStreamDelta {
     }
 }
 
+fn chat_deltas_to_llm(deltas: Vec<ChatStreamDelta>) -> Vec<LlmStreamDelta> {
+    deltas
+        .into_iter()
+        .map(|delta| LlmStreamDelta {
+            delta_text: delta.delta_text,
+            accumulated_text_chars: delta.accumulated_text_chars,
+            tool_call_id: delta.tool_call_id,
+            tool_name: delta.tool_name,
+            tool_arguments_delta: delta.tool_arguments_delta,
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ParsedProviderStream {
     content: Value,
@@ -350,6 +444,10 @@ impl std::fmt::Display for StreamParseFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
+}
+
+fn chat_stream_error(err: ChatStreamParseFailure) -> StreamParseFailure {
+    StreamParseFailure::new(err.to_string(), err.semantic_output_seen)
 }
 
 fn should_retry_stream_failure(
@@ -2008,6 +2106,302 @@ fn call_anthropic(
 }
 
 /// Call OpenRouter Chat Completions API (OpenAI-compatible schema).
+fn call_openai_compatible_chat(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    provider: &str,
+    api_key: &str,
+    api_url: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[Value],
+    tools: &[Value],
+    site_url: &str,
+    app_name: &str,
+    extra_headers: &[(String, String)],
+    temperature: f64,
+    provider_options_json: &str,
+) -> Result<LlmResponse, String> {
+    let body = build_chat_completion_body(
+        model,
+        system_prompt,
+        messages,
+        tools,
+        LLM_MAX_TOKENS as i64,
+        temperature,
+        true,
+        true,
+        provider_options_json,
+    )?;
+    let body_str =
+        serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+
+    let mut headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("accept".to_string(), "text/event-stream".to_string()),
+    ];
+    if !api_key.trim().is_empty() {
+        headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
+    }
+    if provider == "openrouter" {
+        if !site_url.trim().is_empty() {
+            headers.push(("HTTP-Referer".to_string(), site_url.trim().to_string()));
+        }
+        if !app_name.trim().is_empty() {
+            headers.push(("X-Title".to_string(), app_name.trim().to_string()));
+        }
+    }
+    headers.extend(extra_headers.iter().cloned());
+
+    let chat_messages = convert_messages_to_chat(system_prompt, messages);
+    let mut llm_span = start_llm_guest_span(
+        ctx,
+        provider,
+        model,
+        temperature,
+        LLM_MAX_TOKENS,
+        system_prompt,
+        &chat_messages,
+        &ctx.entity_id,
+    );
+
+    ctx.log(
+        "info",
+        &format!(
+            "session_turn: calling OpenAI-compatible chat provider={provider}, model={model}, messages={}, url={api_url}",
+            messages.len(),
+        ),
+    );
+
+    let overall_start_ms = Context::get_time_millis();
+    let mut last_err = String::new();
+    let mut parsed_stream = None;
+    let mut attempts_used: u32 = 0;
+    let mut live_progress = LlmLiveProgress::new(ctx, temper_api_url, tenant, provider, model);
+    for attempt in 0..LLM_MAX_ATTEMPTS {
+        let attempt_num = attempt + 1;
+        attempts_used = attempt_num;
+        if attempt > 0 {
+            ctx.log(
+                "warn",
+                &format!(
+                    "session_turn: {provider} retrying (attempt {attempt_num}/{LLM_MAX_ATTEMPTS}), last error: {last_err}"
+                ),
+            );
+        }
+        ctx.log(
+            "info",
+            &format_llm_attempt_start_log(
+                provider,
+                model,
+                attempt_num,
+                LLM_MAX_ATTEMPTS,
+                Context::get_time_millis() - overall_start_ms,
+            ),
+        );
+        let attempt_start_ms = Context::get_time_millis();
+        let mut accumulator = ChatCompletionStreamAccumulator::default();
+        let stream_result = post_sse_streaming(ctx, api_url, &headers, &body_str, |data| {
+            let deltas = accumulator.ingest_data(data).map_err(chat_stream_error)?;
+            let llm_deltas = chat_deltas_to_llm(deltas);
+            live_progress.emit_deltas(&llm_deltas);
+            Ok(())
+        });
+        match stream_result {
+            Ok(r) if r.status == 200 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        provider,
+                        attempt_num,
+                        elapsed,
+                        r.status,
+                        r.response_bytes,
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log("warn", &format_llm_hang_hint(provider, attempt_num, elapsed));
+                }
+                match accumulator.finalize(r.response_bytes) {
+                    Ok(parsed) => {
+                        parsed_stream = Some(parsed);
+                        break;
+                    }
+                    Err(err) => {
+                        last_err = err.to_string();
+                        let visible =
+                            err.semantic_output_seen || live_progress.saw_semantic_output();
+                        if should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                            ctx.log(
+                                "warn",
+                                &format!(
+                                    "session_turn: {provider} stream parse failed before visible output, will retry: {last_err}"
+                                ),
+                            );
+                            continue;
+                        }
+                        let error = format!(
+                            "{provider} stream failed after visible output or final attempt: {last_err}"
+                        );
+                        finish_llm_guest_span_error(&mut llm_span, "stream_parse_error", &error);
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(r) if matches!(r.status, 429 | 500 | 502 | 503 | 504) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        provider,
+                        attempt_num,
+                        elapsed,
+                        r.status,
+                        r.response_bytes,
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log("warn", &format_llm_hang_hint(provider, attempt_num, elapsed));
+                }
+                last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
+                if live_progress.saw_semantic_output() {
+                    let error = format!(
+                        "{provider} stream returned transient HTTP {} after visible output: {}",
+                        r.status,
+                        &r.body[..r.body.len().min(500)]
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                    return Err(error);
+                }
+                continue;
+            }
+            Ok(r) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        provider,
+                        attempt_num,
+                        elapsed,
+                        r.status,
+                        r.response_bytes,
+                    ),
+                );
+                let total_elapsed = Context::get_time_millis() - overall_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_complete_log(
+                        provider,
+                        model,
+                        attempts_used,
+                        total_elapsed,
+                        "non_retriable_http_error",
+                    ),
+                );
+                let error = format!(
+                    "{provider} API returned {}: {}",
+                    r.status,
+                    &r.body[..r.body.len().min(500)]
+                );
+                finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                return Err(error);
+            }
+            Err(e) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "session_turn: {provider} attempt {attempt_num} stream error elapsed_ms={elapsed} err={e}"
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log("warn", &format_llm_hang_hint(provider, attempt_num, elapsed));
+                }
+                last_err = e.to_string();
+                let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
+                if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                    let error = format!(
+                        "{provider} stream failed after visible output or final attempt: {last_err}"
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "stream_error", &error);
+                    return Err(error);
+                }
+                continue;
+            }
+        }
+    }
+
+    let parsed = match parsed_stream {
+        Some(parsed) => parsed,
+        None => {
+            let total_elapsed = Context::get_time_millis() - overall_start_ms;
+            ctx.log(
+                "warn",
+                &format_llm_complete_log(
+                    provider,
+                    model,
+                    attempts_used,
+                    total_elapsed,
+                    "exhausted_retries",
+                ),
+            );
+            let error = format!("{provider} API failed after {LLM_MAX_ATTEMPTS} attempts: {last_err}");
+            finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
+            return Err(error);
+        }
+    };
+    ctx.log(
+        "info",
+        &format_llm_complete_log(
+            provider,
+            model,
+            attempts_used,
+            Context::get_time_millis() - overall_start_ms,
+            "success",
+        ),
+    );
+
+    ctx.log(
+        "info",
+        &format_gen_ai_usage_log(
+            provider,
+            model,
+            parsed.input_tokens,
+            parsed.output_tokens,
+            0,
+            0,
+        ),
+    );
+
+    let content = Value::Array(parsed.content);
+    finish_llm_guest_span_success(
+        ctx,
+        &mut llm_span,
+        provider,
+        model,
+        &parsed.stop_reason,
+        parsed.input_tokens,
+        parsed.output_tokens,
+        0,
+        0,
+        parsed.response_bytes,
+        &content,
+    );
+
+    Ok(LlmResponse {
+        content,
+        stop_reason: parsed.stop_reason,
+        input_tokens: parsed.input_tokens,
+        output_tokens: parsed.output_tokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        request_bytes: body_str.len(),
+        response_bytes: parsed.response_bytes,
+    })
+}
+
 fn call_openrouter(
     ctx: &Context,
     temper_api_url: &str,
@@ -3282,6 +3676,7 @@ pub fn run_provider_caller() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(1.0);
+    let provider_options_json = read_state_string_field(&ctx, &fields, "provider_options_json");
     let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
 
     let anthropic_api_url = ctx
@@ -3289,11 +3684,20 @@ pub fn run_provider_caller() -> Result<(), String> {
         .get("anthropic_api_url")
         .cloned()
         .unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
-    let openrouter_api_url = ctx
-        .config
-        .get("openrouter_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
+    let openai_compatible_api_url = if matches!(
+        provider.as_str(),
+        "openrouter"
+            | "huggingface"
+            | "fireworks"
+            | "sakana_fugu"
+            | "local_openai"
+            | "openai_compatible"
+    ) {
+        configured_openai_compatible_api_url(&ctx, &provider)?
+    } else {
+        String::new()
+    };
+    let openai_compatible_extra_headers = configured_openai_compatible_headers(&ctx, &provider)?;
     let openai_api_url = select_openai_responses_url(&ctx.config, &provider);
     let openai_codex_account_id = if provider == "openai_codex" {
         ctx.config
@@ -3378,19 +3782,40 @@ pub fn run_provider_caller() -> Result<(), String> {
                 &anthropic_auth_mode,
                 temperature,
             ),
-            "openrouter" => call_openrouter(
+            "openrouter" => call_openai_compatible_chat(
                 &ctx,
                 &temper_api_url,
                 tenant,
+                &provider,
                 &api_key,
-                &openrouter_api_url,
+                &openai_compatible_api_url,
                 &model,
                 &prepared.system_prompt,
                 &prepared.messages,
                 &prepared.tools,
                 &openrouter_site_url,
                 &openrouter_app_name,
+                &openai_compatible_extra_headers,
                 temperature,
+                &provider_options_json,
+            ),
+            "huggingface" | "fireworks" | "sakana_fugu" | "local_openai"
+            | "openai_compatible" => call_openai_compatible_chat(
+                &ctx,
+                &temper_api_url,
+                tenant,
+                &provider,
+                &api_key,
+                &openai_compatible_api_url,
+                &model,
+                &prepared.system_prompt,
+                &prepared.messages,
+                &prepared.tools,
+                "",
+                "",
+                &openai_compatible_extra_headers,
+                temperature,
+                &provider_options_json,
             ),
             "openai" | "openai_codex" => call_openai(
                 &ctx,
@@ -3533,7 +3958,7 @@ fn resolve_provider_and_model(
 
     let model = model_raw.trim().to_string();
 
-    if provider != "mock" && api_key.is_empty() {
+    if !provider_allows_empty_api_key(&provider) && api_key.is_empty() {
         return Err(format!("missing API key for provider={provider}"));
     }
 
