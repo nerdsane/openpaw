@@ -171,10 +171,18 @@ the agent's own prefix, e.g. `claude/...`; older work used `codex/...`.)
     (`platform/backend`). DSF 2.0 is the temper-backed rewrite; 1.x is to be
     tombstoned at cutover.
 
-### The plan
-- `~/.claude/plans/okay-let-s-plan-the-glittery-sky.md` — the full plan (phases
-  C0–C8 = the corridor + deploy + cutover; D0–D4 = the four fidelity fixes). Has
-  the crystallized formulation, the risk register, and the sequence. **Read it.**
+### The plan (the LIVE goal being executed — not a historical artifact)
+- **`PLAN.md`** — the full active plan, copied into BOTH repos as a portable file
+  (engine: `os-apps/paw-foresight/.proofs/PLAN.md`; frontend: `<dsf-2 worktree
+  root>/PLAN.md`, next to this handoff). Phases **C0–C8** (corridor + deploy +
+  cutover) and **D0–D4** (the four fidelity fixes) are the active task breakdown
+  being worked. Has the crystallized formulation, the risk register, and the
+  sequence. **Read it.**
+- The original lived in Claude-Code plan-mode storage
+  (`~/.claude/plans/okay-let-s-plan-the-glittery-sky.md`), which is **NOT reachable
+  by other agents** — `PLAN.md` is the canonical, portable copy. (There is no
+  Temper "goal" entity for it: the connected Temper server has no PM app, so the
+  plan lives as this file + `vision-execution-log.md`, not as a tracked goal.)
 
 ---
 
@@ -450,7 +458,7 @@ prod ("Datadog first"). Useful queries: `"calling OpenAI"`/`"OpenAI Codex respon
 | Prod tenant | `default` |
 | Prod corridor policy | named policy `paw-foresight-corridor` (`foresight.cedar`, 69 permits) |
 | Run harness | `scripts/prove_corridor_e2e.py` (temperpaw worktree) |
-| Plan | `~/.claude/plans/okay-let-s-plan-the-glittery-sky.md` |
+| Plan (portable copy — the live goal) | `PLAN.md` (engine: `os-apps/paw-foresight/.proofs/PLAN.md`; frontend: dsf-2 worktree root) |
 | Progress log | `os-apps/paw-foresight/.proofs/vision-execution-log.md` |
 | Deploy runbook | `os-apps/paw-foresight/.proofs/DEPLOY-RUNBOOK.md` |
 | GitHub auth | account `rita-aga` (`gh auth switch -u rita-aga`); arni-labs repos need it |
@@ -458,7 +466,7 @@ prod ("Datadog first"). Useful queries: `"calling OpenAI"`/`"OpenAI Codex respon
 
 ---
 
-*Supporting docs to read next, in order: this file → the plan →
+*Supporting docs to read next, in order: this file → `PLAN.md` →
 `.proofs/vision-execution-log.md` → `.proofs/DEPLOY-RUNBOOK.md` →
 `.proofs/GENESIS-BUNDLE-INCIDENT.md`. The four corridor ADRs
 (`os-apps/paw-foresight/adrs/004-searched-corridor.md`, `005-grounding.md`,
