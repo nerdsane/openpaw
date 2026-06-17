@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_TEMPER_REV: &str = "54c89822cd4c4294983a2cd6d37f8ef7989e0565";
+const EXPECTED_TEMPER_REV: &str = "9912ac6c07230240bd152fffd0583a8828332858";
 const OLD_TEMPER_REV: &str = "510a0d9bc9517f7819d66849446cdf6aff2d5295";
 
 fn repo_root() -> PathBuf {
