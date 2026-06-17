@@ -31,8 +31,9 @@ No new ADR was added for this patch because the changes are implementation bugfi
 `send_reply`:
 
 - Red: `delivery_prefers_current_action_params_over_stale_channel_fields` failed with `old-thread` instead of `new-thread`.
+- Red follow-up: `missing_current_attachment_param_does_not_reuse_stale_channel_attachment` failed by reusing a stale `pawfs_file` attachment when the current action omitted `reply_attachments_json`.
 - Green: `cargo test --manifest-path os-apps/paw-channels/wasm/send_reply/Cargo.toml --quiet`
-- Result: 3 tests passed.
+- Result: 4 tests passed.
 
 Repo-level regression checks:
 
@@ -56,7 +57,7 @@ Hot-loaded WASM modules in production:
 
 - `provider_caller`: `9f46c7e59a450d6559cdd909573e706907a48184093c5b667d5f3dcf3085554d`
 - `openai_codex_image_generate`: `e286a1ae58bd98c8f0358cb2d5181ac51256865247dca0c13c485eb2f81c6aca`
-- `send_reply`: `6afb2c8150ccc9fcd92f57926478b19071115e2b76d56738498a1ddb9219a043`
+- `send_reply`: `1ad697cf014c884767a8a91cba463693e532af5ae52dacb8af89ba344df4b123`
 
 ## Media Generation Smoke
 
@@ -97,6 +98,20 @@ Observed production logs:
 - `GET /tdata/Files('fl-019ed7c3-fbb8-75b1-ba8e-53eda76eb156')/$value` returned 200
 - `delivered discord reply attachments`, `attachment_count=1`
 - `Channel.ReplyDelivered Connected -> Connected ... succeeded`
+
+Follow-up stale attachment regression:
+
+- User reported every subsequent Paw message included the same cat image.
+- Root cause: `send_reply` used Channel state as the fallback for `reply_attachments_json`, so a later text-only action could inherit the previous attachment.
+- Hot-loaded corrected `send_reply`: `1ad697cf014c884767a8a91cba463693e532af5ae52dacb8af89ba344df4b123`
+- Text-only proof action omitted `reply_attachments_json` while Channel state still had stale attachment history.
+- Action result fields showed `reply_attachments_json: ""`.
+- Production logs after the corrected upload:
+  - `invoking WASM integration module` with hash `1ad697cf014c884767a8a91cba463693e532af5ae52dacb8af89ba344df4b123`
+  - `delivering discord reply`, `content_len=95`
+  - `Channel.ReplyDelivered Connected -> Connected ... succeeded`
+  - no `delivered discord reply attachments` for that proof send
+  - no PawFS `$value` fetch for the cat file after that proof send
 
 ## Normal DM Reply Smoke
 

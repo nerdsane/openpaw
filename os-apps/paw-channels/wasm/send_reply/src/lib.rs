@@ -63,7 +63,7 @@ fn prepare_delivery(fields: &Value, trigger_params: &Value) -> Result<Delivery, 
             "thread_id": action_param_or_field(trigger_params, fields, &["thread_id", "ThreadId"]).unwrap_or(""),
             "content": action_param_or_field(trigger_params, fields, &["content", "Content"]).unwrap_or(""),
             "agent_entity_id": action_param_or_field(trigger_params, fields, &["agent_entity_id", "AgentEntityId"]).unwrap_or(""),
-            "reply_attachments_json": action_param_or_field(trigger_params, fields, &["reply_attachments_json", "ReplyAttachmentsJson"]).unwrap_or(""),
+            "reply_attachments_json": action_param(trigger_params, &["reply_attachments_json", "ReplyAttachmentsJson"]).unwrap_or(""),
         }),
     })
 }
@@ -77,14 +77,17 @@ fn str_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
         .find_map(|key| value.get(*key).and_then(Value::as_str))
 }
 
+fn action_param<'a>(trigger_params: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| trigger_params.get(*key).and_then(Value::as_str))
+}
+
 fn action_param_or_field<'a>(
     trigger_params: &'a Value,
     fields: &'a Value,
     keys: &[&str],
 ) -> Option<&'a str> {
-    keys.iter()
-        .find_map(|key| trigger_params.get(*key).and_then(Value::as_str))
-        .or_else(|| str_field(fields, keys))
+    action_param(trigger_params, keys).or_else(|| str_field(fields, keys))
 }
 
 #[cfg(test)]
@@ -153,5 +156,30 @@ mod tests {
             delivery.reply_params["reply_attachments_json"],
             "[{\"kind\":\"pawfs_file\",\"file_id\":\"fl-1\"}]"
         );
+    }
+
+    #[test]
+    fn missing_current_attachment_param_does_not_reuse_stale_channel_attachment() {
+        let fields = json!({
+            "channel_type": "discord",
+            "webhook_url": "http://127.0.0.1/reply",
+            "thread_id": "old-thread",
+            "content": "old content",
+            "agent_entity_id": "old-agent",
+            "reply_attachments_json": "[{\"kind\":\"pawfs_file\",\"file_id\":\"stale-cat\"}]"
+        });
+        let trigger_params = json!({
+            "thread_id": "new-thread",
+            "content": "new content",
+            "agent_entity_id": "new-agent"
+        });
+
+        let delivery = prepare_delivery(&fields, &trigger_params)
+            .expect("discord delivery should use current action params");
+
+        assert_eq!(delivery.reply_params["thread_id"], "new-thread");
+        assert_eq!(delivery.reply_params["content"], "new content");
+        assert_eq!(delivery.reply_params["agent_entity_id"], "new-agent");
+        assert_eq!(delivery.reply_params["reply_attachments_json"], "");
     }
 }
