@@ -56,6 +56,7 @@ fn prepare_delivery(fields: &Value) -> Result<Delivery, String> {
             "thread_id": str_field(fields, &["thread_id", "ThreadId"]).unwrap_or(""),
             "content": str_field(fields, &["content", "Content"]).unwrap_or(""),
             "agent_entity_id": str_field(fields, &["agent_entity_id", "AgentEntityId"]).unwrap_or(""),
+            "reply_attachments_json": str_field(fields, &["reply_attachments_json", "ReplyAttachmentsJson"]).unwrap_or(""),
         }),
     })
 }
@@ -89,6 +90,7 @@ mod tests {
         assert_eq!(delivery.reply_params["thread_id"], "main");
         assert_eq!(delivery.reply_params["content"], "hello");
         assert_eq!(delivery.reply_params["agent_entity_id"], "agent-1");
+        assert_eq!(delivery.reply_params["reply_attachments_json"], "");
     }
 
     #[test]

@@ -221,6 +221,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "pending_tool_calls": "",
                     "pending_tool_context": "",
                     "pending_decision_id": "",
+                    "reply_attachments_json": string_field(&fields, &["reply_attachments_json", "ReplyAttachmentsJson"])
+                        .unwrap_or(""),
                 }),
             );
         }

@@ -57,6 +57,8 @@ jobs:
             os-apps/paw-fs/wasm/workspace_fs/build.sh \
             os-apps/paw-ingest/wasm/build.sh \
             os-apps/paw-managed-agents/wasm/build.sh \
+            os-apps/paw-media/wasm/build.sh \
+            os-apps/paw-foresight/wasm/build.sh \
             os-apps/paw-skills/wasm/build.sh \
             os-apps/paw-research/wasm/build.sh \
             os-apps/paw-patrol/wasm/build.sh; do

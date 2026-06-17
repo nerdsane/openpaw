@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use tokio::sync::{RwLock, watch};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
@@ -189,6 +190,112 @@ fn build_rich_fallback_text(content: &str, embeds: &[Embed]) -> String {
         parts.push(embed_text);
     }
     parts.join("\n\n")
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReplyAttachment {
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    file_id: String,
+    #[serde(default)]
+    filename: String,
+    #[serde(default)]
+    mime_type: String,
+    #[serde(default)]
+    path: String,
+}
+
+fn parse_reply_attachments(value: &serde_json::Value) -> Result<Vec<ReplyAttachment>, String> {
+    let Some(raw) = value
+        .get("reply_attachments_json")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+
+    serde_json::from_str::<Vec<ReplyAttachment>>(raw)
+        .map_err(|err| format!("parse reply_attachments_json: {err}"))
+}
+
+async fn deliver_reply_attachments(
+    api: &PawApiClient,
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    content: &str,
+    attachments: &[ReplyAttachment],
+) -> Result<bool, String> {
+    if attachments.is_empty() {
+        return Ok(false);
+    }
+
+    let mut files = Vec::new();
+    for attachment in attachments {
+        if attachment.kind != "pawfs_file" {
+            continue;
+        }
+        files.push(download_pawfs_attachment(api, attachment).await?);
+    }
+
+    if files.is_empty() {
+        return Ok(false);
+    }
+
+    send_discord_message_with_files(http, bot_token, channel_id, content, &files)
+        .await
+        .map_err(|err| format!("discord file reply delivery failed: {err}"))?;
+    Ok(true)
+}
+
+async fn download_pawfs_attachment(
+    api: &PawApiClient,
+    attachment: &ReplyAttachment,
+) -> Result<DiscordFileUpload, String> {
+    let file_id = attachment.file_id.trim();
+    if file_id.is_empty() {
+        return Err("reply attachment missing file_id".to_string());
+    }
+    let url = format!(
+        "{}/tdata/Files('{}')/$value",
+        api.config().base_url,
+        escape_odata_key(file_id)
+    );
+    let bytes = api.raw_get_bytes(&url).await?;
+    Ok(DiscordFileUpload {
+        filename: reply_attachment_filename(attachment),
+        content_type: if attachment.mime_type.trim().is_empty() {
+            "image/png".to_string()
+        } else {
+            attachment.mime_type.trim().to_string()
+        },
+        bytes,
+    })
+}
+
+fn reply_attachment_filename(attachment: &ReplyAttachment) -> String {
+    attachment
+        .filename
+        .trim()
+        .rsplit('/')
+        .next()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            attachment
+                .path
+                .trim()
+                .rsplit('/')
+                .next()
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("image.png")
+        .to_string()
+}
+
+fn escape_odata_key(value: &str) -> String {
+    value.replace('\'', "''")
 }
 
 fn is_direct_message_thread_id(thread_id: &str) -> bool {
@@ -1312,8 +1419,17 @@ impl DiscordTransport {
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default();
             let has_rich_content = !components.is_empty() || !embeds.is_empty();
+            let reply_attachments = match parse_reply_attachments(&body) {
+                Ok(attachments) => attachments,
+                Err(error) => {
+                    tracing::error!(%error, "discord reply webhook invalid attachment payload");
+                    return axum::http::StatusCode::BAD_REQUEST;
+                }
+            };
+            let has_attachments = !reply_attachments.is_empty();
 
-            if thread_id.is_empty() || (content.is_empty() && !has_rich_content) {
+            if thread_id.is_empty() || (content.is_empty() && !has_rich_content && !has_attachments)
+            {
                 tracing::error!("discord reply webhook missing content and rich payload");
                 return axum::http::StatusCode::BAD_REQUEST;
             }
@@ -1339,6 +1455,31 @@ impl DiscordTransport {
                     return axum::http::StatusCode::BAD_GATEWAY;
                 }
             };
+
+            match deliver_reply_attachments(
+                &state.api,
+                &state.http,
+                &state.bot_token,
+                &channel_id,
+                content,
+                &reply_attachments,
+            )
+            .await
+            {
+                Ok(true) => {
+                    tracing::info!(
+                        thread_id,
+                        attachment_count = reply_attachments.len(),
+                        "delivered discord reply attachments"
+                    );
+                    return axum::http::StatusCode::OK;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::error!(thread_id, %error, "discord reply attachment delivery failed");
+                    return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+                }
+            }
 
             if has_rich_content {
                 let fallback_text = build_rich_fallback_text(content, &embeds);
@@ -2066,6 +2207,26 @@ mod tests {
             proxy_url: format!("https://media.discordapp.net/{filename}"),
             content_type: content_type.map(|s| s.to_string()),
         }
+    }
+
+    #[test]
+    fn reply_attachment_payload_parses_pawfs_files() {
+        let body = json!({
+            "reply_attachments_json": serde_json::to_string(&json!([{
+                "kind": "pawfs_file",
+                "file_id": "fl-1",
+                "filename": "",
+                "path": "/images/cat.png",
+                "mime_type": "image/png"
+            }])).unwrap()
+        });
+
+        let attachments = parse_reply_attachments(&body).expect("attachment payload parses");
+
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].kind, "pawfs_file");
+        assert_eq!(attachments[0].file_id, "fl-1");
+        assert_eq!(reply_attachment_filename(&attachments[0]), "cat.png");
     }
 
     #[test]

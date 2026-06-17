@@ -1342,17 +1342,17 @@ fn temper_web_fetch(
     Ok(result)
 }
 
-/// Generate an image via MediaGeneration entity + openai_codex_image_generate WASM.
-/// Creates a MediaGeneration, dispatches Generate, reads result metadata.
+/// Generate an image via MediaGenerationRequest entity + openai_codex_image_generate WASM.
+/// Creates a MediaGenerationRequest, dispatches Generate, reads result metadata.
 fn temper_image_generate(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let input = image_generate_input(ctx, args)?;
+    let input = image_generate_input(ctx, api_url, tenant, args)?;
     let body = media_generation_fields(&input);
-    let entity = http_post(ctx, api_url, tenant, "/tdata/MediaGenerations", &body)?;
+    let entity = http_post(ctx, api_url, tenant, "/tdata/MediaGenerationRequests", &body)?;
     let entity_id = entity
         .get("entity_id")
         .or_else(|| entity.get("EntityId"))
@@ -1360,7 +1360,7 @@ fn temper_image_generate(
         .and_then(Value::as_str)
         .or_else(|| entity_field_str(&entity, &["Id", "id"]))
         .ok_or_else(|| {
-            "image_generate: failed to get entity_id from created MediaGeneration".to_string()
+            "image_generate: failed to get entity_id from created MediaGenerationRequest".to_string()
         })?;
 
     let key = escape_odata_key(entity_id);
@@ -1368,7 +1368,7 @@ fn temper_image_generate(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/MediaGenerations('{key}')/Temper.Generate?await_integration=true"),
+        &format!("/tdata/MediaGenerationRequests('{key}')/Temper.Generate?await_integration=true"),
         &json!({
             "prompt": input.prompt,
             "media_type": input.media_type,
@@ -1388,7 +1388,7 @@ fn temper_image_generate(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/MediaGenerations('{key}')"),
+        &format!("/tdata/MediaGenerationRequests('{key}')"),
     )?;
     render_media_generation_result(entity_id, &result, input.include_base64)
 }
@@ -1409,7 +1409,12 @@ struct ImageGenerateInput {
     include_base64: bool,
 }
 
-fn image_generate_input(ctx: &Context, args: &[Value]) -> Result<ImageGenerateInput, String> {
+fn image_generate_input(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<ImageGenerateInput, String> {
     let (prompt, opts) = match args.first() {
         Some(Value::Object(input)) => {
             let prompt = input
@@ -1441,15 +1446,7 @@ fn image_generate_input(ctx: &Context, args: &[Value]) -> Result<ImageGenerateIn
         return Err("temper.image_generate(): prompt cannot be empty".to_string());
     }
 
-    let session_fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-    let workspace_id = opts_string(&opts, &["workspace_id", "WorkspaceId"])
-        .or_else(|| {
-            entity_field_str(&session_fields, &["workspace_id", "WorkspaceId"])
-                .map(ToOwned::to_owned)
-        })
-        .ok_or_else(|| {
-            "temper.image_generate(): workspace_id is required because generated images are stored in PawFS".to_string()
-        })?;
+    let workspace_id = resolve_image_workspace_id(ctx, api_url, tenant, &opts)?;
 
     Ok(ImageGenerateInput {
         prompt,
@@ -1480,6 +1477,91 @@ fn image_generate_input(ctx: &Context, args: &[Value]) -> Result<ImageGenerateIn
             .and_then(Value::as_bool)
             .unwrap_or(true),
     })
+}
+
+fn resolve_image_workspace_id(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    opts: &Value,
+) -> Result<String, String> {
+    if let Some(workspace_id) = opts_string(opts, &["workspace_id", "WorkspaceId"]) {
+        return Ok(workspace_id);
+    }
+
+    let session_fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    if let Some(workspace_id) = entity_field_str(&session_fields, &["workspace_id", "WorkspaceId"])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(workspace_id.to_string());
+    }
+
+    let agent_id = entity_field_str(&session_fields, &["agent_id", "AgentId"])
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(ctx.entity_id.as_str());
+    ensure_image_workspace(ctx, api_url, tenant, agent_id)
+}
+
+fn ensure_image_workspace(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    agent_id: &str,
+) -> Result<String, String> {
+    let workspace_id = format!("agent-{agent_id}");
+    let lookup_path = format!(
+        "/tdata/Workspaces?$filter=WorkspaceId eq '{}'&$top=1",
+        encode_odata_filter_literal(&workspace_id)
+    );
+    if let Ok(result) = http_get(ctx, api_url, tenant, &lookup_path)
+        && let Some(found_id) = result
+            .get("value")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(|entity| {
+                entity
+                    .get("entity_id")
+                    .or_else(|| entity.get("Id"))
+                    .and_then(Value::as_str)
+                    .or_else(|| entity_field_str(entity, &["WorkspaceId", "workspace_id"]))
+            })
+            .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(found_id.to_string());
+    }
+
+    let body = json!({
+        "WorkspaceId": workspace_id,
+        "name": format!("Agent {agent_id} Workspace"),
+        "owner_id": agent_id,
+        "quota_bytes": "104857600"
+    });
+    match http_post(ctx, api_url, tenant, "/tdata/Workspaces", &body) {
+        Ok(entity) => entity
+            .get("entity_id")
+            .or_else(|| entity.get("Id"))
+            .and_then(Value::as_str)
+            .or_else(|| entity_field_str(&entity, &["WorkspaceId", "workspace_id"]))
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| "image_generate: created Workspace without entity id".to_string()),
+        Err(err) => {
+            let retry = http_get(ctx, api_url, tenant, &lookup_path)?;
+            retry
+                .get("value")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|entity| {
+                    entity
+                        .get("entity_id")
+                        .or_else(|| entity.get("Id"))
+                        .and_then(Value::as_str)
+                        .or_else(|| entity_field_str(entity, &["WorkspaceId", "workspace_id"]))
+                })
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| format!("image_generate: ensure workspace failed: {err}"))
+        }
+    }
 }
 
 fn media_generation_fields(input: &ImageGenerateInput) -> Value {
@@ -1522,15 +1604,26 @@ fn render_media_generation_result(
     let mime_type = entity_field_str(fields, &["MimeType", "mime_type"]).unwrap_or("image/png");
     let base64_data =
         entity_field_str(fields, &["ResultImageBase64", "result_image_base64"]).unwrap_or("");
+    let file_id = entity_field_str(fields, &["ResultFileId", "result_file_id"]).unwrap_or("");
+    let file_version_id =
+        entity_field_str(fields, &["ResultFileVersionId", "result_file_version_id"]).unwrap_or("");
+    let path = entity_field_str(fields, &["ResultPath", "result_path"]).unwrap_or("");
+    if file_id.is_empty() && base64_data.is_empty() && path.is_empty() {
+        return Err(format!(
+            "image_generate: generation completed without an image artifact (media_generation_id={media_generation_id})"
+        ));
+    }
+
     let byte_count = base64_data.len().saturating_mul(3) / 4;
     let mut result = json!({
         "__temperpaw_image": true,
         "media_generation_id": media_generation_id,
         "media_type": mime_type,
         "mime_type": mime_type,
-        "file_id": entity_field_str(fields, &["ResultFileId", "result_file_id"]).unwrap_or(""),
-        "file_version_id": entity_field_str(fields, &["ResultFileVersionId", "result_file_version_id"]).unwrap_or(""),
-        "path": entity_field_str(fields, &["ResultPath", "result_path"]).unwrap_or(""),
+        "file_id": file_id,
+        "file_version_id": file_version_id,
+        "path": path,
+        "source_path": path,
         "prompt": entity_field_str(fields, &["Prompt", "prompt"]).unwrap_or(""),
         "revised_prompt": entity_field_str(fields, &["RevisedPrompt", "revised_prompt"]).unwrap_or(""),
         "provider": entity_field_str(fields, &["Provider", "provider"]).unwrap_or("openai_codex"),
