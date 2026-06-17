@@ -156,6 +156,96 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
 }
 
 #[test]
+fn paw_media_wasm_is_built_into_ci_and_production_images() {
+    let root = repo_root();
+    let dockerfile = read(root.join("Dockerfile"));
+    let ci = read(root.join(".github/workflows/ci.yml"));
+    let identity_contract =
+        read(root.join("crates/temperpaw/tests/temperpaw_identity_contract.rs"));
+    let build_script = read(root.join("os-apps/paw-media/wasm/build.sh"));
+
+    assert!(
+        dockerfile.contains("cd /app/os-apps/paw-media/wasm && bash build.sh"),
+        "Dockerfile must build paw-media WASM before copying os-apps into the runtime image"
+    );
+    assert!(
+        ci.contains("os-apps/paw-media/wasm/build.sh"),
+        "CI must build paw-media WASM so missing renderer packaging fails before deploy"
+    );
+    assert!(
+        identity_contract.contains("\"os-apps/paw-media/wasm/build.sh\""),
+        "identity contract should keep paw-media in the audited WASM build-script set"
+    );
+    assert!(
+        build_script.contains("openai_codex_image_generate.wasm"),
+        "paw-media build.sh must publish openai_codex_image_generate.wasm outside target/"
+    );
+}
+
+#[test]
+fn paw_media_policy_limits_result_callbacks_to_runtime_modules() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-media/policies/media_generation.cedar"));
+
+    let user_actions = r#"action in [
+    Action::"create",
+    Action::"read",
+    Action::"list",
+    Action::"Generate"
+  ]"#;
+    assert!(
+        policy.contains(user_actions),
+        "user-facing MediaGeneration policy should only expose create/read/list/Generate"
+    );
+    for forbidden in [
+        "Action::\"RecordAuthReady\"",
+        "Action::\"RecordStoring\"",
+        "Action::\"RecordResult\"",
+        "Action::\"RecordError\"",
+    ] {
+        assert!(
+            !policy
+                .split("resource is MediaGeneration")
+                .next()
+                .unwrap_or_default()
+                .contains(forbidden),
+            "callback action {forbidden} must not be in the broad user-facing permit"
+        );
+    }
+    for needle in [
+        "context.module == \"provider_auth_gate\"",
+        "context.module == \"openai_codex_image_generate\"",
+        "Action::\"RecordAuthReady\"",
+        "Action::\"RecordStoring\"",
+        "Action::\"RecordResult\"",
+        "Action::\"RecordError\"",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "paw-media callback policy should contain {needle}"
+        );
+    }
+}
+
+#[test]
+fn image_generation_tool_rejects_empty_success_results() {
+    let root = repo_root();
+    let dispatch = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+
+    for needle in [
+        "image_generate: generation completed without an image artifact",
+        "file_id.is_empty()",
+        "base64_data.is_empty()",
+        "path.is_empty()",
+    ] {
+        assert!(
+            dispatch.contains(needle),
+            "Monty image result renderer should contain {needle}"
+        );
+    }
+}
+
+#[test]
 fn paw_media_is_a_core_startup_app() {
     let root = repo_root();
     temper_platform::os_apps::set_os_apps_dir(root.join("os-apps"));

@@ -1522,15 +1522,25 @@ fn render_media_generation_result(
     let mime_type = entity_field_str(fields, &["MimeType", "mime_type"]).unwrap_or("image/png");
     let base64_data =
         entity_field_str(fields, &["ResultImageBase64", "result_image_base64"]).unwrap_or("");
+    let file_id = entity_field_str(fields, &["ResultFileId", "result_file_id"]).unwrap_or("");
+    let file_version_id =
+        entity_field_str(fields, &["ResultFileVersionId", "result_file_version_id"]).unwrap_or("");
+    let path = entity_field_str(fields, &["ResultPath", "result_path"]).unwrap_or("");
+    if file_id.is_empty() && base64_data.is_empty() && path.is_empty() {
+        return Err(format!(
+            "image_generate: generation completed without an image artifact (media_generation_id={media_generation_id})"
+        ));
+    }
+
     let byte_count = base64_data.len().saturating_mul(3) / 4;
     let mut result = json!({
         "__temperpaw_image": true,
         "media_generation_id": media_generation_id,
         "media_type": mime_type,
         "mime_type": mime_type,
-        "file_id": entity_field_str(fields, &["ResultFileId", "result_file_id"]).unwrap_or(""),
-        "file_version_id": entity_field_str(fields, &["ResultFileVersionId", "result_file_version_id"]).unwrap_or(""),
-        "path": entity_field_str(fields, &["ResultPath", "result_path"]).unwrap_or(""),
+        "file_id": file_id,
+        "file_version_id": file_version_id,
+        "path": path,
         "prompt": entity_field_str(fields, &["Prompt", "prompt"]).unwrap_or(""),
         "revised_prompt": entity_field_str(fields, &["RevisedPrompt", "revised_prompt"]).unwrap_or(""),
         "provider": entity_field_str(fields, &["Provider", "provider"]).unwrap_or("openai_codex"),

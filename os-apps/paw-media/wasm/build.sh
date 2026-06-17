@@ -23,6 +23,7 @@ for module in openai_codex_image_generate; do
     echo "Building $module..."
     (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release)
     copy_artifact "$module" "wasm32-unknown-unknown"
+    test -f "$SCRIPT_DIR/openai_codex_image_generate/openai_codex_image_generate.wasm"
     echo "  -> $module built successfully"
 done
 

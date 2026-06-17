@@ -106,6 +106,22 @@ const CORRIDOR_SPECS: &[(&str, &str)] = &[
     ("lens.ioa.toml", "Lens"),
 ];
 
+const CORRIDOR_WASM_MODULES: &[&str] = &[
+    "seed_world",
+    "sample_endpoints",
+    "decompose_endpoint",
+    "spawn_repairers",
+    "spawn_adversaries",
+    "aggregate_costs",
+    "evidence_ingest",
+    "register_forecasts",
+    "render_artifacts",
+    "consistency_gate",
+    "grade_hindcast",
+    "animate_dwellers",
+    "adjudicate_nodes",
+];
+
 #[test]
 fn corridor_specs_exist_and_declare_expected_automatons() {
     for (file, expected_name) in CORRIDOR_SPECS {
@@ -494,23 +510,9 @@ fn app_manifest_declares_corridor_wasm_modules() {
         })
         .unwrap_or_default();
 
-    for module in [
-        "seed_world",
-        "sample_endpoints",
-        "decompose_endpoint",
-        "spawn_repairers",
-        "spawn_adversaries",
-        "aggregate_costs",
-        "evidence_ingest",
-        "register_forecasts",
-        "render_artifacts",
-        "consistency_gate",
-        "grade_hindcast",
-        "animate_dwellers",
-        "adjudicate_nodes",
-    ] {
+    for module in CORRIDOR_WASM_MODULES {
         assert!(
-            declared.contains(module),
+            declared.contains(*module),
             "app.toml must declare wasm module {module}"
         );
         let crate_dir = repo_root().join(format!(
@@ -521,6 +523,40 @@ fn app_manifest_declares_corridor_wasm_modules() {
         assert!(
             crate_dir.is_dir() || alt_dir.is_dir(),
             "wasm crate for {module} must exist"
+        );
+    }
+}
+
+#[test]
+fn corridor_wasm_modules_are_packaged_for_core_startup() {
+    let root = repo_root();
+    let dockerfile = read(root.join("Dockerfile"));
+    let ci = read(root.join(".github/workflows/ci.yml"));
+    let identity_contract =
+        read(root.join("crates/temperpaw/tests/temperpaw_identity_contract.rs"));
+    let build_script = read(root.join("os-apps/paw-foresight/wasm/build.sh"));
+
+    assert!(
+        dockerfile.contains("cd /app/os-apps/paw-foresight/wasm && bash build.sh"),
+        "Dockerfile must build paw-foresight WASM before copying os-apps into the runtime image"
+    );
+    assert!(
+        ci.contains("os-apps/paw-foresight/wasm/build.sh"),
+        "CI must build paw-foresight WASM so fresh core startup images do not miss corridor modules"
+    );
+    assert!(
+        identity_contract.contains("\"os-apps/paw-foresight/wasm/build.sh\""),
+        "identity contract should keep paw-foresight in the audited WASM build-script set"
+    );
+
+    for module in CORRIDOR_WASM_MODULES {
+        assert!(
+            build_script.contains(module),
+            "paw-foresight build.sh should build {module}"
+        );
+        assert!(
+            build_script.contains(&format!("{module}.wasm")),
+            "paw-foresight build.sh should publish {module}.wasm outside target/"
         );
     }
 }
