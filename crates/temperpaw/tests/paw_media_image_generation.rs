@@ -36,7 +36,7 @@ fn paw_media_declares_codex_subscription_image_generation_app() {
     }
 
     for needle in [
-        "name = \"MediaGeneration\"",
+        "name = \"MediaGenerationRequest\"",
         "states = [\"Created\", \"Authorizing\", \"Generating\", \"Storing\", \"Complete\", \"Failed\"]",
         "media_type",
         "provider",
@@ -55,8 +55,8 @@ fn paw_media_declares_codex_subscription_image_generation_app() {
     }
 
     for needle in [
-        "<EntityType Name=\"MediaGeneration\">",
-        "<EntitySet Name=\"MediaGenerations\"",
+        "<EntityType Name=\"MediaGenerationRequest\">",
+        "<EntitySet Name=\"MediaGenerationRequests\"",
         "<Action Name=\"Generate\"",
         "<Action Name=\"RecordResult\"",
         "<Property Name=\"ResultFileId\"",
@@ -69,7 +69,7 @@ fn paw_media_declares_codex_subscription_image_generation_app() {
     }
 
     for needle in [
-        "resource is MediaGeneration",
+        "resource is MediaGenerationRequest",
         "Action::\"Generate\"",
         "Action::\"RecordResult\"",
         "Action::\"RecordError\"",
@@ -138,7 +138,7 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
     for needle in [
         "\"image_generate\" => Some(\"temper_image_generate\")",
         "\"image_generate\" => temper_image_generate",
-        "/tdata/MediaGenerations",
+        "/tdata/MediaGenerationRequests",
         "Temper.Generate?await_integration=true",
         "__temperpaw_image",
         "unwrap_or_else(|| \"low\".to_string())",
@@ -153,6 +153,33 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
         paw_agent_app.contains("name = \"openai_codex_auth\""),
         "paw-agent app.toml must declare openai_codex_auth so provider_auth_gate can run Codex subscription auth"
     );
+}
+
+#[test]
+fn image_generation_uses_app_scoped_entity_set_route() {
+    let root = repo_root();
+    let model = read(root.join("os-apps/paw-media/specs/model.csdl.xml"));
+    let dispatch = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+    let wasm = read(root.join("os-apps/paw-media/wasm/openai_codex_image_generate/src/lib.rs"));
+
+    assert!(
+        model.contains("<EntitySet Name=\"MediaGenerationRequests\" EntityType=\"TemperPaw.Media.MediaGenerationRequest\"/>"),
+        "paw-media must expose an app-scoped entity set and entity type so it does not collide with legacy root MediaGeneration"
+    );
+
+    for (label, source) in [
+        ("Monty dispatch", dispatch.as_str()),
+        ("Codex image WASM", wasm.as_str()),
+    ] {
+        assert!(
+            source.contains("/tdata/MediaGenerationRequests"),
+            "{label} should call the app-scoped media entity set"
+        );
+        assert!(
+            !source.contains("/tdata/MediaGenerations"),
+            "{label} must not call the legacy root MediaGenerations route"
+        );
+    }
 }
 
 #[test]
@@ -195,7 +222,7 @@ fn paw_media_policy_limits_result_callbacks_to_runtime_modules() {
   ]"#;
     assert!(
         policy.contains(user_actions),
-        "user-facing MediaGeneration policy should only expose create/read/list/Generate"
+        "user-facing MediaGenerationRequest policy should only expose create/read/list/Generate"
     );
     for forbidden in [
         "Action::\"RecordAuthReady\"",
@@ -205,7 +232,7 @@ fn paw_media_policy_limits_result_callbacks_to_runtime_modules() {
     ] {
         assert!(
             !policy
-                .split("resource is MediaGeneration")
+                .split("resource is MediaGenerationRequest")
                 .next()
                 .unwrap_or_default()
                 .contains(forbidden),
@@ -243,6 +270,28 @@ fn image_generation_tool_rejects_empty_success_results() {
             "Monty image result renderer should contain {needle}"
         );
     }
+}
+
+#[test]
+fn codex_image_renderer_streams_large_provider_responses() {
+    let root = repo_root();
+    let wasm = read(root.join("os-apps/paw-media/wasm/openai_codex_image_generate/src/lib.rs"));
+
+    for needle in [
+        "call_codex_image_generation",
+        "temper_wasm_sdk::http_stream::streaming_call",
+        "CODEX_RESPONSE_STREAM_CHUNK_BYTES",
+        "CODEX_RESPONSE_MAX_BYTES",
+    ] {
+        assert!(
+            wasm.contains(needle),
+            "Codex image renderer should stream provider responses and contain {needle}"
+        );
+    }
+    assert!(
+        !wasm.contains("let resp = ctx.http_call(\"POST\", &url, &headers, &request.to_string())?;"),
+        "Codex image renderer must not use the fixed 4MB SDK http_call buffer for image responses"
+    );
 }
 
 #[test]

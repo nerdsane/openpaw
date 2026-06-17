@@ -1,4 +1,4 @@
-# MediaGeneration — Governed media generation request/result lifecycle.
+# MediaGenerationRequest — Governed media generation request/result lifecycle.
 #
 # Version 1 supports image generation through the OpenAI Codex subscription
 # provider. The entity is intentionally media/provider generic so future image,
@@ -6,7 +6,7 @@
 # changing the agent tool surface.
 
 [automaton]
-name = "MediaGeneration"
+name = "MediaGenerationRequest"
 states = ["Created", "Authorizing", "Generating", "Storing", "Complete", "Failed"]
 initial = "Created"
 

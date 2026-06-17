@@ -1342,8 +1342,8 @@ fn temper_web_fetch(
     Ok(result)
 }
 
-/// Generate an image via MediaGeneration entity + openai_codex_image_generate WASM.
-/// Creates a MediaGeneration, dispatches Generate, reads result metadata.
+/// Generate an image via MediaGenerationRequest entity + openai_codex_image_generate WASM.
+/// Creates a MediaGenerationRequest, dispatches Generate, reads result metadata.
 fn temper_image_generate(
     ctx: &Context,
     api_url: &str,
@@ -1352,7 +1352,7 @@ fn temper_image_generate(
 ) -> Result<Value, String> {
     let input = image_generate_input(ctx, args)?;
     let body = media_generation_fields(&input);
-    let entity = http_post(ctx, api_url, tenant, "/tdata/MediaGenerations", &body)?;
+    let entity = http_post(ctx, api_url, tenant, "/tdata/MediaGenerationRequests", &body)?;
     let entity_id = entity
         .get("entity_id")
         .or_else(|| entity.get("EntityId"))
@@ -1360,7 +1360,7 @@ fn temper_image_generate(
         .and_then(Value::as_str)
         .or_else(|| entity_field_str(&entity, &["Id", "id"]))
         .ok_or_else(|| {
-            "image_generate: failed to get entity_id from created MediaGeneration".to_string()
+            "image_generate: failed to get entity_id from created MediaGenerationRequest".to_string()
         })?;
 
     let key = escape_odata_key(entity_id);
@@ -1368,7 +1368,7 @@ fn temper_image_generate(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/MediaGenerations('{key}')/Temper.Generate?await_integration=true"),
+        &format!("/tdata/MediaGenerationRequests('{key}')/Temper.Generate?await_integration=true"),
         &json!({
             "prompt": input.prompt,
             "media_type": input.media_type,
@@ -1388,7 +1388,7 @@ fn temper_image_generate(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/MediaGenerations('{key}')"),
+        &format!("/tdata/MediaGenerationRequests('{key}')"),
     )?;
     render_media_generation_result(entity_id, &result, input.include_base64)
 }

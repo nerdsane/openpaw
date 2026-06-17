@@ -1,4 +1,4 @@
-// Authenticated agents can create, inspect, and start MediaGeneration flows.
+// Authenticated agents can create, inspect, and start MediaGenerationRequest flows.
 permit(
   principal,
   action in [
@@ -7,7 +7,7 @@ permit(
     Action::"list",
     Action::"Generate"
   ],
-  resource is MediaGeneration
+  resource is MediaGenerationRequest
 );
 
 // Provider auth can only report auth readiness or auth failure from its WASM module.
@@ -17,7 +17,7 @@ permit(
     Action::"RecordAuthReady",
     Action::"RecordError"
   ],
-  resource is MediaGeneration
+  resource is MediaGenerationRequest
 ) when {
   context.module == "provider_auth_gate"
 };
@@ -30,7 +30,7 @@ permit(
     Action::"RecordResult",
     Action::"RecordError"
   ],
-  resource is MediaGeneration
+  resource is MediaGenerationRequest
 ) when {
   context.module == "openai_codex_image_generate"
 };
