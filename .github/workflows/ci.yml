@@ -63,6 +63,7 @@ jobs:
             echo "=== Running $script ==="
             (cd "$(dirname "$script")" && bash "$(basename "$script")")
           done
+          bash scripts/verify_route_message_wasm.sh
       - name: Cargo test
         run: |
           cargo test --locked -p temperpaw --quiet
