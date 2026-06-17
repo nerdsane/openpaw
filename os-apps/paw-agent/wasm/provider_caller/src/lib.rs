@@ -10,12 +10,12 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
-#[cfg(test)]
-use openai_codex_wire::base64_url_no_pad;
 use openai_chat_wire::{
     ChatCompletionStreamAccumulator, ChatStreamDelta, ChatStreamParseFailure,
     build_chat_completion_body, convert_messages_to_chat, parse_headers_json,
 };
+#[cfg(test)]
+use openai_codex_wire::base64_url_no_pad;
 use openai_codex_wire::{
     build_openai_headers, extract_chatgpt_account_id_from_jwt, is_openai_codex_token_expired_error,
     select_openai_responses_url,
@@ -25,7 +25,7 @@ use session_turn_artifacts::{
     build_gen_ai_output_messages, build_gen_ai_system_instructions,
     build_provider_response_ready_params_with_inline, parse_prepared_context_artifact,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     read_content_file, resolve_temper_api_url, runtime_headers, runtime_headers_as,
@@ -180,7 +180,8 @@ fn configured_openai_compatible_api_url(ctx: &Context, provider: &str) -> Result
         .get(config_key)
         .filter(|value| !value.trim().is_empty() && !is_unresolved_secret_template(value))
         .cloned();
-    let api_url = configured.unwrap_or_else(|| default_openai_compatible_api_url(provider).to_string());
+    let api_url =
+        configured.unwrap_or_else(|| default_openai_compatible_api_url(provider).to_string());
     if api_url.trim().is_empty() {
         return Err(format!("provider={provider} requires {config_key}"));
     }
@@ -2222,7 +2223,10 @@ fn call_openai_compatible_chat(
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
-                    ctx.log("warn", &format_llm_hang_hint(provider, attempt_num, elapsed));
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint(provider, attempt_num, elapsed),
+                    );
                 }
                 match accumulator.finalize(r.response_bytes) {
                     Ok(parsed) => {
@@ -2263,7 +2267,10 @@ fn call_openai_compatible_chat(
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
-                    ctx.log("warn", &format_llm_hang_hint(provider, attempt_num, elapsed));
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint(provider, attempt_num, elapsed),
+                    );
                 }
                 last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
                 if live_progress.saw_semantic_output() {
@@ -2317,7 +2324,10 @@ fn call_openai_compatible_chat(
                     ),
                 );
                 if should_emit_hang_hint(elapsed) {
-                    ctx.log("warn", &format_llm_hang_hint(provider, attempt_num, elapsed));
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint(provider, attempt_num, elapsed),
+                    );
                 }
                 last_err = e.to_string();
                 let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
@@ -2347,7 +2357,8 @@ fn call_openai_compatible_chat(
                     "exhausted_retries",
                 ),
             );
-            let error = format!("{provider} API failed after {LLM_MAX_ATTEMPTS} attempts: {last_err}");
+            let error =
+                format!("{provider} API failed after {LLM_MAX_ATTEMPTS} attempts: {last_err}");
             finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
             return Err(error);
         }
@@ -2744,6 +2755,209 @@ fn extract_text_and_images_from_tool_content(
     (text_parts.join("\n"), images)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenAiResponsesInput {
+    input: Vec<Value>,
+    orphan_tool_outputs: usize,
+}
+
+fn collect_openai_function_call_ids(messages: &[Value]) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
+    for msg in messages {
+        if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let Some(blocks) = msg.get("content").and_then(Value::as_array) else {
+            continue;
+        };
+        for block in blocks {
+            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                continue;
+            }
+            if let Some(id) = block.get("id").and_then(Value::as_str)
+                && !id.trim().is_empty()
+            {
+                ids.insert(id.to_string());
+            }
+        }
+    }
+    ids
+}
+
+fn push_openai_user_text_with_images(
+    input: &mut Vec<Value>,
+    text: &str,
+    images: &[(String, String)],
+) {
+    if images.is_empty() {
+        if !text.trim().is_empty() {
+            input.push(json!({"role": "user", "content": text}));
+        }
+        return;
+    }
+
+    let mut content = Vec::new();
+    if !text.trim().is_empty() {
+        content.push(json!({"type": "input_text", "text": text}));
+    }
+    for (media_type, data) in images {
+        content.push(json!({
+            "type": "input_image",
+            "image_url": format!("data:{media_type};base64,{data}")
+        }));
+    }
+    input.push(json!({
+        "type": "message",
+        "role": "user",
+        "content": content
+    }));
+}
+
+fn push_openai_tool_result(
+    input: &mut Vec<Value>,
+    function_call_ids: &BTreeSet<String>,
+    orphan_tool_outputs: &mut usize,
+    call_id: &str,
+    content: Option<&Value>,
+) {
+    let (mut output, images) = extract_text_and_images_from_tool_content(content);
+    if output.trim().is_empty() {
+        if let Some(raw) = content {
+            output = stringify_content(raw);
+        }
+    }
+
+    if !call_id.trim().is_empty() && function_call_ids.contains(call_id) {
+        input.push(json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output
+        }));
+        for (media_type, data) in &images {
+            input.push(json!({
+                "type": "input_image",
+                "image_url": format!("data:{media_type};base64,{data}")
+            }));
+        }
+        return;
+    }
+
+    *orphan_tool_outputs += 1;
+    let display_call_id = if call_id.trim().is_empty() {
+        "unknown"
+    } else {
+        call_id
+    };
+    let fallback_text = if output.trim().is_empty() {
+        format!("Tool result for orphaned call {display_call_id} was empty.")
+    } else {
+        format!("Tool result for orphaned call {display_call_id}:\n{output}")
+    };
+    push_openai_user_text_with_images(input, &fallback_text, &images);
+}
+
+fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
+    let function_call_ids = collect_openai_function_call_ids(messages);
+    let mut input = Vec::<Value>::new();
+    let mut orphan_tool_outputs = 0usize;
+
+    for msg in messages {
+        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+        match role {
+            "user" => {
+                if let Some(content) = msg.get("content").and_then(Value::as_str) {
+                    input.push(json!({"role": "user", "content": content}));
+                } else if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    let mut user_text = Vec::<String>::new();
+                    for block in blocks {
+                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+                        match block_type {
+                            "tool_result" => {
+                                let call_id = block
+                                    .get("tool_use_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                push_openai_tool_result(
+                                    &mut input,
+                                    &function_call_ids,
+                                    &mut orphan_tool_outputs,
+                                    call_id,
+                                    block.get("content"),
+                                );
+                            }
+                            "text" => {
+                                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                    user_text.push(text.to_string());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !user_text.is_empty() {
+                        input.push(json!({"role": "user", "content": user_text.join("\n")}));
+                    }
+                }
+            }
+            "assistant" => {
+                if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    for block in blocks {
+                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+                        match block_type {
+                            "text" => {
+                                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                    input.push(json!({
+                                        "type": "message",
+                                        "role": "assistant",
+                                        "content": [{"type": "output_text", "text": text}]
+                                    }));
+                                }
+                            }
+                            "tool_use" => {
+                                let call_id = block
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
+                                let name = block
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
+                                let arguments =
+                                    serde_json::to_string(block.get("input").unwrap_or(&json!({})))
+                                        .unwrap_or_else(|_| "{}".to_string());
+                                input.push(json!({
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": name,
+                                    "arguments": arguments
+                                }));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "tool_result" => {
+                let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                push_openai_tool_result(
+                    &mut input,
+                    &function_call_ids,
+                    &mut orphan_tool_outputs,
+                    tool_use_id,
+                    msg.get("content"),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    OpenAiResponsesInput {
+        input,
+        orphan_tool_outputs,
+    }
+}
+
 /// Call OpenAI Codex Responses API (chatgpt.com/backend-api/codex/responses).
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
@@ -2790,114 +3004,17 @@ fn call_openai(
         ),
     );
 
-    let mut input = Vec::<Value>::new();
-    for msg in messages {
-        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
-        match role {
-            "user" => {
-                if let Some(content) = msg.get("content").and_then(Value::as_str) {
-                    input.push(json!({"role": "user", "content": content}));
-                } else if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    // Handle array content blocks — may contain text AND tool_result blocks
-                    let mut has_tool_results = false;
-                    for block in blocks {
-                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
-                        if block_type == "tool_result" {
-                            // Anthropic tool_result → Responses API function_call_output
-                            let call_id = block
-                                .get("tool_use_id")
-                                .and_then(Value::as_str)
-                                .unwrap_or("");
-                            let (output, images) =
-                                extract_text_and_images_from_tool_content(block.get("content"));
-                            input.push(json!({
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": output
-                            }));
-                            // Emit input_image items for each image block
-                            for (media_type, data) in &images {
-                                input.push(json!({
-                                    "type": "input_image",
-                                    "image_url": format!("data:{media_type};base64,{data}")
-                                }));
-                            }
-                            has_tool_results = true;
-                        }
-                    }
-                    // Also extract any text blocks (non-tool-result content)
-                    if !has_tool_results {
-                        let text: String = blocks
-                            .iter()
-                            .filter_map(|b| b.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if !text.is_empty() {
-                            input.push(json!({"role": "user", "content": text}));
-                        }
-                    }
-                }
-            }
-            "assistant" => {
-                if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    for block in blocks {
-                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
-                        match block_type {
-                            "text" => {
-                                if let Some(text) = block.get("text").and_then(Value::as_str) {
-                                    input.push(json!({
-                                        "type": "message",
-                                        "role": "assistant",
-                                        "content": [{"type": "output_text", "text": text}]
-                                    }));
-                                }
-                            }
-                            "tool_use" => {
-                                let call_id = block
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                let name = block
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                let arguments =
-                                    serde_json::to_string(block.get("input").unwrap_or(&json!({})))
-                                        .unwrap_or_else(|_| "{}".to_string());
-                                input.push(json!({
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": arguments
-                                }));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            "tool_result" => {
-                // Anthropic tool_result → Responses API function_call_output
-                let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-                let (output, images) =
-                    extract_text_and_images_from_tool_content(msg.get("content"));
-                input.push(json!({
-                    "type": "function_call_output",
-                    "call_id": tool_use_id,
-                    "output": output
-                }));
-                for (media_type, data) in &images {
-                    input.push(json!({
-                        "type": "input_image",
-                        "image_url": format!("data:{media_type};base64,{data}")
-                    }));
-                }
-            }
-            _ => {}
-        }
+    let converted_input = build_openai_responses_input(messages);
+    if converted_input.orphan_tool_outputs > 0 {
+        ctx.log(
+            "warn",
+            &format!(
+                "session_turn: openai downgraded {} orphan tool output(s) to user context",
+                converted_input.orphan_tool_outputs
+            ),
+        );
     }
+    let input = converted_input.input;
 
     // Convert tools to Responses API format
     let codex_tools: Vec<Value> = tools
@@ -3799,24 +3916,25 @@ pub fn run_provider_caller() -> Result<(), String> {
                 temperature,
                 &provider_options_json,
             ),
-            "huggingface" | "fireworks" | "sakana_fugu" | "local_openai"
-            | "openai_compatible" => call_openai_compatible_chat(
-                &ctx,
-                &temper_api_url,
-                tenant,
-                &provider,
-                &api_key,
-                &openai_compatible_api_url,
-                &model,
-                &prepared.system_prompt,
-                &prepared.messages,
-                &prepared.tools,
-                "",
-                "",
-                &openai_compatible_extra_headers,
-                temperature,
-                &provider_options_json,
-            ),
+            "huggingface" | "fireworks" | "sakana_fugu" | "local_openai" | "openai_compatible" => {
+                call_openai_compatible_chat(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &provider,
+                    &api_key,
+                    &openai_compatible_api_url,
+                    &model,
+                    &prepared.system_prompt,
+                    &prepared.messages,
+                    &prepared.tools,
+                    "",
+                    "",
+                    &openai_compatible_extra_headers,
+                    temperature,
+                    &provider_options_json,
+                )
+            }
             "openai" | "openai_codex" => call_openai(
                 &ctx,
                 &temper_api_url,
@@ -4515,6 +4633,66 @@ mod tests {
         assert!(!headers.iter().any(|(name, _)| name == "chatgpt-account-id"));
         assert!(!headers.iter().any(|(name, _)| name == "OpenAI-Beta"));
         assert!(headers.contains(&("authorization".to_string(), "Bearer sk-test".to_string())));
+    }
+
+    #[test]
+    fn openai_responses_input_keeps_matched_tool_outputs() {
+        let converted = build_openai_responses_input(&[
+            json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "call_ok",
+                    "name": "temper_status",
+                    "input": {"scope": "dm"}
+                }]
+            }),
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "call_ok",
+                    "content": [{"type": "text", "text": "ready"}]
+                }]
+            }),
+        ]);
+
+        assert_eq!(converted.orphan_tool_outputs, 0);
+        assert!(converted.input.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call")
+                && item.get("call_id").and_then(Value::as_str) == Some("call_ok")
+        }));
+        assert!(converted.input.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call_output")
+                && item.get("call_id").and_then(Value::as_str) == Some("call_ok")
+        }));
+    }
+
+    #[test]
+    fn openai_responses_input_downgrades_orphan_tool_outputs_to_user_context() {
+        let converted = build_openai_responses_input(&[json!({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": "call_FGEV2z33q2Wz9T03YAVRwx2E",
+                "content": [{"type": "text", "text": "status failed"}]
+            }]
+        })]);
+
+        assert_eq!(converted.orphan_tool_outputs, 1);
+        assert!(!converted.input.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call_output")
+        }));
+        assert!(converted.input.iter().any(|item| {
+            item.get("role").and_then(Value::as_str) == Some("user")
+                && item
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|content| {
+                        content.contains("Tool result for orphaned call")
+                            && content.contains("status failed")
+                    })
+        }));
     }
 
     #[test]
