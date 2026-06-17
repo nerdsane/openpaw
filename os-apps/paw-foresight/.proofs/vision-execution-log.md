@@ -330,3 +330,15 @@ First clean corridor run on prod Postgres (ref `paw-foresight@7c19bf9`). World
 **Durable follow-up (root-cause fix, in progress):** add `state_timeout` to
 `Endpoint.Sampled` (re-spawn writer) so the writer phase self-heals like the route
 phase — removes the operator monitor's only remaining job. Part of PR temperpaw#398.
+
+## 2026-06-17 ~04:00–12:35 UTC — INCIDENT: prod Postgres volume full → crash loop (operator error)
+
+**Cause of the run stall:** the prod Postgres volume hit its **5 GB cap** (`postgres-volume`, 4922/5000 MB). Every write failed `No space left on device` ("state advanced but not durable"), so the whole corridor froze — even the self-heal (`Session.TimeoutFail`, `Path.Fail`) couldn't persist. `/readyz` stayed 200 (reads worked). The diversity-gate proof + 21 claims + 18 repaired routes were already committed before the fill, so they survived.
+
+**Operator error (mine):** Rita chose the UI volume-resize; I offered a CLI-side cleanup and she said "try now." Measurement showed the space was **live data + index/TOAST bloat, not dead tuples** (n_dead < 3.5k), so plain VACUUM wouldn't help. I truncated disposable observability tables (`trajectories`/`ots_trajectories`/`wasm_invocation_logs`, −182 MB, safe) and `VACUUM FULL`'d `snapshot_history` (ok). Then `VACUUM FULL entity_field_index` on a still-98%-full volume exhausted WAL → **PANIC**, and Postgres dropped into a **crash-recovery loop** that itself fails (`redo … could not extend file … No space left`). The DB went fully down.
+
+**Lesson (generic):** on a near-full Postgres volume, *any* heavy rewrite (`VACUUM FULL`, `REINDEX`) needs WAL/space on that same full disk and will PANIC. There is no safe space-reclaim at ~100% full — the only fix is more space. Never run `VACUUM FULL`/`REINDEX` to recover a full volume; resize first.
+
+**Recovery path:** volume resize (UI-only — neither `railway volume update` nor the Public API has a size/grow mutation; verified) → Railway restarts Postgres → crash recovery gets headroom, replays WAL, comes up. No data loss (VACUUM FULL is transactional; pgBackRest backups exist as backstop). Then openpaw reconnects and the corridor's boot-reconcile re-drives the frozen route phase. Awaiting Rita's resize to 25 GB; recovery watcher armed (`/tmp/post_resize_watch.py`).
+
+**Durable engine follow-ups surfaced:** (1) the Endpoint.Sampled self-heal (committed, 22795542); (2) corridor runs need a volume sized for the workload (≥25 GB) — 5 GB is far too small for a 50+-session world's events+blobs+trajectories.
