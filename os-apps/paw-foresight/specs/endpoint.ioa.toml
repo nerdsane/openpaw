@@ -12,12 +12,27 @@ name = "Endpoint"
 states = ["Sampled", "Written", "UnderRepair", "Scored", "Weighted", "Discarded", "Failed"]
 initial = "Sampled"
 
-# ADR-0050/ADR-006: Sampled (writer running), Written (bundle written, awaiting
-# the diversity gate), and UnderRepair are bounded in practice by writer/repairer
-# session timeouts + heartbeat monitoring; Scored and Weighted persist for the
-# life of the world (re-weighed on update). Revisit with state_timeout once
-# corridor run-time envelopes are measured.
-allow_indefinite_states = ["Sampled", "Written", "UnderRepair", "Scored", "Weighted"]
+# ADR-0050/ADR-006/ADR-007: Sampled (writer running) self-heals via the
+# state_timeout below — a writer that dies, or a server restart that orphans its
+# in-flight provider call, re-spawns the writer rather than wedging the endpoint
+# (observed live, prod world en-019ed392, 2026-06-16: 3 writers hung on their
+# first model call, and the diversity-gate barrier never fired because one
+# sibling bundle was never written). Written (awaiting the gate) and UnderRepair
+# stay indefinite — Written is bounded by the gate barrier that fires once every
+# sibling reaches it (now guaranteed by the Sampled self-heal), UnderRepair by
+# the decomposer/Claim session timeouts. Scored and Weighted persist for the
+# life of the world (re-weighed on update).
+allow_indefinite_states = ["Written", "UnderRepair", "Scored", "Weighted"]
+
+# Self-heal (ADR-0050/ADR-007), mirroring Path's Solving/Repaired/Challenged: if
+# the endpoint is still Sampled after a writer's healthy wall-clock (~3 min
+# observed), re-spawn the writer. Budget sits well above a live writer so a
+# working session is never double-spawned; whichever writer reports BundleWritten
+# first wins and a late duplicate's report no-ops (endpoint no longer Sampled).
+[[state_timeout]]
+state = "Sampled"
+after_seconds = 900
+on_timeout = "ResumeWriter"
 
 # --- State Variables ---
 
@@ -154,6 +169,32 @@ from = ["Written"]
 to = "Sampled"
 params = ["revision_brief"]
 hint = "Diversity gate re-steers a collapsed world (ADR-006): rewrite to diverge from the named sibling. System principals only."
+effect = [{ type = "trigger", name = "sample_endpoints" }]
+
+[[action.triggers]]
+name = "sample_endpoints"
+kind = "wasm"
+module = "sample_endpoints"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
+
+
+# Self-heal (ADR-0050/ADR-007): the Sampled state_timeout fires this when a
+# writer died mid-write. A self-loop (Sampled -> Sampled) that re-spawns the
+# writer with the endpoint's existing stance and any revision_brief — the same
+# spawn the gate's ReSteer uses, so it serves both the gate re-steer and the
+# dead-writer recovery. System principals only (timeout-dispatched).
+[[action]]
+name = "ResumeWriter"
+kind = "input"
+from = ["Sampled"]
+to = "Sampled"
+params = []
+hint = "Self-heal: re-spawn a dead/orphaned endpoint writer. Fires on the Sampled state_timeout. System principals only."
 effect = [{ type = "trigger", name = "sample_endpoints" }]
 
 [[action.triggers]]

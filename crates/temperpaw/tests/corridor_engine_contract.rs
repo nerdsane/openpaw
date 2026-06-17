@@ -524,3 +524,59 @@ fn app_manifest_declares_corridor_wasm_modules() {
         );
     }
 }
+
+#[test]
+fn endpoint_sampled_self_heals_so_a_dead_writer_re_spawns() {
+    // ADR-0050/ADR-007: the writer phase (Endpoint.Sampled) used to sit in
+    // allow_indefinite_states with no state_timeout. A writer session that died
+    // — or a server restart that orphaned its in-flight provider call — wedged
+    // the endpoint forever, and the diversity-gate barrier never fired because
+    // one sibling bundle was never written (observed live, prod world
+    // en-019ed392, 2026-06-16). Sampled must self-heal like Path's
+    // Solving/Repaired/Challenged do.
+    let path = spec_path("endpoint.ioa.toml");
+    let spec = parse_spec(&path);
+
+    // Sampled is no longer treated as indefinitely parked.
+    let indefinite: BTreeSet<String> = automaton(&spec, &path)
+        .get("allow_indefinite_states")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !indefinite.contains("Sampled"),
+        "Endpoint.Sampled must not be indefinite — a dead writer would wedge the world"
+    );
+
+    // A state_timeout re-drives the writer.
+    let timeouts = spec
+        .get("state_timeout")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("{} missing [[state_timeout]]", path.display()));
+    let sampled = timeouts
+        .iter()
+        .filter_map(|v| v.as_table())
+        .find(|t| t.get("state").and_then(|v| v.as_str()) == Some("Sampled"))
+        .unwrap_or_else(|| panic!("{} missing state_timeout for Sampled", path.display()));
+    assert_eq!(
+        sampled.get("on_timeout").and_then(|v| v.as_str()),
+        Some("ResumeWriter"),
+        "Sampled timeout must re-spawn the writer via ResumeWriter"
+    );
+
+    // ResumeWriter is a Sampled self-loop (re-spawn the writer, stay in Sampled).
+    let resume = action(&spec, "ResumeWriter", &path);
+    assert!(
+        action_from(resume).contains("Sampled"),
+        "ResumeWriter must fire from Sampled"
+    );
+    assert_eq!(
+        resume.get("to").and_then(|v| v.as_str()),
+        Some("Sampled"),
+        "ResumeWriter is a self-loop"
+    );
+}

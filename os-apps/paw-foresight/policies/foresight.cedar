@@ -159,6 +159,7 @@ permit(
 permit(
   principal,
   action in [Action::"SubmitForRepair", Action::"ReSteer",
+             Action::"ResumeWriter",
              Action::"PathsAttached", Action::"ClaimsAttached",
              Action::"SpawnNextBridge", Action::"ScoreComplete",
              Action::"MarkWeighted", Action::"Reweigh"],
