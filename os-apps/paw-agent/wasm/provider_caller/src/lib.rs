@@ -25,7 +25,7 @@ use session_turn_artifacts::{
     build_gen_ai_output_messages, build_gen_ai_system_instructions,
     build_provider_response_ready_params_with_inline, parse_prepared_context_artifact,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     read_content_file, resolve_temper_api_url, runtime_headers, runtime_headers_as,
@@ -2758,30 +2758,8 @@ fn extract_text_and_images_from_tool_content(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct OpenAiResponsesInput {
     input: Vec<Value>,
-    orphan_tool_outputs: usize,
-}
-
-fn collect_openai_function_call_ids(messages: &[Value]) -> BTreeSet<String> {
-    let mut ids = BTreeSet::new();
-    for msg in messages {
-        if msg.get("role").and_then(Value::as_str) != Some("assistant") {
-            continue;
-        }
-        let Some(blocks) = msg.get("content").and_then(Value::as_array) else {
-            continue;
-        };
-        for block in blocks {
-            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
-                continue;
-            }
-            if let Some(id) = block.get("id").and_then(Value::as_str)
-                && !id.trim().is_empty()
-            {
-                ids.insert(id.to_string());
-            }
-        }
-    }
-    ids
+    tool_calls_as_context: usize,
+    tool_outputs_as_context: usize,
 }
 
 fn push_openai_user_text_with_images(
@@ -2813,10 +2791,43 @@ fn push_openai_user_text_with_images(
     }));
 }
 
+fn push_openai_assistant_text(input: &mut Vec<Value>, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+
+    input.push(json!({
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": text}]
+    }));
+}
+
+fn push_openai_tool_call_context(
+    input: &mut Vec<Value>,
+    tool_calls_as_context: &mut usize,
+    block: &Value,
+) {
+    *tool_calls_as_context += 1;
+    let call_id = block
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or("unknown");
+    let name = block
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("unknown_tool");
+    let arguments = serde_json::to_string(block.get("input").unwrap_or(&json!({})))
+        .unwrap_or_else(|_| "{}".to_string());
+
+    push_openai_assistant_text(input, &format!("Tool call {call_id}: {name}({arguments})"));
+}
+
 fn push_openai_tool_result(
     input: &mut Vec<Value>,
-    function_call_ids: &BTreeSet<String>,
-    orphan_tool_outputs: &mut usize,
+    tool_outputs_as_context: &mut usize,
     call_id: &str,
     content: Option<&Value>,
 ) {
@@ -2827,39 +2838,24 @@ fn push_openai_tool_result(
         }
     }
 
-    if !call_id.trim().is_empty() && function_call_ids.contains(call_id) {
-        input.push(json!({
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output
-        }));
-        for (media_type, data) in &images {
-            input.push(json!({
-                "type": "input_image",
-                "image_url": format!("data:{media_type};base64,{data}")
-            }));
-        }
-        return;
-    }
-
-    *orphan_tool_outputs += 1;
+    *tool_outputs_as_context += 1;
     let display_call_id = if call_id.trim().is_empty() {
         "unknown"
     } else {
         call_id
     };
     let fallback_text = if output.trim().is_empty() {
-        format!("Tool result for orphaned call {display_call_id} was empty.")
+        format!("Tool result for call {display_call_id} was empty.")
     } else {
-        format!("Tool result for orphaned call {display_call_id}:\n{output}")
+        format!("Tool result for call {display_call_id}:\n{output}")
     };
     push_openai_user_text_with_images(input, &fallback_text, &images);
 }
 
 fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
-    let function_call_ids = collect_openai_function_call_ids(messages);
     let mut input = Vec::<Value>::new();
-    let mut orphan_tool_outputs = 0usize;
+    let mut tool_calls_as_context = 0usize;
+    let mut tool_outputs_as_context = 0usize;
 
     for msg in messages {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
@@ -2879,8 +2875,7 @@ fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
                                     .unwrap_or("");
                                 push_openai_tool_result(
                                     &mut input,
-                                    &function_call_ids,
-                                    &mut orphan_tool_outputs,
+                                    &mut tool_outputs_as_context,
                                     call_id,
                                     block.get("content"),
                                 );
@@ -2905,33 +2900,15 @@ fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
                         match block_type {
                             "text" => {
                                 if let Some(text) = block.get("text").and_then(Value::as_str) {
-                                    input.push(json!({
-                                        "type": "message",
-                                        "role": "assistant",
-                                        "content": [{"type": "output_text", "text": text}]
-                                    }));
+                                    push_openai_assistant_text(&mut input, text);
                                 }
                             }
                             "tool_use" => {
-                                let call_id = block
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                let name = block
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                let arguments =
-                                    serde_json::to_string(block.get("input").unwrap_or(&json!({})))
-                                        .unwrap_or_else(|_| "{}".to_string());
-                                input.push(json!({
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": arguments
-                                }));
+                                push_openai_tool_call_context(
+                                    &mut input,
+                                    &mut tool_calls_as_context,
+                                    block,
+                                );
                             }
                             _ => {}
                         }
@@ -2942,8 +2919,7 @@ fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
                 let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                 push_openai_tool_result(
                     &mut input,
-                    &function_call_ids,
-                    &mut orphan_tool_outputs,
+                    &mut tool_outputs_as_context,
                     tool_use_id,
                     msg.get("content"),
                 );
@@ -2954,7 +2930,8 @@ fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
 
     OpenAiResponsesInput {
         input,
-        orphan_tool_outputs,
+        tool_calls_as_context,
+        tool_outputs_as_context,
     }
 }
 
@@ -3005,12 +2982,13 @@ fn call_openai(
     );
 
     let converted_input = build_openai_responses_input(messages);
-    if converted_input.orphan_tool_outputs > 0 {
+    if converted_input.tool_calls_as_context > 0 || converted_input.tool_outputs_as_context > 0 {
         ctx.log(
             "warn",
             &format!(
-                "session_turn: openai downgraded {} orphan tool output(s) to user context",
-                converted_input.orphan_tool_outputs
+                "session_turn: openai downgraded {} historical tool call(s) and {} tool output(s) to conversation context",
+                converted_input.tool_calls_as_context,
+                converted_input.tool_outputs_as_context
             ),
         );
     }
@@ -4636,7 +4614,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_responses_input_keeps_matched_tool_outputs() {
+    fn openai_responses_input_downgrades_matched_tool_history_to_user_context() {
         let converted = build_openai_responses_input(&[
             json!({
                 "role": "assistant",
@@ -4657,14 +4635,23 @@ mod tests {
             }),
         ]);
 
-        assert_eq!(converted.orphan_tool_outputs, 0);
-        assert!(converted.input.iter().any(|item| {
-            item.get("type").and_then(Value::as_str) == Some("function_call")
-                && item.get("call_id").and_then(Value::as_str) == Some("call_ok")
+        assert_eq!(converted.tool_calls_as_context, 1);
+        assert_eq!(converted.tool_outputs_as_context, 1);
+        assert!(!converted.input.iter().any(|item| {
+            matches!(
+                item.get("type").and_then(Value::as_str),
+                Some("function_call" | "function_call_output")
+            )
         }));
         assert!(converted.input.iter().any(|item| {
-            item.get("type").and_then(Value::as_str) == Some("function_call_output")
-                && item.get("call_id").and_then(Value::as_str) == Some("call_ok")
+            item.get("role").and_then(Value::as_str) == Some("user")
+                && item
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|content| {
+                        content.contains("Tool result for call call_ok")
+                            && content.contains("ready")
+                    })
         }));
     }
 
@@ -4679,7 +4666,8 @@ mod tests {
             }]
         })]);
 
-        assert_eq!(converted.orphan_tool_outputs, 1);
+        assert_eq!(converted.tool_calls_as_context, 0);
+        assert_eq!(converted.tool_outputs_as_context, 1);
         assert!(!converted.input.iter().any(|item| {
             item.get("type").and_then(Value::as_str) == Some("function_call_output")
         }));
@@ -4689,7 +4677,7 @@ mod tests {
                     .get("content")
                     .and_then(Value::as_str)
                     .is_some_and(|content| {
-                        content.contains("Tool result for orphaned call")
+                        content.contains("Tool result for call")
                             && content.contains("status failed")
                     })
         }));
