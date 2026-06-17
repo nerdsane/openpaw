@@ -55,7 +55,7 @@ pub struct DiscordTransport {
     channel_entity_id: Arc<RwLock<Option<String>>>,
     /// Local reply webhook URL used to reconnect Channel entities after recovery.
     reply_webhook_url: Arc<RwLock<Option<String>>>,
-    /// Maps Discord channel_id (DM channel) → user_id for reply routing.
+    /// Maps user/thread IDs to Discord DM channel IDs for reply routing and catch-up.
     dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
     /// Last processed Discord message snowflake ID (for catch-up on reconnect).
     last_message_cursor: Arc<RwLock<String>>,
@@ -189,6 +189,66 @@ fn build_rich_fallback_text(content: &str, embeds: &[Embed]) -> String {
         parts.push(embed_text);
     }
     parts.join("\n\n")
+}
+
+fn is_direct_message_thread_id(thread_id: &str) -> bool {
+    !thread_id.is_empty() && !thread_id.contains(':')
+}
+
+fn entity_field_str<'a>(entity: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    let fields = entity.get("fields").unwrap_or(entity);
+    keys.iter()
+        .find_map(|key| fields.get(*key).and_then(|value| value.as_str()))
+        .filter(|value| !value.is_empty())
+}
+
+fn known_dm_thread_from_channel_entity(channel: &serde_json::Value) -> Option<String> {
+    let thread_id = entity_field_str(channel, &["thread_id", "ThreadId"])
+        .or_else(|| entity_field_str(channel, &["author_id", "AuthorId"]))?;
+    is_direct_message_thread_id(thread_id).then(|| thread_id.to_string())
+}
+
+fn catch_up_dm_sources(
+    rest_dm_channels: &[serde_json::Value],
+    seeded_dm_channels: &BTreeMap<String, String>,
+    bot_id: &str,
+) -> BTreeMap<String, String> {
+    let mut sources = BTreeMap::new();
+
+    for dm in rest_dm_channels {
+        let Some(channel_id) = dm
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+
+        let Some(recipients) = dm.get("recipients").and_then(|value| value.as_array()) else {
+            continue;
+        };
+
+        for recipient in recipients {
+            let Some(recipient_id) = recipient
+                .get("id")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty() && *value != bot_id)
+            else {
+                continue;
+            };
+            sources.insert(recipient_id.to_string(), channel_id.to_string());
+        }
+    }
+
+    for (thread_id, channel_id) in seeded_dm_channels {
+        if is_direct_message_thread_id(thread_id) && !channel_id.is_empty() {
+            sources
+                .entry(thread_id.clone())
+                .or_insert_with(|| channel_id.clone());
+        }
+    }
+
+    sources
 }
 
 async fn resolve_dm_channel_id(
@@ -496,6 +556,7 @@ impl DiscordTransport {
         // and among those, the one with the highest message_count (most active).
         let mut best_id = String::new();
         let mut best_msg_count: i64 = -1;
+        let mut best_dm_thread_id: Option<String> = None;
         let mut others_to_archive = Vec::new();
 
         for ch in &existing {
@@ -528,6 +589,7 @@ impl DiscordTransport {
                     }
                     best_id = id;
                     best_msg_count = msg_count;
+                    best_dm_thread_id = known_dm_thread_from_channel_entity(ch);
 
                     // Read cursor from the best channel
                     if let Some(cursor) = ch
@@ -628,9 +690,47 @@ impl DiscordTransport {
             return Err("Failed to bootstrap Channel entity".to_string());
         }
 
+        if let Some(thread_id) = best_dm_thread_id.as_deref() {
+            self.seed_dm_channel(thread_id).await;
+        }
+
         *self.channel_entity_id.write().await = Some(channel_id.clone());
 
         Ok(())
+    }
+
+    async fn seed_dm_channel(&self, thread_id: &str) {
+        if self.dm_channels.read().await.contains_key(thread_id) {
+            return;
+        }
+
+        match open_dm_channel_at(
+            &self.http,
+            &self.config.bot_token,
+            DISCORD_API_BASE,
+            thread_id,
+        )
+        .await
+        {
+            Ok(dm_channel_id) => {
+                self.dm_channels
+                    .write()
+                    .await
+                    .insert(thread_id.to_string(), dm_channel_id.clone());
+                tracing::info!(
+                    thread_id,
+                    dm_channel_id,
+                    "discord seeded DM channel cache from persisted Channel thread"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    %error,
+                    "discord could not reopen persisted DM thread for catch-up"
+                );
+            }
+        }
     }
 
     async fn cancel_typing_loop(&self, thread_id: &str) {
@@ -732,20 +832,17 @@ impl DiscordTransport {
             return;
         };
 
-        let dm_channels = fetch_dm_channels(&self.http, &self.config.bot_token).await;
+        let bot_id = self.gateway.bot_user_id.read().await.clone();
+        let rest_dm_channels = fetch_dm_channels(&self.http, &self.config.bot_token).await;
+        let seeded_dm_channels = self.dm_channels.read().await.clone();
+        let dm_channels = catch_up_dm_sources(&rest_dm_channels, &seeded_dm_channels, &bot_id);
         if dm_channels.is_empty() {
             return;
         }
 
-        let bot_id = self.gateway.bot_user_id.read().await.clone();
         let mut total_caught_up = 0u32;
 
-        for dm in &dm_channels {
-            let dm_channel_id = dm.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if dm_channel_id.is_empty() {
-                continue;
-            }
-
+        for (thread_id, dm_channel_id) in &dm_channels {
             // Fetch messages newer than our cursor
             let mut after = cursor.clone();
             loop {
@@ -802,6 +899,7 @@ impl DiscordTransport {
                         author_id,
                         username,
                         channel_id = dm_channel_id,
+                        thread_id,
                         preview = %truncate(content, 40),
                         "discord catch-up replaying missed dm"
                     );
@@ -810,7 +908,7 @@ impl DiscordTransport {
                     self.dm_channels
                         .write()
                         .await
-                        .insert(author_id.to_string(), dm_channel_id.to_string());
+                        .insert(author_id.to_string(), dm_channel_id.clone());
 
                     // Dispatch ReceiveMessage
                     let mut params = serde_json::json!({
@@ -2271,6 +2369,42 @@ mod tests {
             open_attempts.load(Ordering::SeqCst),
             1,
             "expected only one Discord open-DM REST call"
+        );
+    }
+
+    #[test]
+    fn known_dm_thread_from_channel_entity_uses_persisted_author() {
+        let channel = json!({
+            "entity_id": "ch_existing",
+            "status": "Connected",
+            "fields": {
+                "ChannelType": "discord",
+                "thread_id": "1018228973869727785",
+                "author_id": "1018228973869727785",
+                "last_discord_message_id": "1516601740126846996"
+            }
+        });
+
+        assert_eq!(
+            known_dm_thread_from_channel_entity(&channel).as_deref(),
+            Some("1018228973869727785"),
+            "reused Discord channels should seed DM catch-up from their persisted user thread"
+        );
+    }
+
+    #[test]
+    fn catch_up_dm_sources_include_seeded_dm_channels_when_rest_listing_is_empty() {
+        let seeded = BTreeMap::from([(
+            "1018228973869727785".to_string(),
+            "1494059279202779136".to_string(),
+        )]);
+
+        let sources = catch_up_dm_sources(&[], &seeded, "1493942755112652920");
+
+        assert_eq!(
+            sources.get("1018228973869727785").map(String::as_str),
+            Some("1494059279202779136"),
+            "catch-up must use reopened DM mappings when Discord returns no DM channel listing"
         );
     }
 
