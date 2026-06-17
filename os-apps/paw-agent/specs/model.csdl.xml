@@ -19,6 +19,7 @@
         <Property Name="OutputTokens" Type="Edm.Int64"/>
         <Property Name="CostCents" Type="Edm.String"/>
         <Property Name="Result" Type="Edm.String"/>
+        <Property Name="ReplyAttachmentsJson" Type="Edm.String"/>
         <Property Name="HasResult" Type="Edm.Boolean"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Property Name="SandboxUrl" Type="Edm.String"/>
@@ -349,6 +350,7 @@
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider_response_inline_json" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="gen_ai_parent_trace_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="gen_ai_parent_span_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
@@ -367,6 +369,7 @@
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -434,6 +437,7 @@
         <Parameter Name="system_prompt_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider_response_file_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="provider_response_inline_json" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -453,6 +457,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -464,6 +469,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -540,6 +546,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -560,6 +567,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 
@@ -580,6 +588,7 @@
         <Parameter Name="pending_tool_calls" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_tool_context" Type="Edm.String" Nullable="true"/>
         <Parameter Name="pending_decision_id" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="reply_attachments_json" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Session"/>
       </Action>
 

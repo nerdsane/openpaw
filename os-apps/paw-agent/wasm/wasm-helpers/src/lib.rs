@@ -550,56 +550,46 @@ fn verify_session_entries(
 ) -> Result<(), String> {
     const VERIFY_ATTEMPTS: u32 = 4;
     let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
-    let single_entry_id = entry_ids
-        .iter()
-        .copied()
-        .next()
-        .filter(|_| entry_ids.len() == 1);
-    let verify_url = single_entry_id
-        .map(|entry_id| session_entry_verify_url(temper_api_url, session_id, entry_id))
-        .unwrap_or_else(|| session_entries_verify_url(temper_api_url, session_id));
+    let verify_urls = session_entries_verify_urls(temper_api_url, session_id, entry_ids);
     let mut last_status = 0_i64;
     let mut last_err = String::new();
     for attempt in 0..VERIFY_ATTEMPTS {
-        match ctx.http_call("GET", &verify_url, &verify_headers, "") {
-            Ok(resp) if resp.status == 200 => {
-                last_status = resp.status as i64;
-                let visible = if single_entry_id.is_some() {
-                    session_entry_verify_response_visible(&resp.body)
-                } else {
-                    match session_entry_verify_missing_ids(&resp.body, entry_ids) {
-                        Ok(missing) if missing.is_empty() => true,
-                        Ok(missing) => {
-                            last_err = format!("missing entries: {}", missing.join(","));
-                            false
-                        }
-                        Err(err) => {
-                            last_err = err;
-                            false
-                        }
+        let mut missing = Vec::new();
+        for (entry_id, verify_url) in &verify_urls {
+            match ctx.http_call("GET", verify_url, &verify_headers, "") {
+                Ok(resp) if resp.status == 200 => {
+                    last_status = resp.status as i64;
+                    if !session_entry_verify_response_visible(&resp.body) {
+                        missing.push(entry_id.clone());
                     }
-                };
-                if visible {
-                    if attempt > 0 {
-                        ctx.log(
-                            "info",
-                            &format!(
-                                "{label}: read-back visible on attempt {} (SessionId={session_id})",
-                                attempt + 1
-                            ),
-                        );
-                    }
-                    return Ok(());
+                }
+                Ok(resp) => {
+                    last_status = resp.status as i64;
+                    missing.push(entry_id.clone());
+                }
+                Err(err) => {
+                    last_status = -1;
+                    last_err = err.to_string();
+                    missing.push(entry_id.clone());
                 }
             }
-            Ok(resp) => {
-                last_status = resp.status as i64;
-            }
-            Err(err) => {
-                last_status = -1;
-                last_err = err.to_string();
-            }
         }
+
+        if missing.is_empty() {
+            if attempt > 0 {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "{label}: read-back visible on attempt {} (SessionId={session_id})",
+                        attempt + 1
+                    ),
+                );
+            }
+            return Ok(());
+        } else if last_err.is_empty() {
+            last_err = format!("missing entries: {}", missing.join(","));
+        }
+
         if attempt + 1 < VERIFY_ATTEMPTS {
             let target_delay_ms = 50_i64 << attempt;
             let until = Context::get_time_millis() + target_delay_ms;
@@ -708,11 +698,20 @@ fn session_entry_verify_url(temper_api_url: &str, session_id: &str, entry_id: &s
     )
 }
 
-fn session_entries_verify_url(temper_api_url: &str, session_id: &str) -> String {
-    format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$top=10000",
-        session_id.replace('\'', "''"),
-    )
+fn session_entries_verify_urls(
+    temper_api_url: &str,
+    session_id: &str,
+    entry_ids: &[&str],
+) -> Vec<(String, String)> {
+    entry_ids
+        .iter()
+        .map(|entry_id| {
+            (
+                (*entry_id).to_string(),
+                session_entry_verify_url(temper_api_url, session_id, entry_id),
+            )
+        })
+        .collect()
 }
 
 fn session_entries_list_url(
@@ -734,24 +733,6 @@ fn session_entry_verify_response_visible(body: &str) -> bool {
         .and_then(|value| value.as_array())
         .map(|items| !items.is_empty())
         .unwrap_or(false)
-}
-
-fn session_entry_verify_missing_ids(body: &str, entry_ids: &[&str]) -> Result<Vec<String>, String> {
-    let parsed: Value = serde_json::from_str(body)
-        .map_err(|err| format!("parse SessionEntry verify response: {err}"))?;
-    let items = parsed
-        .get("value")
-        .and_then(Value::as_array)
-        .ok_or("SessionEntry verify response missing value array")?;
-    let visible_ids = items
-        .iter()
-        .filter_map(|entry| entity_field_str(entry, &["EntryId", "entry_id"]).map(str::to_string))
-        .collect::<std::collections::BTreeSet<_>>();
-    Ok(entry_ids
-        .iter()
-        .filter(|entry_id| !visible_ids.contains(**entry_id))
-        .map(|entry_id| (*entry_id).to_string())
-        .collect())
 }
 
 pub fn append_session_entry_inline(
@@ -2155,33 +2136,15 @@ mod tests {
     }
 
     #[test]
-    fn session_entry_verify_missing_ids_accepts_all_expected_ids_in_one_response() {
-        let missing = session_entry_verify_missing_ids(
-            r#"{
-                "value": [
-                    {"fields": {"EntryId": "u-ss-1-0"}},
-                    {"entry_id": "a-2"}
-                ]
-            }"#,
-            &["u-ss-1-0", "a-2"],
-        )
-        .expect("parse verify response");
+    fn session_entries_verify_urls_are_per_entry_and_bounded() {
+        let urls = session_entries_verify_urls("http://temper", "ss-1", &["u-1", "a-2"]);
 
-        assert!(missing.is_empty());
-    }
-
-    #[test]
-    fn session_entry_verify_missing_ids_fails_closed_on_missing_or_invalid_response() {
-        assert_eq!(
-            session_entry_verify_missing_ids(
-                r#"{"value":[{"EntryId":"h-ss-1"}]}"#,
-                &["h-ss-1", "u-ss-1-0",]
-            )
-            .expect("parse verify response"),
-            vec!["u-ss-1-0".to_string()]
-        );
-        assert!(session_entry_verify_missing_ids("not-json", &["h-ss-1"]).is_err());
-        assert!(session_entry_verify_missing_ids(r#"{"items":[]}"#, &["h-ss-1"]).is_err());
+        assert_eq!(urls.len(), 2);
+        assert_eq!(urls[0].0, "u-1");
+        assert!(urls[0].1.contains("EntryId%20eq%20%27u-1%27"));
+        assert!(urls[0].1.contains("&$top=1"));
+        assert!(urls[1].1.contains("EntryId%20eq%20%27a-2%27"));
+        assert!(urls[1].1.contains("&$top=1"));
     }
 
     #[test]

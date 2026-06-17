@@ -181,6 +181,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             );
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
+            carry_reply_attachments(&mut params, &fields);
             params["pending_tool_calls"] =
                 json!(serde_json::to_string(&tool_calls).unwrap_or_default());
             if let Some(leaf) = new_leaf {
@@ -227,6 +228,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
             );
 
             let mut params = build_provider_response_applier_base_params(&prepared, &response);
+            carry_reply_attachments(&mut params, &fields);
             params["result"] = json!(result_text);
             match new_leaf {
                 Some(leaf) => {
@@ -702,6 +704,15 @@ fn should_bypass_terminal_reply(session_id: &str, fields: &Value) -> bool {
 
 fn string_field<'a>(fields: &'a Value, names: &[&str]) -> Option<&'a str> {
     names.iter().find_map(|name| fields.get(*name)?.as_str())
+}
+
+fn carry_reply_attachments(params: &mut Value, fields: &Value) {
+    if let Some(value) = string_field(fields, &["reply_attachments_json", "ReplyAttachmentsJson"])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        params["reply_attachments_json"] = json!(value);
+    }
 }
 
 fn escape_odata(value: &str) -> String {

@@ -342,14 +342,42 @@ fn first_turn_session_entries_materialize_after_provider_success() {
         "wasm helpers should expose the verified first-turn materialization helper"
     );
     assert!(
-        helpers.contains("session_entries_verify_url(temper_api_url, session_id)")
-            && helpers.contains("session_entry_verify_missing_ids(&resp.body, entry_ids)")
+        helpers.contains("session_entries_verify_urls(temper_api_url, session_id, entry_ids)")
+            && helpers.contains("session_entry_verify_response_visible(&resp.body)")
             && helpers.contains("parent_entry_id: None,\n            sequence: 1,\n            entry_type: \"message\",\n            role: Some(\"user\")"),
-        "batched first-turn materialization should verify expected headerless user/assistant SessionEntry ids with one session-scoped read-back"
+        "batched first-turn materialization should verify expected headerless user/assistant SessionEntry ids with bounded per-entry read-backs"
     );
     assert!(
-        helpers.contains("single_entry_id.is_some()"),
-        "single SessionEntry appends should keep the narrower per-entry read-back path"
+        helpers.contains("session_entry_verify_url(temper_api_url, session_id, entry_id)")
+            && helpers.contains("&$top=1"),
+        "single SessionEntry appends should keep bounded per-entry read-back paths"
+    );
+}
+
+#[test]
+fn session_entry_readbacks_stay_within_bounded_query_budget() {
+    let root = repo_root();
+    let helpers = fs::read_to_string(root.join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
+        .expect("wasm helpers source should exist");
+    let route_message =
+        fs::read_to_string(root.join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
+            .expect("route_message source should exist");
+
+    assert!(
+        !helpers.contains("$top=10000"),
+        "SessionEntry create/readback verification must not use a session-wide $top=10000 query"
+    );
+    assert!(
+        !route_message.contains("$top=1000"),
+        "DM continuation should not recover latest SessionEntry with a broad $top=1000 scan"
+    );
+    assert!(
+        helpers.contains("session_entries_verify_urls"),
+        "batched SessionEntry readback should use one bounded per-entry URL per expected entry"
+    );
+    assert!(
+        route_message.contains("session_leaf_id is missing; starting clean continuation"),
+        "route_message should start cleanly instead of broad-scanning when the prior leaf hint is missing"
     );
 }
 
@@ -663,7 +691,7 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResult should be able to clear pending tool and approval fields on completion"
     );
@@ -722,7 +750,7 @@ fn record_result_no_reply_preserves_terminal_cleanup_without_delivery_trigger() 
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResultNoReply should keep RecordResult cleanup/accounting params"
     );
@@ -792,7 +820,7 @@ fn record_result_inline_reply_preserves_channel_audit_without_agent_reply() {
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResultInlineReply should keep RecordResult cleanup/accounting params"
     );
@@ -857,7 +885,7 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "FinalizeResult should be able to clear pending tool and approval fields on completion"
     );
@@ -875,7 +903,7 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
     let no_reply_block = &no_reply_tail[..no_reply_end];
     assert!(
         no_reply_block.contains(
-            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "FinalizeResultNoReply should keep FinalizeResult result and cleanup params"
     );
@@ -905,6 +933,7 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
         "\"pending_tool_calls\": \"\"",
         "\"pending_tool_context\": \"\"",
         "\"pending_decision_id\": \"\"",
+        "\"reply_attachments_json\"",
         "\"FinalizeResultNoReply\"",
         "direct_no_reply",
     ] {

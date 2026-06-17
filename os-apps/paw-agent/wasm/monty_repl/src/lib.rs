@@ -805,31 +805,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let outer_result = match result {
                 Ok(expr_val) => {
                     // Check if the expression value is an image from sandbox.read()
-                    if let Some((media_type, base64_data, source_path)) =
-                        extract_image_result(&expr_val)
-                    {
+                    if let Some(image_result) = extract_image_result(&expr_val) {
                         let mut text = printed;
                         if !text.is_empty() {
                             text.push('\n');
                         }
-                        text.push_str(&format!("[Image read from {source_path}]"));
+                        text.push_str(&format!(
+                            "[Image read from {}]",
+                            image_result.source_path
+                        ));
                         ctx.log(
                             "info",
                             &format!(
-                                "monty_repl: tool completed {tool_id}, image from {source_path}, base64_bytes={}, is_error=false",
-                                base64_data.len()
+                                "monty_repl: tool completed {tool_id}, image from {source_path}, base64_bytes={base64_bytes}, is_error=false",
+                                source_path = image_result.source_path,
+                                base64_bytes = image_result.base64_data.len()
                             ),
                         );
                         tool_results.push(make_tool_result_multimodal(
                             tool_id,
                             &text,
-                            &media_type,
-                            &base64_data,
+                            &image_result,
                             false,
                         ));
                         Ok(json!({
                             "tool.result.preview": text,
-                            "tool.result.media_type": media_type,
+                            "tool.result.media_type": image_result.media_type,
                         }))
                     } else {
                         let expr_len = expr_val.len();
@@ -1514,12 +1515,22 @@ fn make_tool_result(tool_id: &str, content: &str, is_error: bool) -> Value {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ImageResult {
+    media_type: String,
+    base64_data: String,
+    source_path: String,
+    file_id: String,
+    file_version_id: String,
+    path: String,
+    media_generation_id: String,
+}
+
 /// Create a tool result with multimodal content (text + images).
 fn make_tool_result_multimodal(
     tool_id: &str,
     text: &str,
-    media_type: &str,
-    base64_data: &str,
+    image: &ImageResult,
     is_error: bool,
 ) -> Value {
     let mut content_blocks: Vec<Value> = Vec::new();
@@ -1533,9 +1544,13 @@ fn make_tool_result_multimodal(
         "type": "image",
         "source": {
             "type": "base64",
-            "media_type": media_type,
-            "data": base64_data
-        }
+            "media_type": image.media_type,
+            "data": image.base64_data
+        },
+        "file_id": image.file_id,
+        "file_version_id": image.file_version_id,
+        "path": image.path,
+        "media_generation_id": image.media_generation_id
     }));
     json!({
         "type": "tool_result",
@@ -1546,17 +1561,46 @@ fn make_tool_result_multimodal(
 }
 
 /// Check if a JSON-serialized expression value is an image result from dispatch.
-fn extract_image_result(expr_val: &str) -> Option<(String, String, String)> {
+fn extract_image_result(expr_val: &str) -> Option<ImageResult> {
     let v: Value = serde_json::from_str(expr_val).ok()?;
     if v.get("__temperpaw_image")?.as_bool()? {
-        let media_type = v.get("media_type")?.as_str()?.to_string();
+        let media_type = v
+            .get("media_type")
+            .or_else(|| v.get("mime_type"))?
+            .as_str()?
+            .to_string();
         let base64_data = v.get("base64_data")?.as_str()?.to_string();
         let source_path = v
             .get("source_path")
+            .or_else(|| v.get("path"))
             .and_then(Value::as_str)
             .unwrap_or("(image)")
             .to_string();
-        Some((media_type, base64_data, source_path))
+        Some(ImageResult {
+            media_type,
+            base64_data,
+            source_path,
+            file_id: v
+                .get("file_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            file_version_id: v
+                .get("file_version_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            path: v
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            media_generation_id: v
+                .get("media_generation_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        })
     } else {
         None
     }

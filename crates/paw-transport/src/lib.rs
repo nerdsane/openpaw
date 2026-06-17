@@ -257,6 +257,26 @@ impl PawApiClient {
             .map_err(|e| format!("parse response: {e}"))
     }
 
+    /// GET arbitrary bytes with tenant/auth headers.
+    pub async fn raw_get_bytes(&self, url: &str) -> Result<Vec<u8>, String> {
+        let resp = self
+            .build_request(reqwest::Method::GET, url)
+            .send()
+            .await
+            .map_err(|e| format!("GET {url} failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("GET {url} returned {status}: {body}"));
+        }
+
+        resp.bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|e| format!("read response bytes: {e}"))
+    }
+
     /// Dispatch a bound action on an entity via OData.
     ///
     /// `action_path` should be the full OData action path including namespace,

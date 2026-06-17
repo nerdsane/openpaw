@@ -28,6 +28,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             entity_field_str(&ctx.entity_state, &["parent_session_id", "ParentSessionId"])
                 .unwrap_or("");
         let reply_text = build_reply_text(&ctx.entity_state, status);
+        let reply_attachments_json = entity_field_str(
+            &fields,
+            &["reply_attachments_json", "ReplyAttachmentsJson"],
+        )
+        .unwrap_or("");
 
         let (route, bound_agent_id) =
             if let Some(route) = delivery_route_from_session_fields(&fields) {
@@ -163,6 +168,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "thread_id": route.thread_id.as_str(),
                     "content": "",
                     "agent_entity_id": agent_id,
+                    "reply_attachments_json": reply_attachments_json,
                     "embeds": [{
                         "title": soul_name,
                         "description": desc,
@@ -187,6 +193,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                         "thread_id": route.thread_id.as_str(),
                         "content": reply_text,
                         "agent_entity_id": agent_id,
+                        "reply_attachments_json": reply_attachments_json,
                     });
                     let follow_up_resp = ctx.http_call(
                         "POST",
@@ -219,6 +226,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "thread_id": route.thread_id.as_str(),
             "content": reply_text,
             "agent_entity_id": agent_id,
+            "reply_attachments_json": reply_attachments_json,
         });
         let reply_action = channel_reply_action_name(route.channel_type.as_deref());
         let url = channel_reply_action_url(

@@ -273,6 +273,80 @@ fn image_generation_tool_rejects_empty_success_results() {
 }
 
 #[test]
+fn image_generation_tool_defaults_to_session_or_default_workspace() {
+    let root = repo_root();
+    let dispatch = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+
+    assert!(
+        dispatch.contains("resolve_image_workspace_id"),
+        "Monty image generation should resolve a workspace for DM calls without explicit opts"
+    );
+    assert!(
+        dispatch.contains("ensure_image_workspace"),
+        "Monty image generation should create/use a default PawFS workspace when the Session has none"
+    );
+    assert!(
+        !dispatch.contains("workspace_id is required because generated images are stored in PawFS"),
+        "DM users should not see a missing workspace_id implementation error"
+    );
+}
+
+#[test]
+fn discord_delivery_accepts_pawfs_image_attachments() {
+    let root = repo_root();
+    let channel_spec = read(root.join("os-apps/paw-channels/specs/channel.ioa.toml"));
+    let channel_model = read(root.join("os-apps/paw-channels/specs/model.csdl.xml"));
+    let send_reply = read(root.join("os-apps/paw-channels/wasm/send_reply/src/lib.rs"));
+    let agent_reply = read(root.join("os-apps/paw-agent/wasm/agent_reply/src/lib.rs"));
+    let session_spec = read(root.join("os-apps/paw-agent/specs/session.ioa.toml"));
+    let session_model = read(root.join("os-apps/paw-agent/specs/model.csdl.xml"));
+    let monty_session = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/session.rs"));
+    let discord_transport = read(root.join("crates/paw-transport/src/discord/transport.rs"));
+    let discord_gateway = read(root.join("crates/paw-transport/src/discord/gateway.rs"));
+    let paw_transport = read(root.join("crates/paw-transport/src/lib.rs"));
+
+    for source in [channel_spec.as_str(), session_spec.as_str()] {
+        assert!(
+            source.contains("reply_attachments_json"),
+            "Session and Channel specs should carry reply_attachments_json through entity actions"
+        );
+    }
+    for source in [channel_model.as_str(), session_model.as_str()] {
+        assert!(
+            source.contains("reply_attachments_json"),
+            "CSDL should expose reply_attachments_json on reply/result actions"
+        );
+    }
+    assert!(
+        monty_session.contains("reply_attachments_from_tool_results"),
+        "Monty should capture image tool results as durable reply attachment metadata"
+    );
+    assert!(
+        agent_reply.contains("\"reply_attachments_json\""),
+        "agent_reply should forward Session reply attachments to Channel.SendReply"
+    );
+    assert!(
+        send_reply.contains("\"reply_attachments_json\""),
+        "send_reply should pass reply attachments to the transport webhook"
+    );
+    assert!(
+        discord_transport.contains("deliver_reply_attachments")
+            && discord_transport.contains("download_pawfs_attachment"),
+        "Discord transport should download PawFS attachments before reply delivery"
+    );
+    assert!(
+        discord_gateway.contains("send_discord_message_with_files")
+            && discord_gateway.contains("payload_json")
+            && discord_gateway.contains("files[0]"),
+        "Discord gateway should upload generated images with multipart files"
+    );
+    assert!(
+        paw_transport.contains("raw_get_bytes"),
+        "PawApiClient should expose byte reads for PawFS $value downloads"
+    );
+}
+
+#[test]
 fn codex_image_renderer_streams_large_provider_responses() {
     let root = repo_root();
     let wasm = read(root.join("os-apps/paw-media/wasm/openai_codex_image_generate/src/lib.rs"));
@@ -289,7 +363,8 @@ fn codex_image_renderer_streams_large_provider_responses() {
         );
     }
     assert!(
-        !wasm.contains("let resp = ctx.http_call(\"POST\", &url, &headers, &request.to_string())?;"),
+        !wasm
+            .contains("let resp = ctx.http_call(\"POST\", &url, &headers, &request.to_string())?;"),
         "Codex image renderer must not use the fixed 4MB SDK http_call buffer for image responses"
     );
 }

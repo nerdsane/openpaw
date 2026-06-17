@@ -1300,6 +1300,7 @@ fn should_start_fresh_after_session_append_failure(error: &str) -> bool {
         || error.contains("VerificationRequired")
         || error.contains("SessionEntry creation failed")
         || error.contains("session entries continuation missing parent leaf")
+        || error.contains("session_leaf_id is missing; starting clean continuation")
 }
 
 fn should_start_clean_continuation_from_prior(fields: &Value) -> bool {
@@ -1516,26 +1517,19 @@ fn latest_session_entry(
     session_id: &str,
     session_leaf_id: &str,
 ) -> Result<Option<(String, i64)>, String> {
-    let escaped = session_id.replace('\'', "''");
     if !session_leaf_id.is_empty() {
         let leaf_url = session_entry_lookup_url(temper_api_url, session_id, session_leaf_id);
         if let Some(entry) = list_entities(ctx, &leaf_url, tenant)?.into_iter().next() {
             return Ok(session_entry_identity(&entry));
         }
-        ctx.log(
-            "warn",
-            &format!(
-                "append_user_message: Session.session_leaf_id={session_leaf_id} missing for SessionId={session_id}; falling back to bounded unordered SessionEntry scan"
-            ),
-        );
+        return Err(format!(
+            "session entries continuation missing parent leaf: Session.session_leaf_id={session_leaf_id} missing for SessionId={session_id}"
+        ));
     }
 
-    let url =
-        format!("{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped}'&$top=1000");
-    Ok(list_entities(ctx, &url, tenant)?
-        .into_iter()
-        .filter_map(|entry| session_entry_identity(&entry))
-        .max_by_key(|(_, sequence)| *sequence))
+    Err(format!(
+        "session_leaf_id is missing; starting clean continuation for SessionId={session_id}"
+    ))
 }
 
 fn session_entry_identity(entry: &Value) -> Option<(String, i64)> {
