@@ -476,6 +476,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "Score" => route_settled_relay(&ctx, &fields, false),
             "Prune" => route_settled_relay(&ctx, &fields, true),
             "RouteSettled" | "ResumeBridge" => claim_phase(&ctx, &fields),
+            "ResumeWorldCascade" => world_cascade_self_heal(&ctx, &fields),
+            "ResumeEndpointScoring" => endpoint_scoring_self_heal(&ctx, &fields),
             other => {
                 ctx.log(
                     "warn",
@@ -850,6 +852,98 @@ fn claim_phase(ctx: &Context, fields: &Value) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// World.ResumeWorldCascade (Active state_timeout): all claims terminal but
+/// canonical_path_id still empty — re-run the world aggregate. No-ops when
+/// canonical is already set or any claim is still in flight.
+fn world_cascade_self_heal(ctx: &Context, fields: &Value) -> Result<(), String> {
+    if !get_str(fields, "canonical_path_id").is_empty() {
+        set_success_result("", &json!({}));
+        return Ok(());
+    }
+    let world_id = ctx.entity_id.clone();
+    let api = api_url(ctx);
+    let headers = system_headers(ctx);
+    world_cascade(ctx, &api, &headers, &world_id, "", None)
+}
+
+/// Endpoint.ResumeEndpointScoring (UnderRepair state_timeout): every claim on
+/// this endpoint is terminal but ScoreComplete never landed — re-derive weight.
+fn endpoint_scoring_self_heal(ctx: &Context, _fields: &Value) -> Result<(), String> {
+    let endpoint_id = ctx.entity_id.clone();
+    let api = api_url(ctx);
+    let headers = system_headers(ctx);
+
+    let claims = list(
+        ctx,
+        &api,
+        &headers,
+        "Claims",
+        &format!("endpoint_id eq '{endpoint_id}'"),
+    )?;
+    let mut settled_costs: Vec<f64> = Vec::new();
+    let mut unreachable_count = 0usize;
+    for c in &claims {
+        let id = row_id(c).to_string();
+        let mut status = row_status(c).to_string();
+        if matches!(status.as_str(), "Proposed" | "Bridging") {
+            if let Some(fresh) = fetch(ctx, &api, &headers, "Claims", &id) {
+                status = row_status(&fresh).to_string();
+            }
+        }
+        match status.as_str() {
+            "Proposed" | "Bridging" => {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "aggregate_costs: endpoint {endpoint_id} claim {id} still {status}; scoring deferred"
+                    ),
+                );
+                set_success_result("", &json!({}));
+                return Ok(());
+            }
+            "Settled" => {
+                let cost = row_str(c, "BestRouteCost").parse::<f64>().unwrap_or(f64::MAX);
+                settled_costs.push(cost);
+            }
+            "Unreachable" => unreachable_count += 1,
+            _ => {}
+        }
+    }
+
+    if settled_costs.is_empty() && unreachable_count == 0 {
+        set_success_result("", &json!({}));
+        return Ok(());
+    }
+
+    let weight = endpoint_cost(&settled_costs, unreachable_count);
+    dispatch(
+        ctx,
+        &api,
+        &headers,
+        "Endpoints",
+        &endpoint_id,
+        "ScoreComplete",
+        &json!({ "weight": format!("{:.4}", weight) }),
+    )?;
+    let _ = dispatch(
+        ctx,
+        &api,
+        &headers,
+        "Endpoints",
+        &endpoint_id,
+        "MarkWeighted",
+        &json!({}),
+    );
+    ctx.log(
+        "info",
+        &format!(
+            "aggregate_costs: endpoint {endpoint_id} self-heal scored at weight {weight:.4}"
+        ),
+    );
+    set_success_result("", &json!({}));
+    Ok(())
 }
 
 /// When every claim in the world is terminal, derive endpoint weights and
