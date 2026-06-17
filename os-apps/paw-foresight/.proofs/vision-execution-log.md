@@ -296,3 +296,37 @@ Railway removes the contention.
 3. Iterate: a diverse multi-endpoint run on the named-axes engine (restart +
    launch), then the 2045 deep-sci-fi showcase world. Verify the synthesis panel
    renders on a multi-endpoint world + commit it.
+
+## 2026-06-16 (late) — PROD run en-019ed392: diversity gate PROVEN; writer-stall root-caused
+
+First clean corridor run on prod Postgres (ref `paw-foresight@7c19bf9`). World
+**en-019ed392** ("AI coding tools — six months out", budget 3):
+
+- Seed ✅ — surveyor + axes sessions completed (18-node skeleton, 3 named
+  uncertainty axes, 3 endpoints with distinct stances: modal / governed-standardization / buy-but-fragment).
+- **Writer-phase STALL (root-caused).** All 3 endpoint-writer sessions hung on
+  their *first* Codex call from 03:16 UTC and never returned; at 03:34 the server
+  passivated ~1017 idle actors, orphaning the in-flight calls. `Endpoint.Sampled`
+  is in `allow_indefinite_states` (no `state_timeout`) → nothing re-drove them.
+  This is the one self-heal gap left after D0 (Path + Claim got timeouts; the
+  writer phase did not). Provider/model config was correct (`openai_codex`/`gpt-5.5`,
+  same as the seed that succeeded) and prompts were ~1.5KB — a transient provider
+  hang, not config.
+- **Recovery (operator salvage, flagged):** re-spawned 3 fresh writers cloning the
+  frozen sessions' exact prompt/model/provider/workspace (author_agent_id rewritten
+  to the new agent for honest provenance). They advanced immediately (12→35 events)
+  and completed — proving Codex was responsive; the hang was a one-off the engine
+  didn't recover from.
+- **DIVERSITY GATE PROVEN (the e3543f75 fix, the headline proof):** with all 3
+  bundles written, the gate fired `gate_rounds=1` and **released all 3 distinct
+  worlds — 0 discards**. The 3 summaries are genuinely distinct (stabilized market
+  / governed standardization / buy-but-fragment). The old bundle-head bug would
+  have false-collapsed them; the authoritative-summary read did not. ≥2 distinct
+  surviving worlds: ✅.
+- Then: 21 claims decomposed → 21 routes in search; 23/35 sessions actively
+  calling Codex; route phase self-heals via Path/Claim `state_timeout`. Render /
+  AnimateDwellers driven by `/tmp/run_monitor.py` (task blq06skeh).
+
+**Durable follow-up (root-cause fix, in progress):** add `state_timeout` to
+`Endpoint.Sampled` (re-spawn writer) so the writer phase self-heals like the route
+phase — removes the operator monitor's only remaining job. Part of PR temperpaw#398.

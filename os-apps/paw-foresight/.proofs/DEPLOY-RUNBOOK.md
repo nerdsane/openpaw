@@ -62,3 +62,15 @@ Proven: a fresh 31MB DB has zero lock errors. Postgres on prod removes the conte
 - `temperpaw.katagami.ai` custom-domain routing fix.
 - DSF world-page rework is on `codex/dsf-2` (verified rendering locally; needs a real
   multi-world to show the synthesis agree/diverge panels firing).
+
+---
+## UPDATE 2026-06-16 — artifact-complete ref published; needs authorized Archive+reinstall
+- Genesis bundle store fixed (other agent). Verified: clean install needs **bundle-contained .wasm** (paw-agent ships 21 built .wasm; corridor source-only refs shipped 0 → installs logged `wasm=[]`).
+- Published **artifact-complete** corridor ref `temperpaw/paw-foresight@7c19bf9b430e1f0555ab7923767888f893eccea0` (H3): bundle now has 13 built .wasm (sample_endpoints=8360a1ef gate fix) + policies/foresight.cedar + agents/ souls. Bundle HTTP 200, manifest verified.
+- Bumped openpaw bootstrap ref → 7c19bf9, redeployed. Reconcile logged `Reconciling changed Genesis bootstrap app` + `Installed … wasm=[all 13]`. Specs+wasm now from the proper bundle.
+- **STILL BLOCKED:** corridor Cedar policies NOT active. Proof: foresight.cedar has an *unconditional* World create permit (lines 55-59), yet `create Worlds` is Cedar-denied ("no matching permit policy"). The half-installed state (specs+wasm present from earlier git-fallback/hand-upload) makes the reconcile diff-apply and skip the policy swap; v0.1 foresight policies linger.
+- **REQUIRED (authorized actor — App ops are Cedar-denied for the MCP principal):** clean Archive + reinstall to swap the policy set:
+  1. `App.Archive` paw-foresight (tenant `default`)
+  2. install `temperpaw/paw-foresight@7c19bf9b430e1f0555ab7923767888f893eccea0` (pinned) — fresh install applies specs+wasm+**policies**+souls
+  3. verify: `create Worlds` succeeds (unconditional permit now active)
+  Then: run a budget-3 corridor world on Postgres (validate gate fix + stories + synthesis), wire DSF staging.
