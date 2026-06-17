@@ -889,7 +889,10 @@ fn put_file_value_stream(
 }
 
 fn field_or_default<'a>(value: &'a Value, keys: &[&str], default: &'a str) -> &'a str {
-    entity_field_str(value, keys).unwrap_or(default)
+    entity_field_str(value, keys)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
 }
 
 fn escape_odata_key(key: &str) -> String {
@@ -943,6 +946,18 @@ mod tests {
         let request = build_codex_image_request(&json!({}), "paint a quiet lighthouse", "gpt-5.5");
 
         assert_eq!(request["tools"][0]["quality"], "low");
+    }
+
+    #[test]
+    fn empty_model_field_uses_provider_default() {
+        let fields = json!({
+            "Model": "",
+        });
+
+        assert_eq!(
+            field_or_default(&fields, &["model", "Model"], DEFAULT_MODEL),
+            DEFAULT_MODEL
+        );
     }
 
     #[test]
