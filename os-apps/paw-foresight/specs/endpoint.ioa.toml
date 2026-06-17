@@ -24,6 +24,15 @@ initial = "Sampled"
 # life of the world (re-weighed on update).
 allow_indefinite_states = ["Written", "UnderRepair", "Scored", "Weighted"]
 
+# Self-heal (ADR-007): when every claim on this endpoint is terminal but the
+# endpoint is still UnderRepair (world aggregate missed or ScoreComplete failed),
+# re-derive weight and dispatch ScoreComplete. reset_on progress actions.
+[[state_timeout]]
+state = "UnderRepair"
+after_seconds = 600
+on_timeout = "ResumeEndpointScoring"
+reset_on = ["ScoreComplete", "Discard", "Fail"]
+
 # Self-heal (ADR-0050/ADR-007), mirroring Path's Solving/Repaired/Challenged: if
 # the endpoint is still Sampled after a writer's healthy wall-clock (~3 min
 # observed), re-spawn the writer. Budget sits well above a live writer so a
@@ -208,6 +217,26 @@ temper_api_url = "{secret:temper_api_url}"
 embedding_endpoint = "{secret:embedding_endpoint}"
 embedding_model = "{secret:embedding_model}"
 
+
+# Self-heal (ADR-007): the UnderRepair state_timeout fires this when all claims
+# on the endpoint are terminal but scoring never landed. System principals only.
+[[action]]
+name = "ResumeEndpointScoring"
+kind = "input"
+from = ["UnderRepair"]
+to = "UnderRepair"
+params = []
+hint = "Self-heal: re-score an endpoint whose claims are all terminal but ScoreComplete never fired. Fires on the UnderRepair state_timeout."
+effect = [{ type = "trigger", name = "aggregate_costs_endpoint_scoring" }]
+
+[[action.triggers]]
+name = "aggregate_costs_endpoint_scoring"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
 
 [[action]]
 name = "DecompositionComplete"

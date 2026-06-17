@@ -29,6 +29,16 @@ initial = "Created"
 # once corridor run-time envelopes are measured.
 allow_indefinite_states = ["Created", "Seeding", "Active", "Updating"]
 
+# Self-heal (ADR-007): when every claim is terminal but canonical_path_id is still
+# empty — e.g. the last claim resolved off the Bridging settle path (operator
+# MarkUnreachable, or a wedged route) — re-run the world aggregate. reset_on
+# PathsScored so a scored world is not re-polled.
+[[state_timeout]]
+state = "Active"
+after_seconds = 600
+on_timeout = "ResumeWorldCascade"
+reset_on = ["PathsScored", "BeginUpdate"]
+
 # --- State Variables ---
 
 [[state]]
@@ -264,6 +274,28 @@ kind = "input"
 from = ["Active"]
 params = []
 hint = "Callback after endpoint writers are spawned. Corridor proceeds per Endpoint/Path machinery."
+
+# Self-heal (ADR-007): the Active state_timeout fires this when all claims are
+# terminal but canonical_path_id is still empty. Re-runs aggregate_costs'
+# world cascade (ScoreComplete per endpoint + PathsScored). System principals
+# only (timeout-dispatched).
+[[action]]
+name = "ResumeWorldCascade"
+kind = "input"
+from = ["Active"]
+to = "Active"
+params = []
+hint = "Self-heal: re-run world aggregate when claims are settled but canonical_path_id is unset. Fires on the Active state_timeout."
+effect = [{ type = "trigger", name = "aggregate_costs_world_cascade" }]
+
+[[action.triggers]]
+name = "aggregate_costs_world_cascade"
+kind = "wasm"
+module = "aggregate_costs"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
 
 [[action]]
 name = "PathsScored"

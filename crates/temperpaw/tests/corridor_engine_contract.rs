@@ -580,3 +580,88 @@ fn endpoint_sampled_self_heals_so_a_dead_writer_re_spawns() {
         "ResumeWriter is a self-loop"
     );
 }
+
+#[test]
+fn world_active_self_heals_when_claims_terminal_but_canonical_unset() {
+    // Gap #4 (en-019ed392): world aggregate only fired off Bridging claim
+    // RouteSettled; operator MarkUnreachable bypassed it. Active must re-run the
+    // cascade when canonical_path_id is still empty.
+    let path = spec_path("world.ioa.toml");
+    let spec = parse_spec(&path);
+    let timeouts = spec
+        .get("state_timeout")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("{} missing [[state_timeout]]", path.display()));
+    let active = timeouts
+        .iter()
+        .filter_map(|v| v.as_table())
+        .find(|t| t.get("state").and_then(|v| v.as_str()) == Some("Active"))
+        .unwrap_or_else(|| panic!("{} missing state_timeout for Active", path.display()));
+    assert_eq!(
+        active.get("on_timeout").and_then(|v| v.as_str()),
+        Some("ResumeWorldCascade"),
+        "Active timeout must re-run world aggregate via ResumeWorldCascade"
+    );
+    let resume = action(&spec, "ResumeWorldCascade", &path);
+    assert!(
+        action_from(resume).contains("Active"),
+        "ResumeWorldCascade must fire from Active"
+    );
+    assert_eq!(
+        resume.get("to").and_then(|v| v.as_str()),
+        Some("Active"),
+        "ResumeWorldCascade is an Active self-loop"
+    );
+    let trigger = resume
+        .get("effect")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|e| e.get("name").and_then(|v| v.as_str()));
+    assert_eq!(
+        trigger,
+        Some("aggregate_costs_world_cascade"),
+        "ResumeWorldCascade must trigger aggregate_costs"
+    );
+}
+
+#[test]
+fn endpoint_under_repair_self_heals_when_claims_terminal_but_unscored() {
+    // Gap #3: Endpoint.UnderRepair with all claims terminal but ScoreComplete
+    // never fired (world aggregate missed).
+    let path = spec_path("endpoint.ioa.toml");
+    let spec = parse_spec(&path);
+    let timeouts = spec
+        .get("state_timeout")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("{} missing [[state_timeout]]", path.display()));
+    let under_repair = timeouts
+        .iter()
+        .filter_map(|v| v.as_table())
+        .find(|t| t.get("state").and_then(|v| v.as_str()) == Some("UnderRepair"))
+        .unwrap_or_else(|| panic!("{} missing state_timeout for UnderRepair", path.display()));
+    assert_eq!(
+        under_repair.get("on_timeout").and_then(|v| v.as_str()),
+        Some("ResumeEndpointScoring"),
+        "UnderRepair timeout must re-score via ResumeEndpointScoring"
+    );
+    let resume = action(&spec, "ResumeEndpointScoring", &path);
+    assert!(
+        action_from(resume).contains("UnderRepair"),
+        "ResumeEndpointScoring must fire from UnderRepair"
+    );
+    assert_eq!(
+        resume.get("to").and_then(|v| v.as_str()),
+        Some("UnderRepair"),
+        "ResumeEndpointScoring is an UnderRepair self-loop"
+    );
+    let trigger = resume
+        .get("effect")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|e| e.get("name").and_then(|v| v.as_str()));
+    assert_eq!(
+        trigger,
+        Some("aggregate_costs_endpoint_scoring"),
+        "ResumeEndpointScoring must trigger aggregate_costs"
+    );
+}
