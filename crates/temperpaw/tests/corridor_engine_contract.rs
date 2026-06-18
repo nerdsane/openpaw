@@ -625,6 +625,77 @@ fn world_active_self_heals_when_claims_terminal_but_canonical_unset() {
 }
 
 #[test]
+fn world_seeding_self_heals_when_surveyor_never_reports_seed_complete() {
+    // ARN-65 / ARN-64: a surveyor session can complete or stall without
+    // dispatching SeedComplete. Seeding must re-enter seed_world instead of
+    // parking forever with no active work.
+    let path = spec_path("world.ioa.toml");
+    let spec = parse_spec(&path);
+
+    let indefinite: BTreeSet<String> = automaton(&spec, &path)
+        .get("allow_indefinite_states")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !indefinite.contains("Seeding"),
+        "World.Seeding must not be indefinite — a surveyor missing SeedComplete would wedge the world"
+    );
+
+    let timeouts = spec
+        .get("state_timeout")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("{} missing [[state_timeout]]", path.display()));
+    let seeding = timeouts
+        .iter()
+        .filter_map(|v| v.as_table())
+        .find(|t| t.get("state").and_then(|v| v.as_str()) == Some("Seeding"))
+        .unwrap_or_else(|| panic!("{} missing state_timeout for Seeding", path.display()));
+    assert_eq!(
+        seeding.get("on_timeout").and_then(|v| v.as_str()),
+        Some("ResumeSeed"),
+        "Seeding timeout must re-spawn the surveyor via ResumeSeed"
+    );
+
+    let resume = action(&spec, "ResumeSeed", &path);
+    assert!(
+        action_from(resume).contains("Seeding"),
+        "ResumeSeed must fire from Seeding"
+    );
+    assert_eq!(
+        resume.get("to").and_then(|v| v.as_str()),
+        Some("Seeding"),
+        "ResumeSeed is a Seeding self-loop"
+    );
+    let trigger = resume
+        .get("effect")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|e| e.get("name").and_then(|v| v.as_str()));
+    assert_eq!(
+        trigger,
+        Some("seed_world"),
+        "ResumeSeed must trigger seed_world"
+    );
+
+    let csdl = read(repo_root().join("os-apps/paw-foresight/specs/model.csdl.xml"));
+    assert!(
+        csdl.contains("<Action Name=\"ResumeSeed\" IsBound=\"true\">"),
+        "model.csdl.xml must serve World.ResumeSeed"
+    );
+
+    let cedar = read(repo_root().join("os-apps/paw-foresight/policies/foresight.cedar"));
+    assert!(
+        cedar.contains("Action::\"ResumeSeed\""),
+        "foresight Cedar policy must permit system-dispatched ResumeSeed"
+    );
+}
+
+#[test]
 fn endpoint_under_repair_self_heals_when_claims_terminal_but_unscored() {
     // Gap #3: Endpoint.UnderRepair with all claims terminal but ScoreComplete
     // never fired (world aggregate missed).
