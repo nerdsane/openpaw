@@ -103,6 +103,7 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
     let root = repo_root();
     let tool_catalog = read(root.join("os-apps/paw-agent/wasm/tool-catalog/src/lib.rs"));
     let dispatch = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+    let paw_agent_manual = read(root.join("os-apps/paw-agent/agents/paw/AGENT.md"));
     let paw_agent_app = read(root.join("os-apps/paw-agent/app.toml"));
     let startup = read(root.join("crates/temperpaw/src/startup.rs"));
     let setup_api = read(root.join("crates/temperpaw/src/setup_api.rs"));
@@ -128,6 +129,8 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
         "method: \"image_generate\"",
         "token: Some(\"temper_image_generate\")",
         "generate an image through the paw-media app",
+        "Use this tool for user image requests",
+        "gpt-image-2",
     ] {
         assert!(
             tool_catalog.contains(needle),
@@ -146,6 +149,17 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
         assert!(
             dispatch.contains(needle),
             "Monty dispatch should contain {needle}"
+        );
+    }
+
+    for needle in [
+        "temper.image_generate",
+        "For user image requests, call this tool",
+        "gpt-image-*",
+    ] {
+        assert!(
+            paw_agent_manual.contains(needle),
+            "Paw operating manual should contain {needle}"
         );
     }
 

@@ -1415,17 +1415,7 @@ fn resolve_grep_targets(
 
     // It's a directory — list recursively
     let mut files = Vec::new();
-    list_dir_recursive(
-        ctx,
-        api_url,
-        tenant,
-        ws_id,
-        path,
-        0,
-        5,
-        &mut files,
-        500,
-    )?;
+    list_dir_recursive(ctx, api_url, tenant, ws_id, path, 0, 5, &mut files, 500)?;
     Ok(files)
 }
 
@@ -2410,7 +2400,9 @@ fn pawfs_parse_file_path(path: &str) -> Result<(&str, &str), String> {
 }
 
 fn pawfs_path_segments(path: &str) -> Vec<&str> {
-    path.split('/').filter(|segment| !segment.is_empty()).collect()
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect()
 }
 
 fn pawfs_filter_path_and_workspace(path: &str, ws_id: &str) -> String {
@@ -2573,7 +2565,14 @@ fn create_pawfs_directory(
         body["ParentId"] = json!(parent_id);
     }
 
-    let resp = http_post(ctx, api_url, tenant, principal_id, "/tdata/Directories", &body)?;
+    let resp = http_post(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        "/tdata/Directories",
+        &body,
+    )?;
     let id = pawfs_entity_id(&resp)
         .ok_or_else(|| "temper.pawfs(): Directory created but no Id returned".to_string())?
         .to_string();
@@ -2637,7 +2636,10 @@ fn ensure_pawfs_directory(
         ) {
             ctx.log(
                 "warn",
-                &format!("temper.pawfs(): AddChild failed on directory {}: {error}", parent.id),
+                &format!(
+                    "temper.pawfs(): AddChild failed on directory {}: {error}",
+                    parent.id
+                ),
             );
         }
         parent = directory;
@@ -2766,7 +2768,12 @@ fn list_pawfs_directory(
     let mut files = files_resp
         .get("value")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(pawfs_file_from_value).collect::<Vec<_>>())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(pawfs_file_from_value)
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
@@ -2820,7 +2827,10 @@ fn rename_pawfs_file(
             api_url,
             tenant,
             principal_id,
-            &format!("/tdata/Directories('{}')/Temper.RemoveChild", file.directory_id),
+            &format!(
+                "/tdata/Directories('{}')/Temper.RemoveChild",
+                file.directory_id
+            ),
             &json!({}),
         ) {
             ctx.log(
@@ -2951,8 +2961,14 @@ mod tests {
 
     #[test]
     fn pawfs_normalize_path_matches_workspace_fs_rules() {
-        assert_eq!(pawfs_normalize_path("notes/readme.md").unwrap(), "/notes/readme.md");
-        assert_eq!(pawfs_normalize_path("//notes///readme.md/").unwrap(), "/notes/readme.md");
+        assert_eq!(
+            pawfs_normalize_path("notes/readme.md").unwrap(),
+            "/notes/readme.md"
+        );
+        assert_eq!(
+            pawfs_normalize_path("//notes///readme.md/").unwrap(),
+            "/notes/readme.md"
+        );
         assert_eq!(pawfs_normalize_path("/").unwrap(), "/");
         assert!(pawfs_normalize_path("   ").is_err());
     }
@@ -2963,7 +2979,10 @@ mod tests {
             pawfs_parse_file_path("/notes/readme.md").unwrap(),
             ("/notes", "readme.md")
         );
-        assert_eq!(pawfs_parse_file_path("/README.md").unwrap(), ("/", "README.md"));
+        assert_eq!(
+            pawfs_parse_file_path("/README.md").unwrap(),
+            ("/", "README.md")
+        );
         assert!(pawfs_parse_file_path("/notes/").is_err());
         assert!(pawfs_parse_file_path("/").is_err());
     }

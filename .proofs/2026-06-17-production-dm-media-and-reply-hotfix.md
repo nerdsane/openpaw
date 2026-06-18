@@ -152,3 +152,89 @@ Attempts to publish refreshed Genesis app bundles were blocked by Genesis Git re
 - force-push fallback failed with `send-pack: protocol error: bad band #117`
 
 Until Genesis publish is repaired, production restarts rely on persisted hot-loaded modules being recovered correctly. The source fixes in this branch make the code path durable once merged and bundled, but Genesis app refs still need a successful publish/update.
+
+## 2026-06-18 Final DM Image E2E
+
+Additional production failure modes were fixed and verified after the original hotfix:
+
+- `monty_repl` now captures generated image results as dispatch side effects, so a PawFS image is still propagated to `reply_attachments_json` even when the Python snippet prints a summary instead of returning the structured image object.
+- `openai_codex_image_generate` records PawFS file metadata without returning inline base64 in the awaited action response, avoiding Monty host buffer overflow.
+- `route_message` production was hot-loaded to the bounded SessionEntry leaf lookup implementation, replacing the stale ordered `SessionEntries?$orderby=Sequence desc&$top=1` scan that could fail with HTTP 413.
+- `agent_reply` production was hot-loaded to the implementation that forwards `Session.reply_attachments_json` into `Channel.SendReply`.
+
+No new ADR was added for this pass: the changes are implementation fixes inside the existing media, route, and reply-delivery ADRs listed above. The state-machine architecture did not change.
+
+Focused tests:
+
+- Red then green: `cargo test --manifest-path os-apps/paw-agent/wasm/monty_repl/Cargo.toml --quiet`
+  - Final result: 73 tests passed.
+  - New guards cover file-only `__temperpaw_image` results and dispatch-captured image results.
+- `cargo test --manifest-path os-apps/paw-media/wasm/openai_codex_image_generate/Cargo.toml --quiet`
+  - Final result: 12 tests passed.
+- `cargo test -p temperpaw --test paw_media_image_generation --locked --quiet`
+  - Final result: 10 tests passed.
+- `cargo test --manifest-path os-apps/paw-channels/wasm/route_message/Cargo.toml --quiet`
+  - Final result: 25 tests passed.
+- `cargo test --manifest-path os-apps/paw-agent/wasm/agent_reply/Cargo.toml --quiet`
+  - Final result: 7 tests passed.
+
+Production module hashes verified via `/observe/wasm/modules/*`:
+
+- `route_message`: `e90792f38e37d6ba25d0619c47667869a621c7e089a77dc01d0cd395535f8a97`
+- `monty_repl`: `af3293660446b6ff5de831d4d02f149d49a0a8f253ce620696ecf364a41f1676`
+- `openai_codex_image_generate`: `f5ba13c268f0cf639114922080502f5bda715c206c2188f1fb5f0baa91cdc67f`
+- `send_reply`: `1ad697cf014c884767a8a91cba463693e532af5ae52dacb8af89ba344df4b123`
+- `agent_reply`: `e36d025b52bf420b3e5a8fd1c6fb10a1a9eca157f253c683f492b7e80fe6495f`
+
+Final plain-DM proof:
+
+- Incoming Channel action: `Paw.Channel.ReceiveMessage?await_integration=true`
+- `message_id`: `codex-proof-dm-cat-final-20260618031511`
+- `channel_entity_id`: `en-019eba01-164d-7d60-ab4d-5e710a5e39d6`
+- `thread_id`: `1018228973869727785`
+- Content: `Generate an image of a cat for me.`
+- Routed Session: `ss-019ed8b9-bf11-73b0-989a-573d93ada06f`
+- Session status: `Completed`
+- Session result:
+  - `Done.`
+  - `File:fl-019ed8ba-bb1b-7d31-81bc-77382a4ab782`
+- Session `reply_attachments_json`:
+  - `kind`: `pawfs_file`
+  - `file_id`: `fl-019ed8ba-bb1b-7d31-81bc-77382a4ab782`
+  - `media_generation_id`: `en-019ed8b9-edd8-7882-ba60-5171db72d659`
+  - `path`: `/generated/images/en-019ed8b9-edd8-7882-ba60-5171db72d659.png`
+
+Media entity:
+
+- `MediaGenerationRequest`: `en-019ed8b9-edd8-7882-ba60-5171db72d659`
+- `Status`: `Complete`
+- `Provider`: `openai_codex`
+- `Model`: empty in entity state, normalized by renderer to the Codex backend default
+- `provider_response_id`: `resp_04b2bf5e721b2a5f016a3362ccdad48196a5f0003958a4b721`
+- `result_file_id`: `fl-019ed8ba-bb1b-7d31-81bc-77382a4ab782`
+
+File entity:
+
+- `File`: `fl-019ed8ba-bb1b-7d31-81bc-77382a4ab782`
+- `Status`: `Ready`
+- `Path`: `/generated/images/en-019ed8b9-edd8-7882-ba60-5171db72d659.png`
+- `MimeType`: `image/png`
+- `size_bytes`: `2327315`
+- `content_hash`: `sha256:4836f4bf1f7274bd3b8c1c6215a71f7c4b439e49fc0963023d648e6ab86251e0`
+- Downloaded proof file: `/tmp/temperpaw-final-plain-dm-cat.png`
+- Local file inspection: `PNG image data, 1536 x 1024, 8-bit/color RGB, non-interlaced`
+- Local sha256: `4836f4bf1f7274bd3b8c1c6215a71f7c4b439e49fc0963023d648e6ab86251e0`
+
+Discord delivery logs:
+
+- `2026-06-18T03:16:25.909517Z`
+  - target: `paw_transport::discord::transport`
+  - message: `delivered discord reply attachments`
+  - `attachment_count=1`
+  - `thread_id=1018228973869727785`
+- `2026-06-18T03:16:26.795519Z`
+  - target: `wasm_guest`
+  - message: `agent_reply: dispatched reply for agent aj-019d8cde-5bf6-7472-8ad1-2b2798c822b1 to thread 1018228973869727785`
+  - session: `ss-019ed8b9-bf11-73b0-989a-573d93ada06f`
+
+This proves the production Discord DM path now accepts a normal image request, invokes `temper.image_generate`, creates a real PawFS PNG through the Codex media backend, records the image attachment on the Session, forwards it through `agent_reply` and `send_reply`, and uploads it back to the Discord DM as a file attachment.
