@@ -721,7 +721,7 @@ fn session_entries_list_url(
     skip: usize,
 ) -> String {
     format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$top={top}&$skip={skip}",
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$orderby=Sequence%20asc,EntryId%20asc&$top={top}&$skip={skip}",
         session_id.replace('\'', "''"),
     )
 }
@@ -1863,7 +1863,7 @@ mod tests {
     fn session_entries_list_url_pages_with_skip() {
         assert_eq!(
             session_entries_list_url("http://temper", "ss-1", 1000, 2000),
-            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$top=1000&$skip=2000"
+            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$orderby=Sequence%20asc,EntryId%20asc&$top=1000&$skip=2000"
         );
     }
 
