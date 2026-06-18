@@ -22,12 +22,18 @@ name = "World"
 states = ["Created", "Seeding", "Active", "Updating", "Archived", "Failed"]
 initial = "Created"
 
-# ADR-0050: Created awaits human/agent configuration (no deadline by design).
-# Active is the steady state of a living world — indefinite by definition.
-# Seeding and Updating are bounded in practice by the session timeouts of the
-# agents doing the work plus heartbeat monitoring; revisit with state_timeout
-# once corridor run-time envelopes are measured.
-allow_indefinite_states = ["Created", "Seeding", "Active", "Updating"]
+# ADR-0050/ADR-007: Created awaits human/agent configuration (no deadline by
+# design). Active is the steady state of a living world — indefinite by
+# definition, with the reconcile timeout below guarding missed aggregate flow.
+# Seeding self-heals: a surveyor that completes or stalls without SeedComplete
+# re-enters seed_world instead of wedging the world.
+allow_indefinite_states = ["Created", "Active", "Updating"]
+
+[[state_timeout]]
+state = "Seeding"
+after_seconds = 1200
+on_timeout = "ResumeSeed"
+reset_on = ["SeedComplete", "Fail"]
 
 # Self-heal (ADR-007): when every claim is terminal but canonical_path_id is still
 # empty — e.g. the last claim resolved off the Bridging settle path (operator
@@ -224,6 +230,25 @@ from = ["Seeding"]
 to = "Active"
 params = ["skeleton_node_count", "graph_snapshot_file_id", "uncertainty_axes"]
 hint = "Surveyor self-reports the skeleton is recorded plus the named uncertainty axes (ADR-006). World becomes active."
+
+[[action]]
+name = "ResumeSeed"
+kind = "input"
+from = ["Seeding"]
+to = "Seeding"
+params = []
+hint = "Self-heal: re-spawn the surveyor/bookmaker batch when Seeding did not receive SeedComplete. System principals only."
+effect = [{ type = "trigger", name = "seed_world" }]
+
+[[action.triggers]]
+name = "seed_world"
+kind = "wasm"
+module = "seed_world"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
 
 [[action]]
 name = "SampleEndpoints"
