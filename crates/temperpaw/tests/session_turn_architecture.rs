@@ -359,6 +359,10 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
     let root = repo_root();
     let helpers = fs::read_to_string(root.join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
         .expect("wasm helpers source should exist");
+    let context_preparer_wasm =
+        fs::read(root.join("os-apps/paw-agent/wasm/context_preparer/context_preparer.wasm"))
+            .expect("context_preparer.wasm should be checked in");
+    let context_preparer_wasm = String::from_utf8_lossy(&context_preparer_wasm);
     let route_message =
         fs::read_to_string(root.join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
             .expect("route_message source should exist");
@@ -382,6 +386,11 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
     assert!(
         helpers.contains("ParentEntryId"),
         "SessionEntry parent-chain reads must follow ParentEntryId instead of session-wide scans"
+    );
+    assert!(
+        context_preparer_wasm.contains("SessionEntry direct lookup failed")
+            && context_preparer_wasm.contains("SessionEntry parent-chain read"),
+        "built context_preparer.wasm must include the bounded leaf parent-chain reader"
     );
     assert!(
         helpers.contains("$orderby=Sequence%20asc"),
