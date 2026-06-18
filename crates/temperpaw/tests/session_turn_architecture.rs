@@ -376,6 +376,18 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
         "batched SessionEntry readback should use one bounded per-entry URL per expected entry"
     );
     assert!(
+        helpers.contains("$orderby=Sequence%20asc"),
+        "SessionEntry history reads should use deterministic keyset ordering"
+    );
+    assert!(
+        helpers.contains("Sequence%20ge%20{next_sequence}"),
+        "SessionEntry history reads should continue by Sequence instead of broad skip scans"
+    );
+    assert!(
+        !helpers.contains("&$skip="),
+        "SessionEntry history reads must not use $skip because production bounded OData can reject high-candidate scans"
+    );
+    assert!(
         route_message.contains("session_leaf_id is missing; starting clean continuation"),
         "route_message should start cleanly instead of broad-scanning when the prior leaf hint is missing"
     );
