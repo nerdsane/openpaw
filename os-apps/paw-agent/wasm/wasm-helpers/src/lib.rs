@@ -990,6 +990,16 @@ fn read_session_entries_from_leaf(
         return Ok(None);
     };
 
+    if !session_entries_materialized(fields) && is_virtual_first_turn_leaf(session_id, leaf_id) {
+        ctx.log(
+            "info",
+            &format!(
+                "SessionEntry virtual first-turn leaf for SessionId={session_id}; skipping direct lookup"
+            ),
+        );
+        return Ok(Some(Vec::new()));
+    }
+
     let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
     let mut current_entry_id = leaf_id.to_string();
     let mut reversed_entries = Vec::new();
@@ -1064,6 +1074,10 @@ fn session_entries_materialized(fields: &Value) -> bool {
                 .and_then(boolish_json)
         })
         .unwrap_or(true)
+}
+
+fn is_virtual_first_turn_leaf(session_id: &str, leaf_id: &str) -> bool {
+    leaf_id == format!("u-{session_id}-0")
 }
 
 fn session_entry_query_too_large(status: u16, body: &str) -> bool {
@@ -2003,6 +2017,18 @@ mod tests {
             session_entries_list_url("http://temper", "ss-1", 200, 40),
             "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27%20and%20Sequence%20ge%2040&$orderby=Sequence%20asc&$top=200"
         );
+    }
+
+    #[test]
+    fn virtual_first_turn_leaf_skips_session_entry_lookup() {
+        assert!(is_virtual_first_turn_leaf(
+            "ss-019edb98-f84e-7e11-b5ad-f14df499fa8f",
+            "u-ss-019edb98-f84e-7e11-b5ad-f14df499fa8f-0"
+        ));
+        assert!(!is_virtual_first_turn_leaf(
+            "ss-019edb98-f84e-7e11-b5ad-f14df499fa8f",
+            "a-2"
+        ));
     }
 
     #[test]
