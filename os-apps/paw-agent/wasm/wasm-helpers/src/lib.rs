@@ -14,8 +14,9 @@ pub const SESSION_ENTRIES_REF_PREFIX: &str = "session-entries:";
 const TEMPERFS_READ_ATTEMPTS: usize = 10;
 const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
 const TEMPERFS_BATCH_READ_ATTEMPTS: usize = 3;
-const SESSION_ENTRIES_PAGE_SIZE: usize = 1000;
-const SESSION_ENTRIES_MAX_PAGES: usize = 100;
+const SESSION_ENTRIES_PAGE_SIZE: usize = 200;
+const SESSION_ENTRIES_MIN_PAGE_SIZE: usize = 10;
+const SESSION_ENTRIES_MAX_ENTRIES: usize = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchTextFileReadItem {
@@ -718,10 +719,10 @@ fn session_entries_list_url(
     temper_api_url: &str,
     session_id: &str,
     top: usize,
-    skip: usize,
+    next_sequence: i64,
 ) -> String {
     format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$top={top}&$skip={skip}",
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20Sequence%20ge%20{next_sequence}&$orderby=Sequence%20asc&$top={top}",
         session_id.replace('\'', "''"),
     )
 }
@@ -902,13 +903,27 @@ fn list_session_entries(
 ) -> Result<Vec<Value>, String> {
     let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
     let mut entries = Vec::new();
-    let mut skip = 0usize;
+    let mut next_sequence = 0_i64;
+    let mut page_size = SESSION_ENTRIES_PAGE_SIZE;
 
-    for _ in 0..SESSION_ENTRIES_MAX_PAGES {
-        let url =
-            session_entries_list_url(temper_api_url, session_id, SESSION_ENTRIES_PAGE_SIZE, skip);
+    while entries.len() < SESSION_ENTRIES_MAX_ENTRIES {
+        let remaining = SESSION_ENTRIES_MAX_ENTRIES.saturating_sub(entries.len());
+        let top = page_size.min(remaining);
+        let url = session_entries_list_url(temper_api_url, session_id, top, next_sequence);
         let resp = ctx.http_call("GET", &url, &headers, "")?;
         if resp.status != 200 {
+            if session_entry_query_too_large(resp.status, &resp.body)
+                && page_size > SESSION_ENTRIES_MIN_PAGE_SIZE
+            {
+                page_size = (page_size / 4).max(SESSION_ENTRIES_MIN_PAGE_SIZE);
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "SessionEntry list page was too broad for SessionId={session_id}; retrying with page_size={page_size}"
+                    ),
+                );
+                continue;
+            }
             return Err(format!(
                 "SessionEntry list failed (HTTP {}): {}",
                 resp.status,
@@ -923,17 +938,46 @@ fn list_session_entries(
             .cloned()
             .unwrap_or_default();
         let page_len = page.len();
-        entries.append(&mut page);
-        if page_len < SESSION_ENTRIES_PAGE_SIZE {
+        if page_len == 0 {
             return Ok(entries);
         }
-        skip += page_len;
+        let mut max_sequence: Option<i64> = None;
+        for entry in page.iter() {
+            let sequence = entity_field_i64(entry, &["Sequence", "sequence"]).ok_or_else(|| {
+                format!(
+                    "SessionEntry list page for SessionId={session_id} contained an entry without Sequence"
+                )
+            })?;
+            max_sequence = Some(max_sequence.map_or(sequence, |max| max.max(sequence)));
+        }
+        entries.append(&mut page);
+        let Some(max_sequence) = max_sequence else {
+            return Ok(entries);
+        };
+        let next = max_sequence.saturating_add(1);
+        if next <= next_sequence {
+            return Err(format!(
+                "SessionEntry list made no keyset progress for SessionId={session_id} at Sequence={next_sequence}"
+            ));
+        }
+        next_sequence = next;
+        if page_len < top {
+            return Ok(entries);
+        }
     }
 
     Err(format!(
-        "SessionEntry list exceeded {} pages for session {session_id}; refusing incomplete context",
-        SESSION_ENTRIES_MAX_PAGES
+        "SessionEntry list exceeded {} entries for session {session_id}; refusing incomplete context",
+        SESSION_ENTRIES_MAX_ENTRIES
     ))
+}
+
+fn session_entry_query_too_large(status: u16, body: &str) -> bool {
+    if status == 413 {
+        return true;
+    }
+    let lower = body.to_ascii_lowercase();
+    lower.contains("querytoolarge") || lower.contains("bounded odata read budget")
 }
 
 fn session_entry_entity_to_jsonl(entry: &Value) -> Option<String> {
@@ -1860,10 +1904,10 @@ mod tests {
     }
 
     #[test]
-    fn session_entries_list_url_pages_with_skip() {
+    fn session_entries_list_url_pages_by_sequence() {
         assert_eq!(
-            session_entries_list_url("http://temper", "ss-1", 1000, 2000),
-            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$top=1000&$skip=2000"
+            session_entries_list_url("http://temper", "ss-1", 200, 40),
+            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27%20and%20Sequence%20ge%2040&$orderby=Sequence%20asc&$top=200"
         );
     }
 
