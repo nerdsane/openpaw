@@ -105,6 +105,32 @@ fn monty_exposes_write_many_for_artifact_sets() {
 }
 
 #[test]
+fn monty_pawfs_write_path_uses_direct_keys_not_broad_path_filters() {
+    let source = repo_file("os-apps/paw-agent/wasm/monty_repl/src/entity_ops.rs");
+
+    assert!(
+        source.contains("pawfs_directory_id"),
+        "Monty PawFS writes should derive deterministic directory ids"
+    );
+    assert!(
+        source.contains("pawfs_file_id"),
+        "Monty PawFS writes should derive deterministic file ids"
+    );
+    assert!(
+        source.contains("/tdata/Directories('{directory_id}')"),
+        "Monty PawFS writes should read directories by key"
+    );
+    assert!(
+        source.contains("/tdata/Files('{file_id}')"),
+        "Monty PawFS writes should read files by key"
+    );
+    assert!(
+        !source.contains("Path eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'"),
+        "Monty PawFS writes must not use broad Path+Workspace collection filters that hit bounded OData candidate limits"
+    );
+}
+
+#[test]
 fn default_agent_tool_allowlists_include_write_many() {
     for path in [
         "crates/temperpaw/src/startup.rs",
