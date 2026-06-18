@@ -133,6 +133,12 @@ fn pawfs_single_entity_lookups_are_bounded_to_one_result() {
             "{helper} must bound direct PawFS lookups with $top=1 so hot-path writes cannot trip OData QueryTooLarge on duplicate/stale rows"
         );
     }
+    assert!(
+        monty_source.contains("pawfs_stable_entity_id(\"dr\", ws_id, &path)")
+            && monty_source.contains("is_pawfs_lookup_too_large(&error)")
+            && monty_source.contains("\"Id\": directory_id"),
+        "Directory creation must fall back to stable idempotent creates when path lookups still trip QueryTooLarge"
+    );
 
     let artifact_batch_source = repo_file("os-apps/paw-fs/wasm/artifact_batch_apply/src/lib.rs");
     assert!(
