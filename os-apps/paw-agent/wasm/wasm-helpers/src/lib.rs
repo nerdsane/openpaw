@@ -16,6 +16,7 @@ const TEMPERFS_WRITE_ATTEMPTS: usize = 5;
 const TEMPERFS_BATCH_READ_ATTEMPTS: usize = 3;
 const SESSION_ENTRIES_PAGE_SIZE: usize = 1000;
 const SESSION_ENTRIES_MAX_PAGES: usize = 100;
+const SESSION_ENTRIES_MAX_CHAIN_DEPTH: usize = 2000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchTextFileReadItem {
@@ -88,6 +89,10 @@ pub fn session_id_from_entries_ref(reference: &str) -> Option<&str> {
 
 pub fn is_session_entries_ref(reference: &str) -> bool {
     session_id_from_entries_ref(reference).is_some()
+}
+
+fn is_virtual_first_turn_session_leaf(session_id: &str, session_leaf_id: &str) -> bool {
+    session_leaf_id == format!("u-{session_id}-0")
 }
 
 pub fn next_session_entry_id(prefix: &str, parent_entry_id: &str) -> (String, i64) {
@@ -222,7 +227,28 @@ pub fn read_session_from_temperfs(
     fields: &Value,
     file_id: &str,
 ) -> Result<String, String> {
+    read_session_from_temperfs_with_leaf(ctx, temper_api_url, tenant, fields, file_id, None)
+}
+
+pub fn read_session_from_temperfs_with_leaf(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    file_id: &str,
+    session_leaf_id: Option<&str>,
+) -> Result<String, String> {
     if let Some(session_id) = session_id_from_entries_ref(file_id) {
+        if let Some(leaf_entry_id) = session_leaf_id.filter(|value| !value.is_empty()) {
+            return read_session_from_entries_chain(
+                ctx,
+                temper_api_url,
+                tenant,
+                fields,
+                session_id,
+                leaf_entry_id,
+            );
+        }
         return read_session_from_entries(ctx, temper_api_url, tenant, fields, session_id);
     }
 
@@ -721,7 +747,7 @@ fn session_entries_list_url(
     skip: usize,
 ) -> String {
     format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$top={top}&$skip={skip}",
+        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$orderby=Sequence%20asc,EntryId%20asc&$top={top}&$skip={skip}",
         session_id.replace('\'', "''"),
     )
 }
@@ -781,6 +807,69 @@ pub fn read_session_from_entries(
 ) -> Result<String, String> {
     let entries = list_session_entries(ctx, temper_api_url, tenant, fields, session_id)?;
     Ok(session_entries_jsonl_from_entities(&entries))
+}
+
+fn read_session_from_entries_chain(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+    session_leaf_id: &str,
+) -> Result<String, String> {
+    if is_virtual_first_turn_session_leaf(session_id, session_leaf_id) {
+        return Ok(String::new());
+    }
+
+    let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
+    let mut entries = Vec::new();
+    let mut current_entry_id = session_leaf_id.to_string();
+
+    for depth in 0..SESSION_ENTRIES_MAX_CHAIN_DEPTH {
+        let url = session_entry_verify_url(temper_api_url, session_id, &current_entry_id);
+        let resp = ctx.http_call("GET", &url, &headers, "")?;
+        if resp.status != 200 {
+            return Err(format!(
+                "SessionEntry chain read failed for EntryId={current_entry_id} (HTTP {}): {}",
+                resp.status,
+                &resp.body[..resp.body.len().min(300)]
+            ));
+        }
+
+        let parsed: Value = serde_json::from_str(&resp.body)
+            .map_err(|err| format!("parse SessionEntry chain response: {err}"))?;
+        let mut page = parsed
+            .get("value")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if page.is_empty() {
+            if entries.is_empty() {
+                return Ok(String::new());
+            }
+            return Err(format!(
+                "SessionEntry parent EntryId={current_entry_id} was not visible while walking session {session_id}"
+            ));
+        }
+
+        let entry = page.remove(0);
+        let parent_entry_id = entity_field_str(&entry, &["ParentEntryId", "parent_entry_id"])
+            .unwrap_or("")
+            .to_string();
+        entries.push(entry);
+        if parent_entry_id.is_empty() {
+            return Ok(session_entries_jsonl_from_entities(&entries));
+        }
+        current_entry_id = parent_entry_id;
+
+        if depth + 1 == SESSION_ENTRIES_MAX_CHAIN_DEPTH {
+            break;
+        }
+    }
+
+    Err(format!(
+        "SessionEntry chain exceeded {SESSION_ENTRIES_MAX_CHAIN_DEPTH} entries for session {session_id} leaf {session_leaf_id}; refusing incomplete context"
+    ))
 }
 
 pub fn sync_session_entries_from_jsonl(
@@ -1863,8 +1952,15 @@ mod tests {
     fn session_entries_list_url_pages_with_skip() {
         assert_eq!(
             session_entries_list_url("http://temper", "ss-1", 1000, 2000),
-            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$top=1000&$skip=2000"
+            "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$orderby=Sequence%20asc,EntryId%20asc&$top=1000&$skip=2000"
         );
+    }
+
+    #[test]
+    fn virtual_first_turn_leaf_is_detected_without_odata_probe() {
+        assert!(is_virtual_first_turn_session_leaf("ss-live", "u-ss-live-0"));
+        assert!(!is_virtual_first_turn_session_leaf("ss-live", "a-2"));
+        assert!(!is_virtual_first_turn_session_leaf("ss-live", "u-other-0"));
     }
 
     #[test]

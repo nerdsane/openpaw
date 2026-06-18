@@ -376,6 +376,16 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
         "batched SessionEntry readback should use one bounded per-entry URL per expected entry"
     );
     assert!(
+        helpers.contains("$orderby=Sequence%20asc,EntryId%20asc"),
+        "SessionEntry context reads should use deterministic bounded pages instead of an unordered session-wide scan"
+    );
+    assert!(
+        helpers.contains("read_session_from_entries_chain")
+            && helpers.contains("session_leaf_id")
+            && helpers.contains("ParentEntryId"),
+        "SessionEntry context reads with a known leaf should walk bounded per-entry parent links instead of listing the whole session"
+    );
+    assert!(
         route_message.contains("session_leaf_id is missing; starting clean continuation"),
         "route_message should start cleanly instead of broad-scanning when the prior leaf hint is missing"
     );

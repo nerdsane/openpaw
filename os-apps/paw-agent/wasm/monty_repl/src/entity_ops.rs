@@ -2437,6 +2437,29 @@ fn pawfs_entity_id(value: &Value) -> Option<&str> {
     entity_field_str_any(value, &["entity_id", "Id", "id"])
 }
 
+fn pawfs_stable_entity_id(prefix: &str, ws_id: &str, path: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in prefix
+        .bytes()
+        .chain([0])
+        .chain(ws_id.bytes())
+        .chain([0])
+        .chain(path.bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{prefix}-{hash:016x}")
+}
+
+fn is_pawfs_lookup_too_large(error: &str) -> bool {
+    error.contains("QueryTooLarge")
+}
+
+fn is_pawfs_already_exists_error(error: &str) -> bool {
+    error.contains("409") || error.contains("already exists") || error.contains("AlreadyExists")
+}
+
 fn entity_field_i64_any(value: &Value, keys: &[&str]) -> Option<i64> {
     for key in keys {
         if let Some(found) = value.get(*key).and_then(Value::as_i64) {
@@ -2529,7 +2552,7 @@ fn find_pawfs_directory(
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Directories?$filter={filter}"),
+        &format!("/tdata/Directories?$filter={filter}&$top=1"),
     )?;
     Ok(pawfs_first_entity(&resp).and_then(pawfs_directory_from_value))
 }
@@ -2549,7 +2572,7 @@ fn find_pawfs_file(
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Files?$filter={filter}"),
+        &format!("/tdata/Files?$filter={filter}&$top=1"),
     )?;
     Ok(pawfs_first_entity(&resp).and_then(pawfs_file_from_value))
 }
@@ -2563,8 +2586,10 @@ fn create_pawfs_directory(
     path: &str,
     name: &str,
     parent_id: Option<&str>,
+    directory_id: &str,
 ) -> Result<PawFsDirectory, String> {
     let mut body = json!({
+        "Id": directory_id,
         "Name": name,
         "Path": path,
         "WorkspaceId": ws_id,
@@ -2573,10 +2598,11 @@ fn create_pawfs_directory(
         body["ParentId"] = json!(parent_id);
     }
 
-    let resp = http_post(ctx, api_url, tenant, principal_id, "/tdata/Directories", &body)?;
-    let id = pawfs_entity_id(&resp)
-        .ok_or_else(|| "temper.pawfs(): Directory created but no Id returned".to_string())?
-        .to_string();
+    let id = match http_post(ctx, api_url, tenant, principal_id, "/tdata/Directories", &body) {
+        Ok(resp) => pawfs_entity_id(&resp).unwrap_or(directory_id).to_string(),
+        Err(error) if is_pawfs_already_exists_error(&error) => directory_id.to_string(),
+        Err(error) => return Err(error),
+    };
     Ok(PawFsDirectory {
         id,
         name: name.to_string(),
@@ -2594,56 +2620,67 @@ fn ensure_pawfs_directory(
     raw_path: &str,
 ) -> Result<PawFsDirectory, String> {
     let normalized = pawfs_normalize_path(raw_path)?;
-    if let Some(directory) = find_pawfs_directory(ctx, api_url, tenant, ws_id, &normalized)? {
-        return Ok(directory);
-    }
-
-    let mut parent = match find_pawfs_directory(ctx, api_url, tenant, ws_id, "/")? {
-        Some(directory) => directory,
-        None => create_pawfs_directory(ctx, api_url, tenant, principal_id, ws_id, "/", "/", None)?,
+    let segments = if normalized == "/" {
+        vec!["/"]
+    } else {
+        pawfs_path_segments(&normalized)
     };
-
-    if normalized == "/" {
-        return Ok(parent);
-    }
-
+    let mut parent: Option<PawFsDirectory> = None;
     let mut current_path = String::new();
-    for segment in pawfs_path_segments(&normalized) {
-        current_path.push('/');
-        current_path.push_str(segment);
+    for segment in segments {
+        let (path, name) = if segment == "/" {
+            ("/".to_string(), "/")
+        } else {
+            current_path.push('/');
+            current_path.push_str(segment);
+            (current_path.clone(), segment)
+        };
 
-        if let Some(directory) = find_pawfs_directory(ctx, api_url, tenant, ws_id, &current_path)? {
-            parent = directory;
+        let existing = match find_pawfs_directory(ctx, api_url, tenant, ws_id, &path) {
+            Ok(directory) => directory,
+            Err(error) if is_pawfs_lookup_too_large(&error) => None,
+            Err(error) => return Err(error),
+        };
+        if let Some(directory) = existing {
+            parent = Some(directory);
             continue;
         }
 
+        let parent_id = parent.as_ref().map(|directory| directory.id.as_str());
+        let directory_id = pawfs_stable_entity_id("dr", ws_id, &path);
         let directory = create_pawfs_directory(
             ctx,
             api_url,
             tenant,
             principal_id,
             ws_id,
-            &current_path,
-            segment,
-            Some(&parent.id),
+            &path,
+            name,
+            parent_id,
+            &directory_id,
         )?;
-        if let Err(error) = http_post(
-            ctx,
-            api_url,
-            tenant,
-            principal_id,
-            &format!("/tdata/Directories('{}')/Temper.AddChild", parent.id),
-            &json!({}),
-        ) {
-            ctx.log(
-                "warn",
-                &format!("temper.pawfs(): AddChild failed on directory {}: {error}", parent.id),
-            );
+        if let Some(parent) = &parent {
+            if let Err(error) = http_post(
+                ctx,
+                api_url,
+                tenant,
+                principal_id,
+                &format!("/tdata/Directories('{}')/Temper.AddChild", parent.id),
+                &json!({}),
+            ) {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "temper.pawfs(): AddChild failed on directory {}: {error}",
+                        parent.id
+                    ),
+                );
+            }
         }
-        parent = directory;
+        parent = Some(directory);
     }
 
-    Ok(parent)
+    parent.ok_or_else(|| format!("temper.pawfs(): could not ensure directory {normalized}"))
 }
 
 fn ensure_pawfs_file(
@@ -2974,6 +3011,17 @@ mod tests {
             pawfs_filter_path_and_workspace("/notes/we're-here.md", "ws'1"),
             "Path eq '/notes/we''re-here.md' and WorkspaceId eq 'ws''1' and Status ne 'Archived'"
         );
+    }
+
+    #[test]
+    fn pawfs_stable_directory_ids_are_path_scoped() {
+        let first = pawfs_stable_entity_id("dr", "katagami", "/proofs");
+        let second = pawfs_stable_entity_id("dr", "katagami", "/proofs");
+        let other = pawfs_stable_entity_id("dr", "katagami", "/other");
+
+        assert_eq!(first, second);
+        assert!(first.starts_with("dr-"));
+        assert_ne!(first, other);
     }
 
     #[test]
