@@ -88,11 +88,14 @@ Final image deploy:
 - Railway service source updated from
   `ghcr.io/nerdsane/temperpaw:sha-d7ce726` to
   `ghcr.io/nerdsane/temperpaw:sha-5c3c05f`.
-- deployment id: `bfffe16a-4a5c-49cc-a265-24f73848b945`
+- first verified deployment id: `bfffe16a-4a5c-49cc-a265-24f73848b945`
+- final verified deployment id after transport cleanup:
+  `4abe83cc-f9cd-4cc8-9504-bc1529b55b9e`
 - image: `ghcr.io/nerdsane/temperpaw:sha-5c3c05f`
 - image digest:
   `sha256:44d80ae7f5dfc68c7b974408fd17e7c95918fb9a5cfc4f1c1b91de41086b89d3`
 - status: `SUCCESS`
+- healthcheck path: `/healthz`
 - `/paw/version`: `{"version":"sha-5c3c05fd","sha":"5c3c05fd6292ef2eba9b2e6656ede5fd2fd896e9"}`
 
 Note: updating only `IMAGE_TAG` was insufficient because the Railway service
@@ -114,6 +117,56 @@ After the final image deploy, production `/observe/wasm/modules/*` returned:
 
 This verifies the restart/deploy path no longer restores the stale hashes for
 the DM image flow.
+
+## Discord Transport Cleanup
+
+After the image/WASM proof, `/readyz` surfaced a Discord transport retry residue:
+runtime status was connected, but the persisted
+`TransportConnection:transport-discord` entity was still `Retrying` with the
+last error `Gateway bot endpoint returned 429 Too Many Requests: error code:
+1015`. The entity had accumulated repeated `RetryDue -> StartRetry` events
+while production was being redeployed.
+
+Clean-up used the entity state machine, not database mutation:
+
+1. Dispatch `TransportConnection.Disable` on `transport-discord`.
+2. Wait past the previous retry interval so queued retry timers cannot advance
+   the disabled entity.
+3. Let startup/reconcile bring the transport back through
+   `Configure -> Start -> StartSucceeded`.
+
+Final transport readback:
+
+```json
+{
+  "status": "Connected",
+  "sequence_nr": 1095,
+  "total_event_count": 1248,
+  "attempt_count": 29,
+  "last_error": "",
+  "next_retry_at": "",
+  "last_connected_at": "1781792845325",
+  "interaction_url": "https://temperpaw.katagami.ai/discord/interaction"
+}
+```
+
+Final `/readyz`:
+
+```json
+{
+  "status": "ready",
+  "healthz": "/healthz",
+  "discord": {
+    "status": "connected",
+    "configured": true,
+    "connected": true,
+    "desired_state": "connected",
+    "connection_state": "Connected",
+    "last_error": null,
+    "next_retry_at": null
+  }
+}
+```
 
 ## Discord DM Image E2E
 
