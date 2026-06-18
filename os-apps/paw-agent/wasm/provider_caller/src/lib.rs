@@ -624,7 +624,7 @@ impl OpenAiStreamAccumulator {
                     if let Some(out) = resp.get("output").and_then(Value::as_array)
                         && !out.is_empty()
                     {
-                        self.output_items = out.clone();
+                        merge_openai_completed_output_items(&mut self.output_items, out);
                     }
                 }
             }
@@ -686,6 +686,34 @@ impl OpenAiStreamAccumulator {
             semantic_deltas: self.semantic_deltas,
             completed: true,
         })
+    }
+}
+
+fn merge_openai_completed_output_items(output_items: &mut Vec<Value>, completed_output: &[Value]) {
+    if output_items.is_empty() {
+        output_items.extend(completed_output.iter().cloned());
+        return;
+    }
+
+    for item in completed_output {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        let duplicate = if item_type == "function_call" {
+            let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
+            output_items.iter().any(|existing| {
+                existing.get("type").and_then(Value::as_str) == Some("function_call")
+                    && existing
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        == call_id
+            })
+        } else {
+            output_items.iter().any(|existing| existing == item)
+        };
+
+        if !duplicate {
+            output_items.push(item.clone());
+        }
     }
 }
 
@@ -4741,6 +4769,28 @@ mod tests {
                 .map(|delta| delta.delta_text.as_str())
                 .collect::<Vec<_>>(),
             vec!["Hel", "lo"]
+        );
+        assert!(parsed.completed);
+    }
+
+    #[test]
+    fn openai_completed_text_does_not_clobber_streamed_function_call() {
+        let chunks: Vec<&[u8]> = vec![
+            br#"data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_streamed","name":"execute","arguments":"{\"code\":\"await temper.list('default', 'World')\"}"}}"#,
+            b"\n\n",
+            br#"data: {"type":"response.completed","response":{"usage":{"input_tokens":9,"output_tokens":4},"output":[{"type":"message","content":[{"type":"output_text","text":"Tool call call_summary: execute({\"code\":\"await temper.list('default', 'World')\"})"}]}]}}"#,
+            b"\n\n",
+        ];
+
+        let parsed = parse_openai_stream_chunks(&chunks).expect("OpenAI stream should parse");
+
+        assert_eq!(parsed.stop_reason, "tool_use");
+        assert_eq!(
+            parsed.content,
+            json!([
+                {"type": "tool_use", "id": "call_streamed", "name": "execute", "input": {"code": "await temper.list('default', 'World')"}},
+                {"type": "text", "text": "Tool call call_summary: execute({\"code\":\"await temper.list('default', 'World')\"})"},
+            ])
         );
         assert!(parsed.completed);
     }
