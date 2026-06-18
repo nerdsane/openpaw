@@ -46,19 +46,7 @@ fn run_openai_codex_image_generate() -> Result<(), String> {
 
     match generate_and_store(&ctx, &fields) {
         Ok(result) => {
-            set_success_result(
-                "RecordResult",
-                &json!({
-                    "result_file_id": result.file_id,
-                    "result_file_version_id": result.file_version_id,
-                    "result_path": result.path,
-                    "mime_type": result.mime_type,
-                    "revised_prompt": result.revised_prompt,
-                    "provider_response_id": result.provider_response_id,
-                    "usage_json": result.usage_json,
-                    "result_image_base64": result.base64_data,
-                }),
-            );
+            set_success_result("RecordResult", &record_result_params(&result));
         }
         Err(err) => {
             set_success_result(
@@ -82,7 +70,6 @@ struct StoredImageResult {
     revised_prompt: String,
     provider_response_id: String,
     usage_json: String,
-    base64_data: String,
 }
 
 struct HttpTextResponse {
@@ -112,7 +99,7 @@ fn generate_and_store(ctx: &Context, fields: &Value) -> Result<StoredImageResult
         return Err("image_generate: workspace_id is required".to_string());
     }
 
-    let model = field_or_default(fields, &["model", "Model"], DEFAULT_MODEL);
+    let model = codex_image_model_or_default(fields, &["model", "Model"], DEFAULT_MODEL);
     let request = build_codex_image_request(fields, prompt, model);
     let access_token = resolve_codex_access_token(ctx)?;
     let account_id = resolve_codex_account_id(ctx, &access_token)?;
@@ -157,7 +144,18 @@ fn generate_and_store(ctx: &Context, fields: &Value) -> Result<StoredImageResult
         revised_prompt: output.revised_prompt,
         provider_response_id: output.response_id,
         usage_json: output.usage_json,
-        base64_data: output.base64_data,
+    })
+}
+
+fn record_result_params(result: &StoredImageResult) -> Value {
+    json!({
+        "result_file_id": result.file_id,
+        "result_file_version_id": result.file_version_id,
+        "result_path": result.path,
+        "mime_type": result.mime_type,
+        "revised_prompt": result.revised_prompt,
+        "provider_response_id": result.provider_response_id,
+        "usage_json": result.usage_json,
     })
 }
 
@@ -889,7 +887,27 @@ fn put_file_value_stream(
 }
 
 fn field_or_default<'a>(value: &'a Value, keys: &[&str], default: &'a str) -> &'a str {
-    entity_field_str(value, keys).unwrap_or(default)
+    entity_field_str(value, keys)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+}
+
+fn codex_image_model_or_default<'a>(value: &'a Value, keys: &[&str], default: &'a str) -> &'a str {
+    let model = field_or_default(value, keys, default);
+    if is_public_openai_image_model_name(model) {
+        default
+    } else {
+        model
+    }
+}
+
+fn is_public_openai_image_model_name(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized == "gpt-image"
+        || normalized.starts_with("gpt-image-")
+        || normalized == "dall-e"
+        || normalized.starts_with("dall-e-")
 }
 
 fn escape_odata_key(key: &str) -> String {
@@ -943,6 +961,49 @@ mod tests {
         let request = build_codex_image_request(&json!({}), "paint a quiet lighthouse", "gpt-5.5");
 
         assert_eq!(request["tools"][0]["quality"], "low");
+    }
+
+    #[test]
+    fn empty_model_field_uses_provider_default() {
+        let fields = json!({
+            "Model": "",
+        });
+
+        assert_eq!(
+            field_or_default(&fields, &["model", "Model"], DEFAULT_MODEL),
+            DEFAULT_MODEL
+        );
+    }
+
+    #[test]
+    fn public_openai_image_model_names_use_codex_default() {
+        let fields = json!({
+            "Model": "gpt-image-2",
+        });
+
+        assert_eq!(
+            codex_image_model_or_default(&fields, &["model", "Model"], DEFAULT_MODEL),
+            DEFAULT_MODEL
+        );
+    }
+
+    #[test]
+    fn record_result_params_omit_inline_base64_payload() {
+        let result = StoredImageResult {
+            file_id: "fl-cat".to_string(),
+            file_version_id: "fv-cat".to_string(),
+            path: "/generated/cat.png".to_string(),
+            mime_type: "image/png".to_string(),
+            revised_prompt: "cat in a window".to_string(),
+            provider_response_id: "resp_cat".to_string(),
+            usage_json: "{}".to_string(),
+        };
+
+        let params = record_result_params(&result);
+
+        assert_eq!(params["result_file_id"], "fl-cat");
+        assert_eq!(params["result_path"], "/generated/cat.png");
+        assert!(params.get("result_image_base64").is_none());
     }
 
     #[test]

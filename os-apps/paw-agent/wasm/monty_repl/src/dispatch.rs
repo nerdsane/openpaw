@@ -48,6 +48,11 @@ thread_local! {
     // instead of printing it), store it here. The REPL appends it to the
     // tool result if the expression was null/None.
     static DISPATCH_OUTPUT: RefCell<Option<String>> = RefCell::new(None);
+    // Image results produced by dispatch calls in the current Monty snippet.
+    // The REPL consumes these after execution so a generated PawFS image is
+    // still available for Discord attachment extraction even if the Python
+    // code prints a summary instead of returning the image object.
+    static DISPATCH_IMAGE_RESULTS: RefCell<Vec<Value>> = RefCell::new(Vec::new());
     // Current tool being dispatched (ADR-0037). Set by ToolScope at
     // dispatch() entry, read by internal_headers() to emit
     // X-Temper-Span-* hint headers so the host wraps each outgoing
@@ -281,6 +286,22 @@ pub fn take_dispatch_output() -> Option<String> {
 /// Store a message that should be shown to the LLM as tool output.
 pub fn set_dispatch_output(msg: &str) {
     DISPATCH_OUTPUT.with(|cell| *cell.borrow_mut() = Some(msg.to_string()));
+}
+
+/// Take image results captured during dispatch. Clears after reading.
+pub fn take_dispatch_image_results() -> Vec<Value> {
+    DISPATCH_IMAGE_RESULTS.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
+}
+
+/// Store a generated image result so the REPL can surface it as an attachment.
+fn record_dispatch_image_result(result: &Value) {
+    if result
+        .get("__temperpaw_image")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        DISPATCH_IMAGE_RESULTS.with(|cell| cell.borrow_mut().push(result.clone()));
+    }
 }
 
 /// Peek at the lazily provisioned sandbox URL without consuming it.
@@ -761,8 +782,22 @@ fn dispatch_temper(
         // Apps
         "install_app" => temper_install_app(ctx, api_url, tenant, args),
         "search_apps" => temper_search_apps(ctx, args),
-        "publish_app" => temper_publish_app(ctx, sandbox_url, sandbox_id, sandbox_provider, workdir, args),
-        "update_app" => temper_update_app(ctx, sandbox_url, sandbox_id, sandbox_provider, workdir, args),
+        "publish_app" => temper_publish_app(
+            ctx,
+            sandbox_url,
+            sandbox_id,
+            sandbox_provider,
+            workdir,
+            args,
+        ),
+        "update_app" => temper_update_app(
+            ctx,
+            sandbox_url,
+            sandbox_id,
+            sandbox_provider,
+            workdir,
+            args,
+        ),
         "list_apps" => temper_list_apps(ctx, api_url, tenant),
 
         // Agent identity
@@ -1058,7 +1093,12 @@ fn with_session_parent_provenance(ctx: &Context, entity_set: &str, mut body: Val
     body
 }
 
-fn with_curation_job_action_parent(ctx: &Context, entity_set: &str, action_name: &str, mut body: Value) -> Value {
+fn with_curation_job_action_parent(
+    ctx: &Context,
+    entity_set: &str,
+    action_name: &str,
+    mut body: Value,
+) -> Value {
     if entity_set == "CurationJobs" && matches!(action_name, "Configure" | "ConfigureAndSubmit") {
         let has_parent = entity_field_str(&body, &["parent_session_id", "ParentSessionId"])
             .is_some_and(|value| !value.trim().is_empty());
@@ -1098,7 +1138,8 @@ fn temper_action(
     let entity_set = str_arg(args, 0, "entity_set", "action")?;
     let entity_id = str_arg(args, 1, "entity_id", "action")?;
     let action_name = str_arg(args, 2, "action_name", "action")?;
-    let body = with_curation_job_action_parent(ctx, &entity_set, &action_name, obj_arg_or_empty(args, 3));
+    let body =
+        with_curation_job_action_parent(ctx, &entity_set, &action_name, obj_arg_or_empty(args, 3));
     let key = escape_odata_key(&entity_id);
     http_post(
         ctx,
@@ -1352,7 +1393,13 @@ fn temper_image_generate(
 ) -> Result<Value, String> {
     let input = image_generate_input(ctx, api_url, tenant, args)?;
     let body = media_generation_fields(&input);
-    let entity = http_post(ctx, api_url, tenant, "/tdata/MediaGenerationRequests", &body)?;
+    let entity = http_post(
+        ctx,
+        api_url,
+        tenant,
+        "/tdata/MediaGenerationRequests",
+        &body,
+    )?;
     let entity_id = entity
         .get("entity_id")
         .or_else(|| entity.get("EntityId"))
@@ -1360,7 +1407,8 @@ fn temper_image_generate(
         .and_then(Value::as_str)
         .or_else(|| entity_field_str(&entity, &["Id", "id"]))
         .ok_or_else(|| {
-            "image_generate: failed to get entity_id from created MediaGenerationRequest".to_string()
+            "image_generate: failed to get entity_id from created MediaGenerationRequest"
+                .to_string()
         })?;
 
     let key = escape_odata_key(entity_id);
@@ -1390,7 +1438,9 @@ fn temper_image_generate(
         tenant,
         &format!("/tdata/MediaGenerationRequests('{key}')"),
     )?;
-    render_media_generation_result(entity_id, &result, input.include_base64)
+    let rendered = render_media_generation_result(entity_id, &result, input.include_base64)?;
+    record_dispatch_image_result(&rendered);
+    Ok(rendered)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1448,17 +1498,23 @@ fn image_generate_input(
 
     let workspace_id = resolve_image_workspace_id(ctx, api_url, tenant, &opts)?;
 
+    let provider = normalize_image_provider(
+        &opts_string(&opts, &["provider", "Provider"])
+            .unwrap_or_else(|| "openai_codex".to_string()),
+    );
+    let model = normalize_image_model_for_provider(
+        &provider,
+        &opts_string(&opts, &["model", "Model"]).unwrap_or_default(),
+    );
+
     Ok(ImageGenerateInput {
         prompt,
         media_type: opts_string(&opts, &["media_type", "MediaType"])
             .unwrap_or_else(|| "image".to_string()),
         operation: opts_string(&opts, &["operation", "Operation"])
             .unwrap_or_else(|| "generate".to_string()),
-        provider: normalize_image_provider(
-            &opts_string(&opts, &["provider", "Provider"])
-                .unwrap_or_else(|| "openai_codex".to_string()),
-        ),
-        model: opts_string(&opts, &["model", "Model"]).unwrap_or_default(),
+        provider,
+        model,
         size: opts_string(&opts, &["size", "Size"]).unwrap_or_else(|| "1024x1024".to_string()),
         quality: opts_string(&opts, &["quality", "Quality"]).unwrap_or_else(|| "low".to_string()),
         output_format: opts_string(&opts, &["output_format", "OutputFormat"])
@@ -1653,6 +1709,23 @@ fn normalize_image_provider(provider: &str) -> String {
         "" => "openai_codex".to_string(),
         other => other.to_string(),
     }
+}
+
+fn normalize_image_model_for_provider(provider: &str, model: &str) -> String {
+    let trimmed = model.trim();
+    if provider == "openai_codex" && is_public_openai_image_model_name(trimmed) {
+        String::new()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn is_public_openai_image_model_name(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized == "gpt-image"
+        || normalized.starts_with("gpt-image-")
+        || normalized == "dall-e"
+        || normalized.starts_with("dall-e-")
 }
 
 /// Shared implementation: create WebQuery entity, dispatch action, return results.
@@ -3775,9 +3848,10 @@ mod tests {
         fallback_web_search_query, genesis_registry_tenant, has_model_csdl,
         interpret_cached_web_query_result, interpret_web_query_entity_result, is_image_extension,
         is_vague_web_search_query, json_dumps, json_loads, media_type_from_extension,
-        normalize_odata_query_arg, repository_id_for, sandbox_identity_from_fields,
-        sandbox_image_read_result, tool_span_hint_headers_for, web_query_cache_lookup_path,
-        web_search_results_empty,
+        normalize_image_model_for_provider, normalize_image_provider, normalize_odata_query_arg,
+        record_dispatch_image_result, repository_id_for, sandbox_identity_from_fields,
+        sandbox_image_read_result, take_dispatch_image_results, tool_span_hint_headers_for,
+        web_query_cache_lookup_path, web_search_results_empty,
     };
     use serde_json::json;
 
@@ -3938,6 +4012,36 @@ mod tests {
         assert!(web_search_results_empty(&json!("")));
         assert!(web_search_results_empty(&json!("[]")));
         assert!(!web_search_results_empty(&json!("headline text")));
+    }
+
+    #[test]
+    fn openai_codex_image_generation_drops_public_openai_image_model_names() {
+        let provider = normalize_image_provider("codex");
+
+        assert_eq!(provider, "openai_codex");
+        assert_eq!(
+            normalize_image_model_for_provider(&provider, "gpt-image-2"),
+            ""
+        );
+        assert_eq!(
+            normalize_image_model_for_provider(&provider, " dall-e-3 "),
+            ""
+        );
+    }
+
+    #[test]
+    fn dispatch_image_results_are_collected_and_cleared() {
+        let _ = take_dispatch_image_results();
+        let image = json!({
+            "__temperpaw_image": true,
+            "file_id": "fl-cat",
+            "path": "/generated/images/cat.png"
+        });
+
+        record_dispatch_image_result(&image);
+
+        assert_eq!(take_dispatch_image_results(), vec![image]);
+        assert!(take_dispatch_image_results().is_empty());
     }
 
     #[test]

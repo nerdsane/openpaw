@@ -178,7 +178,11 @@ pub fn reply_attachments_from_tool_results(tool_results: &[Value]) -> String {
     let mut attachments = Vec::new();
 
     for result in tool_results {
-        collect_reply_attachment_from_value(result.get("content").unwrap_or(result), &mut seen, &mut attachments);
+        collect_reply_attachment_from_value(
+            result.get("content").unwrap_or(result),
+            &mut seen,
+            &mut attachments,
+        );
     }
 
     if attachments.is_empty() {
