@@ -17,6 +17,7 @@ const TEMPERFS_BATCH_READ_ATTEMPTS: usize = 3;
 const SESSION_ENTRIES_PAGE_SIZE: usize = 200;
 const SESSION_ENTRIES_MIN_PAGE_SIZE: usize = 10;
 const SESSION_ENTRIES_MAX_ENTRIES: usize = 10_000;
+const SESSION_ENTRIES_MAX_CHAIN_DEPTH: usize = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchTextFileReadItem {
@@ -780,7 +781,11 @@ pub fn read_session_from_entries(
     fields: &Value,
     session_id: &str,
 ) -> Result<String, String> {
-    let entries = list_session_entries(ctx, temper_api_url, tenant, fields, session_id)?;
+    let entries =
+        match read_session_entries_from_leaf(ctx, temper_api_url, tenant, fields, session_id)? {
+            Some(entries) => entries,
+            None => list_session_entries(ctx, temper_api_url, tenant, fields, session_id)?,
+        };
     Ok(session_entries_jsonl_from_entities(&entries))
 }
 
@@ -970,6 +975,95 @@ fn list_session_entries(
         "SessionEntry list exceeded {} entries for session {session_id}; refusing incomplete context",
         SESSION_ENTRIES_MAX_ENTRIES
     ))
+}
+
+fn read_session_entries_from_leaf(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    session_id: &str,
+) -> Result<Option<Vec<Value>>, String> {
+    let Some(leaf_id) = entity_field_str(fields, &["session_leaf_id", "SessionLeafId"])
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
+    let mut current_entry_id = leaf_id.to_string();
+    let mut reversed_entries = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+
+    while reversed_entries.len() < SESSION_ENTRIES_MAX_CHAIN_DEPTH {
+        if !visited.insert(current_entry_id.clone()) {
+            return Err(format!(
+                "SessionEntry parent chain for SessionId={session_id} contains a cycle at EntryId={current_entry_id}"
+            ));
+        }
+
+        let entry =
+            read_session_entry_by_id(ctx, temper_api_url, &headers, session_id, &current_entry_id)?;
+        let Some(entry) = entry else {
+            if reversed_entries.is_empty() && !session_entries_materialized(fields) {
+                return Ok(Some(Vec::new()));
+            }
+            return Err(format!(
+                "SessionEntry parent-chain read for SessionId={session_id} could not find EntryId={current_entry_id}"
+            ));
+        };
+
+        let parent_entry_id =
+            entity_field_str(&entry, &["ParentEntryId", "parent_entry_id"]).unwrap_or("");
+        let next_entry_id = parent_entry_id.to_string();
+        reversed_entries.push(entry);
+        if next_entry_id.is_empty() {
+            reversed_entries.reverse();
+            return Ok(Some(reversed_entries));
+        }
+        current_entry_id = next_entry_id;
+    }
+
+    Err(format!(
+        "SessionEntry parent chain exceeded {SESSION_ENTRIES_MAX_CHAIN_DEPTH} entries for SessionId={session_id}; refusing incomplete context"
+    ))
+}
+
+fn read_session_entry_by_id(
+    ctx: &Context,
+    temper_api_url: &str,
+    headers: &[(String, String)],
+    session_id: &str,
+    entry_id: &str,
+) -> Result<Option<Value>, String> {
+    let url = session_entry_verify_url(temper_api_url, session_id, entry_id);
+    let resp = ctx.http_call("GET", &url, headers, "")?;
+    if resp.status != 200 {
+        return Err(format!(
+            "SessionEntry direct lookup failed for SessionId={session_id} EntryId={entry_id} (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|err| format!("parse SessionEntry direct lookup response: {err}"))?;
+    Ok(parsed
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .cloned())
+}
+
+fn session_entries_materialized(fields: &Value) -> bool {
+    ["session_entries_materialized", "SessionEntriesMaterialized"]
+        .iter()
+        .find_map(|key| {
+            fields
+                .get(*key)
+                .or_else(|| fields.get("fields").and_then(|inner| inner.get(*key)))
+                .and_then(boolish_json)
+        })
+        .unwrap_or(true)
 }
 
 fn session_entry_query_too_large(status: u16, body: &str) -> bool {

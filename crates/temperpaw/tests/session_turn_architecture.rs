@@ -376,6 +376,14 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
         "batched SessionEntry readback should use one bounded per-entry URL per expected entry"
     );
     assert!(
+        helpers.contains("read_session_entries_from_leaf"),
+        "SessionEntry history reads should prefer bounded direct EntryId parent-chain reads from session_leaf_id"
+    );
+    assert!(
+        helpers.contains("ParentEntryId"),
+        "SessionEntry parent-chain reads must follow ParentEntryId instead of session-wide scans"
+    );
+    assert!(
         helpers.contains("$orderby=Sequence%20asc"),
         "SessionEntry history reads should use deterministic keyset ordering"
     );
