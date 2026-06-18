@@ -499,15 +499,17 @@ fn read_session_from_temperfs(
     temper_api_url: &str,
     tenant: &str,
     file_id: &str,
+    session_leaf_id: Option<&str>,
 ) -> Result<String, String> {
     if wasm_helpers::is_session_entries_ref(file_id) {
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
-        return wasm_helpers::read_session_from_temperfs(
+        return wasm_helpers::read_session_from_temperfs_with_leaf(
             ctx,
             temper_api_url,
             tenant,
             &fields,
             file_id,
+            session_leaf_id,
         );
     }
 
@@ -1213,7 +1215,13 @@ fn load_messages_for_prepare(
     let use_session_tree = !session_file_id.is_empty() && !session_leaf_id.is_empty();
     if use_session_tree {
         let session_jsonl =
-            read_session_from_temperfs(ctx, temper_api_url, tenant, session_file_id)?;
+            read_session_from_temperfs(
+                ctx,
+                temper_api_url,
+                tenant,
+                session_file_id,
+                Some(session_leaf_id),
+            )?;
         if session_jsonl.is_empty() {
             if is_session_entries_ref(session_file_id) {
                 ctx.log(
