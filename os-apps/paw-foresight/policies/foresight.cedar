@@ -84,7 +84,8 @@ permit(
 permit(
   principal,
   action in [Action::"PathsScored", Action::"UpdateComplete",
-             Action::"SpawnNextDweller", Action::"GateDiversity"],
+             Action::"SpawnNextDweller", Action::"GateDiversity",
+             Action::"ResumeSeed", Action::"ResumeWorldCascade"],
   resource is World
 ) when {
   principal.agent_type == "system"
@@ -159,6 +160,7 @@ permit(
 permit(
   principal,
   action in [Action::"SubmitForRepair", Action::"ReSteer",
+             Action::"ResumeWriter", Action::"ResumeEndpointScoring",
              Action::"PathsAttached", Action::"ClaimsAttached",
              Action::"SpawnNextBridge", Action::"ScoreComplete",
              Action::"MarkWeighted", Action::"Reweigh"],

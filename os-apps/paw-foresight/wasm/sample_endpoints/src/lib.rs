@@ -885,7 +885,10 @@ fn phase_gate(ctx: &Context) -> Result<(), String> {
     Ok(())
 }
 
-/// Endpoint.ReSteer: re-spawn the writer with the differentiate brief.
+/// Endpoint.ReSteer / Endpoint.ResumeWriter: re-spawn the writer with the
+/// endpoint's stance and any differentiate brief. ReSteer (gate-dispatched)
+/// rewrites a near-duplicate to diverge; ResumeWriter (the Sampled
+/// state_timeout) re-drives a writer that died or was orphaned by a restart.
 fn phase_resteer(ctx: &Context) -> Result<(), String> {
     let ep = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
     let g = |k: &str| ep.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -903,6 +906,11 @@ fn phase_resteer(ctx: &Context) -> Result<(), String> {
         .ok()
         .and_then(|v| v.get("stance").and_then(|s| s.as_str()).map(str::to_string))
         .unwrap_or_default();
+    let reason = if ctx.trigger_action == "ResumeWriter" {
+        "resume"
+    } else {
+        "resteer"
+    };
     spawn_writer(
         ctx,
         &api,
@@ -911,10 +919,13 @@ fn phase_resteer(ctx: &Context) -> Result<(), String> {
         &ctx.entity_id,
         &stance,
         &g("revision_brief"),
-        &format!("EndpointWriter-{}-resteer", ctx.entity_id),
+        &format!("EndpointWriter-{}-{reason}", ctx.entity_id),
     )?;
     set_success_result("", &json!({}));
-    ctx.log("info", &format!("sample_endpoints: re-steered writer for endpoint {}", ctx.entity_id));
+    ctx.log(
+        "info",
+        &format!("sample_endpoints: {reason} writer for endpoint {}", ctx.entity_id),
+    );
     Ok(())
 }
 
@@ -927,7 +938,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "SampleEndpoints" => phase_sample(&ctx),
             "BundleWritten" => phase_barrier(&ctx),
             "GateDiversity" => phase_gate(&ctx),
-            "ReSteer" => phase_resteer(&ctx),
+            // ReSteer (gate-dispatched) and ResumeWriter (the Sampled
+            // state_timeout self-heal) share one path: re-spawn the writer with
+            // the endpoint's stance + any revision_brief (ADR-0050/ADR-007).
+            "ReSteer" | "ResumeWriter" => phase_resteer(&ctx),
             other => {
                 ctx.log("warn", &format!("sample_endpoints: unexpected trigger {other}; nothing to do"));
                 set_success_result("", &json!({}));
