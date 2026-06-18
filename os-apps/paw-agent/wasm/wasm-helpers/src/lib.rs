@@ -91,6 +91,10 @@ pub fn is_session_entries_ref(reference: &str) -> bool {
     session_id_from_entries_ref(reference).is_some()
 }
 
+fn is_virtual_first_turn_session_leaf(session_id: &str, session_leaf_id: &str) -> bool {
+    session_leaf_id == format!("u-{session_id}-0")
+}
+
 pub fn next_session_entry_id(prefix: &str, parent_entry_id: &str) -> (String, i64) {
     let next_sequence = parent_session_entry_sequence(parent_entry_id).unwrap_or(0) + 1;
     (format!("{prefix}-{next_sequence}"), next_sequence)
@@ -813,6 +817,10 @@ fn read_session_from_entries_chain(
     session_id: &str,
     session_leaf_id: &str,
 ) -> Result<String, String> {
+    if is_virtual_first_turn_session_leaf(session_id, session_leaf_id) {
+        return Ok(String::new());
+    }
+
     let headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
     let mut entries = Vec::new();
     let mut current_entry_id = session_leaf_id.to_string();
@@ -1946,6 +1954,13 @@ mod tests {
             session_entries_list_url("http://temper", "ss-1", 1000, 2000),
             "http://temper/tdata/SessionEntries?$filter=SessionId%20eq%20%27ss-1%27&$orderby=Sequence%20asc,EntryId%20asc&$top=1000&$skip=2000"
         );
+    }
+
+    #[test]
+    fn virtual_first_turn_leaf_is_detected_without_odata_probe() {
+        assert!(is_virtual_first_turn_session_leaf("ss-live", "u-ss-live-0"));
+        assert!(!is_virtual_first_turn_session_leaf("ss-live", "a-2"));
+        assert!(!is_virtual_first_turn_session_leaf("ss-live", "u-other-0"));
     }
 
     #[test]
