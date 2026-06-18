@@ -85,7 +85,7 @@ permit(
   principal,
   action in [Action::"PathsScored", Action::"UpdateComplete",
              Action::"SpawnNextDweller", Action::"GateDiversity",
-             Action::"ResumeWorldCascade"],
+             Action::"ResumeSeed", Action::"ResumeWorldCascade"],
   resource is World
 ) when {
   principal.agent_type == "system"
