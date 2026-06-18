@@ -520,6 +520,10 @@
         <Parameter Name="uncertainty_axes" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Foresight.World"/>
       </Action>
+      <Action Name="ResumeSeed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
+        <ReturnType Type="TemperPaw.Foresight.World"/>
+      </Action>
       <Action Name="SampleEndpoints" IsBound="true">
         <Parameter Name="bindingParameter" Type="TemperPaw.Foresight.World"/>
         <ReturnType Type="TemperPaw.Foresight.World"/>
