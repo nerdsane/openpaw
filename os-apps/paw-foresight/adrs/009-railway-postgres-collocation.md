@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -23,7 +23,7 @@ database move does not replace the Lane 2 work to reduce database work
 itself: snapshots, projections, OTS, and `Session` / `SessionEntry` scans still
 need to be reduced.
 
-Railway production already contains an empty, ready Postgres service
+Railway production already contained an empty, ready Postgres service
 `Postgres-v79y` in the same environment and region as `foresight`, with a
 private host on the Railway internal network and a ready 50 GB volume.
 
@@ -52,6 +52,10 @@ Before switching `foresight`, the operator must explicitly choose either a
 fresh proof database or a preserving migration of the current `deep-sci-fi`
 tenant data.
 
+On 2026-06-18 the operator approved the fresh proof database path. Lane 4
+switched only the dedicated `foresight` service to `Postgres-v79y`; Supabase was
+left untouched as rollback source and no preserving migration was performed.
+
 ## Migration Options
 
 ### Fresh Proof Database
@@ -65,6 +69,8 @@ proof run.
 4. Let startup run Postgres migrations and Genesis app reconciliation.
 5. Verify `/healthz`, OData entity reads, tenant `deep-sci-fi`, and a fresh
    corridor action flow.
+
+This was the selected path on 2026-06-18.
 
 ### Data-Preserving Migration
 
