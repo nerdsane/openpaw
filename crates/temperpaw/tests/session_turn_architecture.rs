@@ -389,7 +389,8 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
     );
     assert!(
         context_preparer_wasm.contains("SessionEntry direct lookup failed")
-            && context_preparer_wasm.contains("SessionEntry parent-chain read"),
+            && context_preparer_wasm.contains("SessionEntry parent-chain read")
+            && context_preparer_wasm.contains("SessionEntry virtual first-turn leaf"),
         "built context_preparer.wasm must include the bounded leaf parent-chain reader"
     );
     assert!(
