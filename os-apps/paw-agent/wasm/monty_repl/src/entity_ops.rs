@@ -2176,6 +2176,30 @@ fn http_get(
         .map_err(|e| format!("failed to parse response from {path}: {e}"))
 }
 
+fn http_get_optional(
+    ctx: &Context,
+    api_url: &str,
+    _tenant: &str,
+    _principal_id: &str,
+    path: &str,
+) -> Result<Option<Value>, String> {
+    let url = format!("{api_url}{path}");
+    let headers = internal_headers();
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if let Some(denial) = dispatch::check_cedar_denial(resp.status, &resp.body) {
+        return Err(denial);
+    }
+    if resp.status == 404 {
+        return Ok(None);
+    }
+    if resp.status >= 400 {
+        return Err(format!("HTTP GET {path}: {} {}", resp.status, resp.body));
+    }
+    serde_json::from_str(&resp.body)
+        .map(Some)
+        .map_err(|e| format!("failed to parse response from {path}: {e}"))
+}
+
 fn http_post(
     ctx: &Context,
     api_url: &str,
@@ -2405,12 +2429,25 @@ fn pawfs_path_segments(path: &str) -> Vec<&str> {
         .collect()
 }
 
-fn pawfs_filter_path_and_workspace(path: &str, ws_id: &str) -> String {
-    format!(
-        "Path eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'",
-        escape_odata_string(path),
-        escape_odata_string(ws_id)
-    )
+fn pawfs_stable_hash(parts: &[&str]) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for part in parts {
+        for byte in part.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash ^= 0xff;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn pawfs_directory_id(ws_id: &str, path: &str) -> String {
+    format!("dir-{:016x}", pawfs_stable_hash(&[ws_id, path]))
+}
+
+fn pawfs_file_id(ws_id: &str, path: &str) -> String {
+    format!("fl-{:016x}", pawfs_stable_hash(&[ws_id, path]))
 }
 
 fn pawfs_filter_parent_and_workspace(parent_id: &str, ws_id: &str) -> String {
@@ -2421,8 +2458,11 @@ fn pawfs_filter_parent_and_workspace(parent_id: &str, ws_id: &str) -> String {
     )
 }
 
-fn pawfs_first_entity(resp: &Value) -> Option<&Value> {
-    resp.get("value").and_then(Value::as_array)?.first()
+fn pawfs_entity_is_archived(value: &Value) -> bool {
+    matches!(
+        entity_field_str_any(value, &["Status", "status"]),
+        Some("Archived")
+    )
 }
 
 fn pawfs_entity_id(value: &Value) -> Option<&str> {
@@ -2514,16 +2554,22 @@ fn find_pawfs_directory(
     raw_path: &str,
 ) -> Result<Option<PawFsDirectory>, String> {
     let path = pawfs_normalize_path(raw_path)?;
-    let filter = urlenc(&pawfs_filter_path_and_workspace(&path, ws_id));
+    let directory_id = pawfs_directory_id(ws_id, &path);
     let eid = ctx_entity_id(ctx);
-    let resp = http_get(
+    let Some(resp) = http_get_optional(
         ctx,
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Directories?$filter={filter}"),
-    )?;
-    Ok(pawfs_first_entity(&resp).and_then(pawfs_directory_from_value))
+        &format!("/tdata/Directories('{directory_id}')"),
+    )?
+    else {
+        return Ok(None);
+    };
+    if pawfs_entity_is_archived(&resp) {
+        return Ok(None);
+    }
+    Ok(pawfs_directory_from_value(&resp))
 }
 
 fn find_pawfs_file(
@@ -2534,16 +2580,22 @@ fn find_pawfs_file(
     raw_path: &str,
 ) -> Result<Option<PawFsFile>, String> {
     let path = pawfs_normalize_path(raw_path)?;
-    let filter = urlenc(&pawfs_filter_path_and_workspace(&path, ws_id));
+    let file_id = pawfs_file_id(ws_id, &path);
     let eid = ctx_entity_id(ctx);
-    let resp = http_get(
+    let Some(resp) = http_get_optional(
         ctx,
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Files?$filter={filter}"),
-    )?;
-    Ok(pawfs_first_entity(&resp).and_then(pawfs_file_from_value))
+        &format!("/tdata/Files('{file_id}')"),
+    )?
+    else {
+        return Ok(None);
+    };
+    if pawfs_entity_is_archived(&resp) {
+        return Ok(None);
+    }
+    Ok(pawfs_file_from_value(&resp))
 }
 
 fn create_pawfs_directory(
@@ -2557,6 +2609,7 @@ fn create_pawfs_directory(
     parent_id: Option<&str>,
 ) -> Result<PawFsDirectory, String> {
     let mut body = json!({
+        "Id": pawfs_directory_id(ws_id, path),
         "Name": name,
         "Path": path,
         "WorkspaceId": ws_id,
@@ -2665,6 +2718,7 @@ fn ensure_pawfs_file(
     let (dir_path, filename) = pawfs_parse_file_path(&normalized)?;
     let directory = ensure_pawfs_directory(ctx, api_url, tenant, principal_id, ws_id, dir_path)?;
     let body = json!({
+        "Id": pawfs_file_id(ws_id, &normalized),
         "Name": filename,
         "Path": normalized,
         "DirectoryId": directory.id.clone(),
@@ -2988,11 +3042,26 @@ mod tests {
     }
 
     #[test]
-    fn pawfs_filter_escapes_odata_string_literals() {
+    fn pawfs_deterministic_ids_are_workspace_and_path_scoped() {
+        let ws_one = "ws-1";
+        let ws_two = "ws-2";
+        let path = pawfs_normalize_path("//notes///readme.md").unwrap();
+
         assert_eq!(
-            pawfs_filter_path_and_workspace("/notes/we're-here.md", "ws'1"),
-            "Path eq '/notes/we''re-here.md' and WorkspaceId eq 'ws''1' and Status ne 'Archived'"
+            pawfs_directory_id(ws_one, &path),
+            pawfs_directory_id(ws_one, "/notes/readme.md")
         );
+        assert_ne!(
+            pawfs_directory_id(ws_one, &path),
+            pawfs_directory_id(ws_two, &path)
+        );
+        assert_eq!(
+            pawfs_file_id(ws_one, &path),
+            pawfs_file_id(ws_one, "/notes/readme.md")
+        );
+        assert_ne!(pawfs_directory_id(ws_one, &path), pawfs_file_id(ws_one, &path));
+        assert!(pawfs_directory_id(ws_one, &path).starts_with("dir-"));
+        assert!(pawfs_file_id(ws_one, &path).starts_with("fl-"));
     }
 
     #[test]
