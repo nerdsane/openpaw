@@ -2529,7 +2529,7 @@ fn find_pawfs_directory(
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Directories?$filter={filter}"),
+        &format!("/tdata/Directories?$filter={filter}&$top=1"),
     )?;
     Ok(pawfs_first_entity(&resp).and_then(pawfs_directory_from_value))
 }
@@ -2549,7 +2549,7 @@ fn find_pawfs_file(
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Files?$filter={filter}"),
+        &format!("/tdata/Files?$filter={filter}&$top=1"),
     )?;
     Ok(pawfs_first_entity(&resp).and_then(pawfs_file_from_value))
 }

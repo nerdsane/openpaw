@@ -105,6 +105,43 @@ fn monty_exposes_write_many_for_artifact_sets() {
 }
 
 #[test]
+fn genesis_publish_git_commands_are_noninteractive_and_authenticated() {
+    let source = repo_file("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs");
+    assert!(
+        source.contains("genesis_registry_auth_header"),
+        "publish_app/update_app must derive an Authorization extraHeader for Genesis git smart HTTP"
+    );
+    assert!(
+        source.contains("Authorization: Bearer"),
+        "Genesis git auth should use the GitToken bearer contract accepted by genesis git_auth"
+    );
+    assert!(
+        source.contains("GIT_TERMINAL_PROMPT=0"),
+        "Genesis git publish must fail deterministically instead of prompting agents for username/password"
+    );
+}
+
+#[test]
+fn pawfs_single_entity_lookups_are_bounded_to_one_result() {
+    let monty_source = repo_file("os-apps/paw-agent/wasm/monty_repl/src/entity_ops.rs");
+    for (collection, helper) in [
+        ("Directories", "find_pawfs_directory"),
+        ("Files", "find_pawfs_file"),
+    ] {
+        assert!(
+            monty_source.contains(&format!("/tdata/{collection}?$filter={{filter}}&$top=1")),
+            "{helper} must bound direct PawFS lookups with $top=1 so hot-path writes cannot trip OData QueryTooLarge on duplicate/stale rows"
+        );
+    }
+
+    let artifact_batch_source = repo_file("os-apps/paw-fs/wasm/artifact_batch_apply/src/lib.rs");
+    assert!(
+        artifact_batch_source.contains("/tdata/{set_name}?$filter={encoded}&$top=1"),
+        "artifact_batch_apply single-entity lookup must also be bounded with $top=1"
+    );
+}
+
+#[test]
 fn default_agent_tool_allowlists_include_write_many() {
     for path in [
         "crates/temperpaw/src/startup.rs",

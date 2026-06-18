@@ -30,6 +30,10 @@ repo-local app catalog. Configure fresh-instance bootstrap with pinned refs:
 - `TEMPERPAW_GENESIS_BOOTSTRAP_REFS=temperpaw/paw-fs@HASH,temperpaw/paw-agent@HASH`
 - `TEMPERPAW_GENESIS_CACHE_RESTORE_TIMEOUT_SECS=20`
 - `TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS=60`
+- Temper secret `GENESIS_GIT_TOKEN` or `GENESIS_TOKEN`, or
+  `GENESIS_GIT_TOKEN_SECRET` / `GENESIS_TOKEN_SECRET` pointing at an equivalent
+  active Genesis GitToken secret, for agent `publish_app` and `update_app` git
+  pushes.
 
 On restart with the same database, TemperPaw restores installed Genesis app
 metadata and skips unchanged bootstrap refs. Do not reset, wipe, replace, or

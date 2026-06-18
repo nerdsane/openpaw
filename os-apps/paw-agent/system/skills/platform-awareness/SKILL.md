@@ -229,6 +229,11 @@ new_ref = temper.update_app({
 temper.install_app({"app_ref": new_ref, "follow_policy": "pinned", "reason": "Roll forward repaired app"})
 ```
 
+`publish_app` and `update_app` require a configured Genesis GitToken secret
+(`GENESIS_GIT_TOKEN` or `GENESIS_TOKEN` by default, or an explicit
+`registry_token_secret`). Missing auth is a publish blocker; it is not a
+successful repair until the returned pinned ref is installed and verified.
+
 Then verify the entity/action that was broken. Report the old pinned ref, the
 new pinned ref, and the smoke result. A normal app repair is a new version of
 the same Genesis app; it is not a fork or lineage change unless you are creating

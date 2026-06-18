@@ -306,7 +306,7 @@ fn find_entity_id(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/{set_name}?$filter={encoded}"),
+        &format!("/tdata/{set_name}?$filter={encoded}&$top=1"),
     )?;
     Ok(resp
         .get("value")

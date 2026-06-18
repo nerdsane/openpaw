@@ -326,6 +326,11 @@ new_ref = temper.update_app({
 temper.install_app({"app_ref": new_ref, "follow_policy": "pinned", "reason": "Install repaired app"})
 ```
 
+`publish_app` and `update_app` use the configured Genesis GitToken secret
+(`GENESIS_GIT_TOKEN` or `GENESIS_TOKEN` by default, or `registry_token_secret`
+when explicitly provided). If auth is missing, stop and report the failed
+publish instead of claiming the local edit is installed.
+
 Verify the broken entity/action after install. A repair is a new version of the
 same Genesis app. Use lineage only when creating a fork/import/derivative app.
 

@@ -2369,6 +2369,7 @@ fn temper_publish_app(
     let name = required_obj_str(input, "name", "publish_app")?;
     let registry_url = genesis_registry_url(ctx, Some(input))?;
     let registry_tenant = genesis_registry_tenant(input);
+    let registry_auth_header = genesis_registry_auth_header(ctx, input)?;
     let message = input
         .get("message")
         .and_then(Value::as_str)
@@ -2384,6 +2385,7 @@ fn temper_publish_app(
         &name,
         &registry_url,
         &registry_tenant,
+        &registry_auth_header,
         message,
     )
 }
@@ -2404,6 +2406,7 @@ fn temper_update_app(
     let (owner, name) = owner_name_from_ref_or_name(&app_ref_or_name)?;
     let registry_url = genesis_registry_url(ctx, Some(input))?;
     let registry_tenant = genesis_registry_tenant(input);
+    let registry_auth_header = genesis_registry_auth_header(ctx, input)?;
     let message = input
         .get("message")
         .and_then(Value::as_str)
@@ -2419,6 +2422,7 @@ fn temper_update_app(
         &name,
         &registry_url,
         &registry_tenant,
+        &registry_auth_header,
         message,
     )
 }
@@ -2434,6 +2438,7 @@ fn publish_or_update_app_via_git(
     name: &str,
     registry_url: &str,
     registry_tenant: &str,
+    registry_auth_header: &str,
     message: &str,
 ) -> Result<Value, String> {
     if sandbox_url.is_empty() {
@@ -2468,11 +2473,12 @@ fn publish_or_update_app_via_git(
     let git_tenant_header = format!("X-Tenant-Id: {registry_tenant}");
     let command = format!(
         "set -euo pipefail\n\
+         export GIT_TERMINAL_PROMPT=0\n\
          source_dir={}\n\
          publish_dir=$(mktemp -d)\n\
          cleanup() {{ rm -rf \"$publish_dir\"; }}\n\
          trap cleanup EXIT\n\
-         if ! git -c {}={} -c protocol.version=0 clone {} \"$publish_dir\" >/dev/null 2>&1; then\n\
+         if ! git -c {}={} -c {}={} -c protocol.version=0 clone {} \"$publish_dir\" >/dev/null 2>&1; then\n\
            git init -b main \"$publish_dir\" >/dev/null 2>&1 || (git init \"$publish_dir\" >/dev/null && git -C \"$publish_dir\" checkout -B main >/dev/null)\n\
            git -C \"$publish_dir\" remote add origin {}\n\
          fi\n\
@@ -2482,6 +2488,7 @@ fn publish_or_update_app_via_git(
          find \"$publish_dir\" -type f \\( -name '*.pyc' -o -name '*.pyo' \\) -delete\n\
          cd \"$publish_dir\"\n\
          git config --unset-all {} >/dev/null 2>&1 || true\n\
+         git config --add {} {}\n\
          git config --add {} {}\n\
          git config protocol.version 0\n\
          git add .\n\
@@ -2498,11 +2505,15 @@ fn publish_or_update_app_via_git(
         shell_quote(path),
         shell_quote(&git_header_key),
         shell_quote(&git_tenant_header),
+        shell_quote(&git_header_key),
+        shell_quote(registry_auth_header),
         shell_quote(&remote),
         shell_quote(&remote),
         shell_quote(&git_header_key),
         shell_quote(&git_header_key),
         shell_quote(&git_tenant_header),
+        shell_quote(&git_header_key),
+        shell_quote(registry_auth_header),
         shell_quote("TemperPaw Agent"),
         shell_quote("agent@temperpaw.local"),
         shell_quote(message),
@@ -2778,6 +2789,47 @@ fn genesis_registry_tenant(input: &serde_json::Map<String, Value>) -> String {
         .unwrap_or("default")
         .trim()
         .to_string()
+}
+
+fn genesis_registry_auth_header(
+    ctx: &Context,
+    input: &serde_json::Map<String, Value>,
+) -> Result<String, String> {
+    let configured_secret_name = input
+        .get("registry_token_secret")
+        .or_else(|| input.get("git_token_secret"))
+        .or_else(|| input.get("genesis_git_token_secret"))
+        .or_else(|| input.get("genesis_token_secret"))
+        .or_else(|| input.get("RegistryTokenSecret"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .or_else(|| ctx.config.get("genesis_registry_token_secret").cloned())
+        .or_else(|| ctx.config.get("GENESIS_REGISTRY_TOKEN_SECRET").cloned())
+        .or_else(|| ctx.config.get("genesis_git_token_secret").cloned())
+        .or_else(|| ctx.config.get("GENESIS_GIT_TOKEN_SECRET").cloned())
+        .or_else(|| ctx.config.get("genesis_token_secret").cloned())
+        .or_else(|| ctx.config.get("GENESIS_TOKEN_SECRET").cloned());
+    let secret_names = configured_secret_name
+        .as_deref()
+        .map(|name| vec![name.trim().to_string()])
+        .unwrap_or_else(|| vec!["GENESIS_GIT_TOKEN".to_string(), "GENESIS_TOKEN".to_string()]);
+
+    let mut failures = Vec::new();
+    for secret_name in secret_names.iter().filter(|name| !name.is_empty()) {
+        match ctx.get_secret(secret_name) {
+            Ok(token) if !token.trim().is_empty() => {
+                return Ok(format!("Authorization: Bearer {}", token.trim()));
+            }
+            Ok(_) => failures.push(format!("{secret_name}: empty")),
+            Err(error) => failures.push(format!("{secret_name}: {error}")),
+        }
+    }
+
+    Err(format!(
+        "Genesis git publish requires an active Genesis GitToken secret; attempted {}",
+        failures.join("; ")
+    ))
 }
 
 fn genesis_registry_headers(registry_tenant: &str) -> Vec<(String, String)> {
