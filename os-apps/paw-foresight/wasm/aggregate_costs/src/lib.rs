@@ -865,7 +865,12 @@ fn world_cascade_self_heal(ctx: &Context, fields: &Value) -> Result<(), String> 
     let world_id = ctx.entity_id.clone();
     let api = api_url(ctx);
     let headers = system_headers(ctx);
-    world_cascade(ctx, &api, &headers, &world_id, "", None)
+    world_cascade(ctx, &api, &headers, &world_id, "", None)?;
+    // No-op paths inside world_cascade (claims still Bridging, canonical already
+    // set, etc.) must still report success: the host treats an empty WASM result
+    // as failure and ResumeWorldCascade has on_failure = Fail.
+    set_success_result("", &json!({}));
+    Ok(())
 }
 
 /// Endpoint.ResumeEndpointScoring (UnderRepair state_timeout): every claim on

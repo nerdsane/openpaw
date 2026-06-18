@@ -295,18 +295,45 @@ fn spawn_session(
         })
         .ok_or("Agent create returned no entity_id")?;
 
-    let session_resp = ctx.http_call(
-        "POST",
-        &format!("{api}/tdata/Sessions"),
-        headers,
-        &json!({ "agent_id": agent_id }).to_string(),
-    )?;
-    if session_resp.status < 200 || session_resp.status >= 300 {
-        return Err(format!(
-            "create Session for {name} failed (HTTP {})",
-            session_resp.status
-        ));
+    // Session create can fail transiently under load (host HTTP errors and 5xx).
+    // Retry before giving up; caller may treat failure as non-fatal (ResumeWriter).
+    let session_body = json!({ "agent_id": agent_id }).to_string();
+    let mut session_resp = None;
+    let mut last_err = String::new();
+    for attempt in 1..=5 {
+        match ctx.http_call(
+            "POST",
+            &format!("{api}/tdata/Sessions"),
+            headers,
+            &session_body,
+        ) {
+            Ok(resp) if (200..300).contains(&resp.status) => {
+                session_resp = Some(resp);
+                break;
+            }
+            Ok(resp) => {
+                last_err = format!("HTTP {}", resp.status);
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "sample_endpoints: create Session for {name} attempt {attempt} {last_err}"
+                    ),
+                );
+            }
+            Err(e) => {
+                last_err = e.clone();
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "sample_endpoints: create Session for {name} attempt {attempt} err: {e}"
+                    ),
+                );
+            }
+        }
     }
+    let session_resp = session_resp.ok_or_else(|| {
+        format!("create Session for {name} failed after 5 attempts: {last_err}")
+    })?;
     let session_id = serde_json::from_str::<Value>(&session_resp.body)
         .ok()
         .and_then(|v| {
@@ -508,6 +535,18 @@ fn dispatch(
         &body.to_string(),
     )?;
     if !(200..300).contains(&r.status) {
+        // Parallel BundleWritten barriers can dispatch GateDiversity twice; the
+        // second pass hits endpoints already in UnderRepair. Treat as success.
+        if r.status == 409
+            && action == "SubmitForRepair"
+            && r.body.contains("UnderRepair")
+        {
+            ctx.log(
+                "warn",
+                &format!("{set}.{action} on {id} no-op (already UnderRepair)"),
+            );
+            return Ok(());
+        }
         return Err(format!(
             "{set}.{action} on {id} failed (HTTP {}): {}",
             r.status,
@@ -672,26 +711,51 @@ fn phase_sample(ctx: &Context) -> Result<(), String> {
         &format!("sample_endpoints: sampling {budget} worlds across {} named axes", axes.len()),
     );
 
+    let mut existing = list(
+        ctx,
+        &api,
+        &headers,
+        "Endpoints",
+        &format!("world_id eq '{world_id}'"),
+    )?;
+    existing.sort_by(|a, b| row_id(a).cmp(row_id(b)));
+
     for i in 0..budget {
         let stance = driver_stance(i, &axes);
-        let endpoint_resp = ctx.http_call(
-            "POST",
-            &format!("{api}/tdata/Endpoints"),
-            &headers,
-            &json!({
-                "world_id": world_id,
-                "driver_config": json!({ "stance": stance }).to_string(),
-            })
-            .to_string(),
-        )?;
-        if !(200..300).contains(&endpoint_resp.status) {
-            return Err(format!("create Endpoint {i} failed (HTTP {})", endpoint_resp.status));
-        }
-        let endpoint_id = serde_json::from_str::<Value>(&endpoint_resp.body)
-            .ok()
-            .and_then(|v| v.get("entity_id").and_then(|x| x.as_str()).map(str::to_string))
-            .ok_or("Endpoint create returned no entity_id")?;
-        spawn_writer(
+        let endpoint_id = if let Some(ep) = existing.get(i) {
+            let id = row_id(ep).to_string();
+            ctx.log(
+                "info",
+                &format!("sample_endpoints: reusing endpoint {id} slot {i}"),
+            );
+            id
+        } else {
+            let endpoint_resp = ctx.http_call(
+                "POST",
+                &format!("{api}/tdata/Endpoints"),
+                &headers,
+                &json!({
+                    "world_id": world_id,
+                    "driver_config": json!({ "stance": stance }).to_string(),
+                })
+                .to_string(),
+            )?;
+            if !(200..300).contains(&endpoint_resp.status) {
+                return Err(format!(
+                    "create Endpoint {i} failed (HTTP {})",
+                    endpoint_resp.status
+                ));
+            }
+            serde_json::from_str::<Value>(&endpoint_resp.body)
+                .ok()
+                .and_then(|v| {
+                    v.get("entity_id")
+                        .and_then(|x| x.as_str())
+                        .map(str::to_string)
+                })
+                .ok_or("Endpoint create returned no entity_id")?
+        };
+        if let Err(e) = spawn_writer(
             ctx,
             &api,
             &headers,
@@ -700,7 +764,13 @@ fn phase_sample(ctx: &Context) -> Result<(), String> {
             &stance,
             "",
             &format!("EndpointWriter-{world_id}-{i}"),
-        )?;
+        ) {
+            // Endpoint stays Sampled; ResumeWriter self-heal re-spawns (ADR-007).
+            ctx.log(
+                "warn",
+                &format!("sample_endpoints: writer {i} spawn failed: {e} (ResumeWriter will retry)"),
+            );
+        }
     }
 
     set_success_result("EndpointsSampled", &json!({}));
@@ -863,6 +933,22 @@ fn phase_gate(ctx: &Context) -> Result<(), String> {
         let has_summary = !cand_summaries[i].is_empty();
         match gate_decision(has_summary, diverse[i], rounds) {
             GateVerdict::Release => {
+                let current = fetch_entity(ctx, &api, &headers, "Endpoints", &cand_ids[i])
+                    .map(|e| row_status(&e).to_string())
+                    .unwrap_or_default();
+                if current != "Written" {
+                    ctx.log(
+                        "info",
+                        &format!(
+                            "sample_endpoints: gate skip {} (status={current}, already handled)",
+                            cand_ids[i]
+                        ),
+                    );
+                    if matches!(current.as_str(), "UnderRepair" | "Scored" | "Weighted") {
+                        released += 1;
+                    }
+                    continue;
+                }
                 dispatch(ctx, &api, &headers, "Endpoints", &cand_ids[i], "SubmitForRepair", &json!({}))?;
                 ctx.log("info", &format!("sample_endpoints: gate released world {} into repair", cand_ids[i]));
                 released += 1;

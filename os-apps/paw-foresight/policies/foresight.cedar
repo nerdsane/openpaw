@@ -477,9 +477,11 @@ permit(
   resource is Artifact
 );
 
+// Corridor sessions create skeleton EventNodes via temper.create in monty.
 permit(
   principal == Agent::"service:wasm-runtime",
-  action in [Action::"Confirm", Action::"UpdateEdges", Action::"AdjudicationVerdict"],
+  action in [Action::"create", Action::"read", Action::"list", Action::"Confirm",
+             Action::"UpdateEdges", Action::"AdjudicationVerdict"],
   resource is EventNode
 );
 

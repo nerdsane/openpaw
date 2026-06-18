@@ -255,6 +255,19 @@ fn workspace_name(world_id: &str) -> String {
     format!("world-{world_id}")
 }
 
+fn odata_escape(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+fn workspace_id_from_entity(entity: &Value) -> Option<String> {
+    entity
+        .get("entity_id")
+        .or_else(|| entity.get("Id"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// Resolve (or create) the per-world PawFS workspace and return its id.
 /// Sessions are Configured with this id so temper.write lands inside a
 /// workspace PawFS Cedar accepts — without it, File create is denied
@@ -266,31 +279,66 @@ fn ensure_world_workspace(
     world_id: &str,
 ) -> Result<String, String> {
     let name = workspace_name(world_id);
-    // Workspace rows are not readable by agent principals (paw-fs Cedar has
-    // no read/list permit on Workspace), so idempotent lookup is impossible:
-    // create one per spawn batch. Correctness needs only that each session's
-    // Configure workspace matches the files it writes; file READS are
-    // unrestricted, so cross-session reads work across workspaces.
-    let create_resp = ctx.http_call(
-        "POST",
-        &format!("{api}/tdata/Workspaces"),
-        headers,
-        &json!({ "name": name, "quota_limit": "104857600" }).to_string(),
-    )?;
-    if create_resp.status < 200 || create_resp.status >= 300 {
+    let lookup = || -> Option<String> {
+        let find_resp = ctx
+            .http_call(
+                "GET",
+                &format!(
+                    "{api}/tdata/Workspaces?$filter=Name%20eq%20'{}'",
+                    odata_escape(&name)
+                ),
+                headers,
+                "",
+            )
+            .ok()?;
+        if !(200..300).contains(&find_resp.status) {
+            return None;
+        }
+        let existing: Value = serde_json::from_str(&find_resp.body).ok()?;
+        existing
+            .get("value")
+            .and_then(|a| a.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(workspace_id_from_entity)
+    };
+    if let Some(id) = lookup() {
+        return Ok(id);
+    }
+
+    for attempt in 1..=3u8 {
+        let create_resp = ctx.http_call(
+            "POST",
+            &format!("{api}/tdata/Workspaces"),
+            headers,
+            &json!({ "name": name, "quota_limit": "104857600" }).to_string(),
+        )?;
+        if (200..300).contains(&create_resp.status) {
+            return serde_json::from_str::<Value>(&create_resp.body)
+                .ok()
+                .and_then(|v| workspace_id_from_entity(&v))
+                .ok_or_else(|| format!("Workspace {name} create returned no entity_id"));
+        }
+        if create_resp.status == 409 {
+            if let Some(id) = lookup() {
+                return Ok(id);
+            }
+        }
+        if create_resp.status >= 500 && attempt < 3 {
+            ctx.log(
+                "warn",
+                &format!(
+                    "create Workspace {name} failed (HTTP {}), retry {attempt}/3",
+                    create_resp.status
+                ),
+            );
+            continue;
+        }
         return Err(format!(
             "create Workspace {name} failed (HTTP {})",
             create_resp.status
         ));
     }
-    serde_json::from_str::<Value>(&create_resp.body)
-        .ok()
-        .and_then(|v| {
-            v.get("entity_id")
-                .and_then(|x| x.as_str())
-                .map(str::to_string)
-        })
-        .ok_or_else(|| format!("Workspace {name} create returned no entity_id"))
+    Err(format!("create Workspace {name} failed after retries"))
 }
 
 fn create_agent(

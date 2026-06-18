@@ -105,7 +105,10 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }
 
-    let otel_guard = temper_observe::otel::init_observability("temperpaw");
+    let otel_service_name = std::env::var("OTEL_SERVICE_NAME")
+        .or_else(|_| std::env::var("DD_SERVICE"))
+        .unwrap_or_else(|_| "temperpaw".to_string());
+    let otel_guard = temper_observe::otel::init_observability(&otel_service_name);
 
     // Print a clean banner in the terminal
     if is_terminal {

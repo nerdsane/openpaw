@@ -665,3 +665,30 @@ fn endpoint_under_repair_self_heals_when_claims_terminal_but_unscored() {
         "ResumeEndpointScoring must trigger aggregate_costs"
     );
 }
+
+#[test]
+fn aggregate_costs_world_cascade_self_heal_reports_success_on_noop() {
+    // en-019ed72d: Active state_timeout fired ResumeWorldCascade while claims
+    // were still Bridging. world_cascade returned early without set_success_result;
+    // the host treated the empty WASM output as failure and Fail'd the world.
+    let source = read(
+        repo_root().join("os-apps/paw-foresight/wasm/aggregate_costs/src/lib.rs"),
+    );
+    let start = source
+        .find("fn world_cascade_self_heal")
+        .expect("aggregate_costs must define world_cascade_self_heal");
+    let body = &source[start..];
+    let end = body
+        .find("\nfn ")
+        .unwrap_or(body.len());
+    let func = &body[..end];
+    let cascade_call = func
+        .find("world_cascade(ctx")
+        .expect("world_cascade_self_heal must call world_cascade");
+    let after_cascade = &func[cascade_call..];
+    assert!(
+        after_cascade.contains("set_success_result"),
+        "world_cascade_self_heal must call set_success_result after world_cascade \
+         so ResumeWorldCascade no-ops do not surface as module returned empty result"
+    );
+}
