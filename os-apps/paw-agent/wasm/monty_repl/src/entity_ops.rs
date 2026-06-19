@@ -523,11 +523,60 @@ pub fn write_with_sandbox(
         }
     }
 
+    // Confirm the file actually reached Ready (bytes durably stored) before
+    // returning its id. The $value PUT dispatches StreamUpdated server-side; a
+    // file still in Created here means the bytes did not persist and would
+    // surface later as a 404 on $value. Fail loudly so the caller retries
+    // instead of attaching a phantom file. (ARN-55 / RFC-0001 Stage B.)
+    verify_file_ready(ctx, api_url, tenant, eid, &file.id)?;
+
     Ok(json!({
         "file_id": file.id,
         "path": file.path,
         "workspace_id": ws_id,
     }))
+}
+
+/// True when a Files entity is in a state that guarantees its blob is stored.
+/// A File reaches Ready/Locked only after StreamUpdated, which the kernel
+/// dispatches once the bytes are durably persisted (temper-fs invariant
+/// `ReadyFilesHaveContent`). `Created`/`Archived` do not guarantee content.
+fn file_status_is_ready(file: &Value) -> bool {
+    let status = file
+        .get("Status")
+        .or_else(|| file.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    matches!(status, "Ready" | "Locked")
+}
+
+/// Read a freshly-written Files entity back and confirm it reached Ready, so
+/// `temper.write` never returns a file_id whose blob is missing.
+fn verify_file_ready(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    principal_id: &str,
+    file_id: &str,
+) -> Result<(), String> {
+    let file = http_get(
+        ctx,
+        api_url,
+        tenant,
+        principal_id,
+        &format!("/tdata/Files('{file_id}')"),
+    )?;
+    if !file_status_is_ready(&file) {
+        let status = file
+            .get("Status")
+            .or_else(|| file.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        return Err(format!(
+            "temper.write(): file '{file_id}' did not reach Ready after upload (Status='{status}'); the bytes did not persist. Retry the write."
+        ));
+    }
+    Ok(())
 }
 
 pub fn write_many(
@@ -2874,6 +2923,19 @@ mod tests {
     use super::*;
 
     const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+    #[test]
+    fn file_status_is_ready_accepts_ready_and_locked_only() {
+        // Ready/Locked guarantee bytes are stored (ReadyFilesHaveContent).
+        assert!(file_status_is_ready(&json!({ "Status": "Ready" })));
+        assert!(file_status_is_ready(&json!({ "Status": "Locked" })));
+        // Created/Archived / missing must NOT be treated as ready.
+        assert!(!file_status_is_ready(&json!({ "Status": "Created" })));
+        assert!(!file_status_is_ready(&json!({ "Status": "Archived" })));
+        assert!(!file_status_is_ready(&json!({})));
+        // Lowercase fallback for non-OData shapes.
+        assert!(file_status_is_ready(&json!({ "status": "Ready" })));
+    }
 
     #[test]
     fn spawn_session_input_accepts_legacy_positional_arguments() {
