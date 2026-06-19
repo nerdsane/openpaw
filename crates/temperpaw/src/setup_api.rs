@@ -398,6 +398,10 @@ pub fn router(state: SetupApiState) -> Router {
             post(start_openai_codex_device_login),
         )
         .route(
+            "/paw/apps/install-from-genesis",
+            post(install_app_from_genesis),
+        )
+        .route(
             "/paw/setup/openai-codex/poll",
             post(poll_openai_codex_device_login),
         )
@@ -1053,6 +1057,54 @@ async fn get_openai_codex_status(
         openai_codex_configured(&state),
         snapshot,
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct InstallFromGenesisRequest {
+    /// Pinned ref `owner/name@hash`, e.g. `katagami/katagami-curation@<hash>`.
+    app_ref: String,
+    #[serde(default)]
+    registry_url: String,
+    #[serde(default)]
+    registry_tenant: String,
+    #[serde(default)]
+    follow_policy: String,
+}
+
+/// `POST /paw/apps/install-from-genesis` — reconcile an OS app from a pinned Genesis
+/// ref on a running pod, without a Docker rebuild. Privileged setup endpoint on the
+/// same `/paw/` admin surface as secret/agent management. Lets katagami (and any
+/// os-app) be updated by publishing to Genesis + hitting this endpoint, instead of a
+/// full image rebuild (ARN-69).
+async fn install_app_from_genesis(
+    State(state): State<SetupApiState>,
+    Json(req): Json<InstallFromGenesisRequest>,
+) -> impl IntoResponse {
+    if req.app_ref.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "app_ref (owner/name@hash) is required" })),
+        );
+    }
+    let request = temper_platform::genesis_install::GenesisRegistryInstallRequest {
+        tenant: state.tenant.clone(),
+        app_ref: req.app_ref,
+        registry_url: req.registry_url,
+        registry_tenant: req.registry_tenant,
+        follow_policy: req.follow_policy,
+    };
+    match temper_platform::genesis_install::install_genesis_app_from_registry(
+        &state.platform,
+        request,
+    )
+    .await
+    {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!(result))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error })),
+        ),
+    }
 }
 
 async fn start_openai_codex_device_login(State(state): State<SetupApiState>) -> impl IntoResponse {
