@@ -19,6 +19,7 @@ use opentelemetry::trace::{Span as _, SpanKind, Status, Tracer as _};
 use opentelemetry::{KeyValue, global};
 use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
+use temper_platform::genesis_install::GenesisRegistryInstallRequest;
 use temper_runtime::tenant::TenantId;
 use temper_server::request_context::AgentContext;
 use temper_server::state::DispatchExtOptions;
@@ -47,6 +48,7 @@ const RAILWAY_GRAPHQL_URL: &str = "https://backboard.railway.com/graphql/v2";
 const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
 const DATADOG_RUNTIME_AGENT_IMAGE: &str = "datadog/agent:7";
 const DATADOG_RUNTIME_AGENT_HOST: &str = "datadog-runtime-agent.railway.internal";
+const DEFAULT_GENESIS_REGISTRY_URL: &str = "https://genesis-production-164d.up.railway.app";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -1071,6 +1073,78 @@ struct InstallFromGenesisRequest {
     follow_policy: String,
 }
 
+fn setup_genesis_registry_url(raw: &str) -> Result<String, String> {
+    let fallback = env::var("TEMPERPAW_GENESIS_REGISTRY_URL")
+        .or_else(|_| env::var("TEMPER_GENESIS_REGISTRY_URL"))
+        .unwrap_or_else(|_| DEFAULT_GENESIS_REGISTRY_URL.to_string());
+    let value = if raw.trim().is_empty() {
+        fallback.as_str()
+    } else {
+        raw
+    }
+    .trim()
+    .trim_end_matches('/');
+
+    if !(value.starts_with("http://") || value.starts_with("https://")) {
+        return Err("registry_url must start with http:// or https://".to_string());
+    }
+    Ok(value.to_string())
+}
+
+fn setup_genesis_registry_tenant(raw: &str) -> String {
+    if raw.trim().is_empty() {
+        "default".to_string()
+    } else {
+        raw.trim().to_string()
+    }
+}
+
+fn setup_genesis_follow_policy(raw: &str) -> Result<String, String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized.is_empty() || normalized == "pinned" {
+        return Ok("pinned".to_string());
+    }
+    if normalized == "follow_latest" || normalized == "follow-latest" {
+        return Ok("follow_latest".to_string());
+    }
+    Err(format!(
+        "follow_policy must be 'pinned' or 'follow_latest', got '{raw}'"
+    ))
+}
+
+fn pinned_genesis_app_ref(raw: &str) -> Option<String> {
+    let app_ref = raw.trim();
+    let (owner_and_name, hash) = app_ref.split_once('@')?;
+    if hash.trim().is_empty() || hash.contains('@') {
+        return None;
+    }
+    let (owner, name) = owner_and_name.split_once('/')?;
+    if owner.trim().is_empty() || name.trim().is_empty() || name.contains('/') {
+        return None;
+    }
+    Some(format!(
+        "{}/{}@{}",
+        owner.trim(),
+        name.trim(),
+        hash.trim().trim_start_matches('@')
+    ))
+}
+
+fn genesis_install_request_from_setup(
+    tenant: &str,
+    req: InstallFromGenesisRequest,
+) -> Result<GenesisRegistryInstallRequest, String> {
+    let app_ref = pinned_genesis_app_ref(&req.app_ref)
+        .ok_or_else(|| "app_ref must be a pinned Genesis ref owner/name@hash".to_string())?;
+    Ok(GenesisRegistryInstallRequest {
+        tenant: tenant.to_string(),
+        app_ref,
+        registry_url: setup_genesis_registry_url(&req.registry_url)?,
+        registry_tenant: setup_genesis_registry_tenant(&req.registry_tenant),
+        follow_policy: setup_genesis_follow_policy(&req.follow_policy)?,
+    })
+}
+
 /// `POST /paw/apps/install-from-genesis` — reconcile an OS app from a pinned Genesis
 /// ref on a running pod, without a Docker rebuild. Privileged setup endpoint on the
 /// same `/paw/` admin surface as secret/agent management. Lets katagami (and any
@@ -1080,18 +1154,14 @@ async fn install_app_from_genesis(
     State(state): State<SetupApiState>,
     Json(req): Json<InstallFromGenesisRequest>,
 ) -> impl IntoResponse {
-    if req.app_ref.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "app_ref (owner/name@hash) is required" })),
-        );
-    }
-    let request = temper_platform::genesis_install::GenesisRegistryInstallRequest {
-        tenant: state.tenant.clone(),
-        app_ref: req.app_ref,
-        registry_url: req.registry_url,
-        registry_tenant: req.registry_tenant,
-        follow_policy: req.follow_policy,
+    let request = match genesis_install_request_from_setup(&state.tenant, req) {
+        Ok(request) => request,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            );
+        }
     };
     match temper_platform::genesis_install::install_genesis_app_from_registry(
         &state.platform,
@@ -3487,9 +3557,10 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_secret_keys, datadog_enhanced_app_railway_vars, datadog_runtime_agent_railway_vars,
-        discord_connect_params_for_secret_update, discord_readyz_response,
-        discord_start_error_is_retryable, is_discord_ping, persist_discord_public_key,
+        InstallFromGenesisRequest, allowed_secret_keys, datadog_enhanced_app_railway_vars,
+        datadog_runtime_agent_railway_vars, discord_connect_params_for_secret_update,
+        discord_readyz_response, discord_start_error_is_retryable,
+        genesis_install_request_from_setup, is_discord_ping, persist_discord_public_key,
         personalized_soul_flag_value, secrets_schema, transport_status_report,
         validate_setup_secret_key, verify_discord_signature,
     };
@@ -3499,6 +3570,100 @@ mod tests {
     use std::sync::Arc;
     use temper_server::secrets::SecretsVault;
     use temper_store_turso::TursoEventStore;
+
+    fn genesis_install_setup_request(
+        app_ref: &str,
+        registry_url: &str,
+        registry_tenant: &str,
+        follow_policy: &str,
+    ) -> InstallFromGenesisRequest {
+        InstallFromGenesisRequest {
+            app_ref: app_ref.to_string(),
+            registry_url: registry_url.to_string(),
+            registry_tenant: registry_tenant.to_string(),
+            follow_policy: follow_policy.to_string(),
+        }
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_maps_valid_request() {
+        let request = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                " katagami/katagami-curation@sha-123 ",
+                "https://genesis.example.test/",
+                " registry-team ",
+                "follow-latest",
+            ),
+        )
+        .expect("valid pinned Genesis setup request");
+
+        assert_eq!(request.tenant, "tenant-a");
+        assert_eq!(request.app_ref, "katagami/katagami-curation@sha-123");
+        assert_eq!(request.registry_url, "https://genesis.example.test");
+        assert_eq!(request.registry_tenant, "registry-team");
+        assert_eq!(request.follow_policy, "follow_latest");
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_defaults_tenant_and_policy() {
+        let request = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation@sha-123",
+                "https://genesis.example.test",
+                "",
+                "",
+            ),
+        )
+        .expect("valid pinned Genesis setup request");
+
+        assert_eq!(request.registry_tenant, "default");
+        assert_eq!(request.follow_policy, "pinned");
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_rejects_unpinned_refs() {
+        let error = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation",
+                "https://genesis.example.test",
+                "default",
+                "pinned",
+            ),
+        )
+        .expect_err("unpinned Genesis ref must fail at setup boundary");
+
+        assert!(error.contains("owner/name@hash"));
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_rejects_bad_registry_url_and_policy() {
+        let bad_url = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation@sha-123",
+                "genesis.example.test",
+                "default",
+                "pinned",
+            ),
+        )
+        .expect_err("registry URL must include scheme");
+        assert!(bad_url.contains("registry_url"));
+
+        let bad_policy = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation@sha-123",
+                "https://genesis.example.test",
+                "default",
+                "latest",
+            ),
+        )
+        .expect_err("unsupported follow policy must fail at setup boundary");
+        assert!(bad_policy.contains("follow_policy"));
+    }
 
     #[test]
     fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
