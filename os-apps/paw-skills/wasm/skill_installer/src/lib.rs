@@ -684,7 +684,7 @@ fn find_file(
     tenant: &str,
     path: &str,
 ) -> Result<Option<String>, String> {
-    let filter = format!("Path eq '{}' and Status ne 'Archived'", odata_escape(path));
+    let filter = format!("Path eq '{}'", odata_escape(path));
     first_entity_id(ctx, api_url, tenant, "Files", &filter)
 }
 
@@ -867,7 +867,7 @@ fn first_entity_id(
 ) -> Result<Option<String>, String> {
     let headers = api_headers(ctx, tenant, Some("application/json"));
     let url = format!(
-        "{api_url}/tdata/{entity_set}?$filter={}&$top=1",
+        "{api_url}/tdata/{entity_set}?$filter={}&$top=20",
         filter.replace(' ', "%20")
     );
     let resp = ctx.http_call("GET", &url, &headers, "")?;
@@ -886,8 +886,23 @@ fn first_entity_id(
     Ok(parsed
         .get("value")
         .and_then(Value::as_array)
-        .and_then(|items| items.first())
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| entity_status(item).as_deref() != Some("Archived"))
+        })
         .and_then(extract_id))
+}
+
+fn entity_status(value: &Value) -> Option<String> {
+    value
+        .get("status")
+        .or_else(|| value.get("Status"))
+        .or_else(|| value.get("fields").and_then(|fields| fields.get("Status")))
+        .or_else(|| value.get("fields").and_then(|fields| fields.get("status")))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn post_action(

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_TEMPER_REV: &str = "54478fedc1a6acbef855ba7fdf26b3235edcd270";
+const EXPECTED_TEMPER_REV: &str = "3db9db5c2764c9213a33aba5dc43400e27357cec";
 const OLD_TEMPER_REV: &str = "510a0d9bc9517f7819d66849446cdf6aff2d5295";
 
 fn repo_root() -> PathBuf {
@@ -73,6 +73,47 @@ fn workspace_fs_legacy_module_does_not_count_files_on_workspace_hot_path() {
             "legacy workspace_fs module still mutates Workspace.{forbidden}"
         );
     }
+}
+
+#[test]
+fn artifact_batch_apply_uses_bounded_lossless_file_filters() {
+    let source = repo_file("os-apps/paw-fs/wasm/artifact_batch_apply/src/lib.rs");
+    assert!(
+        !source.contains("Status ne 'Archived'"),
+        "ArtifactBatch file and directory lookups must not use Status ne 'Archived'; it prevents query pushdown and causes QueryTooLarge"
+    );
+    assert!(
+        source.contains("$top=20"),
+        "ArtifactBatch lookups should bound the pushdownable Path + WorkspaceId query page"
+    );
+    assert!(
+        source.contains("entity_status(item).as_deref() != Some(\"Archived\")"),
+        "ArtifactBatch should filter Archived rows client-side after the bounded query"
+    );
+}
+
+#[test]
+fn skill_file_lookups_use_bounded_lossless_filters() {
+    for path in [
+        "os-apps/paw-skills/wasm/skill_installer/src/lib.rs",
+        "os-apps/paw-agent/wasm/context_preparer/src/lib.rs",
+    ] {
+        let source = repo_file(path);
+        assert!(
+            !source.contains("Status ne 'Archived'"),
+            "{path} must not put Status ne 'Archived' in Files filters; it causes QueryTooLarge at tenant scale"
+        );
+        assert!(
+            source.contains("$top=20") || source.contains("$top={top}"),
+            "{path} should keep Files path/index lookups bounded"
+        );
+    }
+
+    let context_preparer = repo_file("os-apps/paw-agent/wasm/context_preparer/src/lib.rs");
+    assert!(
+        context_preparer.contains("entity_is_archived(item)"),
+        "context_preparer should filter archived skill/mode files client-side after bounded queries"
+    );
 }
 
 #[test]

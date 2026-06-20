@@ -2338,9 +2338,19 @@ fn skill_prefixes(project_id: &str, agent_id: &str) -> Vec<String> {
 
 fn skill_index_filter(prefix: &str) -> String {
     // OData field names match the canonical capitalized form on File entities
-    // (Path/Name/Status). Lowercase aliases aren't indexed, so case-mismatched
+    // (Path/Name). Lowercase aliases aren't indexed, so case-mismatched
     // filters silently return zero results.
-    format!("startswith(Path,'{prefix}') and Name eq 'SKILL.md' and Status ne 'Archived'")
+    format!(
+        "startswith(Path,'{}') and Name eq 'SKILL.md'",
+        odata_escape(prefix)
+    )
+}
+
+fn file_index_query_url(temper_api_url: &str, filter: &str, top: usize) -> String {
+    format!(
+        "{temper_api_url}/tdata/Files?$filter={}&$top={top}",
+        filter.replace(' ', "%20")
+    )
 }
 
 fn append_skill_file_entries_from_response(
@@ -2366,6 +2376,9 @@ fn append_skill_file_entries_from_response(
     };
 
     for item in items {
+        if entity_is_archived(item) {
+            continue;
+        }
         let id = entity_field_str(item, &["Id", "entity_id"])
             .unwrap_or("")
             .to_string();
@@ -2396,7 +2409,7 @@ fn query_skill_file_entries_serial(
 
     for prefix in skill_prefixes(project_id, agent_id) {
         let filter = skill_index_filter(&prefix);
-        let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
+        let url = file_index_query_url(temper_api_url, &filter, 100);
         match ctx.http_call("GET", &url, headers, "") {
             Ok(resp) => {
                 append_skill_file_entries_from_response(ctx, &prefix, &resp, &mut file_entries)
@@ -2639,8 +2652,8 @@ fn load_mode_instructions(
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     // Find the mode instruction file by path
     let path = format!("/system/mode-instructions/{mode}.md");
-    let filter = format!("path eq '{path}' and Status ne 'Archived'");
-    let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
+    let filter = format!("Path eq '{}'", odata_escape(&path));
+    let url = file_index_query_url(temper_api_url, &filter, 20);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
         return Ok(String::new());
@@ -2649,7 +2662,7 @@ fn load_mode_instructions(
     let file_id = parsed
         .get("value")
         .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
+        .and_then(|arr| arr.iter().find(|item| !entity_is_archived(item)))
         .and_then(|item| entity_field_str(item, &["Id", "entity_id"]))
         .unwrap_or("");
     if file_id.is_empty() {
@@ -2760,7 +2773,7 @@ fn build_prompt_auxiliary_batch_plan(
             specs.push(PromptBatchRequestSpec {
                 kind: PromptBatchRequestKind::SkillIndex,
                 label: prefix,
-                url: format!("{temper_api_url}/tdata/Files?$filter={filter}"),
+                url: file_index_query_url(temper_api_url, &filter, 100),
             });
         }
     }
@@ -2957,6 +2970,14 @@ fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
             .get("fields")
             .and_then(|fields| direct_field_str(fields, keys))
     })
+}
+
+fn entity_is_archived(value: &Value) -> bool {
+    entity_field_str(value, &["Status", "status"]) == Some("Archived")
+}
+
+fn odata_escape(value: &str) -> String {
+    value.replace('\'', "''")
 }
 
 fn resolve_context_refs(
