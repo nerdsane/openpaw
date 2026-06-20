@@ -178,7 +178,7 @@ fn ensure_file(
         tenant,
         "Files",
         &format!(
-            "Path eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'",
+            "Path eq '{}' and WorkspaceId eq '{}'",
             escape_odata(path),
             escape_odata(workspace_id)
         ),
@@ -287,7 +287,7 @@ fn find_directory(
         tenant,
         "Directories",
         &format!(
-            "Path eq '{}' and WorkspaceId eq '{}' and Status ne 'Archived'",
+            "Path eq '{}' and WorkspaceId eq '{}'",
             escape_odata(path),
             escape_odata(workspace_id)
         ),
@@ -306,12 +306,16 @@ fn find_entity_id(
         ctx,
         api_url,
         tenant,
-        &format!("/tdata/{set_name}?$filter={encoded}"),
+        &format!("/tdata/{set_name}?$filter={encoded}&$top=20"),
     )?;
     Ok(resp
         .get("value")
         .and_then(Value::as_array)
-        .and_then(|items| items.first())
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| entity_status(item).as_deref() != Some("Archived"))
+        })
         .and_then(entity_id))
 }
 
@@ -369,6 +373,17 @@ fn entity_id(value: &Value) -> Option<String> {
         .get("entity_id")
         .or_else(|| value.get("Id"))
         .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn entity_status(value: &Value) -> Option<String> {
+    value
+        .get("status")
+        .or_else(|| value.get("Status"))
+        .or_else(|| value.get("fields").and_then(|fields| fields.get("Status")))
+        .or_else(|| value.get("fields").and_then(|fields| fields.get("status")))
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
