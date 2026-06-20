@@ -1779,6 +1779,7 @@ fn web_query_dispatch(
         &format!("/tdata/WebQueries('{key}')/Temper.{action_name}?await_integration=true"),
         &action_params,
     )?;
+    wait_for_web_query_completion(ctx, api_url, tenant, entity_id, query_type);
 
     // 3. Read the entity back — WASM integration has run by this point.
     // OData GET hydrates blob refs transparently (temper ADR-0040), so the
@@ -3540,6 +3541,11 @@ fn execute_batchable_web_query_calls<F>(
     }
 
     emit_progress();
+    for item in &completed {
+        wait_for_web_query_completion(ctx, api_url, tenant, &item.entity_id, &item.query_type);
+    }
+
+    emit_progress();
     let get_requests: Vec<HttpRequest> = completed
         .iter()
         .map(|item| {
@@ -3635,6 +3641,26 @@ fn execute_batchable_web_query_calls<F>(
             ),
         );
         results[item.index] = Some(Ok(parsed_result));
+    }
+}
+
+fn wait_for_web_query_completion(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    entity_id: &str,
+    query_type: &str,
+) {
+    let path = format!(
+        "/observe/entities/WebQuery/{entity_id}/wait?statuses=Complete,Failed&timeout_ms=30000&poll_ms=250"
+    );
+    if let Err(error) = http_get(ctx, api_url, tenant, &path) {
+        ctx.log(
+            "warn",
+            &format!(
+                "web_query: wait for {query_type} WebQuery '{entity_id}' did not complete cleanly; reading current entity state: {error}"
+            ),
+        );
     }
 }
 
