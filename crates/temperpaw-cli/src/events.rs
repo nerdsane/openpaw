@@ -208,6 +208,7 @@ async fn find_active_channel_session(
         .query_entities(
             "ChannelSessions",
             &format!("thread_id eq '{escaped_thread}'"),
+            20,
         )
         .await
         .ok()?;

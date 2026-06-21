@@ -83,12 +83,13 @@ fn artifact_batch_apply_uses_bounded_lossless_file_filters() {
         "ArtifactBatch file and directory lookups must not use Status ne 'Archived'; it prevents query pushdown and causes QueryTooLarge"
     );
     assert!(
-        source.contains("$top=20"),
-        "ArtifactBatch lookups should bound the pushdownable Path + WorkspaceId query page"
+        source.contains("bounded_reads::find_first_non_archived_entity_id")
+            && source.contains("bounded_reads::POINT_LOOKUP_TOP"),
+        "ArtifactBatch lookups should use the shared bounded read helper"
     );
     assert!(
-        source.contains("entity_status(item).as_deref() != Some(\"Archived\")"),
-        "ArtifactBatch should filter Archived rows client-side after the bounded query"
+        source.contains("wasm_helpers::bounded_reads"),
+        "ArtifactBatch should route Archived filtering through the shared helper"
     );
 }
 
@@ -104,15 +105,31 @@ fn skill_file_lookups_use_bounded_lossless_filters() {
             "{path} must not put Status ne 'Archived' in Files filters; it causes QueryTooLarge at tenant scale"
         );
         assert!(
-            source.contains("$top=20") || source.contains("$top={top}"),
+            source.contains("$top=20")
+                || source.contains("$top={top}")
+                || source.contains("bounded_reads::bounded_collection_query_url")
+                || source.contains("bounded_reads::find_first_non_archived_entity_id"),
             "{path} should keep Files path/index lookups bounded"
         );
     }
 
     let context_preparer = repo_file("os-apps/paw-agent/wasm/context_preparer/src/lib.rs");
     assert!(
-        context_preparer.contains("entity_is_archived(item)"),
-        "context_preparer should filter archived skill/mode files client-side after bounded queries"
+        context_preparer.contains("bounded_reads::entity_is_archived(item)"),
+        "context_preparer should filter archived skill/mode files through the shared helper after bounded queries"
+    );
+}
+
+#[test]
+fn monty_pawfs_point_lookups_use_shared_bounded_helper() {
+    let source = repo_file("os-apps/paw-agent/wasm/monty_repl/src/entity_ops.rs");
+    assert!(
+        source.contains("bounded_reads::bounded_collection_query_path"),
+        "Monty PawFS point lookups should use the shared bounded collection helper"
+    );
+    assert!(
+        source.contains("bounded_reads::POINT_LOOKUP_TOP"),
+        "Monty PawFS point lookups should share the bounded point-lookup page size"
     );
 }
 

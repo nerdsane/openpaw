@@ -7,7 +7,9 @@ use base64::Engine;
 use serde_json::{Value, json};
 use temper_wasm_sdk::context::Context;
 use tool_catalog::DEFAULT_TOOLS_ENABLED;
-use wasm_helpers::{read_content_file_version, read_session_from_temperfs, runtime_headers};
+use wasm_helpers::{
+    bounded_reads, read_content_file_version, read_session_from_temperfs, runtime_headers,
+};
 
 use crate::dispatch;
 
@@ -2007,7 +2009,7 @@ fn is_global_scoped_path(path: &str) -> bool {
 }
 
 fn escape_odata_string(value: &str) -> String {
-    value.replace('\'', "''")
+    bounded_reads::odata_escape(value)
 }
 
 fn global_scoped_default_workspace_id() -> &'static str {
@@ -2719,14 +2721,18 @@ fn find_pawfs_directory(
             });
     }
 
-    let filter = urlenc(&pawfs_filter_path_and_workspace(&path, ws_id));
+    let filter = pawfs_filter_path_and_workspace(&path, ws_id);
     let eid = ctx_entity_id(ctx);
     let resp = http_get(
         ctx,
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Directories?$filter={filter}"),
+        &bounded_reads::bounded_collection_query_path(
+            "Directories",
+            &filter,
+            bounded_reads::POINT_LOOKUP_TOP,
+        ),
     )?;
     Ok(pawfs_first_non_archived_entity(&resp).and_then(pawfs_directory_from_value))
 }
@@ -2759,13 +2765,17 @@ fn resolve_pawfs_directory_id_by_walk(
     let normalized = pawfs_normalize_path(dir_path)?;
     let eid = ctx_entity_id(ctx);
 
-    let root_filter = urlenc(&pawfs_filter_root_directory(ws_id));
+    let root_filter = pawfs_filter_root_directory(ws_id);
     let root_resp = http_get(
         ctx,
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Directories?$filter={root_filter}"),
+        &bounded_reads::bounded_collection_query_path(
+            "Directories",
+            &root_filter,
+            bounded_reads::POINT_LOOKUP_TOP,
+        ),
     )?;
     let Some(mut parent_id) = pawfs_first_non_archived_entity_id(&root_resp) else {
         return Ok(None);
@@ -2776,15 +2786,17 @@ fn resolve_pawfs_directory_id_by_walk(
     }
 
     for segment in pawfs_path_segments(&normalized) {
-        let filter = urlenc(&pawfs_filter_name_parent_and_workspace(
-            segment, &parent_id, ws_id,
-        ));
+        let filter = pawfs_filter_name_parent_and_workspace(segment, &parent_id, ws_id);
         let resp = http_get(
             ctx,
             api_url,
             tenant,
             eid,
-            &format!("/tdata/Directories?$filter={filter}"),
+            &bounded_reads::bounded_collection_query_path(
+                "Directories",
+                &filter,
+                bounded_reads::POINT_LOOKUP_TOP,
+            ),
         )?;
         let Some(directory_id) = pawfs_first_non_archived_entity_id(&resp) else {
             return Ok(None);
@@ -2810,18 +2822,18 @@ fn find_pawfs_file_by_walk(
         return Ok(None);
     };
 
-    let filter = urlenc(&pawfs_filter_name_in_directory(
-        filename,
-        &directory_id,
-        ws_id,
-    ));
+    let filter = pawfs_filter_name_in_directory(filename, &directory_id, ws_id);
     let eid = ctx_entity_id(ctx);
     let resp = http_get(
         ctx,
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Files?$filter={filter}"),
+        &bounded_reads::bounded_collection_query_path(
+            "Files",
+            &filter,
+            bounded_reads::POINT_LOOKUP_TOP,
+        ),
     )?;
     Ok(pawfs_first_non_archived_entity(&resp).and_then(pawfs_file_from_value))
 }
@@ -2838,14 +2850,18 @@ fn find_pawfs_file(
     }
 
     let path = pawfs_normalize_path(raw_path)?;
-    let filter = urlenc(&pawfs_filter_path_and_workspace(&path, ws_id));
+    let filter = pawfs_filter_path_and_workspace(&path, ws_id);
     let eid = ctx_entity_id(ctx);
     let resp = http_get(
         ctx,
         api_url,
         tenant,
         eid,
-        &format!("/tdata/Files?$filter={filter}"),
+        &bounded_reads::bounded_collection_query_path(
+            "Files",
+            &filter,
+            bounded_reads::POINT_LOOKUP_TOP,
+        ),
     )?;
     Ok(pawfs_first_non_archived_entity(&resp).and_then(pawfs_file_from_value))
 }
@@ -3700,11 +3716,5 @@ fn mime_from_ext(path: &str) -> &'static str {
 }
 
 fn urlenc(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace('&', "%26")
-        .replace('=', "%3D")
-        .replace('?', "%3F")
-        .replace('#', "%23")
-        .replace('\'', "%27")
+    bounded_reads::odata_filter_urlencode(s)
 }

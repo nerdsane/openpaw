@@ -19,7 +19,7 @@ use tool_catalog::{
     DEFAULT_TOOLS_ENABLED, build_method_listing, enabled_tool_set, has_sandbox_surface,
 };
 use wasm_helpers::{
-    create_content_file, is_session_entries_ref, read_text_file_versions_batch,
+    bounded_reads, create_content_file, is_session_entries_ref, read_text_file_versions_batch,
     read_text_files_batch, runtime_headers, runtime_headers_as, timestamp_millis_string,
     write_temperfs_value_with_retry,
 };
@@ -2342,15 +2342,12 @@ fn skill_index_filter(prefix: &str) -> String {
     // filters silently return zero results.
     format!(
         "startswith(Path,'{}') and Name eq 'SKILL.md'",
-        odata_escape(prefix)
+        bounded_reads::odata_escape(prefix)
     )
 }
 
 fn file_index_query_url(temper_api_url: &str, filter: &str, top: usize) -> String {
-    format!(
-        "{temper_api_url}/tdata/Files?$filter={}&$top={top}",
-        filter.replace(' ', "%20")
-    )
+    bounded_reads::bounded_collection_query_url(temper_api_url, "Files", filter, top)
 }
 
 fn append_skill_file_entries_from_response(
@@ -2376,7 +2373,7 @@ fn append_skill_file_entries_from_response(
     };
 
     for item in items {
-        if entity_is_archived(item) {
+        if bounded_reads::entity_is_archived(item) {
             continue;
         }
         let id = entity_field_str(item, &["Id", "entity_id"])
@@ -2652,7 +2649,7 @@ fn load_mode_instructions(
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     // Find the mode instruction file by path
     let path = format!("/system/mode-instructions/{mode}.md");
-    let filter = format!("Path eq '{}'", odata_escape(&path));
+    let filter = format!("Path eq '{}'", bounded_reads::odata_escape(&path));
     let url = file_index_query_url(temper_api_url, &filter, 20);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
@@ -2662,7 +2659,7 @@ fn load_mode_instructions(
     let file_id = parsed
         .get("value")
         .and_then(|v| v.as_array())
-        .and_then(|arr| arr.iter().find(|item| !entity_is_archived(item)))
+        .and_then(|arr| arr.iter().find(|item| !bounded_reads::entity_is_archived(item)))
         .and_then(|item| entity_field_str(item, &["Id", "entity_id"]))
         .unwrap_or("");
     if file_id.is_empty() {
@@ -2970,14 +2967,6 @@ fn entity_field_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
             .get("fields")
             .and_then(|fields| direct_field_str(fields, keys))
     })
-}
-
-fn entity_is_archived(value: &Value) -> bool {
-    entity_field_str(value, &["Status", "status"]) == Some("Archived")
-}
-
-fn odata_escape(value: &str) -> String {
-    value.replace('\'', "''")
 }
 
 fn resolve_context_refs(

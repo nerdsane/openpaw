@@ -653,10 +653,7 @@ impl DiscordTransport {
     async fn bootstrap_channel_once(&self, webhook_url: &str) -> Result<(), String> {
         let existing = self
             .api
-            .query_entities(
-                "Channels",
-                "ChannelType eq 'discord' and Status ne 'Archived'",
-            )
+            .query_entities("Channels", "ChannelType eq 'discord'", 50)
             .await?;
 
         // Find the best Channel to reuse: prefer Connected > Disconnected,
@@ -667,6 +664,9 @@ impl DiscordTransport {
         let mut others_to_archive = Vec::new();
 
         for ch in &existing {
+            if crate::entity_is_archived(ch) {
+                continue;
+            }
             let status = ch
                 .get("status")
                 .or_else(|| ch.get("fields").and_then(|f| f.get("Status")))
