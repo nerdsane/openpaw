@@ -241,13 +241,13 @@ impl SlackTransport {
         // Archive any stale Channel entities from previous runs.
         let stale = self
             .api
-            .query_entities(
-                "Channels",
-                "ChannelType eq 'slack' and Status ne 'Archived'",
-            )
+            .query_entities("Channels", "ChannelType eq 'slack'", 50)
             .await
             .unwrap_or_default();
         for old in &stale {
+            if crate::entity_is_archived(old) {
+                continue;
+            }
             if let Some(old_id) = old
                 .get("Id")
                 .or_else(|| old.get("entity_id"))

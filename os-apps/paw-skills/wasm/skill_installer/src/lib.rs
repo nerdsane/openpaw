@@ -7,6 +7,7 @@
 
 use sha2::{Digest, Sha256};
 use temper_wasm_sdk::prelude::*;
+use wasm_helpers::bounded_reads;
 
 const APP_DOCS_WORKSPACE_ID: &str = "os-app-docs";
 const APP_DOCS_WORKSPACE_NAME: &str = "apps";
@@ -597,7 +598,7 @@ fn ensure_file(
     name: &str,
     mime_type: &str,
 ) -> Result<String, String> {
-    if let Some(existing) = find_file(ctx, api_url, tenant, file_path)? {
+    if let Some(existing) = find_file(ctx, api_url, tenant, workspace_id, file_path)? {
         return Ok(existing);
     }
     let headers = api_headers(ctx, tenant, Some("application/json"));
@@ -672,8 +673,8 @@ fn find_directory(
 ) -> Result<Option<String>, String> {
     let filter = format!(
         "Path eq '{}' and WorkspaceId eq '{}'",
-        odata_escape(path),
-        odata_escape(workspace_id)
+        bounded_reads::odata_escape(path),
+        bounded_reads::odata_escape(workspace_id)
     );
     first_entity_id(ctx, api_url, tenant, "Directories", &filter)
 }
@@ -682,9 +683,14 @@ fn find_file(
     ctx: &Context,
     api_url: &str,
     tenant: &str,
+    workspace_id: &str,
     path: &str,
 ) -> Result<Option<String>, String> {
-    let filter = format!("Path eq '{}'", odata_escape(path));
+    let filter = format!(
+        "Path eq '{}' and WorkspaceId eq '{}'",
+        bounded_reads::odata_escape(path),
+        bounded_reads::odata_escape(workspace_id)
+    );
     first_entity_id(ctx, api_url, tenant, "Files", &filter)
 }
 
@@ -732,8 +738,8 @@ fn register_package(
 ) -> Result<String, String> {
     let filter = format!(
         "ContentDigest eq '{}' and SkillName eq '{}'",
-        odata_escape(digest),
-        odata_escape(skill_name)
+        bounded_reads::odata_escape(digest),
+        bounded_reads::odata_escape(skill_name)
     );
     let package_id = match first_entity_id(ctx, api_url, tenant, "SkillPackages", &filter)? {
         Some(id) => id,
@@ -866,43 +872,15 @@ fn first_entity_id(
     filter: &str,
 ) -> Result<Option<String>, String> {
     let headers = api_headers(ctx, tenant, Some("application/json"));
-    let url = format!(
-        "{api_url}/tdata/{entity_set}?$filter={}&$top=20",
-        filter.replace(' ', "%20")
-    );
-    let resp = ctx.http_call("GET", &url, &headers, "")?;
-    if resp.status == 404 {
-        return Ok(None);
-    }
-    if resp.status >= 400 {
-        return Err(format!(
-            "failed to query {entity_set}: HTTP {} {}",
-            resp.status,
-            truncate(&resp.body, 240)
-        ));
-    }
-    let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|err| format!("failed to parse {entity_set} query response: {err}"))?;
-    Ok(parsed
-        .get("value")
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items
-                .iter()
-                .find(|item| entity_status(item).as_deref() != Some("Archived"))
-        })
-        .and_then(extract_id))
-}
-
-fn entity_status(value: &Value) -> Option<String> {
-    value
-        .get("status")
-        .or_else(|| value.get("Status"))
-        .or_else(|| value.get("fields").and_then(|fields| fields.get("Status")))
-        .or_else(|| value.get("fields").and_then(|fields| fields.get("status")))
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+    bounded_reads::find_first_non_archived_entity_id(
+        ctx,
+        api_url,
+        &headers,
+        entity_set,
+        filter,
+        bounded_reads::POINT_LOOKUP_TOP,
+        "skill_installer: bounded entity lookup",
+    )
 }
 
 fn post_action(
@@ -1098,10 +1076,6 @@ fn mime_type_for_path(path: &str) -> &'static str {
     } else {
         "text/plain"
     }
-}
-
-fn odata_escape(value: &str) -> String {
-    value.replace('\'', "''")
 }
 
 fn publisher_from_source_url(source_url: &str) -> String {

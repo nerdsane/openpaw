@@ -1,8 +1,9 @@
 use session_tree_lib::SessionTree;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    create_content_file_ref, create_session_entry, is_session_entries_ref, runtime_headers,
-    runtime_headers_for_workspace, session_id_from_entries_ref, timestamp_millis_string,
+    bounded_reads, create_content_file_ref, create_session_entry, is_session_entries_ref,
+    runtime_headers, runtime_headers_for_workspace, session_id_from_entries_ref,
+    timestamp_millis_string,
 };
 
 const DEFAULT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,temper_image_generate,read,write,edit,bash";
@@ -1539,10 +1540,10 @@ fn session_entry_identity(entry: &Value) -> Option<(String, i64)> {
 }
 
 fn session_entry_lookup_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
-    let escaped_session = session_id.replace('\'', "''");
-    let escaped_entry = entry_id.replace('\'', "''");
-    format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId eq '{escaped_session}' and EntryId eq '{escaped_entry}'&$top=1"
+    bounded_reads::composite_entity_url(
+        temper_api_url,
+        "SessionEntries",
+        &[("SessionId", session_id), ("EntryId", entry_id)],
     )
 }
 
@@ -2393,11 +2394,11 @@ mod tests {
 
         assert_eq!(
             url,
-            "http://127.0.0.1:8080/tdata/SessionEntries?$filter=SessionId eq 'ss-1' and EntryId eq 'a-2'&$top=1"
+            "http://127.0.0.1:8080/tdata/SessionEntries(SessionId='ss-1',EntryId='a-2')"
         );
         assert!(
-            !url.contains("$orderby"),
-            "route_message must not use the production-failing ordered SessionEntries scan"
+            !url.contains("$filter") && !url.contains("$orderby"),
+            "route_message should use direct composite-key SessionEntry reads"
         );
     }
 }

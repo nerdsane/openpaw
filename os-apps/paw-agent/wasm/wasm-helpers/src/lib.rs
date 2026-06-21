@@ -1543,6 +1543,147 @@ pub fn entity_field_i64(value: &Value, keys: &[&str]) -> Option<i64> {
     })
 }
 
+pub mod bounded_reads {
+    use serde_json::{Value, json};
+    use temper_wasm_sdk::prelude::*;
+
+    use super::entity_field_str;
+
+    pub const POINT_LOOKUP_TOP: usize = 20;
+
+    pub fn odata_escape(value: &str) -> String {
+        value.replace('\'', "''")
+    }
+
+    pub fn odata_filter_urlencode(value: &str) -> String {
+        value
+            .replace('%', "%25")
+            .replace(' ', "%20")
+            .replace('&', "%26")
+            .replace('=', "%3D")
+            .replace('?', "%3F")
+            .replace('#', "%23")
+            .replace('\'', "%27")
+    }
+
+    pub fn bounded_collection_query_path(set_name: &str, filter: &str, top: usize) -> String {
+        format!(
+            "/tdata/{set_name}?$filter={}&$top={top}",
+            odata_filter_urlencode(filter)
+        )
+    }
+
+    pub fn bounded_collection_query_url(
+        temper_api_url: &str,
+        set_name: &str,
+        filter: &str,
+        top: usize,
+    ) -> String {
+        format!(
+            "{}{}",
+            temper_api_url.trim_end_matches('/'),
+            bounded_collection_query_path(set_name, filter, top)
+        )
+    }
+
+    pub fn composite_entity_path(set_name: &str, keys: &[(&str, &str)]) -> String {
+        let key_expr = keys
+            .iter()
+            .map(|(key, value)| format!("{key}='{}'", odata_escape(value)))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("/tdata/{set_name}({key_expr})")
+    }
+
+    pub fn composite_entity_url(temper_api_url: &str, set_name: &str, keys: &[(&str, &str)]) -> String {
+        format!(
+            "{}{}",
+            temper_api_url.trim_end_matches('/'),
+            composite_entity_path(set_name, keys)
+        )
+    }
+
+    pub fn entity_id(value: &Value) -> Option<&str> {
+        entity_field_str(value, &["entity_id", "Id", "id"])
+    }
+
+    pub fn entity_is_archived(value: &Value) -> bool {
+        entity_field_str(value, &["Status", "status"]) == Some("Archived")
+    }
+
+    pub fn first_non_archived_entity(value: &Value) -> Option<&Value> {
+        value
+            .get("value")
+            .and_then(Value::as_array)?
+            .iter()
+            .find(|item| !entity_is_archived(item))
+    }
+
+    pub fn first_non_archived_entity_id(value: &Value) -> Option<String> {
+        first_non_archived_entity(value)
+            .and_then(entity_id)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+    }
+
+    pub fn get_json(
+        ctx: &Context,
+        temper_api_url: &str,
+        path: &str,
+        headers: &[(String, String)],
+        label: &str,
+    ) -> Result<Value, String> {
+        let url = format!("{}{}", temper_api_url.trim_end_matches('/'), path);
+        let resp = ctx.http_call("GET", &url, headers, "")?;
+        if resp.status >= 400 {
+            return Err(format!(
+                "{label}: GET {path} failed (HTTP {}): {}",
+                resp.status,
+                &resp.body[..resp.body.len().min(300)]
+            ));
+        }
+        if resp.body.is_empty() {
+            return Ok(json!({}));
+        }
+        serde_json::from_str(&resp.body).map_err(|error| format!("{label}: parse JSON: {error}"))
+    }
+
+    pub fn find_first_non_archived_entity(
+        ctx: &Context,
+        temper_api_url: &str,
+        headers: &[(String, String)],
+        set_name: &str,
+        filter: &str,
+        top: usize,
+        label: &str,
+    ) -> Result<Option<Value>, String> {
+        let path = bounded_collection_query_path(set_name, filter, top);
+        let resp = get_json(ctx, temper_api_url, &path, headers, label)?;
+        Ok(first_non_archived_entity(&resp).cloned())
+    }
+
+    pub fn find_first_non_archived_entity_id(
+        ctx: &Context,
+        temper_api_url: &str,
+        headers: &[(String, String)],
+        set_name: &str,
+        filter: &str,
+        top: usize,
+        label: &str,
+    ) -> Result<Option<String>, String> {
+        Ok(find_first_non_archived_entity(
+            ctx,
+            temper_api_url,
+            headers,
+            set_name,
+            filter,
+            top,
+            label,
+        )?
+        .and_then(|value| entity_id(&value).map(str::to_string)))
+    }
+}
+
 /// List entities returned by an OData collection URL.
 pub fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
     let fields = ctx
@@ -1735,6 +1876,51 @@ pub fn parse_iso8601_to_epoch_secs(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_read_helper_builds_point_lookup_urls() {
+        let filter = format!(
+            "Path eq '{}' and WorkspaceId eq '{}'",
+            bounded_reads::odata_escape("/system/skills/we're-here.md"),
+            bounded_reads::odata_escape("os-app-docs")
+        );
+
+        assert_eq!(
+            bounded_reads::bounded_collection_query_path(
+                "Files",
+                &filter,
+                bounded_reads::POINT_LOOKUP_TOP
+            ),
+            "/tdata/Files?$filter=Path%20eq%20%27/system/skills/we%27%27re-here.md%27%20and%20WorkspaceId%20eq%20%27os-app-docs%27&$top=20"
+        );
+    }
+
+    #[test]
+    fn bounded_read_helper_selects_first_non_archived_entity() {
+        let response = json!({
+            "value": [
+                {"Id": "fl-archived", "Status": "Archived"},
+                {"fields": {"Id": "fl-ready", "Status": "Ready"}}
+            ]
+        });
+
+        assert_eq!(
+            bounded_reads::first_non_archived_entity_id(&response),
+            Some("fl-ready".to_string())
+        );
+    }
+
+    #[test]
+    fn bounded_read_helper_builds_composite_entity_urls() {
+        assert_eq!(
+            bounded_reads::composite_entity_url(
+                "http://temper",
+                "SessionEntries",
+                &[("SessionId", "ss-1"), ("EntryId", "a'2")]
+            ),
+            "http://temper/tdata/SessionEntries(SessionId='ss-1',EntryId='a''2')"
+        );
+    }
 
     #[test]
     fn channel_session_lookup_prefers_session_routes_before_agent_fallback() {
