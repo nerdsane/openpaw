@@ -330,6 +330,12 @@ fn first_turn_session_entries_materialize_after_provider_success() {
         "context_preparer should explicitly prepare from Session.user_message for virtual first turns"
     );
     assert!(
+        helpers.contains("fn session_entries_materialized")
+            && helpers.contains("return Ok(String::new());")
+            && helpers.contains("virtual first-turn SessionEntries ref"),
+        "virtual first-turn SessionEntries reads should return empty JSONL without listing SessionEntries"
+    );
+    assert!(
         applier.contains("materialize_initial_session_entries_with_assistant"),
         "provider_response_applier should materialize initial user/assistant entries before terminal success"
     );
