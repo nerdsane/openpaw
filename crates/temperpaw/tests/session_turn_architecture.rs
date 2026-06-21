@@ -359,6 +359,9 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
     let root = repo_root();
     let helpers = fs::read_to_string(root.join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
         .expect("wasm helpers source should exist");
+    let context_preparer =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_preparer/src/lib.rs"))
+            .expect("context_preparer source should exist");
     let route_message =
         fs::read_to_string(root.join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
             .expect("route_message source should exist");
@@ -378,6 +381,36 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
     assert!(
         helpers.contains("session_entries_verify_urls"),
         "batched SessionEntry readback should use one bounded per-entry URL per expected entry"
+    );
+    assert!(
+        helpers.contains("$orderby=Sequence%20asc")
+            && helpers.contains("Sequence%20ge%20{next_sequence}"),
+        "SessionEntry history fallback reads should use deterministic Sequence keyset paging"
+    );
+    assert!(
+        !helpers.contains("&$skip="),
+        "SessionEntry history fallback reads must not use $skip because production bounded OData can reject high-candidate scans"
+    );
+    assert!(
+        helpers.contains("session_leaf_id_from_fields(fields)")
+            && helpers.contains("read_session_entry_chain_from_leaf")
+            && helpers.contains("session_entry_verify_url(temper_api_url, session_id, entry_id)"),
+        "entity-backed Session reads with a leaf hint should use composite-key chain reads, not tenant-scale SessionEntries scans"
+    );
+    let leaf_hint_index = helpers
+        .find("session_leaf_id_from_fields(fields)")
+        .expect("helper should inspect the session leaf hint before reading entries");
+    let list_index = helpers
+        .find("let entries = list_session_entries")
+        .expect("legacy list path should remain visible for callers without a leaf hint");
+    assert!(
+        leaf_hint_index < list_index,
+        "leaf-hinted SessionEntry reads must bypass the legacy list path"
+    );
+    assert!(
+        context_preparer.contains("session_leaf_id")
+            && context_preparer.contains("read_session_from_temperfs"),
+        "context_preparer should preserve the Session leaf hint for entity-backed context reads"
     );
     assert!(
         route_message.contains("session_leaf_id is missing; starting clean continuation"),
