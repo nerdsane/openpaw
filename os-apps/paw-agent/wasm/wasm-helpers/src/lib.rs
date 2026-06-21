@@ -692,7 +692,7 @@ fn boolish_str(value: &str) -> Option<bool> {
 
 fn session_entry_verify_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
     format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
+        "{temper_api_url}/tdata/SessionEntries(SessionId='{}',EntryId='{}')",
         session_id.replace('\'', "''"),
         entry_id.replace('\'', "''"),
     )
@@ -728,6 +728,11 @@ fn session_entries_list_url(
 
 fn session_entry_verify_response_visible(body: &str) -> bool {
     let parsed: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({"value": []}));
+    if entity_field_str(&parsed, &["SessionId", "session_id"]).is_some()
+        && entity_field_str(&parsed, &["EntryId", "entry_id"]).is_some()
+    {
+        return true;
+    }
     parsed
         .get("value")
         .and_then(|value| value.as_array())
@@ -2129,6 +2134,9 @@ mod tests {
     #[test]
     fn session_entry_verify_response_requires_visible_row() {
         assert!(session_entry_verify_response_visible(
+            r#"{"fields":{"SessionId":"ss-1","EntryId":"u-1"}}"#
+        ));
+        assert!(session_entry_verify_response_visible(
             r#"{"value":[{"EntryId":"u-1"}]}"#
         ));
         assert!(!session_entry_verify_response_visible(r#"{"value":[]}"#));
@@ -2141,10 +2149,15 @@ mod tests {
 
         assert_eq!(urls.len(), 2);
         assert_eq!(urls[0].0, "u-1");
-        assert!(urls[0].1.contains("EntryId%20eq%20%27u-1%27"));
-        assert!(urls[0].1.contains("&$top=1"));
-        assert!(urls[1].1.contains("EntryId%20eq%20%27a-2%27"));
-        assert!(urls[1].1.contains("&$top=1"));
+        assert_eq!(
+            urls[0].1,
+            "http://temper/tdata/SessionEntries(SessionId='ss-1',EntryId='u-1')"
+        );
+        assert_eq!(
+            urls[1].1,
+            "http://temper/tdata/SessionEntries(SessionId='ss-1',EntryId='a-2')"
+        );
+        assert!(!urls[0].1.contains("$filter"));
     }
 
     #[test]

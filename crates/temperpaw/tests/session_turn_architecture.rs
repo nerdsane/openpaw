@@ -349,8 +349,8 @@ fn first_turn_session_entries_materialize_after_provider_success() {
     );
     assert!(
         helpers.contains("session_entry_verify_url(temper_api_url, session_id, entry_id)")
-            && helpers.contains("&$top=1"),
-        "single SessionEntry appends should keep bounded per-entry read-back paths"
+            && helpers.contains("/tdata/SessionEntries(SessionId='{}',EntryId='{}')"),
+        "single SessionEntry appends should use direct composite-key read-back paths"
     );
 }
 
@@ -366,6 +366,10 @@ fn session_entry_readbacks_stay_within_bounded_query_budget() {
     assert!(
         !helpers.contains("$top=10000"),
         "SessionEntry create/readback verification must not use a session-wide $top=10000 query"
+    );
+    assert!(
+        !helpers.contains("SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId"),
+        "SessionEntry readback must not use collection SessionId+EntryId filters; use composite-key entity GETs"
     );
     assert!(
         !route_message.contains("$top=1000"),
