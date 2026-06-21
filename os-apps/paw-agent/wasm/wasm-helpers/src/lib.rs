@@ -682,7 +682,7 @@ fn session_entry_create_verify_readback_enabled(
         .get("session_entry_create_verify_readback")
         .and_then(boolish_json)
         .or_else(|| config_value.and_then(boolish_str))
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
 fn boolish_json(value: &Value) -> Option<bool> {
@@ -2352,8 +2352,8 @@ mod tests {
     }
 
     #[test]
-    fn session_entry_strict_readback_is_opt_in_by_field_or_config() {
-        assert!(!session_entry_create_verify_readback_enabled(
+    fn session_entry_strict_readback_is_enabled_by_default() {
+        assert!(session_entry_create_verify_readback_enabled(
             &json!({}),
             None,
         ));
