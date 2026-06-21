@@ -223,6 +223,15 @@ pub fn read_session_from_temperfs(
     file_id: &str,
 ) -> Result<String, String> {
     if let Some(session_id) = session_id_from_entries_ref(file_id) {
+        if !session_entries_materialized(fields) {
+            ctx.log(
+                "info",
+                &format!(
+                    "read_session_from_temperfs: virtual first-turn SessionEntries ref for {session_id}; materialization is false"
+                ),
+            );
+            return Ok(String::new());
+        }
         return read_session_from_entries(ctx, temper_api_url, tenant, fields, session_id);
     }
 
@@ -688,6 +697,37 @@ fn boolish_str(value: &str) -> Option<bool> {
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
     }
+}
+
+fn session_entries_materialized(fields: &Value) -> bool {
+    fields
+        .get("session_entries_materialized")
+        .and_then(boolish_json)
+        .or_else(|| {
+            fields
+                .get("SessionEntriesMaterialized")
+                .and_then(boolish_json)
+        })
+    .or_else(|| {
+        fields
+            .get("fields")
+            .and_then(|nested| nested.get("session_entries_materialized"))
+            .and_then(boolish_json)
+    })
+    .or_else(|| {
+        fields
+            .get("fields")
+            .and_then(|nested| nested.get("SessionEntriesMaterialized"))
+            .and_then(boolish_json)
+    })
+    .or_else(|| {
+        entity_field_str(
+            fields,
+            &["session_entries_materialized", "SessionEntriesMaterialized"],
+        )
+        .and_then(boolish_str)
+    })
+    .unwrap_or(true)
 }
 
 fn session_entry_verify_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
@@ -2048,6 +2088,20 @@ mod tests {
         assert_eq!(session_id_from_entries_ref(&reference), Some("ses-123"));
         assert!(is_session_entries_ref(&reference));
         assert_eq!(session_id_from_entries_ref("fl-123"), None);
+    }
+
+    #[test]
+    fn virtual_first_turn_session_entries_are_not_materialized() {
+        assert!(!session_entries_materialized(
+            &json!({"session_entries_materialized": "false"})
+        ));
+        assert!(!session_entries_materialized(
+            &json!({"fields": {"SessionEntriesMaterialized": false}})
+        ));
+        assert!(session_entries_materialized(&json!({
+            "session_entries_materialized": "true"
+        })));
+        assert!(session_entries_materialized(&json!({})));
     }
 
     #[test]
