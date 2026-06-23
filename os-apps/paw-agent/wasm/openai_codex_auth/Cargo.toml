@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "8b7abafe0e4b3ba0ee6513da4aa83dc067684dd5" }
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "f2e37614e4c74749d6e01bc096b4104d6b40d5ae" }
 wasm-helpers = { path = "../wasm-helpers" }
 openai-codex-wire = { path = "../openai-codex-wire" }
 serde_json = "1"
