@@ -863,6 +863,63 @@ fn spawn_query_projection_backfill(
     });
 }
 
+/// Backfill `entity_key_index` for declared-key entity types (ADR-0153), independent
+/// of the heavy field-index re-scan above. K (1-3) tiny key rows per entity, so it is
+/// cheap and runs on a short default delay. Lets existing Files/Directories/etc become
+/// keyed (so their point reads stop hitting the 413/QueryTooLarge scan) without
+/// enabling the expensive projection backfill.
+fn spawn_key_index_backfill(server: temper_server::state::ServerState, tenant_ids: Vec<TenantId>) {
+    if !key_index_backfill_on_startup() {
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background key-index backfill disabled for startup"
+        );
+        return;
+    }
+
+    tokio::spawn(async move {
+        let delay = key_index_backfill_delay();
+        if !delay.is_zero() {
+            tracing::info!(
+                tenants = tenant_ids.len(),
+                delay_secs = delay.as_secs(),
+                "Background key-index backfill delayed"
+            );
+            tokio::time::sleep(delay).await;
+        }
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background key-index backfill scheduled"
+        );
+        for tenant_id in tenant_ids {
+            server.populate_key_index_from_snapshots(&tenant_id).await;
+            tracing::info!(tenant = %tenant_id, "Background key-index backfill complete");
+        }
+    });
+}
+
+fn key_index_backfill_on_startup() -> bool {
+    std::env::var("TEMPERPAW_KEY_INDEX_BACKFILL_ON_STARTUP")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim(),
+                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+            )
+        })
+}
+
+fn key_index_backfill_delay() -> Duration {
+    const DEFAULT_KEY_INDEX_BACKFILL_DELAY_SECS: u64 = 30;
+
+    let configured = std::env::var("TEMPERPAW_KEY_INDEX_BACKFILL_DELAY_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_KEY_INDEX_BACKFILL_DELAY_SECS);
+
+    Duration::from_secs(configured)
+}
+
 fn query_projection_backfill_on_startup() -> bool {
     std::env::var("TEMPERPAW_QUERY_PROJECTION_BACKFILL_ON_STARTUP")
         .ok()
@@ -2172,6 +2229,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Query projections are repaired as optional maintenance, not startup work.
     // Incremental projection writes remain active on entity changes.
     spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
+    // ADR-0153/ARN-68: independent, cheap key-index backfill (own flag), so existing
+    // declared-key entities become keyed without the heavy field-index re-scan.
+    spawn_key_index_backfill(state.server.clone(), tenant_ids.clone());
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
