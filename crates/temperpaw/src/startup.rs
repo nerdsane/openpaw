@@ -868,10 +868,7 @@ fn spawn_query_projection_backfill(
 /// cheap and runs on a short default delay. Lets existing Files/Directories/etc become
 /// keyed (so their point reads stop hitting the 413/QueryTooLarge scan) without
 /// enabling the expensive projection backfill.
-fn spawn_key_index_backfill(
-    server: temper_server::state::ServerState,
-    tenant_ids: Vec<TenantId>,
-) {
+fn spawn_key_index_backfill(server: temper_server::state::ServerState, tenant_ids: Vec<TenantId>) {
     if !key_index_backfill_on_startup() {
         tracing::info!(
             tenants = tenant_ids.len(),
