@@ -11,4 +11,4 @@ test = false
 [workspace]
 
 [dependencies]
-temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "994b2dd71438c9cdec99108439152b50a8f79ae1" }
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "226440f674e064737b74e755e087f205e6940cf8" }
