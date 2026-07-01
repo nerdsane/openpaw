@@ -23,6 +23,15 @@ allow_indefinite_states = ["Active"]
 name = "name_parent"
 properties = ["Name", "WorkspaceId", "ParentId"]
 
+# (WorkspaceId, Path) is the other addressable identity — a path is unique within a
+# workspace. The finalization/ensure_dirs flow resolves directories by full path
+# (`Path eq '/souls' and WorkspaceId eq …`), a non-keyed shape that otherwise falls to
+# the broad field index and full-scans → 413 at tenant scale (ARN-68). Both components
+# are non-null, so this is a plain unique composite key: O(log n) present/absent.
+[[key]]
+name = "ws_path"
+properties = ["WorkspaceId", "Path"]
+
 # --- State Variables ---
 
 [[state]]

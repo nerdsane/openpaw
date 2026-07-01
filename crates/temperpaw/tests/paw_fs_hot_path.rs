@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_TEMPER_REV: &str = "f959f5de230c15bc57c74cecaef91619e864975c";
-const OLD_TEMPER_REV: &str = "52d8ca13997d2ec9121f79a500957dd7e2d9e60f";
+const EXPECTED_TEMPER_REV: &str = "891b7d2a6de14b76cfa706bf3e2e034c13306815";
+const OLD_TEMPER_REV: &str = "f959f5de230c15bc57c74cecaef91619e864975c";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
