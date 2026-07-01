@@ -9,6 +9,6 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "52d8ca13997d2ec9121f79a500957dd7e2d9e60f" }
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "f959f5de230c15bc57c74cecaef91619e864975c" }
 wasm-helpers = { path = "../wasm-helpers" }
 serde_json = "1"
