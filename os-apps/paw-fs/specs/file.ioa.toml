@@ -15,6 +15,16 @@ initial = "Created"
 # TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
 allow_indefinite_states = ["Created", "Ready", "Locked"]
 
+# --- Declared keys (ADR-0153) ---
+# (WorkspaceId, Path) is the addressable identity of a file — a path is unique within a
+# workspace. The finalization/read-back flow resolves files by full path (`Path eq … and
+# WorkspaceId eq …`), a non-keyed shape that otherwise falls to the broad field index and
+# full-scans → 413 at tenant scale (ARN-68). Both components are non-null: a plain unique
+# composite key giving O(log n) present/absent, co-committed with the journal.
+[[key]]
+name = "ws_path"
+properties = ["WorkspaceId", "Path"]
+
 # --- State Variables ---
 
 [[state]]
