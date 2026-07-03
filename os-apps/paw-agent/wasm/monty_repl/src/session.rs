@@ -3,6 +3,8 @@
 //! Ported from tool_runner to maintain full compatibility with the
 //! agent state machine's conversation and session tracking.
 
+use std::collections::BTreeSet;
+
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
     append_session_entry_inline, create_content_file_ref, entity_field_str, runtime_headers_as,
@@ -33,6 +35,10 @@ pub fn persist_results(
         "pending_tool_calls": results_json,
         "repl_file_id": repl_file_id,
     });
+    let reply_attachments_json = reply_attachments_from_tool_results(tool_results);
+    if !reply_attachments_json.is_empty() {
+        params["reply_attachments_json"] = json!(reply_attachments_json);
+    }
 
     if !session_file_id.is_empty() && !session_leaf_id.is_empty() {
         // Session tree mode
@@ -165,6 +171,110 @@ pub fn persist_results(
     }
 
     Ok(params)
+}
+
+pub fn reply_attachments_from_tool_results(tool_results: &[Value]) -> String {
+    let mut seen = BTreeSet::new();
+    let mut attachments = Vec::new();
+
+    for result in tool_results {
+        collect_reply_attachment_from_value(
+            result.get("content").unwrap_or(result),
+            &mut seen,
+            &mut attachments,
+        );
+    }
+
+    if attachments.is_empty() {
+        String::new()
+    } else {
+        serde_json::to_string(&attachments).unwrap_or_default()
+    }
+}
+
+fn collect_reply_attachment_from_value(
+    value: &Value,
+    seen: &mut BTreeSet<String>,
+    attachments: &mut Vec<Value>,
+) {
+    if let Some(items) = value.as_array() {
+        for item in items {
+            collect_reply_attachment_from_value(item, seen, attachments);
+        }
+        return;
+    }
+
+    if let Some(text) = value.as_str()
+        && let Ok(parsed) = serde_json::from_str::<Value>(text)
+    {
+        collect_reply_attachment_from_value(&parsed, seen, attachments);
+        return;
+    }
+
+    let Some(object) = value.as_object() else {
+        return;
+    };
+
+    if object
+        .get("__temperpaw_image")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || object
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value == "image")
+    {
+        let file_id = object
+            .get("file_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if file_id.is_empty() || !seen.insert(file_id.to_string()) {
+            return;
+        }
+        let path = object
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let mime_type = object
+            .get("mime_type")
+            .or_else(|| object.get("media_type"))
+            .and_then(Value::as_str)
+            .or_else(|| {
+                object
+                    .get("source")
+                    .and_then(|source| source.get("media_type"))
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or("image/png");
+        attachments.push(json!({
+            "kind": "pawfs_file",
+            "file_id": file_id,
+            "file_version_id": object.get("file_version_id").and_then(Value::as_str).unwrap_or(""),
+            "filename": attachment_filename(path, mime_type),
+            "mime_type": mime_type,
+            "path": path,
+            "media_generation_id": object.get("media_generation_id").and_then(Value::as_str).unwrap_or(""),
+        }));
+    }
+}
+
+fn attachment_filename(path: &str, mime_type: &str) -> String {
+    let from_path = path
+        .rsplit('/')
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(filename) = from_path {
+        return filename.to_string();
+    }
+
+    match mime_type {
+        "image/jpeg" | "image/jpg" => "image.jpg".to_string(),
+        "image/webp" => "image.webp".to_string(),
+        _ => "image.png".to_string(),
+    }
 }
 
 /// Send a liveness heartbeat and post the Discord typing indicator on the

@@ -223,6 +223,15 @@ pub fn read_session_from_temperfs(
     file_id: &str,
 ) -> Result<String, String> {
     if let Some(session_id) = session_id_from_entries_ref(file_id) {
+        if !session_entries_materialized(fields) {
+            ctx.log(
+                "info",
+                &format!(
+                    "read_session_from_temperfs: virtual first-turn SessionEntries ref for {session_id}; materialization is false"
+                ),
+            );
+            return Ok(String::new());
+        }
         return read_session_from_entries(ctx, temper_api_url, tenant, fields, session_id);
     }
 
@@ -550,56 +559,46 @@ fn verify_session_entries(
 ) -> Result<(), String> {
     const VERIFY_ATTEMPTS: u32 = 4;
     let verify_headers = runtime_headers(ctx, tenant, fields, None, Some("application/json"));
-    let single_entry_id = entry_ids
-        .iter()
-        .copied()
-        .next()
-        .filter(|_| entry_ids.len() == 1);
-    let verify_url = single_entry_id
-        .map(|entry_id| session_entry_verify_url(temper_api_url, session_id, entry_id))
-        .unwrap_or_else(|| session_entries_verify_url(temper_api_url, session_id));
+    let verify_urls = session_entries_verify_urls(temper_api_url, session_id, entry_ids);
     let mut last_status = 0_i64;
     let mut last_err = String::new();
     for attempt in 0..VERIFY_ATTEMPTS {
-        match ctx.http_call("GET", &verify_url, &verify_headers, "") {
-            Ok(resp) if resp.status == 200 => {
-                last_status = resp.status as i64;
-                let visible = if single_entry_id.is_some() {
-                    session_entry_verify_response_visible(&resp.body)
-                } else {
-                    match session_entry_verify_missing_ids(&resp.body, entry_ids) {
-                        Ok(missing) if missing.is_empty() => true,
-                        Ok(missing) => {
-                            last_err = format!("missing entries: {}", missing.join(","));
-                            false
-                        }
-                        Err(err) => {
-                            last_err = err;
-                            false
-                        }
+        let mut missing = Vec::new();
+        for (entry_id, verify_url) in &verify_urls {
+            match ctx.http_call("GET", verify_url, &verify_headers, "") {
+                Ok(resp) if resp.status == 200 => {
+                    last_status = resp.status as i64;
+                    if !session_entry_verify_response_visible(&resp.body) {
+                        missing.push(entry_id.clone());
                     }
-                };
-                if visible {
-                    if attempt > 0 {
-                        ctx.log(
-                            "info",
-                            &format!(
-                                "{label}: read-back visible on attempt {} (SessionId={session_id})",
-                                attempt + 1
-                            ),
-                        );
-                    }
-                    return Ok(());
+                }
+                Ok(resp) => {
+                    last_status = resp.status as i64;
+                    missing.push(entry_id.clone());
+                }
+                Err(err) => {
+                    last_status = -1;
+                    last_err = err.to_string();
+                    missing.push(entry_id.clone());
                 }
             }
-            Ok(resp) => {
-                last_status = resp.status as i64;
-            }
-            Err(err) => {
-                last_status = -1;
-                last_err = err.to_string();
-            }
         }
+
+        if missing.is_empty() {
+            if attempt > 0 {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "{label}: read-back visible on attempt {} (SessionId={session_id})",
+                        attempt + 1
+                    ),
+                );
+            }
+            return Ok(());
+        } else if last_err.is_empty() {
+            last_err = format!("missing entries: {}", missing.join(","));
+        }
+
         if attempt + 1 < VERIFY_ATTEMPTS {
             let target_delay_ms = 50_i64 << attempt;
             let until = Context::get_time_millis() + target_delay_ms;
@@ -683,7 +682,7 @@ fn session_entry_create_verify_readback_enabled(
         .get("session_entry_create_verify_readback")
         .and_then(boolish_json)
         .or_else(|| config_value.and_then(boolish_str))
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
 fn boolish_json(value: &Value) -> Option<bool> {
@@ -700,19 +699,59 @@ fn boolish_str(value: &str) -> Option<bool> {
     }
 }
 
+fn session_entries_materialized(fields: &Value) -> bool {
+    fields
+        .get("session_entries_materialized")
+        .and_then(boolish_json)
+        .or_else(|| {
+            fields
+                .get("SessionEntriesMaterialized")
+                .and_then(boolish_json)
+        })
+    .or_else(|| {
+        fields
+            .get("fields")
+            .and_then(|nested| nested.get("session_entries_materialized"))
+            .and_then(boolish_json)
+    })
+    .or_else(|| {
+        fields
+            .get("fields")
+            .and_then(|nested| nested.get("SessionEntriesMaterialized"))
+            .and_then(boolish_json)
+    })
+    .or_else(|| {
+        entity_field_str(
+            fields,
+            &["session_entries_materialized", "SessionEntriesMaterialized"],
+        )
+        .and_then(boolish_str)
+    })
+    .unwrap_or(true)
+}
+
 fn session_entry_verify_url(temper_api_url: &str, session_id: &str, entry_id: &str) -> String {
     format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId%20eq%20%27{}%27&$top=1",
+        "{temper_api_url}/tdata/SessionEntries(SessionId='{}',EntryId='{}')",
         session_id.replace('\'', "''"),
         entry_id.replace('\'', "''"),
     )
 }
 
-fn session_entries_verify_url(temper_api_url: &str, session_id: &str) -> String {
-    format!(
-        "{temper_api_url}/tdata/SessionEntries?$filter=SessionId%20eq%20%27{}%27&$top=10000",
-        session_id.replace('\'', "''"),
-    )
+fn session_entries_verify_urls(
+    temper_api_url: &str,
+    session_id: &str,
+    entry_ids: &[&str],
+) -> Vec<(String, String)> {
+    entry_ids
+        .iter()
+        .map(|entry_id| {
+            (
+                (*entry_id).to_string(),
+                session_entry_verify_url(temper_api_url, session_id, entry_id),
+            )
+        })
+        .collect()
 }
 
 fn session_entries_list_url(
@@ -729,29 +768,16 @@ fn session_entries_list_url(
 
 fn session_entry_verify_response_visible(body: &str) -> bool {
     let parsed: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({"value": []}));
+    if entity_field_str(&parsed, &["SessionId", "session_id"]).is_some()
+        && entity_field_str(&parsed, &["EntryId", "entry_id"]).is_some()
+    {
+        return true;
+    }
     parsed
         .get("value")
         .and_then(|value| value.as_array())
         .map(|items| !items.is_empty())
         .unwrap_or(false)
-}
-
-fn session_entry_verify_missing_ids(body: &str, entry_ids: &[&str]) -> Result<Vec<String>, String> {
-    let parsed: Value = serde_json::from_str(body)
-        .map_err(|err| format!("parse SessionEntry verify response: {err}"))?;
-    let items = parsed
-        .get("value")
-        .and_then(Value::as_array)
-        .ok_or("SessionEntry verify response missing value array")?;
-    let visible_ids = items
-        .iter()
-        .filter_map(|entry| entity_field_str(entry, &["EntryId", "entry_id"]).map(str::to_string))
-        .collect::<std::collections::BTreeSet<_>>();
-    Ok(entry_ids
-        .iter()
-        .filter(|entry_id| !visible_ids.contains(**entry_id))
-        .map(|entry_id| (*entry_id).to_string())
-        .collect())
 }
 
 pub fn append_session_entry_inline(
@@ -1557,6 +1583,147 @@ pub fn entity_field_i64(value: &Value, keys: &[&str]) -> Option<i64> {
     })
 }
 
+pub mod bounded_reads {
+    use serde_json::{Value, json};
+    use temper_wasm_sdk::prelude::*;
+
+    use super::entity_field_str;
+
+    pub const POINT_LOOKUP_TOP: usize = 20;
+
+    pub fn odata_escape(value: &str) -> String {
+        value.replace('\'', "''")
+    }
+
+    pub fn odata_filter_urlencode(value: &str) -> String {
+        value
+            .replace('%', "%25")
+            .replace(' ', "%20")
+            .replace('&', "%26")
+            .replace('=', "%3D")
+            .replace('?', "%3F")
+            .replace('#', "%23")
+            .replace('\'', "%27")
+    }
+
+    pub fn bounded_collection_query_path(set_name: &str, filter: &str, top: usize) -> String {
+        format!(
+            "/tdata/{set_name}?$filter={}&$top={top}",
+            odata_filter_urlencode(filter)
+        )
+    }
+
+    pub fn bounded_collection_query_url(
+        temper_api_url: &str,
+        set_name: &str,
+        filter: &str,
+        top: usize,
+    ) -> String {
+        format!(
+            "{}{}",
+            temper_api_url.trim_end_matches('/'),
+            bounded_collection_query_path(set_name, filter, top)
+        )
+    }
+
+    pub fn composite_entity_path(set_name: &str, keys: &[(&str, &str)]) -> String {
+        let key_expr = keys
+            .iter()
+            .map(|(key, value)| format!("{key}='{}'", odata_escape(value)))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("/tdata/{set_name}({key_expr})")
+    }
+
+    pub fn composite_entity_url(temper_api_url: &str, set_name: &str, keys: &[(&str, &str)]) -> String {
+        format!(
+            "{}{}",
+            temper_api_url.trim_end_matches('/'),
+            composite_entity_path(set_name, keys)
+        )
+    }
+
+    pub fn entity_id(value: &Value) -> Option<&str> {
+        entity_field_str(value, &["entity_id", "Id", "id"])
+    }
+
+    pub fn entity_is_archived(value: &Value) -> bool {
+        entity_field_str(value, &["Status", "status"]) == Some("Archived")
+    }
+
+    pub fn first_non_archived_entity(value: &Value) -> Option<&Value> {
+        value
+            .get("value")
+            .and_then(Value::as_array)?
+            .iter()
+            .find(|item| !entity_is_archived(item))
+    }
+
+    pub fn first_non_archived_entity_id(value: &Value) -> Option<String> {
+        first_non_archived_entity(value)
+            .and_then(entity_id)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+    }
+
+    pub fn get_json(
+        ctx: &Context,
+        temper_api_url: &str,
+        path: &str,
+        headers: &[(String, String)],
+        label: &str,
+    ) -> Result<Value, String> {
+        let url = format!("{}{}", temper_api_url.trim_end_matches('/'), path);
+        let resp = ctx.http_call("GET", &url, headers, "")?;
+        if resp.status >= 400 {
+            return Err(format!(
+                "{label}: GET {path} failed (HTTP {}): {}",
+                resp.status,
+                &resp.body[..resp.body.len().min(300)]
+            ));
+        }
+        if resp.body.is_empty() {
+            return Ok(json!({}));
+        }
+        serde_json::from_str(&resp.body).map_err(|error| format!("{label}: parse JSON: {error}"))
+    }
+
+    pub fn find_first_non_archived_entity(
+        ctx: &Context,
+        temper_api_url: &str,
+        headers: &[(String, String)],
+        set_name: &str,
+        filter: &str,
+        top: usize,
+        label: &str,
+    ) -> Result<Option<Value>, String> {
+        let path = bounded_collection_query_path(set_name, filter, top);
+        let resp = get_json(ctx, temper_api_url, &path, headers, label)?;
+        Ok(first_non_archived_entity(&resp).cloned())
+    }
+
+    pub fn find_first_non_archived_entity_id(
+        ctx: &Context,
+        temper_api_url: &str,
+        headers: &[(String, String)],
+        set_name: &str,
+        filter: &str,
+        top: usize,
+        label: &str,
+    ) -> Result<Option<String>, String> {
+        Ok(find_first_non_archived_entity(
+            ctx,
+            temper_api_url,
+            headers,
+            set_name,
+            filter,
+            top,
+            label,
+        )?
+        .and_then(|value| entity_id(&value).map(str::to_string)))
+    }
+}
+
 /// List entities returned by an OData collection URL.
 pub fn list_entities(ctx: &Context, url: &str, tenant: &str) -> Result<Vec<Value>, String> {
     let fields = ctx
@@ -1751,6 +1918,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bounded_read_helper_builds_point_lookup_urls() {
+        let filter = format!(
+            "Path eq '{}' and WorkspaceId eq '{}'",
+            bounded_reads::odata_escape("/system/skills/we're-here.md"),
+            bounded_reads::odata_escape("os-app-docs")
+        );
+
+        assert_eq!(
+            bounded_reads::bounded_collection_query_path(
+                "Files",
+                &filter,
+                bounded_reads::POINT_LOOKUP_TOP
+            ),
+            "/tdata/Files?$filter=Path%20eq%20%27/system/skills/we%27%27re-here.md%27%20and%20WorkspaceId%20eq%20%27os-app-docs%27&$top=20"
+        );
+    }
+
+    #[test]
+    fn bounded_read_helper_selects_first_non_archived_entity() {
+        let response = json!({
+            "value": [
+                {"Id": "fl-archived", "Status": "Archived"},
+                {"fields": {"Id": "fl-ready", "Status": "Ready"}}
+            ]
+        });
+
+        assert_eq!(
+            bounded_reads::first_non_archived_entity_id(&response),
+            Some("fl-ready".to_string())
+        );
+    }
+
+    #[test]
+    fn bounded_read_helper_builds_composite_entity_urls() {
+        assert_eq!(
+            bounded_reads::composite_entity_url(
+                "http://temper",
+                "SessionEntries",
+                &[("SessionId", "ss-1"), ("EntryId", "a'2")]
+            ),
+            "http://temper/tdata/SessionEntries(SessionId='ss-1',EntryId='a''2')"
+        );
+    }
+
+    #[test]
     fn channel_session_lookup_prefers_session_routes_before_agent_fallback() {
         let candidates =
             channel_session_lookup_candidates("ss-current", "aj-agent", "ss-parent");
@@ -1876,6 +2088,20 @@ mod tests {
         assert_eq!(session_id_from_entries_ref(&reference), Some("ses-123"));
         assert!(is_session_entries_ref(&reference));
         assert_eq!(session_id_from_entries_ref("fl-123"), None);
+    }
+
+    #[test]
+    fn virtual_first_turn_session_entries_are_not_materialized() {
+        assert!(!session_entries_materialized(
+            &json!({"session_entries_materialized": "false"})
+        ));
+        assert!(!session_entries_materialized(
+            &json!({"fields": {"SessionEntriesMaterialized": false}})
+        ));
+        assert!(session_entries_materialized(&json!({
+            "session_entries_materialized": "true"
+        })));
+        assert!(session_entries_materialized(&json!({})));
     }
 
     #[test]
@@ -2126,8 +2352,8 @@ mod tests {
     }
 
     #[test]
-    fn session_entry_strict_readback_is_opt_in_by_field_or_config() {
-        assert!(!session_entry_create_verify_readback_enabled(
+    fn session_entry_strict_readback_is_enabled_by_default() {
+        assert!(session_entry_create_verify_readback_enabled(
             &json!({}),
             None,
         ));
@@ -2148,6 +2374,9 @@ mod tests {
     #[test]
     fn session_entry_verify_response_requires_visible_row() {
         assert!(session_entry_verify_response_visible(
+            r#"{"fields":{"SessionId":"ss-1","EntryId":"u-1"}}"#
+        ));
+        assert!(session_entry_verify_response_visible(
             r#"{"value":[{"EntryId":"u-1"}]}"#
         ));
         assert!(!session_entry_verify_response_visible(r#"{"value":[]}"#));
@@ -2155,33 +2384,20 @@ mod tests {
     }
 
     #[test]
-    fn session_entry_verify_missing_ids_accepts_all_expected_ids_in_one_response() {
-        let missing = session_entry_verify_missing_ids(
-            r#"{
-                "value": [
-                    {"fields": {"EntryId": "u-ss-1-0"}},
-                    {"entry_id": "a-2"}
-                ]
-            }"#,
-            &["u-ss-1-0", "a-2"],
-        )
-        .expect("parse verify response");
+    fn session_entries_verify_urls_are_per_entry_and_bounded() {
+        let urls = session_entries_verify_urls("http://temper", "ss-1", &["u-1", "a-2"]);
 
-        assert!(missing.is_empty());
-    }
-
-    #[test]
-    fn session_entry_verify_missing_ids_fails_closed_on_missing_or_invalid_response() {
+        assert_eq!(urls.len(), 2);
+        assert_eq!(urls[0].0, "u-1");
         assert_eq!(
-            session_entry_verify_missing_ids(
-                r#"{"value":[{"EntryId":"h-ss-1"}]}"#,
-                &["h-ss-1", "u-ss-1-0",]
-            )
-            .expect("parse verify response"),
-            vec!["u-ss-1-0".to_string()]
+            urls[0].1,
+            "http://temper/tdata/SessionEntries(SessionId='ss-1',EntryId='u-1')"
         );
-        assert!(session_entry_verify_missing_ids("not-json", &["h-ss-1"]).is_err());
-        assert!(session_entry_verify_missing_ids(r#"{"items":[]}"#, &["h-ss-1"]).is_err());
+        assert_eq!(
+            urls[1].1,
+            "http://temper/tdata/SessionEntries(SessionId='ss-1',EntryId='a-2')"
+        );
+        assert!(!urls[0].1.contains("$filter"));
     }
 
     #[test]

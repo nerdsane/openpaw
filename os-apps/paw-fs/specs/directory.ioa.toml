@@ -14,6 +14,24 @@ initial = "Active"
 # TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
 allow_indefinite_states = ["Active"]
 
+# --- Declared keys (ADR-0153) ---
+# (Name, WorkspaceId, ParentId) is the addressable identity of a directory; the kernel
+# indexes it for O(log n) present/absent reads — the `ensure_dirs` root lookup that
+# otherwise full-scans and 413s at tenant scale (ARN-68). A root directory has a null
+# ParentId, indexed as a tagged-null component; requires the kernel with [[key]] support.
+[[key]]
+name = "name_parent"
+properties = ["Name", "WorkspaceId", "ParentId"]
+
+# (WorkspaceId, Path) is the other addressable identity — a path is unique within a
+# workspace. The finalization/ensure_dirs flow resolves directories by full path
+# (`Path eq '/souls' and WorkspaceId eq …`), a non-keyed shape that otherwise falls to
+# the broad field index and full-scans → 413 at tenant scale (ARN-68). Both components
+# are non-null, so this is a plain unique composite key: O(log n) present/absent.
+[[key]]
+name = "ws_path"
+properties = ["WorkspaceId", "Path"]
+
 # --- State Variables ---
 
 [[state]]

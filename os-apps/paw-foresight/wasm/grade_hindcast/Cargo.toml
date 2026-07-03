@@ -1,0 +1,14 @@
+[package]
+name = "grade-hindcast"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
+
+[dependencies]
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "c584a52b59924e66502576646f50131b0d763a2a" }
+serde_json = "1"
+corridor-embed = { path = "../corridor_embed" }

@@ -7,13 +7,32 @@ permit(
     resource is File
 );
 
-// Agents can create, update, lock, and unlock files in their own workspace
+// Session tool reads (temper.read) authorize content access through a
+// family of capitalized action names relayed as service:wasm-runtime —
+// without this permit every session file read dies in WaitingForApproval
+// (found live: the hindcast surveyor could not read its own frozen
+// corpus). Scoped to the relay principal, mirroring the write permit below.
+permit(
+    principal == Agent::"service:wasm-runtime",
+    action in [
+        Action::"Read", Action::"Download", Action::"GetContent",
+        Action::"GetValue", Action::"Stream", Action::"Open",
+        Action::"GetText", Action::"FetchContent", Action::"Content"
+    ],
+    resource is File
+);
+
+// Agents can create, update, lock, and unlock files in their own workspace.
+// Resource attributes are the entity's raw fields (snake_case): an earlier
+// form of this permit compared resource.workspaceId, which never exists at
+// evaluation time, so the permit was dead code — found when corridor
+// sessions hit 403 on their first workspace-scoped write.
 permit(
     principal is Agent,
     action in [Action::"StreamUpdated", Action::"Create", Action::"create", Action::"update", Action::"Lock", Action::"Unlock"],
     resource is File
 ) when {
-    resource.workspaceId == principal.workspaceid
+    resource.workspace_id == principal.workspaceid
 };
 
 // System agents execute Temper-native PawFS workflows such as ArtifactBatch and
@@ -51,3 +70,13 @@ permit(
 ) when {
     principal in Group::"WorkspaceAdmins" && resource.workspaceId == principal.workspaceid
 };
+
+// The wasm-runtime service writes files on behalf of sessions (turn
+// artifacts, agent temper.write via the directory tree). Without this
+// permit every fresh tenant needs a runtime decision approval before any
+// session can persist content — found live, twice, in corridor e2e runs.
+permit(
+    principal == Agent::"service:wasm-runtime",
+    action in [Action::"create", Action::"Create", Action::"StreamUpdated", Action::"update"],
+    resource is File
+);

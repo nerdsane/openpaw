@@ -415,7 +415,7 @@ pub const REPL_METHOD_SPECS: &[ReplMethodSpec] = &[
         object: "temper",
         method: "image_generate",
         signature: "(prompt, opts=None) or ({prompt, opts})",
-        description: "generate an image through the paw-media app, returns PawFS file metadata and an image handle",
+        description: "generate an image through the paw-media app. Use this tool for user image requests; gpt-image-2, gpt-image-1, and dall-e-* requests are normalized onto the Codex media backend. Returns PawFS file metadata and an image handle",
         token: Some("temper_image_generate"),
     },
 ];

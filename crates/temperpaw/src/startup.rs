@@ -161,6 +161,43 @@ fn installed_app_runtime_recovery_result(
     }
 }
 
+fn genesis_bootstrap_runtime_recovery_allows_skip(
+    outcome: &InstalledAppRuntimeRecoveryOutcome,
+) -> bool {
+    matches!(
+        outcome,
+        InstalledAppRuntimeRecoveryOutcome::Ready | InstalledAppRuntimeRecoveryOutcome::Healed
+    )
+}
+
+async fn unchanged_genesis_bootstrap_app_runtime_ready(
+    state: &PlatformState,
+    platform_store: &dyn PlatformStore,
+    tenant: &str,
+    app_name: &str,
+    app_ref: &str,
+) -> bool {
+    let outcome =
+        recover_installed_app_runtime_state(state, platform_store, tenant, app_name).await;
+    if genesis_bootstrap_runtime_recovery_allows_skip(&outcome) {
+        tracing::info!(
+            app = %app_name,
+            app_ref = %app_ref,
+            outcome = ?outcome,
+            "Skipping unchanged Genesis bootstrap app"
+        );
+        return true;
+    }
+
+    tracing::info!(
+        app = %app_name,
+        app_ref = %app_ref,
+        outcome = ?outcome,
+        "Reconciling unchanged Genesis bootstrap app because runtime recovery found drift"
+    );
+    false
+}
+
 #[cfg(test)]
 fn runtime_indexes_required_before_reconcile(
     summary: &InstalledAppsRuntimeRecoverySummary,
@@ -435,12 +472,17 @@ async fn bootstrap_configured_genesis_apps(
                     && record.app_ref == app_ref
                     && record.status == "installed" =>
             {
-                tracing::info!(
-                    app = %app_name,
-                    app_ref = %app_ref,
-                    "Skipping unchanged Genesis bootstrap app"
-                );
-                continue;
+                if unchanged_genesis_bootstrap_app_runtime_ready(
+                    state,
+                    platform_store,
+                    tenant,
+                    &app_name,
+                    &app_ref,
+                )
+                .await
+                {
+                    continue;
+                }
             }
             Ok(Some(record)) => {
                 tracing::info!(
@@ -821,6 +863,63 @@ fn spawn_query_projection_backfill(
     });
 }
 
+/// Backfill `entity_key_index` for declared-key entity types (ADR-0153), independent
+/// of the heavy field-index re-scan above. K (1-3) tiny key rows per entity, so it is
+/// cheap and runs on a short default delay. Lets existing Files/Directories/etc become
+/// keyed (so their point reads stop hitting the 413/QueryTooLarge scan) without
+/// enabling the expensive projection backfill.
+fn spawn_key_index_backfill(server: temper_server::state::ServerState, tenant_ids: Vec<TenantId>) {
+    if !key_index_backfill_on_startup() {
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background key-index backfill disabled for startup"
+        );
+        return;
+    }
+
+    tokio::spawn(async move {
+        let delay = key_index_backfill_delay();
+        if !delay.is_zero() {
+            tracing::info!(
+                tenants = tenant_ids.len(),
+                delay_secs = delay.as_secs(),
+                "Background key-index backfill delayed"
+            );
+            tokio::time::sleep(delay).await;
+        }
+        tracing::info!(
+            tenants = tenant_ids.len(),
+            "Background key-index backfill scheduled"
+        );
+        for tenant_id in tenant_ids {
+            server.populate_key_index_from_snapshots(&tenant_id).await;
+            tracing::info!(tenant = %tenant_id, "Background key-index backfill complete");
+        }
+    });
+}
+
+fn key_index_backfill_on_startup() -> bool {
+    std::env::var("TEMPERPAW_KEY_INDEX_BACKFILL_ON_STARTUP")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim(),
+                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+            )
+        })
+}
+
+fn key_index_backfill_delay() -> Duration {
+    const DEFAULT_KEY_INDEX_BACKFILL_DELAY_SECS: u64 = 30;
+
+    let configured = std::env::var("TEMPERPAW_KEY_INDEX_BACKFILL_DELAY_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_KEY_INDEX_BACKFILL_DELAY_SECS);
+
+    Duration::from_secs(configured)
+}
+
 fn query_projection_backfill_on_startup() -> bool {
     std::env::var("TEMPERPAW_QUERY_PROJECTION_BACKFILL_ON_STARTUP")
         .ok()
@@ -929,6 +1028,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         .anthropic_api_key
         .clone()
         .or_else(|| config.openrouter_api_key.clone())
+        .or_else(|| config.huggingface_api_key.clone())
+        .or_else(|| config.fireworks_api_key.clone())
+        .or_else(|| config.sakana_fugu_api_key.clone())
+        .or_else(|| config.openai_compatible_api_key.clone())
+        .or_else(|| config.openai_compatible_api_url.clone())
+        .or_else(|| config.local_openai_api_url.clone())
         .or_else(|| config.openai_api_key.clone())
         .or_else(|| config.openai_codex_token.clone());
     let mut state = PlatformState::with_registry(registry, llm_api_key);
@@ -1133,6 +1238,83 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             &tenant,
             "openrouter_api_key",
             config.openrouter_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openrouter_api_url",
+            config.openrouter_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "huggingface_api_key",
+            config.huggingface_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "huggingface_api_url",
+            config.huggingface_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "fireworks_api_key",
+            config.fireworks_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "fireworks_api_url",
+            config.fireworks_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "sakana_fugu_api_key",
+            config.sakana_fugu_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "sakana_fugu_api_url",
+            config.sakana_fugu_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openai_compatible_api_key",
+            config.openai_compatible_api_key
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openai_compatible_api_url",
+            config.openai_compatible_api_url
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "openai_compatible_headers_json",
+            config.openai_compatible_headers_json
+        );
+        seed_secret!(
+            vault,
+            &storage,
+            &tenant,
+            "local_openai_api_url",
+            config.local_openai_api_url
         );
         seed_secret!(
             vault,
@@ -1990,6 +2172,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| {
                 v.get_secret(&tenant, "anthropic_api_key")
                     .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "huggingface_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "hf_token"))
+                    .or_else(|| v.get_secret(&tenant, "fireworks_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "sakana_fugu_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_url"))
+                    .or_else(|| v.get_secret(&tenant, "local_openai_api_url"))
                     .or_else(|| v.get_secret(&tenant, "openai_api_key"))
                     .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
             })
@@ -2040,6 +2229,9 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     // Query projections are repaired as optional maintenance, not startup work.
     // Incremental projection writes remain active on entity changes.
     spawn_query_projection_backfill(state.server.clone(), tenant_ids.clone());
+    // ADR-0153/ARN-68: independent, cheap key-index backfill (own flag), so existing
+    // declared-key entities become keyed without the heavy field-index re-scan.
+    spawn_key_index_backfill(state.server.clone(), tenant_ids.clone());
 
     // Phase 10: Soul personalization (post-boot, writes to TemperFS via OData)
     if needs_soul_setup {
@@ -2050,6 +2242,13 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
             .and_then(|v| {
                 v.get_secret(&tenant, "anthropic_api_key")
                     .or_else(|| v.get_secret(&tenant, "openrouter_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "huggingface_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "hf_token"))
+                    .or_else(|| v.get_secret(&tenant, "fireworks_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "sakana_fugu_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_key"))
+                    .or_else(|| v.get_secret(&tenant, "openai_compatible_api_url"))
+                    .or_else(|| v.get_secret(&tenant, "local_openai_api_url"))
                     .or_else(|| v.get_secret(&tenant, "openai_api_key"))
                     .or_else(|| v.get_secret(&tenant, "openai_codex_token"))
             })
@@ -3234,6 +3433,7 @@ fn default_agent_config(
     let mut config = serde_json::json!({
         "model": llm_model,
         "provider": llm_provider,
+        "provider_options_json": "",
         "tools_enabled": DEFAULT_AGENT_TOOLS_ENABLED,
         "workdir": DEFAULT_AGENT_WORKDIR,
         "max_turns": "24",
@@ -3755,7 +3955,9 @@ mod tests {
 
     use anyhow::anyhow;
     use serde_json::Value;
-    use temper_platform::recovery::InstalledAppsRuntimeRecoverySummary;
+    use temper_platform::recovery::{
+        InstalledAppRuntimeRecoveryOutcome, InstalledAppsRuntimeRecoverySummary,
+    };
     use temper_runtime::tenant::TenantId;
     use temper_server::secrets::vault::SecretsVault;
 
@@ -3767,7 +3969,8 @@ mod tests {
         STARTUP_TIME_TO_READY_METRIC, StartupReadiness, StartupSurfaceRuntimeRecoverySummary,
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, default_agent_specs_bootstrap_needed,
-        genesis_bootstrap_app_names, genesis_bootstrap_timeout, genesis_cache_restore_timeout,
+        genesis_bootstrap_app_names, genesis_bootstrap_runtime_recovery_allows_skip,
+        genesis_bootstrap_timeout, genesis_cache_restore_timeout,
         installed_app_runtime_recovery_result, load_or_create_temper_api_key,
         local_wasm_startup_policy, orphaned_session_recovery_limit,
         paw_soul_content_is_personalized, repair_default_agent_tools_enabled,
@@ -4018,6 +4221,25 @@ mod tests {
         unsafe {
             std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS");
         }
+    }
+
+    #[test]
+    fn genesis_bootstrap_skip_requires_runtime_ready_or_healed() {
+        assert!(genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::Ready
+        ));
+        assert!(genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::Healed
+        ));
+        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::NeedsReconcile
+        ));
+        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::MissingBundle
+        ));
+        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
+            &InstalledAppRuntimeRecoveryOutcome::StoreError
+        ));
     }
 
     #[test]

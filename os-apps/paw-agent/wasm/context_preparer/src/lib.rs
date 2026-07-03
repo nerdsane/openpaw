@@ -19,7 +19,7 @@ use tool_catalog::{
     DEFAULT_TOOLS_ENABLED, build_method_listing, enabled_tool_set, has_sandbox_surface,
 };
 use wasm_helpers::{
-    create_content_file, is_session_entries_ref, read_text_file_versions_batch,
+    bounded_reads, create_content_file, is_session_entries_ref, read_text_file_versions_batch,
     read_text_files_batch, runtime_headers, runtime_headers_as, timestamp_millis_string,
     write_temperfs_value_with_retry,
 };
@@ -42,6 +42,13 @@ fn normalize_provider(provider: &str) -> String {
     match norm.as_str() {
         "open_router" => "openrouter".to_string(),
         "codex" | "openai-codex" => "openai_codex".to_string(),
+        "hf" | "hugging_face" | "hugging-face" => "huggingface".to_string(),
+        "fireworks_ai" | "fireworks-ai" => "fireworks".to_string(),
+        "sakana" | "sakana-fugu" | "fugu" => "sakana_fugu".to_string(),
+        "ollama" | "local" | "local-openai" => "local_openai".to_string(),
+        "openai-compatible" | "openai_compat" | "openai-compat" | "custom_openai" => {
+            "openai_compatible".to_string()
+        }
         _ => norm,
     }
 }
@@ -2331,9 +2338,16 @@ fn skill_prefixes(project_id: &str, agent_id: &str) -> Vec<String> {
 
 fn skill_index_filter(prefix: &str) -> String {
     // OData field names match the canonical capitalized form on File entities
-    // (Path/Name/Status). Lowercase aliases aren't indexed, so case-mismatched
+    // (Path/Name). Lowercase aliases aren't indexed, so case-mismatched
     // filters silently return zero results.
-    format!("startswith(Path,'{prefix}') and Name eq 'SKILL.md' and Status ne 'Archived'")
+    format!(
+        "startswith(Path,'{}') and Name eq 'SKILL.md'",
+        bounded_reads::odata_escape(prefix)
+    )
+}
+
+fn file_index_query_url(temper_api_url: &str, filter: &str, top: usize) -> String {
+    bounded_reads::bounded_collection_query_url(temper_api_url, "Files", filter, top)
 }
 
 fn append_skill_file_entries_from_response(
@@ -2359,6 +2373,9 @@ fn append_skill_file_entries_from_response(
     };
 
     for item in items {
+        if bounded_reads::entity_is_archived(item) {
+            continue;
+        }
         let id = entity_field_str(item, &["Id", "entity_id"])
             .unwrap_or("")
             .to_string();
@@ -2389,7 +2406,7 @@ fn query_skill_file_entries_serial(
 
     for prefix in skill_prefixes(project_id, agent_id) {
         let filter = skill_index_filter(&prefix);
-        let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
+        let url = file_index_query_url(temper_api_url, &filter, 100);
         match ctx.http_call("GET", &url, headers, "") {
             Ok(resp) => {
                 append_skill_file_entries_from_response(ctx, &prefix, &resp, &mut file_entries)
@@ -2632,8 +2649,8 @@ fn load_mode_instructions(
     let headers = agent_headers(ctx, tenant, None, Some("application/json"));
     // Find the mode instruction file by path
     let path = format!("/system/mode-instructions/{mode}.md");
-    let filter = format!("path eq '{path}' and Status ne 'Archived'");
-    let url = format!("{temper_api_url}/tdata/Files?$filter={filter}");
+    let filter = format!("Path eq '{}'", bounded_reads::odata_escape(&path));
+    let url = file_index_query_url(temper_api_url, &filter, 20);
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     if resp.status != 200 {
         return Ok(String::new());
@@ -2642,7 +2659,7 @@ fn load_mode_instructions(
     let file_id = parsed
         .get("value")
         .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
+        .and_then(|arr| arr.iter().find(|item| !bounded_reads::entity_is_archived(item)))
         .and_then(|item| entity_field_str(item, &["Id", "entity_id"]))
         .unwrap_or("");
     if file_id.is_empty() {
@@ -2753,7 +2770,7 @@ fn build_prompt_auxiliary_batch_plan(
             specs.push(PromptBatchRequestSpec {
                 kind: PromptBatchRequestKind::SkillIndex,
                 label: prefix,
-                url: format!("{temper_api_url}/tdata/Files?$filter={filter}"),
+                url: file_index_query_url(temper_api_url, &filter, 100),
             });
         }
     }

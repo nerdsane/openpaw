@@ -1,0 +1,194 @@
+# Artifact — a text native to a world: a story, an in-world document, a
+# brief, or a world diff.
+#
+# Stories are authored by dwellers (first person, from path traversals) and
+# observers (third person). Documents are the corridor's working material
+# promoted to the reading surface. Both pass the same blocking consistency
+# gate before publication: a checker session reports a structured verdict;
+# the consistency_gate WASM validates the verdict schema and owns the
+# transition. Cedar restricts PassCheck/Publish/Retcon to system principals —
+# no session publishes directly.
+#
+# Retcons are governed: a published artifact is only retconned by a world
+# update, citing the resolved EventNode that forced it.
+
+[automaton]
+name = "Artifact"
+states = ["Drafted", "Checking", "ConsistencyChecked", "Published", "Retconned", "Rejected"]
+initial = "Drafted"
+
+# ADR-0050: Drafted/Checking are bounded by author/checker session timeouts
+# plus bounded gate retries. ConsistencyChecked awaits a Publish decision;
+# Published persists for the life of the world. Revisit with state_timeout
+# once gate envelopes are measured.
+allow_indefinite_states = ["Drafted", "Checking", "ConsistencyChecked", "Published"]
+
+# --- State Variables ---
+
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "path_id"
+type = "string"
+initial = ""
+
+# story | document | brief | diff
+[[state]]
+name = "kind"
+type = "string"
+initial = ""
+
+[[state]]
+name = "title"
+type = "string"
+initial = ""
+
+[[state]]
+name = "author_agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "author_dweller_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "content_file_id"
+type = "string"
+initial = ""
+
+# JSON array of EventNode ids the text cites; every one must exist and agree.
+[[state]]
+name = "cited_node_ids"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "checker_session_id"
+type = "string"
+initial = ""
+
+# Structured verdict reported by the checker session:
+# {"pass": bool, "violations": [{"kind": "...", "where": "...", "note": "..."}]}
+[[state]]
+name = "verdict_json"
+type = "string"
+initial = ""
+
+[[state]]
+name = "check_attempts"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "check_failure_note"
+type = "string"
+initial = ""
+
+[[state]]
+name = "retcon_cause_node_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "successor_artifact_id"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "SubmitForCheck"
+kind = "input"
+from = ["Drafted"]
+to = "Checking"
+params = ["content_file_id", "cited_node_ids"]
+hint = "Author submits. Spawns a checker session against the world graph."
+effect = [
+  { type = "increment", var = "check_attempts" },
+  { type = "trigger", name = "consistency_gate" },
+]
+
+[[action.triggers]]
+name = "consistency_gate"
+kind = "wasm"
+module = "consistency_gate"
+on_failure = "FailCheck"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+
+[[action]]
+name = "CheckerVerdict"
+kind = "input"
+from = ["Checking"]
+params = ["verdict_json", "checker_session_id"]
+hint = "Checker session self-reports its structured verdict. The gate validates the schema deterministically."
+effect = [{ type = "trigger", name = "consistency_gate" }]
+
+[[action]]
+name = "PassCheck"
+kind = "input"
+from = ["Checking"]
+to = "ConsistencyChecked"
+params = []
+hint = "Gate validated the verdict: citations resolve, dates agree, no canon contradiction. System principals only. Gate-cleared artifacts publish automatically (deterministic policy, ADR-004 C4)."
+effect = [{ type = "trigger", name = "consistency_gate_publish" }]
+
+[[action.triggers]]
+name = "consistency_gate_publish"
+kind = "wasm"
+module = "consistency_gate"
+on_failure = "Reject"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "FailCheck"
+kind = "input"
+from = ["Checking"]
+to = "Drafted"
+params = ["check_failure_note"]
+hint = "Gate found violations (or the verdict was malformed). Back to the author with the note."
+
+[[action]]
+name = "Publish"
+kind = "input"
+from = ["ConsistencyChecked"]
+to = "Published"
+params = []
+hint = "Enter the world's canon. System principals only (Cedar)."
+
+[[action]]
+name = "Retcon"
+kind = "input"
+from = ["Published"]
+to = "Retconned"
+params = ["retcon_cause_node_id", "successor_artifact_id"]
+hint = "Reality resolved against this text. Cites the resolving EventNode; links the rewritten successor. System principals only."
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Drafted", "Checking"]
+to = "Rejected"
+params = ["check_failure_note"]
+hint = "Abandoned after repeated gate failures or by the author."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "RetconnedIsFinal"
+when = ["Retconned"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RejectedIsFinal"
+when = ["Rejected"]
+assert = "no_further_transitions"

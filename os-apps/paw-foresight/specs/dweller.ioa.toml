@@ -1,0 +1,131 @@
+# Dweller — an inhabitant of a world: persistent persona, memory, and a
+# public track record.
+#
+# Dwellers are not an ambient simulation. Sessions animate them when the
+# world moves: traversing a path during construction or update (which is
+# simultaneously a consistency stress test and the accumulation of lived
+# experience), authoring a story from what they lived, or being interviewed
+# by a reader. Their within-frontier calls are graded like everything else;
+# the track record is updated by the system, never self-reported.
+
+[automaton]
+name = "Dweller"
+states = ["Created", "Active", "Retired"]
+initial = "Created"
+
+# ADR-0050: Active is the steady state of a long-lived character —
+# indefinite by definition; work is session-bounded, not state-bounded.
+allow_indefinite_states = ["Created", "Active"]
+
+# --- State Variables ---
+
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "name"
+type = "string"
+initial = ""
+
+[[state]]
+name = "role"
+type = "string"
+initial = ""
+
+# The lens this dweller reads the world through (e.g. base-rate historian,
+# incentive tracker, skeptic) — probe heritage, worn as a character.
+[[state]]
+name = "epistemic_role"
+type = "string"
+initial = ""
+
+[[state]]
+name = "persona_file_id"
+type = "string"
+initial = ""
+
+# paw-agent Agent entity backing this dweller's sessions (memory scope).
+[[state]]
+name = "agent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "traversal_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "contradiction_count"
+type = "counter"
+initial = "0"
+
+# Small JSON summary maintained by the system: {"graded": n, "brier": x}.
+[[state]]
+name = "track_record_json"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "retire_reason"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Activate"
+kind = "input"
+from = ["Created"]
+to = "Active"
+params = ["agent_id", "persona_file_id"]
+hint = "Bind the dweller to its backing agent. Sessions may now animate it."
+
+[[action]]
+name = "RecordTraversal"
+kind = "input"
+from = ["Active"]
+params = ["path_id", "traversal_note_file_id"]
+hint = "A traversal session finished living a path stretch. Lived detail lands in agent memory; contradictions were filed as cost flags on the Path."
+effect = [{ type = "increment", var = "traversal_count" }]
+
+[[action]]
+name = "RecordContradiction"
+kind = "input"
+from = ["Active"]
+params = ["path_id", "claim_id", "note"]
+hint = "A traversal could not be lived coherently. The trigger appends a contradiction flag to the route's challenge flags and re-prices the claim — dweller stress-testing feeds pricing (ADR-004)."
+effect = [{ type = "increment", var = "contradiction_count" }, { type = "trigger", name = "animate_dwellers" }]
+
+[[action.triggers]]
+name = "animate_dwellers"
+kind = "wasm"
+module = "animate_dwellers"
+on_failure = "Retire"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "UpdateTrackRecord"
+kind = "input"
+from = ["Active"]
+params = ["track_record_json"]
+hint = "Grading pass updated this dweller's calibration. System principals only (Cedar)."
+
+[[action]]
+name = "Retire"
+kind = "input"
+from = ["Created", "Active"]
+to = "Retired"
+params = ["retire_reason"]
+hint = "Character leaves the world (or its soul was bred out by the meta-loop)."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "RetiredIsFinal"
+when = ["Retired"]
+assert = "no_further_transitions"

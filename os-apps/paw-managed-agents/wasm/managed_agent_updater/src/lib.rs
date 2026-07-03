@@ -62,6 +62,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             if provider.is_empty() {
                 return Err("ManagedAgent requires Provider before syncing inner Agent".into());
             }
+            let provider_options_json = field_string(
+                &current_fields,
+                &["ProviderOptionsJson", "provider_options_json"],
+            );
             let _ = post_absolute_action(
                 &ctx,
                 &headers,
@@ -70,6 +74,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     "description": field_string(&current_fields, &["Description", "description"]),
                     "model": model_id,
                     "provider": provider,
+                    "provider_options_json": provider_options_json,
                     "tools_enabled": tools_enabled,
                     "max_turns": "60",
                 }),

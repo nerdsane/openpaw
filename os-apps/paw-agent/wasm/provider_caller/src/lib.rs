@@ -10,6 +10,10 @@
 //!
 //! Build: `cargo build --target wasm32-unknown-unknown --release`
 
+use openai_chat_wire::{
+    ChatCompletionStreamAccumulator, ChatStreamDelta, ChatStreamParseFailure,
+    build_chat_completion_body, convert_messages_to_chat, parse_headers_json,
+};
 #[cfg(test)]
 use openai_codex_wire::base64_url_no_pad;
 use openai_codex_wire::{
@@ -72,6 +76,13 @@ fn normalize_provider(provider: &str) -> String {
     match norm.as_str() {
         "open_router" => "openrouter".to_string(),
         "codex" | "openai-codex" => "openai_codex".to_string(),
+        "hf" | "hugging_face" | "hugging-face" => "huggingface".to_string(),
+        "fireworks_ai" | "fireworks-ai" => "fireworks".to_string(),
+        "sakana" | "sakana-fugu" | "fugu" => "sakana_fugu".to_string(),
+        "ollama" | "local" | "local-openai" => "local_openai".to_string(),
+        "openai-compatible" | "openai_compat" | "openai-compat" | "custom_openai" => {
+            "openai_compatible".to_string()
+        }
         _ => norm,
     }
 }
@@ -95,7 +106,7 @@ fn provider_auth_expired_reason(error: &str) -> Option<&str> {
 
 fn first_non_empty(values: &[Option<String>]) -> String {
     for v in values.iter().flatten() {
-        if !v.trim().is_empty() {
+        if !v.trim().is_empty() && !is_unresolved_secret_template(v) {
             return v.trim().to_string();
         }
     }
@@ -121,9 +132,80 @@ fn resolve_provider_api_key(ctx: &Context, provider: &str) -> Result<String, Str
             ctx.config.get("openrouter_api_key").cloned(),
             ctx.config.get("api_key").cloned(),
         ]),
+        "huggingface" => first_non_empty(&[
+            ctx.config.get("huggingface_api_key").cloned(),
+            ctx.config.get("hf_token").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "fireworks" => first_non_empty(&[
+            ctx.config.get("fireworks_api_key").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "sakana_fugu" => first_non_empty(&[
+            ctx.config.get("sakana_fugu_api_key").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "openai_compatible" => first_non_empty(&[
+            ctx.config.get("openai_compatible_api_key").cloned(),
+            ctx.config.get("api_key").cloned(),
+        ]),
+        "local_openai" => String::new(),
         other => return Err(format!("unsupported LLM provider: {other}")),
     };
     Ok(key)
+}
+
+fn default_openai_compatible_api_url(provider: &str) -> &'static str {
+    match provider {
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+        "huggingface" => "https://router.huggingface.co/v1/chat/completions",
+        "fireworks" => "https://api.fireworks.ai/inference/v1/chat/completions",
+        "local_openai" => "http://127.0.0.1:11434/v1/chat/completions",
+        _ => "",
+    }
+}
+
+fn configured_openai_compatible_api_url(ctx: &Context, provider: &str) -> Result<String, String> {
+    let config_key = match provider {
+        "openrouter" => "openrouter_api_url",
+        "huggingface" => "huggingface_api_url",
+        "fireworks" => "fireworks_api_url",
+        "sakana_fugu" => "sakana_fugu_api_url",
+        "openai_compatible" => "openai_compatible_api_url",
+        "local_openai" => "local_openai_api_url",
+        other => return Err(format!("provider={other} is not OpenAI-compatible")),
+    };
+    let configured = ctx
+        .config
+        .get(config_key)
+        .filter(|value| !value.trim().is_empty() && !is_unresolved_secret_template(value))
+        .cloned();
+    let api_url =
+        configured.unwrap_or_else(|| default_openai_compatible_api_url(provider).to_string());
+    if api_url.trim().is_empty() {
+        return Err(format!("provider={provider} requires {config_key}"));
+    }
+    Ok(api_url)
+}
+
+fn configured_openai_compatible_headers(
+    ctx: &Context,
+    provider: &str,
+) -> Result<Vec<(String, String)>, String> {
+    if provider != "openai_compatible" {
+        return Ok(Vec::new());
+    }
+    let headers_json = ctx
+        .config
+        .get("openai_compatible_headers_json")
+        .filter(|value| !is_unresolved_secret_template(value))
+        .map(String::as_str)
+        .unwrap_or("");
+    parse_headers_json(headers_json)
+}
+
+fn provider_allows_empty_api_key(provider: &str) -> bool {
+    matches!(provider, "mock" | "local_openai" | "openai_compatible")
 }
 
 fn call_mock(
@@ -303,6 +385,19 @@ impl LlmStreamDelta {
     }
 }
 
+fn chat_deltas_to_llm(deltas: Vec<ChatStreamDelta>) -> Vec<LlmStreamDelta> {
+    deltas
+        .into_iter()
+        .map(|delta| LlmStreamDelta {
+            delta_text: delta.delta_text,
+            accumulated_text_chars: delta.accumulated_text_chars,
+            tool_call_id: delta.tool_call_id,
+            tool_name: delta.tool_name,
+            tool_arguments_delta: delta.tool_arguments_delta,
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ParsedProviderStream {
     content: Value,
@@ -350,6 +445,10 @@ impl std::fmt::Display for StreamParseFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
+}
+
+fn chat_stream_error(err: ChatStreamParseFailure) -> StreamParseFailure {
+    StreamParseFailure::new(err.to_string(), err.semantic_output_seen)
 }
 
 fn should_retry_stream_failure(
@@ -525,7 +624,7 @@ impl OpenAiStreamAccumulator {
                     if let Some(out) = resp.get("output").and_then(Value::as_array)
                         && !out.is_empty()
                     {
-                        self.output_items = out.clone();
+                        merge_openai_completed_output_items(&mut self.output_items, out);
                     }
                 }
             }
@@ -587,6 +686,34 @@ impl OpenAiStreamAccumulator {
             semantic_deltas: self.semantic_deltas,
             completed: true,
         })
+    }
+}
+
+fn merge_openai_completed_output_items(output_items: &mut Vec<Value>, completed_output: &[Value]) {
+    if output_items.is_empty() {
+        output_items.extend(completed_output.iter().cloned());
+        return;
+    }
+
+    for item in completed_output {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        let duplicate = if item_type == "function_call" {
+            let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
+            output_items.iter().any(|existing| {
+                existing.get("type").and_then(Value::as_str) == Some("function_call")
+                    && existing
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        == call_id
+            })
+        } else {
+            output_items.iter().any(|existing| existing == item)
+        };
+
+        if !duplicate {
+            output_items.push(item.clone());
+        }
     }
 }
 
@@ -2008,6 +2135,312 @@ fn call_anthropic(
 }
 
 /// Call OpenRouter Chat Completions API (OpenAI-compatible schema).
+fn call_openai_compatible_chat(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    provider: &str,
+    api_key: &str,
+    api_url: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[Value],
+    tools: &[Value],
+    site_url: &str,
+    app_name: &str,
+    extra_headers: &[(String, String)],
+    temperature: f64,
+    provider_options_json: &str,
+) -> Result<LlmResponse, String> {
+    let body = build_chat_completion_body(
+        model,
+        system_prompt,
+        messages,
+        tools,
+        LLM_MAX_TOKENS as i64,
+        temperature,
+        true,
+        true,
+        provider_options_json,
+    )?;
+    let body_str =
+        serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
+
+    let mut headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+        ("accept".to_string(), "text/event-stream".to_string()),
+    ];
+    if !api_key.trim().is_empty() {
+        headers.push(("authorization".to_string(), format!("Bearer {api_key}")));
+    }
+    if provider == "openrouter" {
+        if !site_url.trim().is_empty() {
+            headers.push(("HTTP-Referer".to_string(), site_url.trim().to_string()));
+        }
+        if !app_name.trim().is_empty() {
+            headers.push(("X-Title".to_string(), app_name.trim().to_string()));
+        }
+    }
+    headers.extend(extra_headers.iter().cloned());
+
+    let chat_messages = convert_messages_to_chat(system_prompt, messages);
+    let mut llm_span = start_llm_guest_span(
+        ctx,
+        provider,
+        model,
+        temperature,
+        LLM_MAX_TOKENS,
+        system_prompt,
+        &chat_messages,
+        &ctx.entity_id,
+    );
+
+    ctx.log(
+        "info",
+        &format!(
+            "session_turn: calling OpenAI-compatible chat provider={provider}, model={model}, messages={}, url={api_url}",
+            messages.len(),
+        ),
+    );
+
+    let overall_start_ms = Context::get_time_millis();
+    let mut last_err = String::new();
+    let mut parsed_stream = None;
+    let mut attempts_used: u32 = 0;
+    let mut live_progress = LlmLiveProgress::new(ctx, temper_api_url, tenant, provider, model);
+    for attempt in 0..LLM_MAX_ATTEMPTS {
+        let attempt_num = attempt + 1;
+        attempts_used = attempt_num;
+        if attempt > 0 {
+            ctx.log(
+                "warn",
+                &format!(
+                    "session_turn: {provider} retrying (attempt {attempt_num}/{LLM_MAX_ATTEMPTS}), last error: {last_err}"
+                ),
+            );
+        }
+        ctx.log(
+            "info",
+            &format_llm_attempt_start_log(
+                provider,
+                model,
+                attempt_num,
+                LLM_MAX_ATTEMPTS,
+                Context::get_time_millis() - overall_start_ms,
+            ),
+        );
+        let attempt_start_ms = Context::get_time_millis();
+        let mut accumulator = ChatCompletionStreamAccumulator::default();
+        let stream_result = post_sse_streaming(ctx, api_url, &headers, &body_str, |data| {
+            let deltas = accumulator.ingest_data(data).map_err(chat_stream_error)?;
+            let llm_deltas = chat_deltas_to_llm(deltas);
+            live_progress.emit_deltas(&llm_deltas);
+            Ok(())
+        });
+        match stream_result {
+            Ok(r) if r.status == 200 => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        provider,
+                        attempt_num,
+                        elapsed,
+                        r.status,
+                        r.response_bytes,
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint(provider, attempt_num, elapsed),
+                    );
+                }
+                match accumulator.finalize(r.response_bytes) {
+                    Ok(parsed) => {
+                        parsed_stream = Some(parsed);
+                        break;
+                    }
+                    Err(err) => {
+                        last_err = err.to_string();
+                        let visible =
+                            err.semantic_output_seen || live_progress.saw_semantic_output();
+                        if should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                            ctx.log(
+                                "warn",
+                                &format!(
+                                    "session_turn: {provider} stream parse failed before visible output, will retry: {last_err}"
+                                ),
+                            );
+                            continue;
+                        }
+                        let error = format!(
+                            "{provider} stream failed after visible output or final attempt: {last_err}"
+                        );
+                        finish_llm_guest_span_error(&mut llm_span, "stream_parse_error", &error);
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(r) if matches!(r.status, 429 | 500 | 502 | 503 | 504) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        provider,
+                        attempt_num,
+                        elapsed,
+                        r.status,
+                        r.response_bytes,
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint(provider, attempt_num, elapsed),
+                    );
+                }
+                last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
+                if live_progress.saw_semantic_output() {
+                    let error = format!(
+                        "{provider} stream returned transient HTTP {} after visible output: {}",
+                        r.status,
+                        &r.body[..r.body.len().min(500)]
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                    return Err(error);
+                }
+                continue;
+            }
+            Ok(r) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_attempt_end_log(
+                        provider,
+                        attempt_num,
+                        elapsed,
+                        r.status,
+                        r.response_bytes,
+                    ),
+                );
+                let total_elapsed = Context::get_time_millis() - overall_start_ms;
+                ctx.log(
+                    "info",
+                    &format_llm_complete_log(
+                        provider,
+                        model,
+                        attempts_used,
+                        total_elapsed,
+                        "non_retriable_http_error",
+                    ),
+                );
+                let error = format!(
+                    "{provider} API returned {}: {}",
+                    r.status,
+                    &r.body[..r.body.len().min(500)]
+                );
+                finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
+                return Err(error);
+            }
+            Err(e) => {
+                let elapsed = Context::get_time_millis() - attempt_start_ms;
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "session_turn: {provider} attempt {attempt_num} stream error elapsed_ms={elapsed} err={e}"
+                    ),
+                );
+                if should_emit_hang_hint(elapsed) {
+                    ctx.log(
+                        "warn",
+                        &format_llm_hang_hint(provider, attempt_num, elapsed),
+                    );
+                }
+                last_err = e.to_string();
+                let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
+                if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
+                    let error = format!(
+                        "{provider} stream failed after visible output or final attempt: {last_err}"
+                    );
+                    finish_llm_guest_span_error(&mut llm_span, "stream_error", &error);
+                    return Err(error);
+                }
+                continue;
+            }
+        }
+    }
+
+    let parsed = match parsed_stream {
+        Some(parsed) => parsed,
+        None => {
+            let total_elapsed = Context::get_time_millis() - overall_start_ms;
+            ctx.log(
+                "warn",
+                &format_llm_complete_log(
+                    provider,
+                    model,
+                    attempts_used,
+                    total_elapsed,
+                    "exhausted_retries",
+                ),
+            );
+            let error =
+                format!("{provider} API failed after {LLM_MAX_ATTEMPTS} attempts: {last_err}");
+            finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
+            return Err(error);
+        }
+    };
+    ctx.log(
+        "info",
+        &format_llm_complete_log(
+            provider,
+            model,
+            attempts_used,
+            Context::get_time_millis() - overall_start_ms,
+            "success",
+        ),
+    );
+
+    ctx.log(
+        "info",
+        &format_gen_ai_usage_log(
+            provider,
+            model,
+            parsed.input_tokens,
+            parsed.output_tokens,
+            0,
+            0,
+        ),
+    );
+
+    let content = Value::Array(parsed.content);
+    finish_llm_guest_span_success(
+        ctx,
+        &mut llm_span,
+        provider,
+        model,
+        &parsed.stop_reason,
+        parsed.input_tokens,
+        parsed.output_tokens,
+        0,
+        0,
+        parsed.response_bytes,
+        &content,
+    );
+
+    Ok(LlmResponse {
+        content,
+        stop_reason: parsed.stop_reason,
+        input_tokens: parsed.input_tokens,
+        output_tokens: parsed.output_tokens,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        request_bytes: body_str.len(),
+        response_bytes: parsed.response_bytes,
+    })
+}
+
 fn call_openrouter(
     ctx: &Context,
     temper_api_url: &str,
@@ -2350,6 +2783,186 @@ fn extract_text_and_images_from_tool_content(
     (text_parts.join("\n"), images)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenAiResponsesInput {
+    input: Vec<Value>,
+    tool_calls_as_context: usize,
+    tool_outputs_as_context: usize,
+}
+
+fn push_openai_user_text_with_images(
+    input: &mut Vec<Value>,
+    text: &str,
+    images: &[(String, String)],
+) {
+    if images.is_empty() {
+        if !text.trim().is_empty() {
+            input.push(json!({"role": "user", "content": text}));
+        }
+        return;
+    }
+
+    let mut content = Vec::new();
+    if !text.trim().is_empty() {
+        content.push(json!({"type": "input_text", "text": text}));
+    }
+    for (media_type, data) in images {
+        content.push(json!({
+            "type": "input_image",
+            "image_url": format!("data:{media_type};base64,{data}")
+        }));
+    }
+    input.push(json!({
+        "type": "message",
+        "role": "user",
+        "content": content
+    }));
+}
+
+fn push_openai_assistant_text(input: &mut Vec<Value>, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+
+    input.push(json!({
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": text}]
+    }));
+}
+
+fn push_openai_tool_call_context(
+    input: &mut Vec<Value>,
+    tool_calls_as_context: &mut usize,
+    block: &Value,
+) {
+    *tool_calls_as_context += 1;
+    let call_id = block
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or("unknown");
+    let name = block
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("unknown_tool");
+    let arguments = serde_json::to_string(block.get("input").unwrap_or(&json!({})))
+        .unwrap_or_else(|_| "{}".to_string());
+
+    push_openai_assistant_text(input, &format!("Tool call {call_id}: {name}({arguments})"));
+}
+
+fn push_openai_tool_result(
+    input: &mut Vec<Value>,
+    tool_outputs_as_context: &mut usize,
+    call_id: &str,
+    content: Option<&Value>,
+) {
+    let (mut output, images) = extract_text_and_images_from_tool_content(content);
+    if output.trim().is_empty() {
+        if let Some(raw) = content {
+            output = stringify_content(raw);
+        }
+    }
+
+    *tool_outputs_as_context += 1;
+    let display_call_id = if call_id.trim().is_empty() {
+        "unknown"
+    } else {
+        call_id
+    };
+    let fallback_text = if output.trim().is_empty() {
+        format!("Tool result for call {display_call_id} was empty.")
+    } else {
+        format!("Tool result for call {display_call_id}:\n{output}")
+    };
+    push_openai_user_text_with_images(input, &fallback_text, &images);
+}
+
+fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
+    let mut input = Vec::<Value>::new();
+    let mut tool_calls_as_context = 0usize;
+    let mut tool_outputs_as_context = 0usize;
+
+    for msg in messages {
+        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+        match role {
+            "user" => {
+                if let Some(content) = msg.get("content").and_then(Value::as_str) {
+                    input.push(json!({"role": "user", "content": content}));
+                } else if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    let mut user_text = Vec::<String>::new();
+                    for block in blocks {
+                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+                        match block_type {
+                            "tool_result" => {
+                                let call_id = block
+                                    .get("tool_use_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                push_openai_tool_result(
+                                    &mut input,
+                                    &mut tool_outputs_as_context,
+                                    call_id,
+                                    block.get("content"),
+                                );
+                            }
+                            "text" => {
+                                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                    user_text.push(text.to_string());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !user_text.is_empty() {
+                        input.push(json!({"role": "user", "content": user_text.join("\n")}));
+                    }
+                }
+            }
+            "assistant" => {
+                if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
+                    for block in blocks {
+                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+                        match block_type {
+                            "text" => {
+                                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                    push_openai_assistant_text(&mut input, text);
+                                }
+                            }
+                            "tool_use" => {
+                                push_openai_tool_call_context(
+                                    &mut input,
+                                    &mut tool_calls_as_context,
+                                    block,
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "tool_result" => {
+                let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                push_openai_tool_result(
+                    &mut input,
+                    &mut tool_outputs_as_context,
+                    tool_use_id,
+                    msg.get("content"),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    OpenAiResponsesInput {
+        input,
+        tool_calls_as_context,
+        tool_outputs_as_context,
+    }
+}
+
 /// Call OpenAI Codex Responses API (chatgpt.com/backend-api/codex/responses).
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
@@ -2396,114 +3009,18 @@ fn call_openai(
         ),
     );
 
-    let mut input = Vec::<Value>::new();
-    for msg in messages {
-        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
-        match role {
-            "user" => {
-                if let Some(content) = msg.get("content").and_then(Value::as_str) {
-                    input.push(json!({"role": "user", "content": content}));
-                } else if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    // Handle array content blocks — may contain text AND tool_result blocks
-                    let mut has_tool_results = false;
-                    for block in blocks {
-                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
-                        if block_type == "tool_result" {
-                            // Anthropic tool_result → Responses API function_call_output
-                            let call_id = block
-                                .get("tool_use_id")
-                                .and_then(Value::as_str)
-                                .unwrap_or("");
-                            let (output, images) =
-                                extract_text_and_images_from_tool_content(block.get("content"));
-                            input.push(json!({
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": output
-                            }));
-                            // Emit input_image items for each image block
-                            for (media_type, data) in &images {
-                                input.push(json!({
-                                    "type": "input_image",
-                                    "image_url": format!("data:{media_type};base64,{data}")
-                                }));
-                            }
-                            has_tool_results = true;
-                        }
-                    }
-                    // Also extract any text blocks (non-tool-result content)
-                    if !has_tool_results {
-                        let text: String = blocks
-                            .iter()
-                            .filter_map(|b| b.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if !text.is_empty() {
-                            input.push(json!({"role": "user", "content": text}));
-                        }
-                    }
-                }
-            }
-            "assistant" => {
-                if let Some(blocks) = msg.get("content").and_then(Value::as_array) {
-                    for block in blocks {
-                        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
-                        match block_type {
-                            "text" => {
-                                if let Some(text) = block.get("text").and_then(Value::as_str) {
-                                    input.push(json!({
-                                        "type": "message",
-                                        "role": "assistant",
-                                        "content": [{"type": "output_text", "text": text}]
-                                    }));
-                                }
-                            }
-                            "tool_use" => {
-                                let call_id = block
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                let name = block
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                let arguments =
-                                    serde_json::to_string(block.get("input").unwrap_or(&json!({})))
-                                        .unwrap_or_else(|_| "{}".to_string());
-                                input.push(json!({
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": arguments
-                                }));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            "tool_result" => {
-                // Anthropic tool_result → Responses API function_call_output
-                let tool_use_id = msg.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-                let (output, images) =
-                    extract_text_and_images_from_tool_content(msg.get("content"));
-                input.push(json!({
-                    "type": "function_call_output",
-                    "call_id": tool_use_id,
-                    "output": output
-                }));
-                for (media_type, data) in &images {
-                    input.push(json!({
-                        "type": "input_image",
-                        "image_url": format!("data:{media_type};base64,{data}")
-                    }));
-                }
-            }
-            _ => {}
-        }
+    let converted_input = build_openai_responses_input(messages);
+    if converted_input.tool_calls_as_context > 0 || converted_input.tool_outputs_as_context > 0 {
+        ctx.log(
+            "warn",
+            &format!(
+                "session_turn: openai downgraded {} historical tool call(s) and {} tool output(s) to conversation context",
+                converted_input.tool_calls_as_context,
+                converted_input.tool_outputs_as_context
+            ),
+        );
     }
+    let input = converted_input.input;
 
     // Convert tools to Responses API format
     let codex_tools: Vec<Value> = tools
@@ -3282,6 +3799,7 @@ pub fn run_provider_caller() -> Result<(), String> {
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(1.0);
+    let provider_options_json = read_state_string_field(&ctx, &fields, "provider_options_json");
     let (provider, model, api_key) = resolve_provider_and_model(&ctx, provider_raw, model_raw)?;
 
     let anthropic_api_url = ctx
@@ -3289,11 +3807,20 @@ pub fn run_provider_caller() -> Result<(), String> {
         .get("anthropic_api_url")
         .cloned()
         .unwrap_or_else(|| "https://api.anthropic.com/v1/messages".to_string());
-    let openrouter_api_url = ctx
-        .config
-        .get("openrouter_api_url")
-        .cloned()
-        .unwrap_or_else(|| "https://openrouter.ai/api/v1/chat/completions".to_string());
+    let openai_compatible_api_url = if matches!(
+        provider.as_str(),
+        "openrouter"
+            | "huggingface"
+            | "fireworks"
+            | "sakana_fugu"
+            | "local_openai"
+            | "openai_compatible"
+    ) {
+        configured_openai_compatible_api_url(&ctx, &provider)?
+    } else {
+        String::new()
+    };
+    let openai_compatible_extra_headers = configured_openai_compatible_headers(&ctx, &provider)?;
     let openai_api_url = select_openai_responses_url(&ctx.config, &provider);
     let openai_codex_account_id = if provider == "openai_codex" {
         ctx.config
@@ -3378,20 +3905,42 @@ pub fn run_provider_caller() -> Result<(), String> {
                 &anthropic_auth_mode,
                 temperature,
             ),
-            "openrouter" => call_openrouter(
+            "openrouter" => call_openai_compatible_chat(
                 &ctx,
                 &temper_api_url,
                 tenant,
+                &provider,
                 &api_key,
-                &openrouter_api_url,
+                &openai_compatible_api_url,
                 &model,
                 &prepared.system_prompt,
                 &prepared.messages,
                 &prepared.tools,
                 &openrouter_site_url,
                 &openrouter_app_name,
+                &openai_compatible_extra_headers,
                 temperature,
+                &provider_options_json,
             ),
+            "huggingface" | "fireworks" | "sakana_fugu" | "local_openai" | "openai_compatible" => {
+                call_openai_compatible_chat(
+                    &ctx,
+                    &temper_api_url,
+                    tenant,
+                    &provider,
+                    &api_key,
+                    &openai_compatible_api_url,
+                    &model,
+                    &prepared.system_prompt,
+                    &prepared.messages,
+                    &prepared.tools,
+                    "",
+                    "",
+                    &openai_compatible_extra_headers,
+                    temperature,
+                    &provider_options_json,
+                )
+            }
             "openai" | "openai_codex" => call_openai(
                 &ctx,
                 &temper_api_url,
@@ -3533,7 +4082,7 @@ fn resolve_provider_and_model(
 
     let model = model_raw.trim().to_string();
 
-    if provider != "mock" && api_key.is_empty() {
+    if !provider_allows_empty_api_key(&provider) && api_key.is_empty() {
         return Err(format!("missing API key for provider={provider}"));
     }
 
@@ -4093,6 +4642,76 @@ mod tests {
     }
 
     #[test]
+    fn openai_responses_input_downgrades_matched_tool_history_to_user_context() {
+        let converted = build_openai_responses_input(&[
+            json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "call_ok",
+                    "name": "temper_status",
+                    "input": {"scope": "dm"}
+                }]
+            }),
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "call_ok",
+                    "content": [{"type": "text", "text": "ready"}]
+                }]
+            }),
+        ]);
+
+        assert_eq!(converted.tool_calls_as_context, 1);
+        assert_eq!(converted.tool_outputs_as_context, 1);
+        assert!(!converted.input.iter().any(|item| {
+            matches!(
+                item.get("type").and_then(Value::as_str),
+                Some("function_call" | "function_call_output")
+            )
+        }));
+        assert!(converted.input.iter().any(|item| {
+            item.get("role").and_then(Value::as_str) == Some("user")
+                && item
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|content| {
+                        content.contains("Tool result for call call_ok")
+                            && content.contains("ready")
+                    })
+        }));
+    }
+
+    #[test]
+    fn openai_responses_input_downgrades_orphan_tool_outputs_to_user_context() {
+        let converted = build_openai_responses_input(&[json!({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": "call_FGEV2z33q2Wz9T03YAVRwx2E",
+                "content": [{"type": "text", "text": "status failed"}]
+            }]
+        })]);
+
+        assert_eq!(converted.tool_calls_as_context, 0);
+        assert_eq!(converted.tool_outputs_as_context, 1);
+        assert!(!converted.input.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call_output")
+        }));
+        assert!(converted.input.iter().any(|item| {
+            item.get("role").and_then(Value::as_str) == Some("user")
+                && item
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|content| {
+                        content.contains("Tool result for call")
+                            && content.contains("status failed")
+                    })
+        }));
+    }
+
+    #[test]
     fn openai_codex_host_http_failure_message_names_host_boundary() {
         let msg = format_openai_codex_exhausted_error(
             5,
@@ -4150,6 +4769,28 @@ mod tests {
                 .map(|delta| delta.delta_text.as_str())
                 .collect::<Vec<_>>(),
             vec!["Hel", "lo"]
+        );
+        assert!(parsed.completed);
+    }
+
+    #[test]
+    fn openai_completed_text_does_not_clobber_streamed_function_call() {
+        let chunks: Vec<&[u8]> = vec![
+            br#"data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_streamed","name":"execute","arguments":"{\"code\":\"await temper.list('default', 'World')\"}"}}"#,
+            b"\n\n",
+            br#"data: {"type":"response.completed","response":{"usage":{"input_tokens":9,"output_tokens":4},"output":[{"type":"message","content":[{"type":"output_text","text":"Tool call call_summary: execute({\"code\":\"await temper.list('default', 'World')\"})"}]}]}}"#,
+            b"\n\n",
+        ];
+
+        let parsed = parse_openai_stream_chunks(&chunks).expect("OpenAI stream should parse");
+
+        assert_eq!(parsed.stop_reason, "tool_use");
+        assert_eq!(
+            parsed.content,
+            json!([
+                {"type": "tool_use", "id": "call_streamed", "name": "execute", "input": {"code": "await temper.list('default', 'World')"}},
+                {"type": "text", "text": "Tool call call_summary: execute({\"code\":\"await temper.list('default', 'World')\"})"},
+            ])
         );
         assert!(parsed.completed);
     }

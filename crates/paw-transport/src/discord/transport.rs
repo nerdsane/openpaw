@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use tokio::sync::{RwLock, watch};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
@@ -53,7 +54,9 @@ pub struct DiscordTransport {
     gateway: GatewayState,
     /// Channel entity ID in Paw (populated on startup).
     channel_entity_id: Arc<RwLock<Option<String>>>,
-    /// Maps Discord channel_id (DM channel) → user_id for reply routing.
+    /// Local reply webhook URL used to reconnect Channel entities after recovery.
+    reply_webhook_url: Arc<RwLock<Option<String>>>,
+    /// Maps user/thread IDs to Discord DM channel IDs for reply routing and catch-up.
     dm_channels: Arc<RwLock<BTreeMap<String, String>>>,
     /// Last processed Discord message snowflake ID (for catch-up on reconnect).
     last_message_cursor: Arc<RwLock<String>>,
@@ -187,6 +190,172 @@ fn build_rich_fallback_text(content: &str, embeds: &[Embed]) -> String {
         parts.push(embed_text);
     }
     parts.join("\n\n")
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReplyAttachment {
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    file_id: String,
+    #[serde(default)]
+    filename: String,
+    #[serde(default)]
+    mime_type: String,
+    #[serde(default)]
+    path: String,
+}
+
+fn parse_reply_attachments(value: &serde_json::Value) -> Result<Vec<ReplyAttachment>, String> {
+    let Some(raw) = value
+        .get("reply_attachments_json")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+
+    serde_json::from_str::<Vec<ReplyAttachment>>(raw)
+        .map_err(|err| format!("parse reply_attachments_json: {err}"))
+}
+
+async fn deliver_reply_attachments(
+    api: &PawApiClient,
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    content: &str,
+    attachments: &[ReplyAttachment],
+) -> Result<bool, String> {
+    if attachments.is_empty() {
+        return Ok(false);
+    }
+
+    let mut files = Vec::new();
+    for attachment in attachments {
+        if attachment.kind != "pawfs_file" {
+            continue;
+        }
+        files.push(download_pawfs_attachment(api, attachment).await?);
+    }
+
+    if files.is_empty() {
+        return Ok(false);
+    }
+
+    send_discord_message_with_files(http, bot_token, channel_id, content, &files)
+        .await
+        .map_err(|err| format!("discord file reply delivery failed: {err}"))?;
+    Ok(true)
+}
+
+async fn download_pawfs_attachment(
+    api: &PawApiClient,
+    attachment: &ReplyAttachment,
+) -> Result<DiscordFileUpload, String> {
+    let file_id = attachment.file_id.trim();
+    if file_id.is_empty() {
+        return Err("reply attachment missing file_id".to_string());
+    }
+    let url = format!(
+        "{}/tdata/Files('{}')/$value",
+        api.config().base_url,
+        escape_odata_key(file_id)
+    );
+    let bytes = api.raw_get_bytes(&url).await?;
+    Ok(DiscordFileUpload {
+        filename: reply_attachment_filename(attachment),
+        content_type: if attachment.mime_type.trim().is_empty() {
+            "image/png".to_string()
+        } else {
+            attachment.mime_type.trim().to_string()
+        },
+        bytes,
+    })
+}
+
+fn reply_attachment_filename(attachment: &ReplyAttachment) -> String {
+    attachment
+        .filename
+        .trim()
+        .rsplit('/')
+        .next()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            attachment
+                .path
+                .trim()
+                .rsplit('/')
+                .next()
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("image.png")
+        .to_string()
+}
+
+fn escape_odata_key(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn is_direct_message_thread_id(thread_id: &str) -> bool {
+    !thread_id.is_empty() && !thread_id.contains(':')
+}
+
+fn entity_field_str<'a>(entity: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    let fields = entity.get("fields").unwrap_or(entity);
+    keys.iter()
+        .find_map(|key| fields.get(*key).and_then(|value| value.as_str()))
+        .filter(|value| !value.is_empty())
+}
+
+fn known_dm_thread_from_channel_entity(channel: &serde_json::Value) -> Option<String> {
+    let thread_id = entity_field_str(channel, &["thread_id", "ThreadId"])
+        .or_else(|| entity_field_str(channel, &["author_id", "AuthorId"]))?;
+    is_direct_message_thread_id(thread_id).then(|| thread_id.to_string())
+}
+
+fn catch_up_dm_sources(
+    rest_dm_channels: &[serde_json::Value],
+    seeded_dm_channels: &BTreeMap<String, String>,
+    bot_id: &str,
+) -> BTreeMap<String, String> {
+    let mut sources = BTreeMap::new();
+
+    for dm in rest_dm_channels {
+        let Some(channel_id) = dm
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+
+        let Some(recipients) = dm.get("recipients").and_then(|value| value.as_array()) else {
+            continue;
+        };
+
+        for recipient in recipients {
+            let Some(recipient_id) = recipient
+                .get("id")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty() && *value != bot_id)
+            else {
+                continue;
+            };
+            sources.insert(recipient_id.to_string(), channel_id.to_string());
+        }
+    }
+
+    for (thread_id, channel_id) in seeded_dm_channels {
+        if is_direct_message_thread_id(thread_id) && !channel_id.is_empty() {
+            sources
+                .entry(thread_id.clone())
+                .or_insert_with(|| channel_id.clone());
+        }
+    }
+
+    sources
 }
 
 async fn resolve_dm_channel_id(
@@ -366,6 +535,7 @@ impl DiscordTransport {
             http: reqwest::Client::new(),
             gateway: GatewayState::new(),
             channel_entity_id: Arc::new(RwLock::new(None)),
+            reply_webhook_url: Arc::new(RwLock::new(None)),
             dm_channels: Arc::new(RwLock::new(BTreeMap::new())),
             last_message_cursor: Arc::new(RwLock::new(String::new())),
             typing_cancels: Arc::new(RwLock::new(BTreeMap::new())),
@@ -456,6 +626,8 @@ impl DiscordTransport {
     /// (preserving ChannelSessions and conversation state across restarts).
     /// Archives any duplicates. Only creates a new Channel if none exists.
     async fn bootstrap_channel(&self, webhook_url: &str) -> Result<(), String> {
+        *self.reply_webhook_url.write().await = Some(webhook_url.to_string());
+
         let mut attempt = 0usize;
         let mut backoff = Duration::from_millis(200);
 
@@ -481,19 +653,20 @@ impl DiscordTransport {
     async fn bootstrap_channel_once(&self, webhook_url: &str) -> Result<(), String> {
         let existing = self
             .api
-            .query_entities(
-                "Channels",
-                "ChannelType eq 'discord' and Status ne 'Archived'",
-            )
+            .query_entities("Channels", "ChannelType eq 'discord'", 50)
             .await?;
 
         // Find the best Channel to reuse: prefer Connected > Disconnected,
         // and among those, the one with the highest message_count (most active).
         let mut best_id = String::new();
         let mut best_msg_count: i64 = -1;
+        let mut best_dm_thread_id: Option<String> = None;
         let mut others_to_archive = Vec::new();
 
         for ch in &existing {
+            if crate::entity_is_archived(ch) {
+                continue;
+            }
             let status = ch
                 .get("status")
                 .or_else(|| ch.get("fields").and_then(|f| f.get("Status")))
@@ -523,6 +696,7 @@ impl DiscordTransport {
                     }
                     best_id = id;
                     best_msg_count = msg_count;
+                    best_dm_thread_id = known_dm_thread_from_channel_entity(ch);
 
                     // Read cursor from the best channel
                     if let Some(cursor) = ch
@@ -623,9 +797,130 @@ impl DiscordTransport {
             return Err("Failed to bootstrap Channel entity".to_string());
         }
 
+        if let Some(thread_id) = best_dm_thread_id.as_deref() {
+            self.seed_dm_channel(thread_id).await;
+        }
+
         *self.channel_entity_id.write().await = Some(channel_id.clone());
 
         Ok(())
+    }
+
+    async fn seed_dm_channel(&self, thread_id: &str) {
+        if self.dm_channels.read().await.contains_key(thread_id) {
+            return;
+        }
+
+        match open_dm_channel_at(
+            &self.http,
+            &self.config.bot_token,
+            DISCORD_API_BASE,
+            thread_id,
+        )
+        .await
+        {
+            Ok(dm_channel_id) => {
+                self.dm_channels
+                    .write()
+                    .await
+                    .insert(thread_id.to_string(), dm_channel_id.clone());
+                tracing::info!(
+                    thread_id,
+                    dm_channel_id,
+                    "discord seeded DM channel cache from persisted Channel thread"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    %error,
+                    "discord could not reopen persisted DM thread for catch-up"
+                );
+            }
+        }
+    }
+
+    async fn cancel_typing_loop(&self, thread_id: &str) {
+        if let Some(cancel_tx) = self.typing_cancels.write().await.remove(thread_id) {
+            let _ = cancel_tx.send(true);
+        }
+    }
+
+    async fn recover_archived_channel_binding(
+        &self,
+        failed_channel_entity_id: &str,
+        error: &str,
+    ) -> Result<(), String> {
+        if !is_archived_channel_action_error(error) {
+            return Err(error.to_string());
+        }
+
+        let webhook_url = self.reply_webhook_url.read().await.clone().ok_or_else(|| {
+            "discord Channel is archived, but no reply webhook URL is available for recovery"
+                .to_string()
+        })?;
+
+        tracing::warn!(
+            channel_entity_id = %failed_channel_entity_id,
+            error = %error,
+            "discord Channel binding points at an archived entity; rebootstrap and retry"
+        );
+
+        {
+            let mut channel_entity_id = self.channel_entity_id.write().await;
+            if channel_entity_id.as_deref() == Some(failed_channel_entity_id) {
+                *channel_entity_id = None;
+            }
+        }
+
+        self.bootstrap_channel(&webhook_url).await
+    }
+
+    async fn dispatch_receive_message_with_recovery(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<String, String> {
+        let channel_entity_id = self.channel_entity_id.read().await.clone().ok_or_else(|| {
+            "discord message received before channel bootstrap completed".to_string()
+        })?;
+
+        match self
+            .api
+            .dispatch_action(
+                "Channels",
+                &channel_entity_id,
+                "Paw.Channel.ReceiveMessage",
+                params.clone(),
+            )
+            .await
+        {
+            Ok(_) => Ok(channel_entity_id),
+            Err(error) => {
+                self.recover_archived_channel_binding(&channel_entity_id, &error)
+                    .await?;
+
+                let recovered_channel_entity_id =
+                    self.channel_entity_id.read().await.clone().ok_or_else(|| {
+                        "discord Channel recovery completed without a new channel binding"
+                            .to_string()
+                    })?;
+
+                self.api
+                    .dispatch_action(
+                        "Channels",
+                        &recovered_channel_entity_id,
+                        "Paw.Channel.ReceiveMessage",
+                        params,
+                    )
+                    .await
+                    .map(|_| recovered_channel_entity_id)
+                    .map_err(|retry_error| {
+                        format!(
+                            "Paw.Channel.ReceiveMessage retry after archived Channel recovery failed: {retry_error}"
+                        )
+                    })
+            }
+        }
     }
 
     /// Catch up on DMs missed while the bot was offline.
@@ -644,20 +939,17 @@ impl DiscordTransport {
             return;
         };
 
-        let dm_channels = fetch_dm_channels(&self.http, &self.config.bot_token).await;
+        let bot_id = self.gateway.bot_user_id.read().await.clone();
+        let rest_dm_channels = fetch_dm_channels(&self.http, &self.config.bot_token).await;
+        let seeded_dm_channels = self.dm_channels.read().await.clone();
+        let dm_channels = catch_up_dm_sources(&rest_dm_channels, &seeded_dm_channels, &bot_id);
         if dm_channels.is_empty() {
             return;
         }
 
-        let bot_id = self.gateway.bot_user_id.read().await.clone();
         let mut total_caught_up = 0u32;
 
-        for dm in &dm_channels {
-            let dm_channel_id = dm.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if dm_channel_id.is_empty() {
-                continue;
-            }
-
+        for (thread_id, dm_channel_id) in &dm_channels {
             // Fetch messages newer than our cursor
             let mut after = cursor.clone();
             loop {
@@ -714,6 +1006,7 @@ impl DiscordTransport {
                         author_id,
                         username,
                         channel_id = dm_channel_id,
+                        thread_id,
                         preview = %truncate(content, 40),
                         "discord catch-up replaying missed dm"
                     );
@@ -722,7 +1015,7 @@ impl DiscordTransport {
                     self.dm_channels
                         .write()
                         .await
-                        .insert(author_id.to_string(), dm_channel_id.to_string());
+                        .insert(author_id.to_string(), dm_channel_id.clone());
 
                     // Dispatch ReceiveMessage
                     let mut params = serde_json::json!({
@@ -733,16 +1026,7 @@ impl DiscordTransport {
                     });
                     apply_current_trace_context(&mut params);
 
-                    match self
-                        .api
-                        .dispatch_action(
-                            "Channels",
-                            entity_id,
-                            "Paw.Channel.ReceiveMessage",
-                            params,
-                        )
-                        .await
-                    {
+                    match self.dispatch_receive_message_with_recovery(params).await {
                         Ok(_) => {
                             total_caught_up += 1;
                             let mut c = self.last_message_cursor.write().await;
@@ -798,7 +1082,7 @@ impl DiscordTransport {
         let Some(ref entity_id) = channel_entity_id else {
             return;
         };
-        let _ = self
+        if let Err(error) = self
             .api
             .dispatch_action(
                 "Channels",
@@ -806,7 +1090,18 @@ impl DiscordTransport {
                 "Paw.Channel.UpdateCursor",
                 serde_json::json!({ "last_discord_message_id": cursor }),
             )
-            .await;
+            .await
+            && let Err(recovery_error) = self
+                .recover_archived_channel_binding(entity_id, &error)
+                .await
+        {
+            tracing::warn!(
+                channel_entity_id = %entity_id,
+                error = %error,
+                recovery_error = %recovery_error,
+                "discord cursor flush failed"
+            );
+        }
     }
 
     /// Connect to Gateway and run the event loop.
@@ -1033,18 +1328,6 @@ impl DiscordTransport {
             });
         }
 
-        // Dispatch Channel.ReceiveMessage — the WASM handles everything else.
-        let channel_entity_id = self.channel_entity_id.read().await.clone();
-        let Some(channel_id) = channel_entity_id else {
-            tracing::warn!(
-                message_id = %msg.id,
-                author_id = %msg.author.id,
-                channel_id = %msg.channel_id,
-                "discord message received before channel bootstrap completed"
-            );
-            return;
-        };
-
         // Fetch text-type attachments and inline their content.
         let enriched_content =
             enrich_content_with_attachments(&self.http, &msg.content, &msg.attachments).await;
@@ -1057,19 +1340,10 @@ impl DiscordTransport {
         });
         apply_current_trace_context(&mut params);
 
-        match self
-            .api
-            .dispatch_action(
-                "Channels",
-                &channel_id,
-                "Paw.Channel.ReceiveMessage",
-                params,
-            )
-            .await
-        {
-            Ok(_) => {
+        match self.dispatch_receive_message_with_recovery(params).await {
+            Ok(channel_entity_id) => {
                 tracing::info!(
-                    channel_entity_id = %channel_id,
+                    channel_entity_id = %channel_entity_id,
                     message_id = %msg.id,
                     author_id = %msg.author.id,
                     username = %msg.author.username,
@@ -1085,8 +1359,8 @@ impl DiscordTransport {
                 }
             }
             Err(e) => {
+                self.cancel_typing_loop(&msg.author.id).await;
                 tracing::warn!(
-                    channel_entity_id = %channel_id,
                     message_id = %msg.id,
                     author_id = %msg.author.id,
                     username = %msg.author.username,
@@ -1145,8 +1419,17 @@ impl DiscordTransport {
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default();
             let has_rich_content = !components.is_empty() || !embeds.is_empty();
+            let reply_attachments = match parse_reply_attachments(&body) {
+                Ok(attachments) => attachments,
+                Err(error) => {
+                    tracing::error!(%error, "discord reply webhook invalid attachment payload");
+                    return axum::http::StatusCode::BAD_REQUEST;
+                }
+            };
+            let has_attachments = !reply_attachments.is_empty();
 
-            if thread_id.is_empty() || (content.is_empty() && !has_rich_content) {
+            if thread_id.is_empty() || (content.is_empty() && !has_rich_content && !has_attachments)
+            {
                 tracing::error!("discord reply webhook missing content and rich payload");
                 return axum::http::StatusCode::BAD_REQUEST;
             }
@@ -1172,6 +1455,31 @@ impl DiscordTransport {
                     return axum::http::StatusCode::BAD_GATEWAY;
                 }
             };
+
+            match deliver_reply_attachments(
+                &state.api,
+                &state.http,
+                &state.bot_token,
+                &channel_id,
+                content,
+                &reply_attachments,
+            )
+            .await
+            {
+                Ok(true) => {
+                    tracing::info!(
+                        thread_id,
+                        attachment_count = reply_attachments.len(),
+                        "delivered discord reply attachments"
+                    );
+                    return axum::http::StatusCode::OK;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::error!(thread_id, %error, "discord reply attachment delivery failed");
+                    return axum::http::StatusCode::INTERNAL_SERVER_ERROR;
+                }
+            }
 
             if has_rich_content {
                 let fallback_text = build_rich_fallback_text(content, &embeds);
@@ -1818,6 +2126,12 @@ fn is_retryable_local_odata_bootstrap_error(error: &str) -> bool {
     .any(|needle| error.contains(needle))
 }
 
+fn is_archived_channel_action_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("not valid from state 'archived'")
+        || error.contains("not valid from state ''archived''")
+}
+
 /// Read one Gateway payload from the WebSocket with timeout.
 async fn read_payload(read: &mut WsStream) -> Result<Option<GatewayPayload>, String> {
     let frame = tokio::time::timeout(Duration::from_secs(60), read.next())
@@ -1896,6 +2210,26 @@ mod tests {
     }
 
     #[test]
+    fn reply_attachment_payload_parses_pawfs_files() {
+        let body = json!({
+            "reply_attachments_json": serde_json::to_string(&json!([{
+                "kind": "pawfs_file",
+                "file_id": "fl-1",
+                "filename": "",
+                "path": "/images/cat.png",
+                "mime_type": "image/png"
+            }])).unwrap()
+        });
+
+        let attachments = parse_reply_attachments(&body).expect("attachment payload parses");
+
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].kind, "pawfs_file");
+        assert_eq!(attachments[0].file_id, "fl-1");
+        assert_eq!(reply_attachment_filename(&attachments[0]), "cat.png");
+    }
+
+    #[test]
     fn discord_ingress_logging_uses_tracing() {
         let writer = SharedWriter::default();
         let subscriber = tracing_subscriber::fmt()
@@ -1955,6 +2289,11 @@ mod tests {
     #[derive(Clone, Default)]
     struct BootstrapProbe {
         update_config_body: Arc<Mutex<Option<serde_json::Value>>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct ArchivedRecoveryProbe {
+        retry_count: Arc<AtomicUsize>,
     }
 
     async fn spawn_test_server(app: Router) -> String {
@@ -2042,6 +2381,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn receive_message_reboots_archived_channel_binding_and_retries() {
+        let probe = ArchivedRecoveryProbe::default();
+        let app = Router::new()
+            .route(
+                "/tdata/Channels",
+                get(
+                    |Query(_query): Query<std::collections::HashMap<String, String>>| async move {
+                        (
+                            StatusCode::OK,
+                            Json(json!({
+                                "value": [{
+                                    "entity_id": "ch_recovered",
+                                    "status": "Connected",
+                                    "fields": {
+                                        "WebhookUrl": "",
+                                        "last_discord_message_id": "123"
+                                    },
+                                    "counters": {
+                                        "message_count": 7
+                                    }
+                                }]
+                            })),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/tdata/Channels('ch_recovered')/Paw.Channel.UpdateConfig",
+                post(|| async { (StatusCode::OK, Json(json!({"ok": true}))) }),
+            )
+            .route(
+                "/tdata/Channels('ch_archived')/Paw.Channel.ReceiveMessage",
+                post(|| async {
+                    (
+                        StatusCode::CONFLICT,
+                        Json(json!({
+                            "error": {
+                                "code": "ActionFailed",
+                                "message": "Action 'ReceiveMessage' not valid from state 'Archived'"
+                            }
+                        })),
+                    )
+                }),
+            )
+            .route(
+                "/tdata/Channels('ch_recovered')/Paw.Channel.ReceiveMessage",
+                post(|State(probe): State<ArchivedRecoveryProbe>| async move {
+                    probe.retry_count.fetch_add(1, Ordering::SeqCst);
+                    (StatusCode::OK, Json(json!({"ok": true})))
+                }),
+            )
+            .with_state(probe.clone());
+
+        let base_url = spawn_test_server(app).await;
+        let api = crate::PawApiClient::new(crate::PawApiConfig {
+            base_url,
+            tenant: "default".to_string(),
+            api_key: None,
+        });
+        let transport = DiscordTransport::new(
+            DiscordConfig {
+                bot_token: "token".to_string(),
+                intents: intents::DEFAULT,
+                webhook_port: 3488,
+                public_key: "public-key".to_string(),
+                guild_id: None,
+                feed_channel_id: None,
+                forum_channel_id: None,
+            },
+            api,
+        );
+        *transport.channel_entity_id.write().await = Some("ch_archived".to_string());
+        *transport.reply_webhook_url.write().await =
+            Some("http://127.0.0.1:3488/reply".to_string());
+
+        let channel_id = transport
+            .dispatch_receive_message_with_recovery(json!({
+                "message_id": "msg_1",
+                "author_id": "user_1",
+                "thread_id": "user_1",
+                "content": "hello"
+            }))
+            .await
+            .expect("archived Channel recovery should retry ReceiveMessage");
+
+        assert_eq!(channel_id, "ch_recovered");
+        assert_eq!(
+            transport.channel_entity_id.read().await.as_deref(),
+            Some("ch_recovered")
+        );
+        assert_eq!(
+            probe.retry_count.load(Ordering::SeqCst),
+            1,
+            "expected ReceiveMessage to be retried against the recovered Channel"
+        );
+    }
+
+    #[tokio::test]
     async fn resolve_dm_channel_id_reopens_and_caches_missing_dm_mapping() {
         let open_attempts = Arc::new(AtomicUsize::new(0));
         let attempts_for_route = open_attempts.clone();
@@ -2093,6 +2530,42 @@ mod tests {
             open_attempts.load(Ordering::SeqCst),
             1,
             "expected only one Discord open-DM REST call"
+        );
+    }
+
+    #[test]
+    fn known_dm_thread_from_channel_entity_uses_persisted_author() {
+        let channel = json!({
+            "entity_id": "ch_existing",
+            "status": "Connected",
+            "fields": {
+                "ChannelType": "discord",
+                "thread_id": "1018228973869727785",
+                "author_id": "1018228973869727785",
+                "last_discord_message_id": "1516601740126846996"
+            }
+        });
+
+        assert_eq!(
+            known_dm_thread_from_channel_entity(&channel).as_deref(),
+            Some("1018228973869727785"),
+            "reused Discord channels should seed DM catch-up from their persisted user thread"
+        );
+    }
+
+    #[test]
+    fn catch_up_dm_sources_include_seeded_dm_channels_when_rest_listing_is_empty() {
+        let seeded = BTreeMap::from([(
+            "1018228973869727785".to_string(),
+            "1494059279202779136".to_string(),
+        )]);
+
+        let sources = catch_up_dm_sources(&[], &seeded, "1493942755112652920");
+
+        assert_eq!(
+            sources.get("1018228973869727785").map(String::as_str),
+            Some("1494059279202779136"),
+            "catch-up must use reopened DM mappings when Discord returns no DM channel listing"
         );
     }
 

@@ -1,0 +1,72 @@
+[
+  {
+    "question_contains": "gemini",
+    "outcome": "yes",
+    "note": "Google announced Gemini Dec 6, 2023 and shipped Gemini Pro inside Bard to consumers the same week (Ultra came later)."
+  },
+  {
+    "question_contains": "gpt-5",
+    "outcome": "no",
+    "note": "GPT-5 did not ship in 2023."
+  },
+  {
+    "question_contains": "customizable",
+    "outcome": "yes",
+    "note": "OpenAI shipped customizable ChatGPT variants \u2014 custom GPTs \u2014 at DevDay, Nov 6, 2023."
+  },
+  {
+    "question_contains": "store",
+    "outcome": "no",
+    "note": "The GPT Store did NOT launch by Dec 15, 2023; it was delayed (board crisis) and launched Jan 10, 2024."
+  },
+  {
+    "question_contains": "musk",
+    "outcome": "yes",
+    "note": "xAI's Grok chatbot was announced Nov 4, 2023 and began rolling out to X Premium+ subscribers in early December 2023."
+  },
+  {
+    "question_contains": "claude 2",
+    "outcome": "yes",
+    "note": "Anthropic launched the consumer-facing claude.ai with Claude 2 on July 11, 2023."
+  },
+  {
+    "question_contains": "voice",
+    "outcome": "yes",
+    "note": "ChatGPT got voice conversations Sept 25, 2023 (Plus), rolled out to free users Nov 21, 2023."
+  },
+  {
+    "question_contains": "android",
+    "outcome": "yes",
+    "note": "The official ChatGPT Android app launched July 25, 2023."
+  },
+  {
+    "question_contains": "apple",
+    "outcome": "no",
+    "note": "Apple shipped no consumer chatbot or LLM assistant in 2023."
+  },
+  {
+    "question_contains": "advertising",
+    "outcome": "no",
+    "note": "OpenAI did not introduce advertising into ChatGPT by December 2023."
+  },
+  {
+    "question_contains": "meta",
+    "outcome": "yes",
+    "note": "Meta launched the Meta AI assistant (plus celebrity AI characters) across WhatsApp/Instagram/Messenger at Connect, Sept 27, 2023 (US beta)."
+  },
+  {
+    "question_contains": "ai act",
+    "outcome": "yes",
+    "note": "The EU reached final political agreement on the AI Act in trilogue on Dec 8, 2023."
+  },
+  {
+    "question_contains": "bard",
+    "outcome": "yes",
+    "note": "Bard received a major model upgrade beyond PaLM 2 in 2023: it moved to Gemini Pro on Dec 6, 2023."
+  },
+  {
+    "question_contains": "search engine",
+    "outcome": "no",
+    "note": "OpenAI launched no search engine in 2023 (SearchGPT arrived July 2024)."
+  }
+]

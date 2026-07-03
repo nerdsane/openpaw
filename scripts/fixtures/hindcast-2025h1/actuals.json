@@ -1,0 +1,62 @@
+[
+  {
+    "question_contains": "deepseek",
+    "outcome": "yes",
+    "note": "DeepSeek released R1 with open weights Jan 20, 2025 ($0.55/$2.19); the Jan 27 market reaction (incl. ~17% NVDA drop) made it the H1 story."
+  },
+  {
+    "question_contains": "gpt-4.5",
+    "outcome": "yes",
+    "note": "GPT-4.5 shipped as a research preview Feb 27, 2025 (priced $75/$150; later deprecated in favor of GPT-4.1)."
+  },
+  {
+    "question_contains": "gpt-5",
+    "outcome": "no",
+    "note": "GPT-5 did not ship by June 15, 2025 (it shipped August 2025); Feb 2025 roadmap said 'months away'."
+  },
+  {
+    "question_contains": "claude 4",
+    "outcome": "yes",
+    "note": "Anthropic shipped Claude Opus 4 and Sonnet 4 on May 22, 2025."
+  },
+  {
+    "question_contains": "gemini",
+    "outcome": "yes",
+    "note": "Gemini 2.5 Pro (March 2025) led major coding/reasoning leaderboards; Gemini 2.0 family went GA Feb 2025."
+  },
+  {
+    "question_contains": "o3",
+    "outcome": "yes",
+    "note": "OpenAI shipped o3-mini Jan 31, 2025 and full o3 (with o4-mini) April 16, 2025."
+  },
+  {
+    "question_contains": "price",
+    "outcome": "yes",
+    "note": "Prices kept falling: GPT-4.1 at $2/$8 (April 2025), o3 cut ~80% to $2/$8 (June 10, 2025), DeepSeek R1 pressure on reasoning pricing."
+  },
+  {
+    "question_contains": "grok",
+    "outcome": "yes",
+    "note": "xAI shipped Grok 3 Feb 17, 2025, trained on the Colossus cluster; API followed in April."
+  },
+  {
+    "question_contains": "llama 4",
+    "outcome": "yes",
+    "note": "Meta released Llama 4 Scout and Maverick with open weights April 5, 2025."
+  },
+  {
+    "question_contains": "valuation",
+    "outcome": "yes",
+    "note": "Frontier-lab valuations jumped: Anthropic $3.5B at $61.5B (March 2025); OpenAI $40B at $300B (March 2025)."
+  },
+  {
+    "question_contains": "mcp",
+    "outcome": "yes",
+    "note": "MCP became the cross-vendor standard: OpenAI adopted it March 2025, Google DeepMind April 2025."
+  },
+  {
+    "question_contains": "ipo",
+    "outcome": "no",
+    "note": "No frontier LLM developer (OpenAI, Anthropic, xAI, Mistral) completed an IPO by June 15, 2025."
+  }
+]

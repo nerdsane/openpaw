@@ -1,0 +1,148 @@
+# Hindcast — a retrodiction run: the engine seeded at a past vantage with a
+# frozen corpus, graded against what actually happened.
+#
+# The engine's objective fitness signal (replaces judge tournaments,
+# ADR-002). A hindcast creates a World with hindcast_mode = true: every
+# spawned session has web tools stripped at Configure time and evidence
+# comes only from the frozen corpus. grade_hindcast compares the world's
+# implied forecasts against the recorded actuals, runs an anachronism check,
+# and records the residual-contamination caveat honestly.
+#
+# Engine components earn their place here: a component is kept only if it
+# improves hindcast scores against an ablated engine.
+
+[automaton]
+name = "Hindcast"
+states = ["Configured", "Running", "Scored", "Failed"]
+initial = "Configured"
+
+# ADR-0050: Configured awaits an explicit Start. Running is bounded by the
+# underlying world's corridor sessions plus heartbeat monitoring; revisit
+# with state_timeout once hindcast run-time envelopes are measured.
+allow_indefinite_states = ["Configured", "Running"]
+
+# --- State Variables ---
+
+[[state]]
+name = "domain"
+type = "string"
+initial = ""
+
+# The past date the engine pretends is "today".
+[[state]]
+name = "vantage_date"
+type = "string"
+initial = ""
+
+[[state]]
+name = "horizon_months"
+type = "string"
+initial = ""
+
+[[state]]
+name = "frozen_corpus_file_id"
+type = "string"
+initial = ""
+
+# Recorded ground truth for the vantage→target window.
+[[state]]
+name = "actuals_file_id"
+type = "string"
+initial = ""
+
+# JSON of which engine components are disabled for this run (ablation).
+[[state]]
+name = "ablation_flags"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "engine_version"
+type = "string"
+initial = ""
+
+# The hindcast-mode World this run created.
+[[state]]
+name = "world_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "mean_brier"
+type = "string"
+initial = ""
+
+[[state]]
+name = "graded_count"
+type = "string"
+initial = "0"
+
+# Honest note on residual contamination (model priors past the vantage) and
+# anachronism-check findings.
+[[state]]
+name = "coverage_note"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Actions ---
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Configured"]
+to = "Running"
+params = ["world_id"]
+hint = "The hindcast world (hindcast_mode=true, frozen corpus) is configured and seeded; grading will follow its corridor."
+
+[[action]]
+name = "Grade"
+kind = "input"
+from = ["Running"]
+params = []
+hint = "Compare the world's forecasts against actuals: Brier per claim, anachronism check, contamination note."
+effect = [{ type = "trigger", name = "grade_hindcast" }]
+
+[[action.triggers]]
+name = "grade_hindcast"
+kind = "wasm"
+module = "grade_hindcast"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+embedding_endpoint = "{secret:embedding_endpoint}"
+embedding_model = "{secret:embedding_model}"
+
+
+[[action]]
+name = "ScoreComplete"
+kind = "input"
+from = ["Running"]
+to = "Scored"
+params = ["mean_brier", "graded_count", "actuals_file_id", "coverage_note"]
+hint = "Grading finished. System principals only (Cedar)."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Configured", "Running"]
+to = "Failed"
+params = ["error_message"]
+hint = "Unrecoverable error."
+
+# --- Invariants ---
+
+[[invariant]]
+name = "ScoredIsFinal"
+when = ["Scored"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

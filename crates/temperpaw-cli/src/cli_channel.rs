@@ -17,18 +17,16 @@ pub async fn ensure_cli_channel(api: &PawApiClient, profile: &str) -> Result<Cli
     let mut existing = api
         .query_entities(
             "Channels",
-            &format!(
-                "channel_type eq 'cli' and channel_id eq '{escaped_channel}' and Status ne 'Archived'"
-            ),
+            &format!("channel_type eq 'cli' and channel_id eq '{escaped_channel}'"),
+            20,
         )
         .await?;
     if existing.is_empty() {
         existing = api
             .query_entities(
                 "Channels",
-                &format!(
-                    "ChannelType eq 'cli' and ChannelId eq '{escaped_channel}' and Status ne 'Archived'"
-                ),
+                &format!("ChannelType eq 'cli' and ChannelId eq '{escaped_channel}'"),
+                20,
             )
             .await?;
     }

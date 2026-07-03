@@ -6,6 +6,7 @@ version = 4
 name = "context-compactor"
 version = "0.1.0"
 dependencies = [
+ "openai-chat-wire",
  "openai-codex-wire",
  "session-tree-lib",
  "temper-wasm-sdk",
@@ -23,6 +24,13 @@ name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+
+[[package]]
+name = "openai-chat-wire"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "openai-codex-wire"
@@ -113,7 +121,7 @@ dependencies = [
 [[package]]
 name = "temper-wasm-sdk"
 version = "0.1.0"
-source = "git+https://github.com/nerdsane/temper.git?rev=632a34f5d918fa2b34135586dbfc4428855895f9#632a34f5d918fa2b34135586dbfc4428855895f9"
+source = "git+https://github.com/nerdsane/temper.git?rev=c584a52b59924e66502576646f50131b0d763a2a#c584a52b59924e66502576646f50131b0d763a2a"
 dependencies = [
  "serde",
  "serde_json",

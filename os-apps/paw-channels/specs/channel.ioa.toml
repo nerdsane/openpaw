@@ -120,7 +120,7 @@ timeout_secs = "300"
 name = "SendReply"
 kind = "input"
 from = ["Connected"]
-params = ["thread_id", "content", "agent_entity_id"]
+params = ["thread_id", "content", "agent_entity_id", "reply_attachments_json"]
 hint = "Send a reply back to the channel."
 effect = [{ type = "trigger", name = "send_reply" }]
 
@@ -141,7 +141,7 @@ temper_api_url = "{secret:temper_api_url}"
 name = "ReplyDelivered"
 kind = "input"
 from = ["Connected"]
-params = ["thread_id", "content", "agent_entity_id"]
+params = ["thread_id", "content", "agent_entity_id", "reply_attachments_json"]
 hint = "Reply delivery finished successfully."
 
 [[action]]

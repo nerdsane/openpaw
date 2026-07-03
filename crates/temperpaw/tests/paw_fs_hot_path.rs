@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_TEMPER_REV: &str = "632a34f5d918fa2b34135586dbfc4428855895f9";
-const OLD_TEMPER_REV: &str = "510a0d9bc9517f7819d66849446cdf6aff2d5295";
+const EXPECTED_TEMPER_REV: &str = "c584a52b59924e66502576646f50131b0d763a2a";
+const OLD_TEMPER_REV: &str = "891b7d2a6de14b76cfa706bf3e2e034c13306815";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -73,6 +73,64 @@ fn workspace_fs_legacy_module_does_not_count_files_on_workspace_hot_path() {
             "legacy workspace_fs module still mutates Workspace.{forbidden}"
         );
     }
+}
+
+#[test]
+fn artifact_batch_apply_uses_bounded_lossless_file_filters() {
+    let source = repo_file("os-apps/paw-fs/wasm/artifact_batch_apply/src/lib.rs");
+    assert!(
+        !source.contains("Status ne 'Archived'"),
+        "ArtifactBatch file and directory lookups must not use Status ne 'Archived'; it prevents query pushdown and causes QueryTooLarge"
+    );
+    assert!(
+        source.contains("bounded_reads::find_first_non_archived_entity_id")
+            && source.contains("bounded_reads::POINT_LOOKUP_TOP"),
+        "ArtifactBatch lookups should use the shared bounded read helper"
+    );
+    assert!(
+        source.contains("wasm_helpers::bounded_reads"),
+        "ArtifactBatch should route Archived filtering through the shared helper"
+    );
+}
+
+#[test]
+fn skill_file_lookups_use_bounded_lossless_filters() {
+    for path in [
+        "os-apps/paw-skills/wasm/skill_installer/src/lib.rs",
+        "os-apps/paw-agent/wasm/context_preparer/src/lib.rs",
+    ] {
+        let source = repo_file(path);
+        assert!(
+            !source.contains("Status ne 'Archived'"),
+            "{path} must not put Status ne 'Archived' in Files filters; it causes QueryTooLarge at tenant scale"
+        );
+        assert!(
+            source.contains("$top=20")
+                || source.contains("$top={top}")
+                || source.contains("bounded_reads::bounded_collection_query_url")
+                || source.contains("bounded_reads::find_first_non_archived_entity_id"),
+            "{path} should keep Files path/index lookups bounded"
+        );
+    }
+
+    let context_preparer = repo_file("os-apps/paw-agent/wasm/context_preparer/src/lib.rs");
+    assert!(
+        context_preparer.contains("bounded_reads::entity_is_archived(item)"),
+        "context_preparer should filter archived skill/mode files through the shared helper after bounded queries"
+    );
+}
+
+#[test]
+fn monty_pawfs_point_lookups_use_shared_bounded_helper() {
+    let source = repo_file("os-apps/paw-agent/wasm/monty_repl/src/entity_ops.rs");
+    assert!(
+        source.contains("bounded_reads::bounded_collection_query_path"),
+        "Monty PawFS point lookups should use the shared bounded collection helper"
+    );
+    assert!(
+        source.contains("bounded_reads::POINT_LOOKUP_TOP"),
+        "Monty PawFS point lookups should share the bounded point-lookup page size"
+    );
 }
 
 #[test]
@@ -175,6 +233,42 @@ fn paw_fs_hot_path_entities_allow_agent_read_and_list_queries() {
             "{path} must allow direct PawFS hot-path agents to query {entity_type} entities without routing reads through Workspace"
         );
     }
+}
+
+#[test]
+fn paw_fs_file_policy_permits_the_session_read_alias_family() {
+    // temper.read from sessions authorizes content access through a family
+    // of capitalized action names relayed as service:wasm-runtime. Dropping
+    // any of them silently re-breaks every session file read (the session
+    // dies instead of pausing — found live, hindcast surveyor, wall 13).
+    let policy = repo_file("os-apps/paw-fs/policies/file.cedar");
+    for action in [
+        "Read",
+        "Download",
+        "GetContent",
+        "GetValue",
+        "Stream",
+        "Open",
+        "GetText",
+        "FetchContent",
+        "Content",
+    ] {
+        assert!(
+            policy.contains(&format!("Action::\"{action}\"")),
+            "file.cedar must permit the {action} read alias for the wasm-runtime relay"
+        );
+    }
+    assert!(
+        policy.contains("Agent::\"service:wasm-runtime\""),
+        "the read alias family is scoped to the session relay principal"
+    );
+    // The scoping is only real if the any-principal permit stays narrow: a
+    // revert that folds the aliases back into it would still satisfy the
+    // substring above via the write permit.
+    assert!(
+        policy.contains("action in [Action::\"read\", Action::\"list\"]"),
+        "the any-principal File permit must stay exactly lowercase read/list"
+    );
 }
 
 #[test]

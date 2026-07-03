@@ -79,13 +79,47 @@ pub struct Config {
     /// OpenRouter API key.
     pub openrouter_api_key: Option<String>,
 
+    /// Optional OpenRouter OpenAI-compatible endpoint override.
+    pub openrouter_api_url: Option<String>,
+
+    /// Hugging Face API token for Inference Providers.
+    pub huggingface_api_key: Option<String>,
+
+    /// Optional Hugging Face OpenAI-compatible endpoint override.
+    pub huggingface_api_url: Option<String>,
+
+    /// Fireworks AI API key.
+    pub fireworks_api_key: Option<String>,
+
+    /// Optional Fireworks OpenAI-compatible endpoint override.
+    pub fireworks_api_url: Option<String>,
+
+    /// Sakana Fugu beta API key.
+    pub sakana_fugu_api_key: Option<String>,
+
+    /// Sakana Fugu beta OpenAI-compatible endpoint.
+    pub sakana_fugu_api_url: Option<String>,
+
+    /// Arbitrary OpenAI-compatible API key.
+    pub openai_compatible_api_key: Option<String>,
+
+    /// Arbitrary OpenAI-compatible chat completions endpoint.
+    pub openai_compatible_api_url: Option<String>,
+
+    /// JSON object of extra headers for arbitrary OpenAI-compatible endpoints.
+    pub openai_compatible_headers_json: Option<String>,
+
+    /// Local OpenAI-compatible chat completions endpoint (Ollama by default).
+    pub local_openai_api_url: Option<String>,
+
     /// OpenAI API key for standard API usage (sk-... from platform.openai.com/api-keys).
     pub openai_api_key: Option<String>,
 
     /// Legacy OpenAI Codex OAuth token fallback. Prefer dashboard device-code login.
     pub openai_codex_token: Option<String>,
 
-    /// LLM provider name: "anthropic", "openrouter", or "openai-codex".
+    /// LLM provider name, e.g. "anthropic", "openai_codex", "openrouter", or
+    /// any supported OpenAI-compatible provider.
     /// Set during interactive setup or via the Temper secrets world.
     pub llm_provider: Option<String>,
 
@@ -188,6 +222,18 @@ impl Config {
 
         let anthropic_api_key = optional_env("ANTHROPIC_API_KEY");
         let openrouter_api_key = optional_env("OPENROUTER_API_KEY");
+        let openrouter_api_url = optional_env("OPENROUTER_API_URL");
+        let huggingface_api_key =
+            optional_env("HUGGINGFACE_API_KEY").or_else(|| optional_env("HF_TOKEN"));
+        let huggingface_api_url = optional_env("HUGGINGFACE_API_URL");
+        let fireworks_api_key = optional_env("FIREWORKS_API_KEY");
+        let fireworks_api_url = optional_env("FIREWORKS_API_URL");
+        let sakana_fugu_api_key = optional_env("SAKANA_FUGU_API_KEY");
+        let sakana_fugu_api_url = optional_env("SAKANA_FUGU_API_URL");
+        let openai_compatible_api_key = optional_env("OPENAI_COMPATIBLE_API_KEY");
+        let openai_compatible_api_url = optional_env("OPENAI_COMPATIBLE_API_URL");
+        let openai_compatible_headers_json = optional_env("OPENAI_COMPATIBLE_HEADERS_JSON");
+        let local_openai_api_url = optional_env("LOCAL_OPENAI_API_URL");
         let openai_api_key = optional_env("OPENAI_API_KEY");
         let openai_codex_token = optional_env("OPENAI_CODEX_TOKEN");
         let llm_provider = optional_env("LLM_PROVIDER");
@@ -215,6 +261,17 @@ impl Config {
             query_projection_store_backend,
             anthropic_api_key,
             openrouter_api_key,
+            openrouter_api_url,
+            huggingface_api_key,
+            huggingface_api_url,
+            fireworks_api_key,
+            fireworks_api_url,
+            sakana_fugu_api_key,
+            sakana_fugu_api_url,
+            openai_compatible_api_key,
+            openai_compatible_api_url,
+            openai_compatible_headers_json,
+            local_openai_api_url,
             openai_api_key,
             openai_codex_token,
             llm_provider,

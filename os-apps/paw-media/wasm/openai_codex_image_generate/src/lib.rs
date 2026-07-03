@@ -1,9 +1,9 @@
-//! OpenAI Codex Image Generate — provider WASM for MediaGeneration.
+//! OpenAI Codex Image Generate — provider WASM for MediaGenerationRequest.
 //!
-//! Triggered by MediaGeneration.RecordAuthReady. Uses the existing Codex
+//! Triggered by MediaGenerationRequest.RecordAuthReady. Uses the existing Codex
 //! subscription OAuth secret flow, calls the ChatGPT/Codex Responses backend
 //! with an image_generation tool request, stores the image in PawFS, and
-//! records MediaGeneration.RecordResult.
+//! records MediaGenerationRequest.RecordResult.
 
 use base64::{Engine as _, engine::general_purpose};
 use openai_codex_wire::{
@@ -25,6 +25,10 @@ const DEFAULT_MEDIA_TYPE: &str = "image";
 const DEFAULT_OPERATION: &str = "generate";
 const DEFAULT_PROVIDER: &str = "openai_codex";
 const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+const CODEX_RESPONSE_STREAM_CHUNK_BYTES: usize = 256 * 1024;
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+const CODEX_RESPONSE_MAX_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(target_arch = "wasm32")]
 const FILE_UPLOAD_STREAM_CHUNK_BYTES: usize = 256 * 1024;
 
@@ -42,19 +46,7 @@ fn run_openai_codex_image_generate() -> Result<(), String> {
 
     match generate_and_store(&ctx, &fields) {
         Ok(result) => {
-            set_success_result(
-                "RecordResult",
-                &json!({
-                    "result_file_id": result.file_id,
-                    "result_file_version_id": result.file_version_id,
-                    "result_path": result.path,
-                    "mime_type": result.mime_type,
-                    "revised_prompt": result.revised_prompt,
-                    "provider_response_id": result.provider_response_id,
-                    "usage_json": result.usage_json,
-                    "result_image_base64": result.base64_data,
-                }),
-            );
+            set_success_result("RecordResult", &record_result_params(&result));
         }
         Err(err) => {
             set_success_result(
@@ -78,7 +70,11 @@ struct StoredImageResult {
     revised_prompt: String,
     provider_response_id: String,
     usage_json: String,
-    base64_data: String,
+}
+
+struct HttpTextResponse {
+    status: u16,
+    body: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +99,7 @@ fn generate_and_store(ctx: &Context, fields: &Value) -> Result<StoredImageResult
         return Err("image_generate: workspace_id is required".to_string());
     }
 
-    let model = field_or_default(fields, &["model", "Model"], DEFAULT_MODEL);
+    let model = codex_image_model_or_default(fields, &["model", "Model"], DEFAULT_MODEL);
     let request = build_codex_image_request(fields, prompt, model);
     let access_token = resolve_codex_access_token(ctx)?;
     let account_id = resolve_codex_account_id(ctx, &access_token)?;
@@ -114,7 +110,7 @@ fn generate_and_store(ctx: &Context, fields: &Value) -> Result<StoredImageResult
         "info",
         &format!("openai_codex_image_generate: calling Codex image_generation model={model}"),
     );
-    let resp = ctx.http_call("POST", &url, &headers, &request.to_string())?;
+    let resp = call_codex_image_generation(ctx, &url, &headers, &request)?;
     if !(200..300).contains(&resp.status) {
         return Err(format!(
             "OpenAI Codex image generation failed (HTTP {}): {}",
@@ -148,7 +144,18 @@ fn generate_and_store(ctx: &Context, fields: &Value) -> Result<StoredImageResult
         revised_prompt: output.revised_prompt,
         provider_response_id: output.response_id,
         usage_json: output.usage_json,
-        base64_data: output.base64_data,
+    })
+}
+
+fn record_result_params(result: &StoredImageResult) -> Value {
+    json!({
+        "result_file_id": result.file_id,
+        "result_file_version_id": result.file_version_id,
+        "result_path": result.path,
+        "mime_type": result.mime_type,
+        "revised_prompt": result.revised_prompt,
+        "provider_response_id": result.provider_response_id,
+        "usage_json": result.usage_json,
     })
 }
 
@@ -729,7 +736,7 @@ fn record_storing(ctx: &Context, fields: &Value, output: &CodexImageOutput) -> R
         .filter(|value| !value.is_empty())
         .unwrap_or(ctx.entity_id.as_str());
     let url = format!(
-        "{temper_api_url}/tdata/MediaGenerations('{}')/Temper.RecordStoring",
+        "{temper_api_url}/tdata/MediaGenerationRequests('{}')/Temper.RecordStoring",
         escape_odata_key(entity_id)
     );
     let headers = runtime_headers_as(
@@ -757,6 +764,76 @@ fn record_storing(ctx: &Context, fields: &Value, output: &CodexImageOutput) -> R
         );
     }
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn call_codex_image_generation(
+    _ctx: &Context,
+    url: &str,
+    headers: &[(String, String)],
+    request: &Value,
+) -> Result<HttpTextResponse, String> {
+    let header_refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    let (mut request_body, mut response_body, response_head) =
+        temper_wasm_sdk::http_stream::streaming_call("POST", url, &header_refs)
+            .map_err(|error| format!("OpenAI Codex streaming request failed to start: {error}"))?;
+
+    let body = request.to_string();
+    for chunk in body.as_bytes().chunks(CODEX_RESPONSE_STREAM_CHUNK_BYTES) {
+        request_body
+            .write_all_chunk(chunk)
+            .map_err(|error| format!("OpenAI Codex streaming request write failed: {error}"))?;
+    }
+    request_body
+        .finish()
+        .map_err(|error| format!("OpenAI Codex streaming request close failed: {error}"))?;
+
+    let head = response_head()
+        .map_err(|error| format!("OpenAI Codex streaming response head failed: {error}"))?;
+    let mut body_bytes = Vec::new();
+    let mut buffer = vec![0u8; CODEX_RESPONSE_STREAM_CHUNK_BYTES];
+    loop {
+        let Some(read) = response_body
+            .read_next_chunk(&mut buffer)
+            .map_err(|error| format!("OpenAI Codex streaming response read failed: {error}"))?
+        else {
+            break;
+        };
+        body_bytes.extend_from_slice(&buffer[..read]);
+        if body_bytes.len() > CODEX_RESPONSE_MAX_BYTES {
+            let _ = response_body.close();
+            return Err(format!(
+                "OpenAI Codex image generation response exceeded {} bytes",
+                CODEX_RESPONSE_MAX_BYTES
+            ));
+        }
+    }
+    response_body
+        .close()
+        .map_err(|error| format!("OpenAI Codex streaming response close failed: {error}"))?;
+    let body = String::from_utf8(body_bytes)
+        .map_err(|error| format!("OpenAI Codex streaming response was not UTF-8: {error}"))?;
+    Ok(HttpTextResponse {
+        status: head.status,
+        body,
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn call_codex_image_generation(
+    ctx: &Context,
+    url: &str,
+    headers: &[(String, String)],
+    request: &Value,
+) -> Result<HttpTextResponse, String> {
+    let resp = ctx.http_call("POST", url, headers, &request.to_string())?;
+    Ok(HttpTextResponse {
+        status: resp.status,
+        body: resp.body,
+    })
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -810,7 +887,27 @@ fn put_file_value_stream(
 }
 
 fn field_or_default<'a>(value: &'a Value, keys: &[&str], default: &'a str) -> &'a str {
-    entity_field_str(value, keys).unwrap_or(default)
+    entity_field_str(value, keys)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+}
+
+fn codex_image_model_or_default<'a>(value: &'a Value, keys: &[&str], default: &'a str) -> &'a str {
+    let model = field_or_default(value, keys, default);
+    if is_public_openai_image_model_name(model) {
+        default
+    } else {
+        model
+    }
+}
+
+fn is_public_openai_image_model_name(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    normalized == "gpt-image"
+        || normalized.starts_with("gpt-image-")
+        || normalized == "dall-e"
+        || normalized.starts_with("dall-e-")
 }
 
 fn escape_odata_key(key: &str) -> String {
@@ -864,6 +961,49 @@ mod tests {
         let request = build_codex_image_request(&json!({}), "paint a quiet lighthouse", "gpt-5.5");
 
         assert_eq!(request["tools"][0]["quality"], "low");
+    }
+
+    #[test]
+    fn empty_model_field_uses_provider_default() {
+        let fields = json!({
+            "Model": "",
+        });
+
+        assert_eq!(
+            field_or_default(&fields, &["model", "Model"], DEFAULT_MODEL),
+            DEFAULT_MODEL
+        );
+    }
+
+    #[test]
+    fn public_openai_image_model_names_use_codex_default() {
+        let fields = json!({
+            "Model": "gpt-image-2",
+        });
+
+        assert_eq!(
+            codex_image_model_or_default(&fields, &["model", "Model"], DEFAULT_MODEL),
+            DEFAULT_MODEL
+        );
+    }
+
+    #[test]
+    fn record_result_params_omit_inline_base64_payload() {
+        let result = StoredImageResult {
+            file_id: "fl-cat".to_string(),
+            file_version_id: "fv-cat".to_string(),
+            path: "/generated/cat.png".to_string(),
+            mime_type: "image/png".to_string(),
+            revised_prompt: "cat in a window".to_string(),
+            provider_response_id: "resp_cat".to_string(),
+            usage_json: "{}".to_string(),
+        };
+
+        let params = record_result_params(&result);
+
+        assert_eq!(params["result_file_id"], "fl-cat");
+        assert_eq!(params["result_path"], "/generated/cat.png");
+        assert!(params.get("result_image_base64").is_none());
     }
 
     #[test]
@@ -985,7 +1125,7 @@ mod tests {
         let fields = json!({"output_path": "/generated/custom"});
         let ctx = Context {
             tenant: "default".to_string(),
-            entity_type: "MediaGeneration".to_string(),
+            entity_type: "MediaGenerationRequest".to_string(),
             entity_id: "mg-1".to_string(),
             trigger_params: json!({}),
             trigger_action: "RecordAuthReady".to_string(),

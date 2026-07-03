@@ -19,6 +19,7 @@ use opentelemetry::trace::{Span as _, SpanKind, Status, Tracer as _};
 use opentelemetry::{KeyValue, global};
 use serde::{Deserialize, Serialize};
 use temper_platform::PlatformState;
+use temper_platform::genesis_install::GenesisRegistryInstallRequest;
 use temper_runtime::tenant::TenantId;
 use temper_server::request_context::AgentContext;
 use temper_server::state::DispatchExtOptions;
@@ -47,6 +48,7 @@ const RAILWAY_GRAPHQL_URL: &str = "https://backboard.railway.com/graphql/v2";
 const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
 const DATADOG_RUNTIME_AGENT_IMAGE: &str = "datadog/agent:7";
 const DATADOG_RUNTIME_AGENT_HOST: &str = "datadog-runtime-agent.railway.internal";
+const DEFAULT_GENESIS_REGISTRY_URL: &str = "https://genesis-production-164d.up.railway.app";
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -72,6 +74,18 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "openai_codex_account_id",
         "openai_codex_token",
         "openrouter_api_key",
+        "openrouter_api_url",
+        "huggingface_api_key",
+        "hf_token",
+        "huggingface_api_url",
+        "fireworks_api_key",
+        "fireworks_api_url",
+        "sakana_fugu_api_key",
+        "sakana_fugu_api_url",
+        "openai_compatible_api_key",
+        "openai_compatible_api_url",
+        "openai_compatible_headers_json",
+        "local_openai_api_url",
         "discord_bot_token",
         "discord_public_key",
         "discord_guild_id",
@@ -100,6 +114,37 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
     ]
     .into_iter()
     .collect()
+}
+
+fn validate_setup_secret_key(key: &str) -> Result<(), String> {
+    if allowed_secret_keys().contains(key) {
+        return Ok(());
+    }
+    if key.is_empty() {
+        return Err("Secret key cannot be empty".to_string());
+    }
+    if key.trim() != key {
+        return Err("Secret key cannot contain leading or trailing whitespace".to_string());
+    }
+    if key.len() > 128 {
+        return Err("Secret key must be 128 characters or fewer".to_string());
+    }
+    if key.contains("..") {
+        return Err("Secret key cannot contain '..'".to_string());
+    }
+    if key.starts_with('.') || key.starts_with('-') {
+        return Err("Secret key cannot start with '.' or '-'".to_string());
+    }
+    if !key
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
+    {
+        return Err(
+            "Secret key may only contain ASCII letters, numbers, underscores, dashes, dots, and colons"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 /// Metadata for a known secret key — used by the dashboard to render templates.
@@ -143,11 +188,88 @@ fn secrets_schema() -> Vec<SecretSchema> {
             description: "Multi-provider routing — openrouter.ai/keys",
         },
         SecretSchema {
+            key: "openrouter_api_url",
+            category: "llm",
+            label: "OpenRouter API URL",
+            required: false,
+            description: "Optional endpoint override; defaults to OpenRouter chat completions",
+        },
+        SecretSchema {
+            key: "huggingface_api_key",
+            category: "llm",
+            label: "Hugging Face API Key",
+            required: false,
+            description: "Hugging Face Inference Providers — supports open-weight hosted models",
+        },
+        SecretSchema {
+            key: "huggingface_api_url",
+            category: "llm",
+            label: "Hugging Face API URL",
+            required: false,
+            description: "Optional endpoint override; defaults to Hugging Face router chat completions",
+        },
+        SecretSchema {
+            key: "fireworks_api_key",
+            category: "llm",
+            label: "Fireworks API Key",
+            required: false,
+            description: "Fireworks AI hosted open-weight models",
+        },
+        SecretSchema {
+            key: "fireworks_api_url",
+            category: "llm",
+            label: "Fireworks API URL",
+            required: false,
+            description: "Optional endpoint override; defaults to Fireworks chat completions",
+        },
+        SecretSchema {
+            key: "sakana_fugu_api_key",
+            category: "llm",
+            label: "Sakana Fugu API Key",
+            required: false,
+            description: "Sakana Fugu beta key",
+        },
+        SecretSchema {
+            key: "sakana_fugu_api_url",
+            category: "llm",
+            label: "Sakana Fugu API URL",
+            required: false,
+            description: "Required beta OpenAI-compatible chat completions URL for provider=sakana_fugu",
+        },
+        SecretSchema {
+            key: "openai_compatible_api_key",
+            category: "llm",
+            label: "OpenAI-Compatible API Key",
+            required: false,
+            description: "Bearer token for an arbitrary OpenAI-compatible endpoint",
+        },
+        SecretSchema {
+            key: "openai_compatible_api_url",
+            category: "llm",
+            label: "OpenAI-Compatible API URL",
+            required: false,
+            description: "Required chat completions URL for provider=openai_compatible",
+        },
+        SecretSchema {
+            key: "openai_compatible_headers_json",
+            category: "llm",
+            label: "OpenAI-Compatible Headers JSON",
+            required: false,
+            description: "Optional JSON object of extra string headers for custom OpenAI-compatible endpoints",
+        },
+        SecretSchema {
+            key: "local_openai_api_url",
+            category: "llm",
+            label: "Local OpenAI API URL",
+            required: false,
+            description: "No-key local endpoint for provider=local_openai; defaults to Ollama at 127.0.0.1:11434",
+        },
+        SecretSchema {
             key: "llm_provider",
             category: "llm",
             label: "Active LLM Provider",
             required: false,
-            description: "anthropic, openai, openai_codex, or openrouter",
+            description: "anthropic, openai, openai_codex, openrouter, huggingface, fireworks, sakana_fugu, local_openai, or openai_compatible",
         },
         SecretSchema {
             key: "llm_model",
@@ -276,6 +398,10 @@ pub fn router(state: SetupApiState) -> Router {
         .route(
             "/paw/setup/openai-codex/device-login",
             post(start_openai_codex_device_login),
+        )
+        .route(
+            "/paw/apps/install-from-genesis",
+            post(install_app_from_genesis),
         )
         .route(
             "/paw/setup/openai-codex/poll",
@@ -772,6 +898,13 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
                 .or_else(|| v.get_secret(&state.tenant, OPENAI_CODEX_ACCESS_TOKEN))
                 .or_else(|| v.get_secret(&state.tenant, "openai_codex_token"))
                 .or_else(|| v.get_secret(&state.tenant, "openrouter_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, "huggingface_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, "hf_token"))
+                .or_else(|| v.get_secret(&state.tenant, "fireworks_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, "sakana_fugu_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, "openai_compatible_api_key"))
+                .or_else(|| v.get_secret(&state.tenant, "openai_compatible_api_url"))
+                .or_else(|| v.get_secret(&state.tenant, "local_openai_api_url"))
         })
         .is_some();
     let llm_provider = vault.and_then(|v| v.get_secret(&state.tenant, "llm_provider"));
@@ -879,10 +1012,10 @@ async fn get_secret(
     State(state): State<SetupApiState>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {
-    if !allowed_secret_keys().contains(key.as_str()) {
+    if let Err(error) = validate_setup_secret_key(&key) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("Unknown secret key: {key}") })),
+            Json(serde_json::json!({ "error": error })),
         );
     }
 
@@ -926,6 +1059,122 @@ async fn get_openai_codex_status(
         openai_codex_configured(&state),
         snapshot,
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct InstallFromGenesisRequest {
+    /// Pinned ref `owner/name@hash`, e.g. `katagami/katagami-curation@<hash>`.
+    app_ref: String,
+    #[serde(default)]
+    registry_url: String,
+    #[serde(default)]
+    registry_tenant: String,
+    #[serde(default)]
+    follow_policy: String,
+}
+
+fn setup_genesis_registry_url(raw: &str) -> Result<String, String> {
+    let fallback = env::var("TEMPERPAW_GENESIS_REGISTRY_URL")
+        .or_else(|_| env::var("TEMPER_GENESIS_REGISTRY_URL"))
+        .unwrap_or_else(|_| DEFAULT_GENESIS_REGISTRY_URL.to_string());
+    let value = if raw.trim().is_empty() {
+        fallback.as_str()
+    } else {
+        raw
+    }
+    .trim()
+    .trim_end_matches('/');
+
+    if !(value.starts_with("http://") || value.starts_with("https://")) {
+        return Err("registry_url must start with http:// or https://".to_string());
+    }
+    Ok(value.to_string())
+}
+
+fn setup_genesis_registry_tenant(raw: &str) -> String {
+    if raw.trim().is_empty() {
+        "default".to_string()
+    } else {
+        raw.trim().to_string()
+    }
+}
+
+fn setup_genesis_follow_policy(raw: &str) -> Result<String, String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized.is_empty() || normalized == "pinned" {
+        return Ok("pinned".to_string());
+    }
+    if normalized == "follow_latest" || normalized == "follow-latest" {
+        return Ok("follow_latest".to_string());
+    }
+    Err(format!(
+        "follow_policy must be 'pinned' or 'follow_latest', got '{raw}'"
+    ))
+}
+
+fn pinned_genesis_app_ref(raw: &str) -> Option<String> {
+    let app_ref = raw.trim();
+    let (owner_and_name, hash) = app_ref.split_once('@')?;
+    if hash.trim().is_empty() || hash.contains('@') {
+        return None;
+    }
+    let (owner, name) = owner_and_name.split_once('/')?;
+    if owner.trim().is_empty() || name.trim().is_empty() || name.contains('/') {
+        return None;
+    }
+    Some(format!(
+        "{}/{}@{}",
+        owner.trim(),
+        name.trim(),
+        hash.trim().trim_start_matches('@')
+    ))
+}
+
+fn genesis_install_request_from_setup(
+    tenant: &str,
+    req: InstallFromGenesisRequest,
+) -> Result<GenesisRegistryInstallRequest, String> {
+    let app_ref = pinned_genesis_app_ref(&req.app_ref)
+        .ok_or_else(|| "app_ref must be a pinned Genesis ref owner/name@hash".to_string())?;
+    Ok(GenesisRegistryInstallRequest {
+        tenant: tenant.to_string(),
+        app_ref,
+        registry_url: setup_genesis_registry_url(&req.registry_url)?,
+        registry_tenant: setup_genesis_registry_tenant(&req.registry_tenant),
+        follow_policy: setup_genesis_follow_policy(&req.follow_policy)?,
+    })
+}
+
+/// `POST /paw/apps/install-from-genesis` — reconcile an OS app from a pinned Genesis
+/// ref on a running pod, without a Docker rebuild. Privileged setup endpoint on the
+/// same `/paw/` admin surface as secret/agent management. Lets katagami (and any
+/// os-app) be updated by publishing to Genesis + hitting this endpoint, instead of a
+/// full image rebuild (ARN-69).
+async fn install_app_from_genesis(
+    State(state): State<SetupApiState>,
+    Json(req): Json<InstallFromGenesisRequest>,
+) -> impl IntoResponse {
+    let request = match genesis_install_request_from_setup(&state.tenant, req) {
+        Ok(request) => request,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            );
+        }
+    };
+    match temper_platform::genesis_install::install_genesis_app_from_registry(
+        &state.platform,
+        request,
+    )
+    .await
+    {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!(result))),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error })),
+        ),
+    }
 }
 
 async fn start_openai_codex_device_login(State(state): State<SetupApiState>) -> impl IntoResponse {
@@ -1064,10 +1313,10 @@ async fn upsert_secret(
     State(state): State<SetupApiState>,
     Json(req): Json<UpsertSecretRequest>,
 ) -> impl IntoResponse {
-    if !allowed_secret_keys().contains(req.key.as_str()) {
+    if let Err(error) = validate_setup_secret_key(&req.key) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("Unknown secret key: {}", req.key) })),
+            Json(serde_json::json!({ "error": error })),
         );
     }
 
@@ -1117,6 +1366,13 @@ async fn delete_secret(
     State(state): State<SetupApiState>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(error) = validate_setup_secret_key(&key) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        );
+    }
+
     if let Some(vault) = state.platform.server.secrets_vault.as_ref() {
         vault.remove_secret(&state.tenant, &key);
     }
@@ -1243,19 +1499,91 @@ async fn resolve_llm_provider(state: &SetupApiState) -> Result<LlmProvider> {
     let model = vault
         .get_secret(&state.tenant, "llm_model")
         .context("Configure llm_model before personalizing Paw")?;
+    let provider = normalize_setup_provider(&provider_hint);
 
-    let api_key = [
-        "anthropic_api_key",
-        "openrouter_api_key",
-        "openai_api_key",
-        OPENAI_CODEX_ACCESS_TOKEN,
-        "openai_codex_token",
-    ]
-    .into_iter()
-    .find_map(|key| vault.get_secret(&state.tenant, key))
-    .context("Configure an LLM API key before personalizing Paw")?;
+    match provider.as_str() {
+        "local_openai" => {
+            let api_url = vault
+                .get_secret(&state.tenant, "local_openai_api_url")
+                .unwrap_or_else(|| "http://127.0.0.1:11434/v1/chat/completions".to_string());
+            LlmProvider::openai_compatible(&provider, "", &api_url, &model)
+        }
+        "huggingface" => {
+            let api_key = vault
+                .get_secret(&state.tenant, "huggingface_api_key")
+                .or_else(|| vault.get_secret(&state.tenant, "hf_token"))
+                .context("Configure huggingface_api_key before personalizing Paw")?;
+            let api_url = vault
+                .get_secret(&state.tenant, "huggingface_api_url")
+                .unwrap_or_else(|| "https://router.huggingface.co/v1/chat/completions".to_string());
+            LlmProvider::openai_compatible(&provider, &api_key, &api_url, &model)
+        }
+        "fireworks" => {
+            let api_key = vault
+                .get_secret(&state.tenant, "fireworks_api_key")
+                .context("Configure fireworks_api_key before personalizing Paw")?;
+            let api_url = vault
+                .get_secret(&state.tenant, "fireworks_api_url")
+                .unwrap_or_else(|| {
+                    "https://api.fireworks.ai/inference/v1/chat/completions".to_string()
+                });
+            LlmProvider::openai_compatible(&provider, &api_key, &api_url, &model)
+        }
+        "sakana_fugu" => {
+            let api_key = vault
+                .get_secret(&state.tenant, "sakana_fugu_api_key")
+                .context("Configure sakana_fugu_api_key before personalizing Paw")?;
+            let api_url = vault
+                .get_secret(&state.tenant, "sakana_fugu_api_url")
+                .context("Configure sakana_fugu_api_url before personalizing Paw")?;
+            LlmProvider::openai_compatible(&provider, &api_key, &api_url, &model)
+        }
+        "openai_compatible" => {
+            let api_key = vault
+                .get_secret(&state.tenant, "openai_compatible_api_key")
+                .unwrap_or_default();
+            let api_url = vault
+                .get_secret(&state.tenant, "openai_compatible_api_url")
+                .context("Configure openai_compatible_api_url before personalizing Paw")?;
+            LlmProvider::openai_compatible(&provider, &api_key, &api_url, &model)
+        }
+        _ => {
+            let api_key = match provider.as_str() {
+                "anthropic" => vault.get_secret(&state.tenant, "anthropic_api_key"),
+                "openrouter" => vault.get_secret(&state.tenant, "openrouter_api_key"),
+                "openai" => vault.get_secret(&state.tenant, "openai_api_key"),
+                "openai_codex" => vault
+                    .get_secret(&state.tenant, OPENAI_CODEX_ACCESS_TOKEN)
+                    .or_else(|| vault.get_secret(&state.tenant, "openai_codex_token")),
+                _ => [
+                    "anthropic_api_key",
+                    "openrouter_api_key",
+                    "openai_api_key",
+                    OPENAI_CODEX_ACCESS_TOKEN,
+                    "openai_codex_token",
+                ]
+                .into_iter()
+                .find_map(|key| vault.get_secret(&state.tenant, key)),
+            }
+            .with_context(|| format!("Configure an LLM API key for provider {provider}"))?;
+            LlmProvider::detect(&api_key, &provider, &model)
+        }
+    }
+}
 
-    LlmProvider::detect(&api_key, &provider_hint, &model)
+fn normalize_setup_provider(provider: &str) -> String {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "codex" | "openai-codex" => "openai_codex".to_string(),
+        "open_router" => "openrouter".to_string(),
+        "hf" | "hugging_face" | "hugging-face" => "huggingface".to_string(),
+        "fireworks_ai" | "fireworks-ai" => "fireworks".to_string(),
+        "sakana" | "sakana-fugu" | "fugu" => "sakana_fugu".to_string(),
+        "ollama" | "local" | "local-openai" => "local_openai".to_string(),
+        "openai-compatible" | "openai_compat" | "openai-compat" | "custom_openai" => {
+            "openai_compatible".to_string()
+        }
+        other => other.to_string(),
+    }
 }
 
 async fn load_current_paw_soul(
@@ -3229,11 +3557,12 @@ async fn disconnect_slack(State(state): State<SetupApiState>) -> Json<serde_json
 #[cfg(test)]
 mod tests {
     use super::{
-        allowed_secret_keys, datadog_enhanced_app_railway_vars, datadog_runtime_agent_railway_vars,
-        discord_connect_params_for_secret_update, discord_readyz_response,
-        discord_start_error_is_retryable, is_discord_ping, persist_discord_public_key,
+        InstallFromGenesisRequest, allowed_secret_keys, datadog_enhanced_app_railway_vars,
+        datadog_runtime_agent_railway_vars, discord_connect_params_for_secret_update,
+        discord_readyz_response, discord_start_error_is_retryable,
+        genesis_install_request_from_setup, is_discord_ping, persist_discord_public_key,
         personalized_soul_flag_value, secrets_schema, transport_status_report,
-        verify_discord_signature,
+        validate_setup_secret_key, verify_discord_signature,
     };
     use crate::transport_manager::TransportStatus;
     use axum::http::StatusCode;
@@ -3241,6 +3570,100 @@ mod tests {
     use std::sync::Arc;
     use temper_server::secrets::SecretsVault;
     use temper_store_turso::TursoEventStore;
+
+    fn genesis_install_setup_request(
+        app_ref: &str,
+        registry_url: &str,
+        registry_tenant: &str,
+        follow_policy: &str,
+    ) -> InstallFromGenesisRequest {
+        InstallFromGenesisRequest {
+            app_ref: app_ref.to_string(),
+            registry_url: registry_url.to_string(),
+            registry_tenant: registry_tenant.to_string(),
+            follow_policy: follow_policy.to_string(),
+        }
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_maps_valid_request() {
+        let request = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                " katagami/katagami-curation@sha-123 ",
+                "https://genesis.example.test/",
+                " registry-team ",
+                "follow-latest",
+            ),
+        )
+        .expect("valid pinned Genesis setup request");
+
+        assert_eq!(request.tenant, "tenant-a");
+        assert_eq!(request.app_ref, "katagami/katagami-curation@sha-123");
+        assert_eq!(request.registry_url, "https://genesis.example.test");
+        assert_eq!(request.registry_tenant, "registry-team");
+        assert_eq!(request.follow_policy, "follow_latest");
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_defaults_tenant_and_policy() {
+        let request = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation@sha-123",
+                "https://genesis.example.test",
+                "",
+                "",
+            ),
+        )
+        .expect("valid pinned Genesis setup request");
+
+        assert_eq!(request.registry_tenant, "default");
+        assert_eq!(request.follow_policy, "pinned");
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_rejects_unpinned_refs() {
+        let error = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation",
+                "https://genesis.example.test",
+                "default",
+                "pinned",
+            ),
+        )
+        .expect_err("unpinned Genesis ref must fail at setup boundary");
+
+        assert!(error.contains("owner/name@hash"));
+    }
+
+    #[test]
+    fn genesis_install_request_from_setup_rejects_bad_registry_url_and_policy() {
+        let bad_url = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation@sha-123",
+                "genesis.example.test",
+                "default",
+                "pinned",
+            ),
+        )
+        .expect_err("registry URL must include scheme");
+        assert!(bad_url.contains("registry_url"));
+
+        let bad_policy = genesis_install_request_from_setup(
+            "tenant-a",
+            genesis_install_setup_request(
+                "katagami/katagami-curation@sha-123",
+                "https://genesis.example.test",
+                "default",
+                "latest",
+            ),
+        )
+        .expect_err("unsupported follow policy must fail at setup boundary");
+        assert!(bad_policy.contains("follow_policy"));
+    }
 
     #[test]
     fn discord_secret_update_builds_reconnect_params_when_config_is_complete() {
@@ -3492,6 +3915,56 @@ mod tests {
                 "{key} must be settable by Codex auth flow"
             );
         }
+    }
+
+    #[test]
+    fn open_weight_llm_secret_keys_are_allowed_and_rendered() {
+        let allowed = allowed_secret_keys();
+        let schema = secrets_schema();
+
+        for key in [
+            "openrouter_api_key",
+            "openrouter_api_url",
+            "huggingface_api_key",
+            "hf_token",
+            "huggingface_api_url",
+            "fireworks_api_key",
+            "fireworks_api_url",
+            "sakana_fugu_api_key",
+            "sakana_fugu_api_url",
+            "openai_compatible_api_key",
+            "openai_compatible_api_url",
+            "openai_compatible_headers_json",
+            "local_openai_api_url",
+        ] {
+            assert!(
+                allowed.contains(key),
+                "{key} should be accepted by setup API"
+            );
+        }
+
+        for key in [
+            "huggingface_api_key",
+            "fireworks_api_key",
+            "sakana_fugu_api_url",
+            "openai_compatible_api_url",
+            "local_openai_api_url",
+        ] {
+            assert!(
+                schema.iter().any(|secret| secret.key == key),
+                "{key} should be visible in dashboard schema"
+            );
+        }
+    }
+
+    #[test]
+    fn setup_api_accepts_safe_custom_secret_names() {
+        assert!(validate_setup_secret_key("vendor_x_api_key").is_ok());
+        assert!(validate_setup_secret_key("team.provider:header").is_ok());
+        assert!(validate_setup_secret_key("").is_err());
+        assert!(validate_setup_secret_key("../oops").is_err());
+        assert!(validate_setup_secret_key(" bad").is_err());
+        assert!(validate_setup_secret_key("bad/key").is_err());
     }
 
     #[test]

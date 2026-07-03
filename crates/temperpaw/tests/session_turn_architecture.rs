@@ -126,6 +126,61 @@ fn session_routes_llm_calls_through_codex_auth_gate() {
 }
 
 #[test]
+fn open_weight_providers_use_shared_openai_chat_wire_adapter() {
+    let root = repo_root();
+    let provider_caller =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
+            .expect("provider_caller source should exist");
+    let compactor =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_compactor/src/lib.rs"))
+            .expect("context_compactor source should exist");
+    let provider_manifest =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/provider_caller/Cargo.toml"))
+            .expect("provider_caller manifest should exist");
+    let compactor_manifest =
+        fs::read_to_string(root.join("os-apps/paw-agent/wasm/context_compactor/Cargo.toml"))
+            .expect("context_compactor manifest should exist");
+
+    for manifest in [provider_manifest.as_str(), compactor_manifest.as_str()] {
+        assert!(
+            manifest.contains("openai-chat-wire"),
+            "provider caller and compactor should share the OpenAI-compatible chat wire adapter"
+        );
+    }
+
+    for needle in [
+        "call_openai_compatible_chat",
+        "build_chat_completion_body",
+        "parse_headers_json",
+        "\"huggingface\"",
+        "\"fireworks\"",
+        "\"sakana_fugu\"",
+        "\"local_openai\"",
+        "\"openai_compatible\"",
+    ] {
+        assert!(
+            provider_caller.contains(needle),
+            "provider_caller should contain OpenAI-compatible support marker {needle}"
+        );
+    }
+
+    for needle in [
+        "build_chat_completion_body",
+        "parse_chat_completion_response_text",
+        "\"huggingface\"",
+        "\"fireworks\"",
+        "\"sakana_fugu\"",
+        "\"local_openai\"",
+        "\"openai_compatible\"",
+    ] {
+        assert!(
+            compactor.contains(needle),
+            "context_compactor should contain OpenAI-compatible support marker {needle}"
+        );
+    }
+}
+
+#[test]
 fn session_defines_non_codex_provider_auth_fast_path() {
     let spec = fs::read_to_string(repo_root().join("os-apps/paw-agent/specs/session.ioa.toml"))
         .expect("session.ioa.toml should exist");
@@ -275,6 +330,12 @@ fn first_turn_session_entries_materialize_after_provider_success() {
         "context_preparer should explicitly prepare from Session.user_message for virtual first turns"
     );
     assert!(
+        helpers.contains("fn session_entries_materialized")
+            && helpers.contains("return Ok(String::new());")
+            && helpers.contains("virtual first-turn SessionEntries ref"),
+        "virtual first-turn SessionEntries reads should return empty JSONL without listing SessionEntries"
+    );
+    assert!(
         applier.contains("materialize_initial_session_entries_with_assistant"),
         "provider_response_applier should materialize initial user/assistant entries before terminal success"
     );
@@ -287,14 +348,46 @@ fn first_turn_session_entries_materialize_after_provider_success() {
         "wasm helpers should expose the verified first-turn materialization helper"
     );
     assert!(
-        helpers.contains("session_entries_verify_url(temper_api_url, session_id)")
-            && helpers.contains("session_entry_verify_missing_ids(&resp.body, entry_ids)")
+        helpers.contains("session_entries_verify_urls(temper_api_url, session_id, entry_ids)")
+            && helpers.contains("session_entry_verify_response_visible(&resp.body)")
             && helpers.contains("parent_entry_id: None,\n            sequence: 1,\n            entry_type: \"message\",\n            role: Some(\"user\")"),
-        "batched first-turn materialization should verify expected headerless user/assistant SessionEntry ids with one session-scoped read-back"
+        "batched first-turn materialization should verify expected headerless user/assistant SessionEntry ids with bounded per-entry read-backs"
     );
     assert!(
-        helpers.contains("single_entry_id.is_some()"),
-        "single SessionEntry appends should keep the narrower per-entry read-back path"
+        helpers.contains("session_entry_verify_url(temper_api_url, session_id, entry_id)")
+            && helpers.contains("/tdata/SessionEntries(SessionId='{}',EntryId='{}')"),
+        "single SessionEntry appends should use direct composite-key read-back paths"
+    );
+}
+
+#[test]
+fn session_entry_readbacks_stay_within_bounded_query_budget() {
+    let root = repo_root();
+    let helpers = fs::read_to_string(root.join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
+        .expect("wasm helpers source should exist");
+    let route_message =
+        fs::read_to_string(root.join("os-apps/paw-channels/wasm/route_message/src/lib.rs"))
+            .expect("route_message source should exist");
+
+    assert!(
+        !helpers.contains("$top=10000"),
+        "SessionEntry create/readback verification must not use a session-wide $top=10000 query"
+    );
+    assert!(
+        !helpers.contains("SessionEntries?$filter=SessionId%20eq%20%27{}%27%20and%20EntryId"),
+        "SessionEntry readback must not use collection SessionId+EntryId filters; use composite-key entity GETs"
+    );
+    assert!(
+        !route_message.contains("$top=1000"),
+        "DM continuation should not recover latest SessionEntry with a broad $top=1000 scan"
+    );
+    assert!(
+        helpers.contains("session_entries_verify_urls"),
+        "batched SessionEntry readback should use one bounded per-entry URL per expected entry"
+    );
+    assert!(
+        route_message.contains("session_leaf_id is missing; starting clean continuation"),
+        "route_message should start cleanly instead of broad-scanning when the prior leaf hint is missing"
     );
 }
 
@@ -608,7 +701,7 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResult should be able to clear pending tool and approval fields on completion"
     );
@@ -667,7 +760,7 @@ fn record_result_no_reply_preserves_terminal_cleanup_without_delivery_trigger() 
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResultNoReply should keep RecordResult cleanup/accounting params"
     );
@@ -737,7 +830,7 @@ fn record_result_inline_reply_preserves_channel_audit_without_agent_reply() {
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResultInlineReply should keep RecordResult cleanup/accounting params"
     );
@@ -802,7 +895,7 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "FinalizeResult should be able to clear pending tool and approval fields on completion"
     );
@@ -820,7 +913,7 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
     let no_reply_block = &no_reply_tail[..no_reply_end];
     assert!(
         no_reply_block.contains(
-            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\"]"
+            "params = [\"result\", \"conversation\", \"session_leaf_id\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "FinalizeResultNoReply should keep FinalizeResult result and cleanup params"
     );
@@ -850,6 +943,7 @@ fn finalize_result_clears_pending_tool_state_on_terminal_completion() {
         "\"pending_tool_calls\": \"\"",
         "\"pending_tool_context\": \"\"",
         "\"pending_decision_id\": \"\"",
+        "\"reply_attachments_json\"",
         "\"FinalizeResultNoReply\"",
         "direct_no_reply",
     ] {

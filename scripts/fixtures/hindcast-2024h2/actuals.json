@@ -1,0 +1,67 @@
+[
+  {
+    "question_contains": "reasoning",
+    "outcome": "yes",
+    "note": "OpenAI shipped reasoning-specialized models in 2024H2: o1-preview/o1-mini Sept 12, 2024; full o1 Dec 5, 2024."
+  },
+  {
+    "question_contains": "gpt-5",
+    "outcome": "no",
+    "note": "GPT-5 did not ship by Dec 15, 2024 (it shipped August 2025)."
+  },
+  {
+    "question_contains": "new claude model",
+    "outcome": "yes",
+    "note": "Anthropic shipped Claude 3.5 Sonnet (June 20, 2024; upgraded Oct 22, 2024) which beat Claude 3 Opus on coding and became a default coding model."
+  },
+  {
+    "question_contains": "devin",
+    "outcome": "yes",
+    "note": "Devin reached general availability Dec 10, 2024 at $500/month."
+  },
+  {
+    "question_contains": "copilot workspace",
+    "outcome": "no",
+    "note": "Copilot Workspace stayed in technical preview through 2024; it never reached GA."
+  },
+  {
+    "question_contains": "multi-model",
+    "outcome": "yes",
+    "note": "GitHub Copilot went multi-model at Universe (Oct 29, 2024): Claude 3.5 Sonnet and Gemini 1.5 Pro added alongside OpenAI models."
+  },
+  {
+    "question_contains": "cursor",
+    "outcome": "yes",
+    "note": "Cursor kept growing through 2024H2: $60M Series A announced Aug 2024 (~$400M valuation) with rapid developer adoption."
+  },
+  {
+    "question_contains": "codeium",
+    "outcome": "yes",
+    "note": "Codeium raised a $150M Series C at a $1.25B valuation (Aug 2024) and shipped its own IDE, Windsurf Editor (Nov 13, 2024)."
+  },
+  {
+    "question_contains": "swift assist",
+    "outcome": "no",
+    "note": "Swift Assist, announced at WWDC June 2024 for 'later this year', had not shipped in Xcode by Dec 15, 2024."
+  },
+  {
+    "question_contains": "gemini 2",
+    "outcome": "yes",
+    "note": "Google shipped a next-generation Gemini before the target date: Gemini 2.0 Flash (experimental) on Dec 11, 2024, pitched at agentic coding use."
+  },
+  {
+    "question_contains": "regulation",
+    "outcome": "no",
+    "note": "No US federal statute restricting code-generation tools passed by December 2024."
+  },
+  {
+    "question_contains": "open-weight",
+    "outcome": "yes",
+    "note": "Strong open-weight code-capable releases continued in 2024H2: Llama 3.1 405B (July), Codestral Mamba (July), Qwen2.5-Coder 32B (Nov)."
+  },
+  {
+    "question_contains": "price",
+    "outcome": "yes",
+    "note": "Frontier per-token prices kept falling in 2024H2: GPT-4o mini (July, $0.15/M in), GPT-4o cut to $2.50/M in (Aug), Gemini 1.5 price cuts (Aug)."
+  }
+]
