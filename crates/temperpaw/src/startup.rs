@@ -578,7 +578,16 @@ fn spawn_runtime_server(
     listener: tokio::net::TcpListener,
     router: axum::Router,
 ) -> JoinHandle<std::io::Result<()>> {
-    tokio::spawn(async move { axum::serve(listener, router).await })
+    // Serve with connection info so the auth middleware can read the real TCP
+    // peer address and distinguish genuinely internal (loopback) callers from
+    // external ones. See ADR-0066.
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+    })
 }
 
 async fn startup_gate_middleware(
