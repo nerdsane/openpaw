@@ -16,7 +16,7 @@ copy_artifact() {
     fi
 }
 
-for module in validate_webhook route_webhook process_webhook; do
+for module in route_webhook process_webhook; do
     echo "Building $module..."
     (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release)
     copy_artifact "$module"

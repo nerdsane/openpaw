@@ -49,6 +49,13 @@ const DATADOG_RUNTIME_AGENT_SERVICE_NAME: &str = "datadog-runtime-agent";
 const DATADOG_RUNTIME_AGENT_IMAGE: &str = "datadog/agent:7";
 const DATADOG_RUNTIME_AGENT_HOST: &str = "datadog-runtime-agent.railway.internal";
 const DEFAULT_GENESIS_REGISTRY_URL: &str = "https://genesis-production-164d.up.railway.app";
+const REQUIRED_WEBHOOK_SECRET_REFS: [&str; 5] = [
+    "patrol_request_webhook_secret",
+    "patrol_signal_webhook_secret",
+    "datadog_webhook_secret",
+    "github_webhook_secret",
+    "patrol_discord_webhook_secret",
+];
 
 /// Shared state for the setup API.
 #[derive(Clone)]
@@ -94,6 +101,11 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "slack_app_token",
         "slack_bot_token",
         "slack_signing_secret",
+        "patrol_request_webhook_secret",
+        "patrol_signal_webhook_secret",
+        "datadog_webhook_secret",
+        "github_webhook_secret",
+        "patrol_discord_webhook_secret",
         "github_token",
         "exa_api_key",
         "tensorlake_api_key",
@@ -335,6 +347,41 @@ fn secrets_schema() -> Vec<SecretSchema> {
             description: "Webhook signature verification",
         },
         SecretSchema {
+            key: "patrol_request_webhook_secret",
+            category: "webhook",
+            label: "Patrol Request Webhook Secret",
+            required: true,
+            description: "HMAC-SHA256 key for the seeded patrol-request ingress route",
+        },
+        SecretSchema {
+            key: "patrol_signal_webhook_secret",
+            category: "webhook",
+            label: "Patrol Signal Webhook Secret",
+            required: true,
+            description: "HMAC-SHA256 key for the seeded patrol-signal ingress route",
+        },
+        SecretSchema {
+            key: "datadog_webhook_secret",
+            category: "webhook",
+            label: "Datadog Webhook Secret",
+            required: true,
+            description: "HMAC-SHA256 key configured on the Datadog webhook sender",
+        },
+        SecretSchema {
+            key: "github_webhook_secret",
+            category: "webhook",
+            label: "GitHub Webhook Secret",
+            required: true,
+            description: "HMAC-SHA256 secret configured on the GitHub webhook",
+        },
+        SecretSchema {
+            key: "patrol_discord_webhook_secret",
+            category: "webhook",
+            label: "Patrol Discord Webhook Secret",
+            required: true,
+            description: "HMAC-SHA256 key for the seeded patrol-discord signal route",
+        },
+        SecretSchema {
             key: "exa_api_key",
             category: "web_search",
             label: "Exa API Key",
@@ -479,6 +526,18 @@ struct SetupStatus {
     discord_connected: bool,
     slack_connected: bool,
     discord_interaction_url: Option<String>,
+    webhook_ready: bool,
+    missing_webhook_secrets: Vec<&'static str>,
+}
+
+fn missing_required_webhook_secrets<F>(mut get_secret: F) -> Vec<&'static str>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    REQUIRED_WEBHOOK_SECRET_REFS
+        .into_iter()
+        .filter(|key| !secret_is_configured(get_secret(key)))
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -930,6 +989,9 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
         crate::transport_manager::TransportStatus::Connected { .. }
     );
     let has_personalized_soul = has_personalized_paw_soul(&state).await;
+    let missing_webhook_secrets = missing_required_webhook_secrets(|key| {
+        vault.and_then(|vault| vault.get_secret(&state.tenant, key))
+    });
 
     Json(SetupStatus {
         has_anthropic_key,
@@ -945,6 +1007,8 @@ async fn get_setup_status(State(state): State<SetupApiState>) -> Json<SetupStatu
             .transport_manager
             .discord_interaction_public_url()
             .await,
+        webhook_ready: missing_webhook_secrets.is_empty(),
+        missing_webhook_secrets,
     })
 }
 
@@ -3103,7 +3167,7 @@ pub(crate) async fn get_readyz(State(state): State<SetupApiState>) -> impl IntoR
     let connection_state = discord_connection
         .as_ref()
         .map(|snapshot| snapshot.status.as_str());
-    let (status, mut body) = discord_readyz_response(
+    let (mut status, mut body) = discord_readyz_response(
         has_discord,
         &runtime.discord,
         desired_state,
@@ -3119,6 +3183,19 @@ pub(crate) async fn get_readyz(State(state): State<SetupApiState>) -> impl IntoR
             field_str(&connection.fields, &["next_retry_at", "NextRetryAt"])
                 .map(|value| serde_json::json!(value))
                 .unwrap_or(serde_json::Value::Null);
+    }
+
+    let missing_webhook_secrets = missing_required_webhook_secrets(|key| {
+        vault.and_then(|vault| vault.get_secret(&state.tenant, key))
+    });
+    let webhook_ready = missing_webhook_secrets.is_empty();
+    body["webhook"] = serde_json::json!({
+        "status": if webhook_ready { "ready" } else { "degraded" },
+        "missing_secret_refs": missing_webhook_secrets,
+    });
+    if !webhook_ready {
+        status = StatusCode::SERVICE_UNAVAILABLE;
+        body["status"] = serde_json::json!("degraded");
     }
 
     (status, Json(body))
@@ -3560,9 +3637,9 @@ mod tests {
         InstallFromGenesisRequest, allowed_secret_keys, datadog_enhanced_app_railway_vars,
         datadog_runtime_agent_railway_vars, discord_connect_params_for_secret_update,
         discord_readyz_response, discord_start_error_is_retryable,
-        genesis_install_request_from_setup, is_discord_ping, persist_discord_public_key,
-        personalized_soul_flag_value, secrets_schema, transport_status_report,
-        validate_setup_secret_key, verify_discord_signature,
+        genesis_install_request_from_setup, is_discord_ping, missing_required_webhook_secrets,
+        persist_discord_public_key, personalized_soul_flag_value, secrets_schema,
+        transport_status_report, validate_setup_secret_key, verify_discord_signature,
     };
     use crate::transport_manager::TransportStatus;
     use axum::http::StatusCode;
@@ -3965,6 +4042,31 @@ mod tests {
         assert!(validate_setup_secret_key("../oops").is_err());
         assert!(validate_setup_secret_key(" bad").is_err());
         assert!(validate_setup_secret_key("bad/key").is_err());
+    }
+
+    #[test]
+    fn governed_webhook_secrets_are_required_in_setup_schema() {
+        let schema = secrets_schema();
+        for key in [
+            "patrol_request_webhook_secret",
+            "patrol_signal_webhook_secret",
+            "datadog_webhook_secret",
+            "github_webhook_secret",
+            "patrol_discord_webhook_secret",
+        ] {
+            let entry = schema
+                .iter()
+                .find(|secret| secret.key == key)
+                .unwrap_or_else(|| panic!("missing webhook secret schema for {key}"));
+            assert!(entry.required, "{key} must block webhook readiness/setup");
+            assert_eq!(entry.category, "webhook");
+        }
+
+        let missing = missing_required_webhook_secrets(|key| {
+            (key != "github_webhook_secret").then(|| "configured".to_string())
+        });
+        assert_eq!(missing, vec!["github_webhook_secret"]);
+        assert!(missing_required_webhook_secrets(|_| Some("configured".to_string())).is_empty());
     }
 
     #[test]

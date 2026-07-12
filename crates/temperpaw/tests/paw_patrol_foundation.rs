@@ -1413,10 +1413,11 @@ fn webhook_intake_smoke_exercises_the_trigger_boundary() {
         "/triggers/webhook/${route_key}",
         "WebhookEvents",
         "TemperPaw.Ingest.Received",
-        "TemperPaw.Ingest.Register",
-        "TemperPaw.Patrol.Submit",
-        "TemperPaw.Patrol.Ingest",
-        "PatrolRequests",
+        "forged webhook rejected before persistence",
+        "status' <<<\"$request_replay_response\")\" != \"duplicate\"",
+        "x-temper-signature",
+        "x-temper-delivery-id",
+        "WorkRequests",
         "Signals",
         "FactoryCases",
         "WorkCycles",
@@ -2094,6 +2095,13 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
         "route_key = \"patrol-datadog\"",
         "route_key = \"patrol-github\"",
         "route_key = \"patrol-discord\"",
+        "auth_scheme = \"hmac-sha256\"",
+        "secret_ref = \"datadog_webhook_secret\"",
+        "secret_ref = \"github_webhook_secret\"",
+        "signature_header = \"x-hub-signature-256\"",
+        "delivery_id_header = \"x-github-delivery\"",
+        "max_body_bytes = \"262144\"",
+        "max_deliveries_per_minute = \"120\"",
     ] {
         assert!(
             routes.contains(needle),
@@ -2120,7 +2128,6 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
 
     let ingest_manifest = read(root.join("os-apps/paw-ingest/app.toml"));
     for needle in [
-        "name = \"validate_webhook\"",
         "name = \"route_webhook\"",
         "name = \"process_webhook\"",
         "criticality = \"app-required\"",
@@ -2134,7 +2141,6 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
 
     let ingest_build = read(root.join("os-apps/paw-ingest/wasm/build.sh"));
     for needle in [
-        "validate_webhook",
         "route_webhook",
         "process_webhook",
         "cargo build --target wasm32-unknown-unknown --release",
@@ -2144,6 +2150,39 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
             "paw-ingest build.sh should build {needle}"
         );
     }
+    assert!(
+        !routes.contains("webhook_secret = \"\"")
+            && !ingest_manifest.contains("validate_webhook")
+            && !ingest_build.contains("validate_webhook"),
+        "webhook admission must not retain unsigned seed routes or a duplicate downstream verifier"
+    );
+
+    let trigger = read(root.join("crates/paw-transport/src/webhook/trigger.rs"));
+    for needle in [
+        "atomic get-or-create",
+        "WebhookSecretResolver",
+        "signature_matches",
+        "webhook_event_id",
+        "route_snapshot_digest",
+        "normalize_json_object",
+        "DefaultBodyLimit::max",
+        "max_deliveries_per_minute",
+    ] {
+        assert!(
+            trigger.contains(needle),
+            "webhook HTTP boundary should enforce authenticated admission: {needle}"
+        );
+    }
+    assert!(
+        !trigger.contains("/paw/setup/secrets/"),
+        "webhook admission must resolve secrets through its in-process vault capability, never HTTP"
+    );
+
+    let route_webhook = read(root.join("os-apps/paw-ingest/wasm/route_webhook/src/lib.rs"));
+    assert!(
+        !route_webhook.contains("/tdata/WebhookRoutes"),
+        "route_webhook must consume the admitted immutable snapshot instead of re-reading mutable route state"
+    );
 
     let app_doc = read(root.join("os-apps/paw-patrol/APP.md"));
     for needle in [
@@ -2162,6 +2201,88 @@ fn paw_patrol_has_webhook_intake_routes_through_paw_ingest() {
         startup.contains("paw_transport::webhook::router"),
         "production runtime router should expose /triggers/webhook/{{route_key}} on the main Railway port"
     );
+}
+
+#[test]
+fn paw_ingest_cedar_enforces_webhook_capability_owners() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-ingest/policies/webhook.cedar"));
+    let engine = AuthzEngine::new(&policy).expect("webhook.cedar should parse");
+    let attrs = resource_attrs(&[("id", serde_json::json!("webhook-security-test"))]);
+    let admin = SecurityContext::from_headers(&[
+        ("X-Temper-Principal-Id".to_string(), "admin-1".to_string()),
+        ("X-Temper-Principal-Kind".to_string(), "admin".to_string()),
+    ]);
+    let agent = agent_context("untrusted-agent", "agent");
+
+    for (entity, actions) in [
+        (
+            "WebhookRoute",
+            &[
+                "create", "read", "list", "Register", "Update", "Disable", "Enable",
+            ][..],
+        ),
+        (
+            "WebhookEvent",
+            &[
+                "create",
+                "read",
+                "list",
+                "Received",
+                "Routed",
+                "Processed",
+                "RouteFailed",
+                "ProcessFailed",
+            ][..],
+        ),
+    ] {
+        for action in actions {
+            assert!(
+                engine
+                    .authorize(&admin, action, entity, &attrs)
+                    .is_allowed(),
+                "Admin must own {entity}.{action}"
+            );
+            assert!(
+                !engine
+                    .authorize(&agent, action, entity, &attrs)
+                    .is_allowed(),
+                "plain Agent must not own {entity}.{action}"
+            );
+        }
+    }
+
+    let mut route_module = agent_context("route-webhook", "agent");
+    route_module
+        .context_attrs
+        .insert("module".to_string(), serde_json::json!("route_webhook"));
+    for action in ["Routed", "RouteFailed"] {
+        assert!(
+            engine
+                .authorize(&route_module, action, "WebhookEvent", &attrs)
+                .is_allowed(),
+            "route_webhook must own WebhookEvent.{action}"
+        );
+    }
+    assert!(
+        !engine
+            .authorize(&route_module, "Processed", "WebhookEvent", &attrs)
+            .is_allowed(),
+        "route_webhook must not impersonate process_webhook"
+    );
+
+    let mut process_module = agent_context("process-webhook", "agent");
+    process_module
+        .context_attrs
+        .insert("module".to_string(), serde_json::json!("process_webhook"));
+    for action in ["Processed", "ProcessFailed"] {
+        assert!(
+            engine
+                .authorize(&process_module, action, "WebhookEvent", &attrs)
+                .is_allowed(),
+            "process_webhook must own WebhookEvent.{action}"
+        );
+    }
 }
 
 #[test]
