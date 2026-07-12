@@ -1,7 +1,6 @@
 //! Authentication routes and middleware for the embedded dashboard.
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -10,7 +9,7 @@ use argon2::Argon2;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use axum::body::Body;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::State;
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::middleware::Next;
@@ -129,11 +128,10 @@ pub fn router(state: AuthState) -> Router {
 /// delegation, scope, and context: principal id/kind, `agent-role`,
 /// `agent-type`, `acting-for` (delegation), `principal-scopes`, `action-context`,
 /// and arbitrary `x-temper-attr-*` / `x-temper-ctx-*` / `x-temper-span-attr-*`
-/// attributes. A remote client must never be able to set any of these; they are
-/// honored only when injected server-side (cookie/bearer resolution) or
-/// presented by a genuinely internal loopback caller. TemperPaw is the sole
-/// network edge in front of the kernel, which does not itself strip these, so
-/// the whole prefix is removed at the ingress edge for every external request.
+/// attributes. A client must never be able to set any of these; they are honored
+/// only when injected after credential resolution. TemperPaw is the sole network
+/// edge in front of the kernel, which does not itself strip these, so the whole
+/// prefix is removed at ingress for every request.
 const CLIENT_ASSERTABLE_IDENTITY_HEADER_PREFIX: &str = "x-temper-";
 
 /// Additional exact header names outside the `x-temper-*` prefix that also carry
@@ -148,16 +146,10 @@ pub async fn middleware(
     let path = request.uri().path().to_string();
     let method = request.method().as_str().to_string();
 
-    let from_internal_loopback = request_is_loopback(&request);
-
-    // Ingress edge: a request that did not originate from a trusted in-process
-    // (loopback) caller must never carry client-asserted identity headers. Strip
-    // them before Cedar or the kernel bearer check can trust them. Identity for
-    // external requests is re-derived below only from a resolved credential
-    // (session cookie or bearer token).
-    if !from_internal_loopback {
-        strip_client_identity_headers(request.headers_mut());
-    }
+    // Ingress edge: no network peer may carry client-asserted identity headers.
+    // Strip them before Cedar or the kernel bearer check can trust them. Identity
+    // is re-derived below only from a session or bearer credential.
+    strip_client_identity_headers(request.headers_mut());
 
     if is_safe_setup_path_public_during_bootstrap(&state, &method, &path).await
         || is_public_path(request.method().as_str(), &path)
@@ -176,40 +168,11 @@ pub async fn middleware(
         return next.run(request).await;
     }
 
-    // Internal WASM agent / transport calls arrive over loopback carrying
-    // principal headers but no Bearer token or session cookie. Only a genuinely
-    // loopback-origin request may self-assert its principal this way; external
-    // callers had these headers stripped above, so they cannot reach this branch
-    // with forged identity. Mark as pre-authenticated so Temper's
-    // bearer_auth_check passes through.
-    if from_internal_loopback
-        && request.headers().contains_key("x-temper-principal-kind")
-        && request.headers().contains_key("x-temper-principal-id")
-    {
-        ensure_tenant_header(request.headers_mut(), state.tenant());
-        request.extensions_mut().insert(PreAuthenticatedRequest);
-        return next.run(request).await;
-    }
-
     if path.starts_with("/dashboard") && !is_dashboard_public_path(&path) {
         return Redirect::temporary("/dashboard/login").into_response();
     }
 
     StatusCode::UNAUTHORIZED.into_response()
-}
-
-/// True when the underlying TCP peer is loopback (`127.0.0.0/8` or `::1`), i.e.
-/// the request came from another process inside this container rather than an
-/// external client via the network edge. Derived from the real connection peer
-/// address (`ConnectInfo`), never from a client-supplied forwarding header.
-/// Absent connection info (e.g. in-process test transports) is treated as NOT
-/// loopback — the safe default.
-fn request_is_loopback(request: &Request<Body>) -> bool {
-    request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip().is_loopback())
-        .unwrap_or(false)
 }
 
 /// Remove any client-asserted identity/tenant headers so downstream layers
@@ -876,6 +839,9 @@ mod tests {
             .method("GET")
             .uri("/tdata/Agents")
             .header("cookie", cookie)
+            .header("x-temper-principal-kind", "agent")
+            .header("x-temper-principal-id", "attacker")
+            .header("x-tenant-id", "other-tenant")
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(request).await.unwrap();
@@ -1035,7 +1001,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn external_forged_identity_family_is_stripped_before_downstream() {
+    async fn loopback_forged_identity_family_is_stripped_before_downstream() {
         // A public path passes through the middleware to the handler, so this
         // proves the full x-temper-* family (not just principal id/kind) is
         // removed for external callers before Cedar or a public handler sees it.
@@ -1073,7 +1039,7 @@ mod tests {
             .unwrap();
         request
             .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([203, 0, 113, 7], 5555))));
+            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 5555))));
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1087,17 +1053,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn internal_loopback_self_asserted_principal_headers_are_admitted() {
-        async fn tdata_handler(headers: HeaderMap) -> impl IntoResponse {
-            let kind = headers
-                .get("x-temper-principal-kind")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default();
-            let id = headers
-                .get("x-temper-principal-id")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default();
-            (StatusCode::OK, Json(json!({ "kind": kind, "id": id })))
+    async fn loopback_self_asserted_principal_headers_are_rejected() {
+        async fn tdata_handler() -> impl IntoResponse {
+            StatusCode::OK
         }
 
         let tempdir = tempfile::tempdir().unwrap();
@@ -1107,8 +1065,7 @@ mod tests {
             .merge(router(state.clone()))
             .layer(from_fn_with_state(state.clone(), middleware));
 
-        // A genuinely internal caller: real TCP peer is loopback. Internal
-        // transport/setup/startup callers reach the server this way.
+        // Loopback is a routing property, not an identity credential.
         let mut request = Request::builder()
             .method("GET")
             .uri("/tdata/Agents")
@@ -1121,11 +1078,57 @@ mod tests {
             .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 44321))));
 
         let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
 
+    #[tokio::test]
+    async fn loopback_bearer_credential_binds_kernel_identity() {
+        async fn tdata_handler(headers: HeaderMap) -> impl IntoResponse {
+            let value = |name: &str| {
+                headers
+                    .get(name)
+                    .and_then(|header| header.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            Json(json!({
+                "kind": value("x-temper-principal-kind"),
+                "id": value("x-temper-principal-id"),
+                "tenant": value("x-tenant-id"),
+            }))
+        }
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let auth_state = AuthState::for_tests(tempdir.path()).await;
+        let mut platform_state = temper_platform::PlatformState::new(None);
+        platform_state.api_token = Some("platform-secret".to_string());
+        let app = Router::new()
+            .route("/tdata/Agents", get(tdata_handler))
+            .layer(from_fn_with_state(
+                platform_state,
+                temper_platform::bearer_auth::bearer_auth_check,
+            ))
+            .layer(from_fn_with_state(auth_state.clone(), middleware));
+
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("/tdata/Agents")
+            .header("authorization", "Bearer platform-secret")
+            .header("x-temper-principal-kind", "agent")
+            .header("x-temper-principal-id", "attacker")
+            .header("x-tenant-id", "other-tenant")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 44321))));
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["kind"], "admin");
-        assert_eq!(payload["id"], "temperpaw-transport");
+        assert_eq!(payload["id"], "api-key-holder");
+        assert_eq!(payload["tenant"], "default");
     }
 }

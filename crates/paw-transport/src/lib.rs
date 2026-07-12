@@ -463,34 +463,20 @@ impl PawApiClient {
     fn build_request(&self, method: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
         let mut req = self.http.request(method, url);
         req = req.header("x-tenant-id", &self.config.tenant);
-        if self.uses_internal_loopback(url) {
-            req = req.header("x-temper-principal-kind", "admin");
-            req = req.header("x-temper-principal-id", "temperpaw-transport");
-        } else if let Some(ref key) = self.config.api_key {
+        if let Some(ref key) = self.config.api_key {
             req = req.header("authorization", format!("Bearer {key}"));
-        } else {
-            req = req.header("x-temper-principal-kind", "admin");
-            req = req.header("x-temper-principal-id", "temperpaw-transport");
         }
         if let Some(traceparent) = current_traceparent_header() {
             req = req.header("traceparent", traceparent);
         }
         req
     }
-
-    fn uses_internal_loopback(&self, url: &str) -> bool {
-        reqwest::Url::parse(url)
-            .ok()
-            .and_then(|parsed| parsed.host_str().map(|host| host.to_ascii_lowercase()))
-            .map(|host| host == "127.0.0.1" || host == "::1" || host == "localhost")
-            .unwrap_or(false)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use axum::extract::State;
-    use axum::http::{HeaderMap, StatusCode, Uri};
+    use axum::http::{StatusCode, Uri};
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use opentelemetry::trace::{TraceContextExt, TracerProvider as _};
@@ -502,15 +488,6 @@ mod tests {
     use tracing_subscriber::prelude::*;
 
     use super::{ApprovalScope, PawApiClient, PawApiConfig, approval_body_for_scope};
-
-    #[derive(Clone, Default)]
-    struct HeaderProbe {
-        last_kind: Arc<std::sync::Mutex<Option<String>>>,
-        last_id: Arc<std::sync::Mutex<Option<String>>>,
-        last_tenant: Arc<std::sync::Mutex<Option<String>>>,
-        last_auth: Arc<std::sync::Mutex<Option<String>>>,
-        last_traceparent: Arc<std::sync::Mutex<Option<String>>>,
-    }
 
     #[derive(Clone, Default)]
     struct QueryProbe {
@@ -526,136 +503,65 @@ mod tests {
         format!("http://{}", addr)
     }
 
-    #[tokio::test]
-    async fn paw_api_client_without_api_key_includes_internal_admin_identity() {
-        let probe = HeaderProbe::default();
-        let app = Router::new()
-            .route(
-                "/tdata/Channels",
-                post(
-                    |State(probe): State<HeaderProbe>, headers: HeaderMap| async move {
-                        *probe.last_kind.lock().unwrap() = headers
-                            .get("x-temper-principal-kind")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-                        *probe.last_id.lock().unwrap() = headers
-                            .get("x-temper-principal-id")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-                        *probe.last_tenant.lock().unwrap() = headers
-                            .get("x-tenant-id")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-                        *probe.last_auth.lock().unwrap() = headers
-                            .get("authorization")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-
-                        (
-                            StatusCode::CREATED,
-                            Json(json!({"entity_id":"ch_123","ChannelType":"discord"})),
-                        )
-                    },
-                ),
-            )
-            .with_state(probe.clone());
-
-        let base_url = spawn_test_server(app).await;
+    #[test]
+    fn paw_api_client_without_api_key_does_not_assert_identity() {
         let client = PawApiClient::new(PawApiConfig {
-            base_url,
+            base_url: "http://127.0.0.1:3497".to_string(),
             tenant: "default".to_string(),
             api_key: None,
         });
 
-        let created = client
-            .create_entity("Channels", json!({"ChannelType":"discord"}))
-            .await
-            .unwrap();
+        let request = client
+            .build_request(
+                reqwest::Method::POST,
+                "http://127.0.0.1:3497/tdata/Channels",
+            )
+            .build()
+            .expect("build request");
 
         assert_eq!(
-            created.get("entity_id").and_then(|v| v.as_str()),
-            Some("ch_123")
+            request
+                .headers()
+                .get("x-tenant-id")
+                .and_then(|value| value.to_str().ok()),
+            Some("default")
         );
-        assert_eq!(
-            probe.last_kind.lock().unwrap().as_deref(),
-            Some("admin"),
-            "internal loopback calls should advertise admin principal kind",
-        );
-        assert_eq!(
-            probe.last_id.lock().unwrap().as_deref(),
-            Some("temperpaw-transport"),
-            "internal loopback calls must include a principal id so auth middleware treats them as pre-authenticated",
-        );
-        assert_eq!(
-            probe.last_tenant.lock().unwrap().as_deref(),
-            Some("default"),
-        );
-        assert_eq!(probe.last_auth.lock().unwrap().as_deref(), None);
+        assert!(!request.headers().contains_key("x-temper-principal-kind"));
+        assert!(!request.headers().contains_key("x-temper-principal-id"));
+        assert!(!request.headers().contains_key("authorization"));
     }
 
-    #[tokio::test]
-    async fn paw_api_client_with_api_key_still_uses_internal_admin_identity_for_loopback() {
-        let probe = HeaderProbe::default();
-        let app = Router::new()
-            .route(
-                "/tdata/Channels",
-                post(
-                    |State(probe): State<HeaderProbe>, headers: HeaderMap| async move {
-                        *probe.last_kind.lock().unwrap() = headers
-                            .get("x-temper-principal-kind")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-                        *probe.last_id.lock().unwrap() = headers
-                            .get("x-temper-principal-id")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-                        *probe.last_tenant.lock().unwrap() = headers
-                            .get("x-tenant-id")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-                        *probe.last_auth.lock().unwrap() = headers
-                            .get("authorization")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.to_string());
-
-                        (
-                            StatusCode::CREATED,
-                            Json(json!({"entity_id":"ch_456","ChannelType":"discord"})),
-                        )
-                    },
-                ),
-            )
-            .with_state(probe.clone());
-
-        let base_url = spawn_test_server(app).await;
+    #[test]
+    fn paw_api_client_with_api_key_uses_bearer_on_loopback() {
         let client = PawApiClient::new(PawApiConfig {
-            base_url,
+            base_url: "http://127.0.0.1:3497".to_string(),
             tenant: "default".to_string(),
             api_key: Some("test-token".to_string()),
         });
 
-        let created = client
-            .create_entity("Channels", json!({"ChannelType":"discord"}))
-            .await
-            .unwrap();
+        let request = client
+            .build_request(
+                reqwest::Method::POST,
+                "http://127.0.0.1:3497/tdata/Channels",
+            )
+            .build()
+            .expect("build request");
 
         assert_eq!(
-            created.get("entity_id").and_then(|v| v.as_str()),
-            Some("ch_456")
+            request
+                .headers()
+                .get("x-tenant-id")
+                .and_then(|value| value.to_str().ok()),
+            Some("default")
         );
-        assert_eq!(probe.last_kind.lock().unwrap().as_deref(), Some("admin"));
+        assert!(!request.headers().contains_key("x-temper-principal-kind"));
+        assert!(!request.headers().contains_key("x-temper-principal-id"));
         assert_eq!(
-            probe.last_id.lock().unwrap().as_deref(),
-            Some("temperpaw-transport")
-        );
-        assert_eq!(
-            probe.last_tenant.lock().unwrap().as_deref(),
-            Some("default"),
-        );
-        assert_eq!(
-            probe.last_auth.lock().unwrap().as_deref(),
-            None,
-            "loopback requests should bypass bearer auth and use internal admin headers",
+            request
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer test-token")
         );
     }
 
@@ -849,27 +755,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn paw_api_client_includes_traceparent_from_active_span() {
-        let probe = HeaderProbe::default();
-        let app = Router::new()
-            .route(
-                "/tdata/Channels('ch_trace')/Paw.Channel.ReceiveMessage",
-                post(
-                    |State(probe): State<HeaderProbe>, headers: HeaderMap| async move {
-                        *probe.last_traceparent.lock().unwrap() = headers
-                            .get("traceparent")
-                            .and_then(|value| value.to_str().ok())
-                            .map(|value| value.to_string());
-                        (StatusCode::OK, Json(json!({"status":"ok"})))
-                    },
-                ),
-            )
-            .with_state(probe.clone());
-
-        let base_url = spawn_test_server(app).await;
+    #[test]
+    fn paw_api_client_includes_traceparent_from_active_span() {
         let client = PawApiClient::new(PawApiConfig {
-            base_url,
+            base_url: "http://127.0.0.1:3497".to_string(),
             tenant: "default".to_string(),
             api_key: None,
         });
@@ -882,37 +771,33 @@ mod tests {
         let _subscriber_guard = tracing::subscriber::set_default(subscriber);
 
         let span = tracing::info_span!("discord.receive");
-        let expected_traceparent = {
+        let (expected_traceparent, request) = {
             let _span_guard = span.enter();
             let span_context = tracing::Span::current()
                 .context()
                 .span()
                 .span_context()
                 .clone();
-            let traceparent = format!(
+            let expected = format!(
                 "00-{}-{}-01",
                 span_context.trace_id(),
                 span_context.span_id()
             );
-            client
-                .dispatch_action(
-                    "Channels",
-                    "ch_trace",
-                    "Paw.Channel.ReceiveMessage",
-                    json!({
-                        "message_id": "msg_123",
-                        "author_id": "user_456",
-                        "thread_id": "thread_789",
-                        "content": "hello",
-                    }),
+            let request = client
+                .build_request(
+                    reqwest::Method::POST,
+                    "http://127.0.0.1:3497/tdata/Channels('ch_trace')/Paw.Channel.ReceiveMessage",
                 )
-                .await
-                .expect("dispatch should succeed");
-            traceparent
+                .build()
+                .expect("build request");
+            (expected, request)
         };
 
         assert_eq!(
-            probe.last_traceparent.lock().unwrap().as_deref(),
+            request
+                .headers()
+                .get("traceparent")
+                .and_then(|value| value.to_str().ok()),
             Some(expected_traceparent.as_str()),
             "expected PawApiClient to propagate the active tracing span via traceparent",
         );

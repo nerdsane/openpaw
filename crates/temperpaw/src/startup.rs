@@ -578,16 +578,7 @@ fn spawn_runtime_server(
     listener: tokio::net::TcpListener,
     router: axum::Router,
 ) -> JoinHandle<std::io::Result<()>> {
-    // Serve with connection info so the auth middleware can read the real TCP
-    // peer address and distinguish genuinely internal (loopback) callers from
-    // external ones. See ADR-0066.
-    tokio::spawn(async move {
-        axum::serve(
-            listener,
-            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-    })
+    tokio::spawn(async move { axum::serve(listener, router).await })
 }
 
 async fn startup_gate_middleware(
@@ -3643,17 +3634,14 @@ fn normalize_legacy_workdir(current_workdir: &str) -> Option<String> {
     None
 }
 
-/// OData GET helper with tenant + admin auth headers.
+/// OData GET helper with deployment tenant and bearer authentication.
 async fn odata_get(
     client: &reqwest::Client,
     url: &str,
     tenant: &str,
     api_key: &Option<String>,
 ) -> Result<serde_json::Value> {
-    let mut req = client
-        .get(url)
-        .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin");
+    let mut req = client.get(url).header("x-tenant-id", tenant);
     if let Some(key) = api_key {
         req = req.header("authorization", format!("Bearer {key}"));
     }
@@ -3666,7 +3654,7 @@ async fn odata_get(
     serde_json::from_str(&body).context("Failed to parse JSON response")
 }
 
-/// OData POST helper with tenant + admin auth headers.
+/// OData POST helper with deployment tenant and bearer authentication.
 async fn odata_post(
     client: &reqwest::Client,
     url: &str,
@@ -3677,7 +3665,6 @@ async fn odata_post(
     let mut req = client
         .post(url)
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .header("content-type", "application/json")
         .json(&body);
     if let Some(key) = api_key {
@@ -3703,7 +3690,6 @@ async fn odata_put_bytes(
     let mut req = client
         .put(url)
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .header("content-type", content_type)
         .body(body);
     if let Some(key) = api_key {
@@ -3725,10 +3711,7 @@ async fn odata_get_text(
     tenant: &str,
     api_key: &Option<String>,
 ) -> Result<String> {
-    let mut req = client
-        .get(url)
-        .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin");
+    let mut req = client.get(url).header("x-tenant-id", tenant);
     if let Some(key) = api_key {
         req = req.header("authorization", format!("Bearer {key}"));
     }

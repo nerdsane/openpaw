@@ -358,7 +358,6 @@ async fn resolve_paw_soul_entity(
     let agent_response: serde_json::Value = auth
         .apply(client.get(&agent_url))
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .send()
         .await?
         .json()
@@ -373,7 +372,6 @@ async fn resolve_paw_soul_entity(
         let soul_response: serde_json::Value = auth
             .apply(client.get(&soul_url))
             .header("x-tenant-id", tenant)
-            .header("x-temper-principal-kind", "admin")
             .send()
             .await?
             .json()
@@ -389,7 +387,6 @@ async fn resolve_paw_soul_entity(
         let soul_response: serde_json::Value = auth
             .apply(client.get(&soul_url))
             .header("x-tenant-id", tenant)
-            .header("x-temper-principal-kind", "admin")
             .send()
             .await?
             .json()
@@ -419,7 +416,6 @@ pub(crate) async fn load_paw_soul_content(
     let content = auth
         .apply(client.get(format!("{base}/tdata/Files('{file_id}')/$value")))
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .send()
         .await?
         .text()
@@ -489,7 +485,6 @@ pub(crate) async fn save_soul_to_temper(
     let resp = auth
         .apply(client.put(&upload_url))
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .header("content-type", "text/markdown")
         .body(full_content)
         .send()
