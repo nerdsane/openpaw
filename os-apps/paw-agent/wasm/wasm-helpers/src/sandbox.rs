@@ -28,6 +28,8 @@ pub struct SandboxHandle {
 pub struct SandboxConfig {
     pub cpus: u32,
     pub memory_mb: u32,
+    /// Registered provider image name to boot from ("" = provider default).
+    pub image: String,
     pub timeout_seconds: u32,
     pub internet_access: bool,
     pub networking_type: String,
@@ -42,6 +44,7 @@ impl Default for SandboxConfig {
         Self {
             cpus: 2,
             memory_mb: 4096,
+            image: String::new(),
             timeout_seconds: 3600,
             internet_access: true,
             networking_type: String::new(),
@@ -226,6 +229,19 @@ pub fn apply_sandbox_resource_overrides(
     {
         config.memory_mb = memory_mb;
     }
+    if let Some(image) = entity_field_str(fields, &["sandbox_image", "SandboxImage"])
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
+        .or_else(|| {
+            ctx_config
+                .get("sandbox_image")
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
+        })
+    {
+        config.image = image.to_string();
+    }
 }
 
 fn sandbox_policy_payload(config: &SandboxConfig) -> Value {
@@ -257,6 +273,9 @@ fn tensorlake_create_body(config: &SandboxConfig) -> Value {
         "timeout_seconds": config.timeout_seconds,
         "internet_access": config.internet_access
     });
+    if !config.image.trim().is_empty() {
+        body["image"] = json!(config.image.trim());
+    }
 
     body["network"] = json!({
         "allow_internet_access": config.internet_access,
@@ -1325,6 +1344,21 @@ mod tests {
         assert_eq!(config.cpus, 4);
         assert_eq!(config.memory_mb, 16384);
 
+        // Image override: fields win, then ctx config; unresolved secrets ignored.
+        let mut config = SandboxConfig::default();
+        let mut img_cfg = BTreeMap::new();
+        img_cfg.insert("sandbox_image".to_string(), "katagami-render".to_string());
+        apply_sandbox_resource_overrides(&mut config, &img_cfg, &json!({}));
+        assert_eq!(config.image, "katagami-render");
+        let mut config = SandboxConfig::default();
+        apply_sandbox_resource_overrides(&mut config, &img_cfg, &json!({"sandbox_image": "per-session-img"}));
+        assert_eq!(config.image, "per-session-img");
+        let mut config = SandboxConfig::default();
+        let mut unresolved_img = BTreeMap::new();
+        unresolved_img.insert("sandbox_image".to_string(), "{secret:sandbox_image}".to_string());
+        apply_sandbox_resource_overrides(&mut config, &unresolved_img, &json!({}));
+        assert_eq!(config.image, "");
+
         // Unresolved secret templates and garbage read as "no override".
         let mut config = SandboxConfig::default();
         let mut unresolved = BTreeMap::new();
@@ -1340,6 +1374,7 @@ mod tests {
         let config = SandboxConfig {
             cpus: 4,
             memory_mb: 8192,
+            image: String::new(),
             timeout_seconds: 7200,
             internet_access: true,
             networking_type: "Limited".to_string(),
