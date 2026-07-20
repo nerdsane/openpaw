@@ -2974,7 +2974,8 @@ fn lazy_provision_sandbox(
     super::session::send_heartbeat(ctx, temper_api_url, tenant);
 
     // Create sandbox
-    let config = sandbox_config_from_fields(&fields);
+    let mut config = sandbox_config_from_fields(&fields);
+    sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, &fields);
     let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
 
     // Poll for readiness (max 12 retries = ~60s)

@@ -152,7 +152,8 @@ fn provision_sandbox(ctx: &Context, fields: &Value) -> Result<ProvisionStatus, S
         "info",
         &format!("sandbox_provisioner: provisioning via {provider} provider"),
     );
-    let config = sandbox::sandbox_config_from_fields(fields);
+    let mut config = sandbox::sandbox_config_from_fields(fields);
+    sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, fields);
     let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
     check_sandbox_ready(ctx, fields, handle)
 }

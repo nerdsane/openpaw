@@ -6,6 +6,7 @@
 //! WASM-compatible throughout.
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 use temper_wasm_sdk::context::Context;
 
@@ -186,6 +187,44 @@ pub fn sandbox_config_from_fields(fields: &Value) -> SandboxConfig {
         allow_package_managers,
         packages,
         ..SandboxConfig::default()
+    }
+}
+
+/// Parse a positive integer resource override. Empty strings and unresolved
+/// `{secret:...}` templates (an unset vault secret) read as "no override".
+fn parse_resource_override(raw: Option<&str>) -> Option<u32> {
+    let value = raw?.trim();
+    if value.is_empty() || is_unresolved_secret(value) {
+        return None;
+    }
+    value.parse::<u32>().ok().filter(|v| *v >= 1)
+}
+
+/// Apply configurable sandbox resources. Providers cap per-sandbox resources
+/// differently (e.g. Tensorlake plans limit vCPUs), so the compiled defaults
+/// must be overridable without a rebuild: per-session entity fields
+/// (`sandbox_cpus` / `sandbox_memory_mb`) win, then tenant config (vault
+/// secrets of the same names, delivered via the trigger config), then the
+/// `SandboxConfig` defaults.
+pub fn apply_sandbox_resource_overrides(
+    config: &mut SandboxConfig,
+    ctx_config: &BTreeMap<String, String>,
+    fields: &Value,
+) {
+    if let Some(cpus) =
+        parse_resource_override(entity_field_str(fields, &["sandbox_cpus", "SandboxCpus"])).or_else(
+            || parse_resource_override(ctx_config.get("sandbox_cpus").map(String::as_str)),
+        )
+    {
+        config.cpus = cpus;
+    }
+    if let Some(memory_mb) = parse_resource_override(entity_field_str(
+        fields,
+        &["sandbox_memory_mb", "SandboxMemoryMb"],
+    ))
+    .or_else(|| parse_resource_override(ctx_config.get("sandbox_memory_mb").map(String::as_str)))
+    {
+        config.memory_mb = memory_mb;
     }
 }
 
@@ -1260,6 +1299,40 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_sandbox_resource_overrides_fields_then_config_then_default() {
+        // Default when nothing configured.
+        let mut config = SandboxConfig::default();
+        apply_sandbox_resource_overrides(&mut config, &BTreeMap::new(), &json!({}));
+        assert_eq!(config.cpus, 2);
+        assert_eq!(config.memory_mb, 4096);
+
+        // Tenant config (vault via trigger config) overrides the default.
+        let mut config = SandboxConfig::default();
+        let mut ctx_config = BTreeMap::new();
+        ctx_config.insert("sandbox_cpus".to_string(), "1".to_string());
+        ctx_config.insert("sandbox_memory_mb".to_string(), "2048".to_string());
+        apply_sandbox_resource_overrides(&mut config, &ctx_config, &json!({}));
+        assert_eq!(config.cpus, 1);
+        assert_eq!(config.memory_mb, 2048);
+
+        // Per-session entity fields win over tenant config.
+        let mut config = SandboxConfig::default();
+        let fields = json!({"sandbox_cpus": "4", "SandboxMemoryMb": "16384"});
+        apply_sandbox_resource_overrides(&mut config, &ctx_config, &fields);
+        assert_eq!(config.cpus, 4);
+        assert_eq!(config.memory_mb, 16384);
+
+        // Unresolved secret templates and garbage read as "no override".
+        let mut config = SandboxConfig::default();
+        let mut unresolved = BTreeMap::new();
+        unresolved.insert("sandbox_cpus".to_string(), "{secret:sandbox_cpus}".to_string());
+        unresolved.insert("sandbox_memory_mb".to_string(), "zero".to_string());
+        apply_sandbox_resource_overrides(&mut config, &unresolved, &json!({"sandbox_cpus": "0"}));
+        assert_eq!(config.cpus, 2);
+        assert_eq!(config.memory_mb, 4096);
     }
 
     #[test]
