@@ -16,6 +16,12 @@ use crate::entity_field_str;
 // Types
 // ---------------------------------------------------------------------------
 
+/// Wall-clock budget for a single sandbox.bash execution. Long enough for
+/// headless-browser renders and multi-page screenshot batches; commands that
+/// outlive it are reported as exceeding the budget (and keep running in the
+/// sandbox) rather than silently killed.
+const EXEC_BUDGET_MS: i64 = 240_000;
+
 /// Handle to a provisioned sandbox. Carries provider so subsequent operations
 /// route to the correct backend.
 pub struct SandboxHandle {
@@ -885,7 +891,11 @@ fn tensorlake_exec(
     let err_file = format!("/tmp/.paw-err-{run_id}");
     let rc_file = format!("/tmp/.paw-rc-{run_id}");
 
-    let wrapped = format!("({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}");
+    // stdin is redirected from /dev/null: the data plane gives the process no
+    // usable stdin, and anything that reads it (heredocs, `python3 -`) hangs
+    // forever without this.
+    let wrapped =
+        format!("({command}) < /dev/null > {out_file} 2> {err_file}; echo $? > {rc_file}");
 
     // Start process via Tensorlake data plane
     let body = json!({
@@ -902,12 +912,19 @@ fn tensorlake_exec(
         return Err(format!("sandbox.bash(): start failed: {}", resp.body));
     }
 
-    // Poll for exit code file (network latency provides natural backoff)
+    // Wait for the exit-code file under a wall-clock budget. Completion is
+    // signaled by rc_file appearing. Between checks, block on a short
+    // in-sandbox waiter (POST /processes/run streams until the waiter exits,
+    // and the waiter exits the moment rc_file exists — at most ~20s per call,
+    // under the host HTTP timeout) so waiting is paced by the sandbox rather
+    // than by hammering the files endpoint. If /processes/run is unavailable
+    // the loop degrades to plain polling, still bounded by the same budget.
     let headers = bearer_headers(api_key);
     let rc_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file));
+    let started_ms = Context::get_time_millis();
     let mut exit_code: i64 = -1;
     let mut found = false;
-    for _ in 0..600 {
+    loop {
         if let Ok(r) = ctx.http_call("GET", &rc_url, &headers, "") {
             if r.status >= 200 && r.status < 300 {
                 exit_code = r.body.trim().parse::<i64>().unwrap_or(-1);
@@ -915,10 +932,26 @@ fn tensorlake_exec(
                 break;
             }
         }
+        if Context::get_time_millis() - started_ms > EXEC_BUDGET_MS {
+            break;
+        }
+        let waiter = json!({
+            "command": "/bin/bash",
+            "args": ["-c", format!("for _ in $(seq 1 40); do [ -f {rc_file} ] && exit 0; sleep 0.5; done")],
+        });
+        let _ = ctx.http_call(
+            "POST",
+            &format!("{sandbox_url}/api/v1/processes/run"),
+            &bearer_headers_json(api_key),
+            &waiter.to_string(),
+        );
     }
 
     if !found {
-        return Err("sandbox.bash(): process timed out".to_string());
+        let waited_secs = (Context::get_time_millis() - started_ms) / 1000;
+        return Err(format!(
+            "sandbox.bash(): command exceeded the {waited_secs}s execution budget and was left running in the sandbox. Break the work into smaller commands, or write progress to a file and check it with a follow-up sandbox.bash call."
+        ));
     }
 
     // Read stdout and stderr

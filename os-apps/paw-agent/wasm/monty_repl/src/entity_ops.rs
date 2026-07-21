@@ -574,6 +574,12 @@ fn file_status_is_ready(file: &Value) -> bool {
 
 /// Read a freshly-written Files entity back and confirm it reached Ready, so
 /// `temper.write` never returns a file_id whose blob is missing.
+///
+/// StreamUpdated is dispatched server-side after the $value PUT and can lag
+/// the PUT response by a moment under load, so a still-`Created` status is
+/// re-checked within a short wall-clock window before being reported as a
+/// failed write (ARN-275 follow-up: single-read verification flaked whole
+/// runs).
 fn verify_file_ready(
     ctx: &Context,
     api_url: &str,
@@ -581,24 +587,35 @@ fn verify_file_ready(
     principal_id: &str,
     file_id: &str,
 ) -> Result<(), String> {
-    let file = http_get(
-        ctx,
-        api_url,
-        tenant,
-        principal_id,
-        &format!("/tdata/Files('{file_id}')"),
-    )?;
-    if !file_status_is_ready(&file) {
-        let status = file
+    const READY_WINDOW_MS: i64 = 10_000;
+    const MAX_CHECKS: u32 = 100;
+
+    let started_ms = Context::get_time_millis();
+    let mut last_status = String::from("unknown");
+    for _ in 0..MAX_CHECKS {
+        let file = http_get(
+            ctx,
+            api_url,
+            tenant,
+            principal_id,
+            &format!("/tdata/Files('{file_id}')"),
+        )?;
+        if file_status_is_ready(&file) {
+            return Ok(());
+        }
+        last_status = file
             .get("Status")
             .or_else(|| file.get("status"))
             .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        return Err(format!(
-            "temper.write(): file '{file_id}' did not reach Ready after upload (Status='{status}'); the bytes did not persist. Retry the write."
-        ));
+            .unwrap_or("unknown")
+            .to_string();
+        if Context::get_time_millis() - started_ms > READY_WINDOW_MS {
+            break;
+        }
     }
-    Ok(())
+    Err(format!(
+        "temper.write(): file '{file_id}' did not reach Ready after upload (Status='{last_status}'); the bytes did not persist. Retry the write."
+    ))
 }
 
 pub fn write_many(
@@ -2721,9 +2738,14 @@ fn find_pawfs_directory(
             });
     }
 
+    // Path is not a declared key on Directories, so this fallback filter can
+    // exceed the bounded read budget on large tenants. The keyed walk above
+    // already answered for the [Name, ParentId, WorkspaceId] identity, so a
+    // budget failure here degrades to not-found instead of failing the caller
+    // (ARN-275).
     let filter = pawfs_filter_path_and_workspace(&path, ws_id);
     let eid = ctx_entity_id(ctx);
-    let resp = http_get(
+    match http_get(
         ctx,
         api_url,
         tenant,
@@ -2733,8 +2755,16 @@ fn find_pawfs_directory(
             &filter,
             bounded_reads::POINT_LOOKUP_TOP,
         ),
-    )?;
-    Ok(pawfs_first_non_archived_entity(&resp).and_then(pawfs_directory_from_value))
+    ) {
+        Ok(resp) => Ok(pawfs_first_non_archived_entity(&resp).and_then(pawfs_directory_from_value)),
+        Err(error) => {
+            ctx.log(
+                "warn",
+                &format!("temper.pawfs(): path fallback failed for directory '{path}': {error}"),
+            );
+            Ok(None)
+        }
+    }
 }
 
 fn fetch_pawfs_directory_by_id(
@@ -2845,10 +2875,10 @@ fn find_pawfs_file(
     ws_id: &str,
     raw_path: &str,
 ) -> Result<Option<PawFsFile>, String> {
-    if let Some(file) = find_pawfs_file_by_walk(ctx, api_url, tenant, ws_id, raw_path)? {
-        return Ok(Some(file));
-    }
-
+    // Keyed lookup first: [WorkspaceId, Path] is a declared key on Files, so
+    // this filter is answered in O(1) regardless of how many Files exist. The
+    // directory walk's Name+DirectoryId filter is unkeyed and exceeds the
+    // bounded read budget (HTTP 413) on large tenants (ARN-275).
     let path = pawfs_normalize_path(raw_path)?;
     let filter = pawfs_filter_path_and_workspace(&path, ws_id);
     let eid = ctx_entity_id(ctx);
@@ -2863,7 +2893,26 @@ fn find_pawfs_file(
             bounded_reads::POINT_LOOKUP_TOP,
         ),
     )?;
-    Ok(pawfs_first_non_archived_entity(&resp).and_then(pawfs_file_from_value))
+    if let Some(file) = pawfs_first_non_archived_entity(&resp).and_then(pawfs_file_from_value) {
+        return Ok(Some(file));
+    }
+
+    // Walk fallback covers files stored without a Path field. The keyed
+    // lookup above already answered authoritatively for this path, so a walk
+    // failure (e.g. budget exceeded on its unkeyed Files filter) must not
+    // fail the caller — treat it as not-found.
+    match find_pawfs_file_by_walk(ctx, api_url, tenant, ws_id, raw_path) {
+        Ok(found) => Ok(found),
+        Err(error) => {
+            ctx.log(
+                "warn",
+                &format!(
+                    "temper.pawfs(): walk fallback failed for '{path}' (keyed lookup already reported absent): {error}"
+                ),
+            );
+            Ok(None)
+        }
+    }
 }
 
 fn fetch_pawfs_file_by_id(
