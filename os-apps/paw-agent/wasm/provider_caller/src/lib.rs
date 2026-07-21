@@ -2441,6 +2441,23 @@ fn call_openai_compatible_chat(
     })
 }
 
+/// Per-session tool_choice policy (ARN-269). Sessions whose work must only end
+/// via a typed completion action (curation jobs) set the session field
+/// tool_choice = "required" so the provider cannot return a tool-less turn and
+/// silently complete the session. Default "auto" — chat sessions keep text replies.
+fn tool_choice_required(ctx: &Context) -> bool {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    wasm_helpers::entity_field_str(&fields, &["tool_choice", "ToolChoice"])
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .map(|v| v == "required")
+        .unwrap_or(false)
+}
+
 fn call_openrouter(
     ctx: &Context,
     temper_api_url: &str,
@@ -2475,7 +2492,7 @@ fn call_openrouter(
     });
     if !openai_tools.is_empty() {
         body["tools"] = json!(openai_tools);
-        body["tool_choice"] = json!("auto");
+        body["tool_choice"] = json!(if tool_choice_required(ctx) { "required" } else { "auto" });
     }
 
     let body_str =
@@ -3056,10 +3073,11 @@ fn call_openai(
     }
     if !codex_tools.is_empty() {
         body["tools"] = json!(codex_tools);
-        // "auto" lets the model choose text or tool calls. "required" forces
-        // a tool call every turn, which creates an infinite loop when the model
-        // wants to respond with text (e.g., "hello").
-        body["tool_choice"] = json!("auto");
+        // "auto" lets the model choose text or tool calls; chat sessions need that.
+        // Typed-completion sessions (curation) opt into "required" via the session
+        // field so a tool-less turn cannot silently complete the session (ARN-269);
+        // max_turns bounds the loop.
+        body["tool_choice"] = json!(if tool_choice_required(ctx) { "required" } else { "auto" });
     }
 
     let body_str =

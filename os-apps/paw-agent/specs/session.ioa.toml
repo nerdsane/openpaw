@@ -213,6 +213,11 @@ type = "string"
 initial = "/workspace"
 
 [[state]]
+name = "tool_choice"
+type = "string"
+initial = ""
+
+[[state]]
 name = "tools_enabled"
 type = "string"
 initial = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,temper_image_generate,read,write,edit,bash"
@@ -579,7 +584,7 @@ initial = "0"
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "provider_options_json", "temperature", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "sandbox_networking_type", "sandbox_allowed_hosts_json", "sandbox_allow_mcp_servers", "sandbox_allow_package_managers", "sandbox_packages_json", "temper_api_url", "soul_id", "agent_id", "reply_channel_id", "reply_thread_id", "reply_channel_entity_id", "reply_channel_type", "reply_route_source", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_entries_materialized", "prepared_context_file_id", "prepared_context_inline_json", "system_prompt_hash", "system_prompt_file_id", "session_mode", "gen_ai_parent_trace_id", "gen_ai_parent_span_id"]
+params = ["system_prompt", "user_message", "model", "provider", "provider_options_json", "temperature", "max_turns", "tool_choice", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "sandbox_networking_type", "sandbox_allowed_hosts_json", "sandbox_allow_mcp_servers", "sandbox_allow_package_managers", "sandbox_packages_json", "temper_api_url", "soul_id", "agent_id", "reply_channel_id", "reply_thread_id", "reply_channel_entity_id", "reply_channel_type", "reply_route_source", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_entries_materialized", "prepared_context_file_id", "prepared_context_inline_json", "system_prompt_hash", "system_prompt_file_id", "session_mode", "gen_ai_parent_trace_id", "gen_ai_parent_span_id"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state. Optional reply route fields preserve channel delivery context for terminal replies; optional GenAI parent trace fields preserve inbound distributed trace context."
 effect = [{ type = "schedule", action = "ProvisionWorkspace", delay_seconds = 0 }]
 
