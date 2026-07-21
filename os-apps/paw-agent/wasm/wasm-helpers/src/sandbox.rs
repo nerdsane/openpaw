@@ -879,6 +879,33 @@ fn tensorlake_file_delete(
     Ok(())
 }
 
+/// Dispatch `ProgressMade` on the owning session so the Executing
+/// state_timeout is reset while a sandbox command is legitimately still
+/// running. Mirrors provider_caller's unguarded stream-progress dispatch.
+/// Best-effort: callers that are not Session entities get a harmless 404.
+fn signal_exec_progress(ctx: &Context) {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let api_url = crate::resolve_temper_api_url(ctx, &fields);
+    let url = format!(
+        "{api_url}/tdata/Sessions('{}')/TemperPaw.ProgressMade",
+        ctx.entity_id
+    );
+    let body = json!({ "last_progress_at": Context::get_time_millis().to_string() });
+    let headers = crate::runtime_headers_as(
+        ctx,
+        &ctx.tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
+    let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+}
+
 fn tensorlake_exec(
     ctx: &Context,
     api_key: &str,
@@ -945,6 +972,12 @@ fn tensorlake_exec(
             &bearer_headers_json(api_key),
             &waiter.to_string(),
         );
+        // The command is legitimately still running — reset the session's
+        // Executing state_timeout so the 300s no-progress watchdog does not
+        // kill a session that is waiting on real sandbox work. (The per-batch
+        // ProgressMade in monty_repl is gated behind a flag nothing sets, so
+        // without this signal any tool batch containing a long command dies.)
+        signal_exec_progress(ctx);
     }
 
     if !found {
