@@ -2152,11 +2152,60 @@ fn call_openai_compatible_chat(
     temperature: f64,
     provider_options_json: &str,
 ) -> Result<LlmResponse, String> {
+    call_openai_compatible_chat_with_depth(
+        ctx,
+        temper_api_url,
+        tenant,
+        provider,
+        api_key,
+        api_url,
+        model,
+        system_prompt,
+        messages,
+        tools,
+        site_url,
+        app_name,
+        extra_headers,
+        temperature,
+        provider_options_json,
+        0,
+    )
+}
+
+/// Maximum tool-less turns tolerated (and nudged) per provider call when the
+/// session demands tool_choice=required. Some OpenRouter upstreams silently
+/// ignore the flag, so enforcement cannot rely on the provider alone.
+const TOOL_CHOICE_NUDGE_MAX: u32 = 2;
+
+#[allow(clippy::too_many_arguments)]
+fn call_openai_compatible_chat_with_depth(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    provider: &str,
+    api_key: &str,
+    api_url: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[Value],
+    tools: &[Value],
+    site_url: &str,
+    app_name: &str,
+    extra_headers: &[(String, String)],
+    temperature: f64,
+    provider_options_json: &str,
+    nudge_depth: u32,
+) -> Result<LlmResponse, String> {
     let body = build_chat_completion_body(
         model,
         system_prompt,
         messages,
         tools,
+        if tool_choice_required(ctx) {
+            "required"
+        } else {
+            "auto"
+        },
         LLM_MAX_TOKENS as i64,
         temperature,
         true,
@@ -2429,6 +2478,45 @@ fn call_openai_compatible_chat(
         &content,
     );
 
+    // Enforce tool_choice=required client-side: some upstreams ignore the
+    // flag and return a plain-text end_turn, which would silently complete a
+    // typed-completion session. Re-call with the reply plus a correction
+    // appended, bounded by TOOL_CHOICE_NUDGE_MAX.
+    if tool_choice_required(ctx) && parsed.stop_reason != "tool_use" && nudge_depth < TOOL_CHOICE_NUDGE_MAX
+    {
+        ctx.log(
+            "warn",
+            &format!(
+                "session_turn: {provider} returned a tool-less turn despite tool_choice=required; nudging (round {}/{TOOL_CHOICE_NUDGE_MAX})",
+                nudge_depth + 1
+            ),
+        );
+        let mut nudged = messages.to_vec();
+        nudged.push(json!({ "role": "assistant", "content": content }));
+        nudged.push(json!({
+            "role": "user",
+            "content": "This session accepts only tool calls. Your previous reply contained no tool call, so it cannot advance the session. Continue the task now by invoking exactly one of the provided tools; when the work is finished, finish through the completion action tool, never with plain text."
+        }));
+        return call_openai_compatible_chat_with_depth(
+            ctx,
+            temper_api_url,
+            tenant,
+            provider,
+            api_key,
+            api_url,
+            model,
+            system_prompt,
+            &nudged,
+            tools,
+            site_url,
+            app_name,
+            extra_headers,
+            temperature,
+            provider_options_json,
+            nudge_depth + 1,
+        );
+    }
+
     Ok(LlmResponse {
         content,
         stop_reason: parsed.stop_reason,
@@ -2458,300 +2546,6 @@ fn tool_choice_required(ctx: &Context) -> bool {
         .unwrap_or(false)
 }
 
-fn call_openrouter(
-    ctx: &Context,
-    temper_api_url: &str,
-    tenant: &str,
-    api_key: &str,
-    api_url: &str,
-    model: &str,
-    system_prompt: &str,
-    messages: &[Value],
-    tools: &[Value],
-    site_url: &str,
-    app_name: &str,
-    temperature: f64,
-) -> Result<LlmResponse, String> {
-    let mut or_messages = Vec::<Value>::new();
-    if !system_prompt.is_empty() {
-        or_messages.push(json!({
-            "role": "system",
-            "content": system_prompt,
-        }));
-    }
-    or_messages.extend(convert_messages_to_openrouter(messages));
-
-    let openai_tools = convert_tools_to_openrouter(tools);
-    let mut body = json!({
-        "model": model,
-        "messages": or_messages,
-        "max_tokens": LLM_MAX_TOKENS,
-        "temperature": temperature,
-        "stream": true,
-        "stream_options": {"include_usage": true},
-    });
-    if !openai_tools.is_empty() {
-        body["tools"] = json!(openai_tools);
-        body["tool_choice"] = json!(if tool_choice_required(ctx) { "required" } else { "auto" });
-    }
-
-    let body_str =
-        serde_json::to_string(&body).map_err(|e| format!("JSON serialize error: {e}"))?;
-
-    let mut headers = vec![
-        ("authorization".to_string(), format!("Bearer {api_key}")),
-        ("content-type".to_string(), "application/json".to_string()),
-        ("accept".to_string(), "text/event-stream".to_string()),
-    ];
-    if !site_url.trim().is_empty() {
-        headers.push(("HTTP-Referer".to_string(), site_url.trim().to_string()));
-    }
-    if !app_name.trim().is_empty() {
-        headers.push(("X-Title".to_string(), app_name.trim().to_string()));
-    }
-    let mut llm_span = start_llm_guest_span(
-        ctx,
-        "openrouter",
-        model,
-        temperature,
-        LLM_MAX_TOKENS,
-        system_prompt,
-        &or_messages,
-        &ctx.entity_id,
-    );
-
-    ctx.log(
-        "info",
-        &format!(
-            "session_turn: calling OpenRouter API, model={model}, messages={}, url={api_url}",
-            messages.len(),
-        ),
-    );
-
-    // Per-attempt timing + hang hint per ADR-0037 Fix B. Streaming retries are
-    // allowed only before any semantic delta has been emitted to observers.
-    let overall_start_ms = Context::get_time_millis();
-    let mut last_err = String::new();
-    let mut parsed_stream = None;
-    let mut attempts_used: u32 = 0;
-    let mut live_progress = LlmLiveProgress::new(ctx, temper_api_url, tenant, "openrouter", model);
-    for attempt in 0..LLM_MAX_ATTEMPTS {
-        let attempt_num = attempt + 1;
-        attempts_used = attempt_num;
-        if attempt > 0 {
-            ctx.log(
-                "warn",
-                &format!(
-                    "session_turn: openrouter retrying (attempt {attempt_num}/5), last error: {last_err}"
-                ),
-            );
-        }
-        ctx.log(
-            "info",
-            &format_llm_attempt_start_log(
-                "openrouter",
-                model,
-                attempt_num,
-                LLM_MAX_ATTEMPTS,
-                Context::get_time_millis() - overall_start_ms,
-            ),
-        );
-        let attempt_start_ms = Context::get_time_millis();
-        let mut accumulator = OpenRouterStreamAccumulator::default();
-        let stream_result = post_sse_streaming(ctx, api_url, &headers, &body_str, |data| {
-            let deltas = accumulator.ingest_data(data)?;
-            live_progress.emit_deltas(&deltas);
-            Ok(())
-        });
-        match stream_result {
-            Ok(r) if r.status == 200 => {
-                let elapsed = Context::get_time_millis() - attempt_start_ms;
-                ctx.log(
-                    "info",
-                    &format_llm_attempt_end_log(
-                        "openrouter",
-                        attempt_num,
-                        elapsed,
-                        r.status,
-                        r.response_bytes,
-                    ),
-                );
-                if should_emit_hang_hint(elapsed) {
-                    ctx.log(
-                        "warn",
-                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
-                    );
-                }
-                match accumulator.finalize(r.response_bytes) {
-                    Ok(parsed) => {
-                        parsed_stream = Some(parsed);
-                        break;
-                    }
-                    Err(err) => {
-                        last_err = err.to_string();
-                        let visible =
-                            err.semantic_output_seen || live_progress.saw_semantic_output();
-                        if should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
-                            ctx.log(
-                                "warn",
-                                &format!("session_turn: OpenRouter stream parse failed before visible output, will retry: {last_err}"),
-                            );
-                            continue;
-                        }
-                        let error = format!(
-                            "OpenRouter stream failed after visible output or final attempt: {last_err}"
-                        );
-                        finish_llm_guest_span_error(&mut llm_span, "stream_parse_error", &error);
-                        return Err(error);
-                    }
-                }
-            }
-            Ok(r) if matches!(r.status, 429 | 500 | 502 | 503 | 504) => {
-                let elapsed = Context::get_time_millis() - attempt_start_ms;
-                ctx.log(
-                    "info",
-                    &format_llm_attempt_end_log(
-                        "openrouter",
-                        attempt_num,
-                        elapsed,
-                        r.status,
-                        r.response_bytes,
-                    ),
-                );
-                if should_emit_hang_hint(elapsed) {
-                    ctx.log(
-                        "warn",
-                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
-                    );
-                }
-                last_err = format!("HTTP {}: {}", r.status, &r.body[..r.body.len().min(200)]);
-                if live_progress.saw_semantic_output() {
-                    let error = format!(
-                        "OpenRouter stream returned transient HTTP {} after visible output: {}",
-                        r.status,
-                        &r.body[..r.body.len().min(500)]
-                    );
-                    finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
-                    return Err(error);
-                }
-                continue;
-            }
-            Ok(r) => {
-                let elapsed = Context::get_time_millis() - attempt_start_ms;
-                ctx.log(
-                    "info",
-                    &format_llm_attempt_end_log(
-                        "openrouter",
-                        attempt_num,
-                        elapsed,
-                        r.status,
-                        r.response_bytes,
-                    ),
-                );
-                let total_elapsed = Context::get_time_millis() - overall_start_ms;
-                ctx.log(
-                    "info",
-                    &format_llm_complete_log(
-                        "openrouter",
-                        model,
-                        attempts_used,
-                        total_elapsed,
-                        "non_retriable_http_error",
-                    ),
-                );
-                let error = format!(
-                    "OpenRouter API returned {}: {}",
-                    r.status,
-                    &r.body[..r.body.len().min(500)]
-                );
-                finish_llm_guest_span_error(&mut llm_span, "http_error", &error);
-                return Err(error);
-            }
-            Err(e) => {
-                let elapsed = Context::get_time_millis() - attempt_start_ms;
-                ctx.log(
-                    "warn",
-                    &format!(
-                        "session_turn: openrouter attempt {attempt_num} stream error elapsed_ms={elapsed} err={e}"
-                    ),
-                );
-                if should_emit_hang_hint(elapsed) {
-                    ctx.log(
-                        "warn",
-                        &format_llm_hang_hint("openrouter", attempt_num, elapsed),
-                    );
-                }
-                last_err = e.to_string();
-                let visible = e.semantic_output_seen || live_progress.saw_semantic_output();
-                if !should_retry_stream_failure(attempt_num, LLM_MAX_ATTEMPTS, visible) {
-                    let error = format!(
-                        "OpenRouter stream failed after visible output or final attempt: {last_err}"
-                    );
-                    finish_llm_guest_span_error(&mut llm_span, "stream_error", &error);
-                    return Err(error);
-                }
-                continue;
-            }
-        }
-    }
-    let parsed = match parsed_stream {
-        Some(parsed) => parsed,
-        None => {
-            let total_elapsed = Context::get_time_millis() - overall_start_ms;
-            ctx.log(
-                "warn",
-                &format_llm_complete_log(
-                    "openrouter",
-                    model,
-                    attempts_used,
-                    total_elapsed,
-                    "exhausted_retries",
-                ),
-            );
-            let error = format!("OpenRouter API failed after 5 attempts: {last_err}");
-            finish_llm_guest_span_error(&mut llm_span, "exhausted_retries", &error);
-            return Err(error);
-        }
-    };
-    ctx.log(
-        "info",
-        &format_llm_complete_log(
-            "openrouter",
-            model,
-            attempts_used,
-            Context::get_time_millis() - overall_start_ms,
-            "success",
-        ),
-    );
-
-    ctx.log(
-        "info",
-        &format_gen_ai_usage_log(
-            "openrouter",
-            model,
-            parsed.input_tokens,
-            parsed.output_tokens,
-            0,
-            0,
-        ),
-    );
-
-    finish_llm_guest_span_success(
-        ctx,
-        &mut llm_span,
-        "openrouter",
-        model,
-        &parsed.stop_reason,
-        parsed.input_tokens,
-        parsed.output_tokens,
-        0,
-        0,
-        parsed.response_bytes,
-        &parsed.content,
-    );
-
-    Ok(parsed.into_llm_response(body_str.len()))
-}
 
 /// Extract text and image content from a tool_result content field.
 /// Returns (text_output, Vec<(media_type, base64_data)>).
@@ -3592,157 +3386,7 @@ fn extract_memory_keys(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn convert_messages_to_openrouter(messages: &[Value]) -> Vec<Value> {
-    let mut out = Vec::<Value>::new();
-    for msg in messages {
-        let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
-        let content = msg.get("content").cloned().unwrap_or(json!(""));
 
-        match content {
-            Value::String(text) => {
-                out.push(json!({
-                    "role": role,
-                    "content": text,
-                }));
-            }
-            Value::Array(blocks) => {
-                if role == "assistant" {
-                    let mut text_chunks = Vec::<String>::new();
-                    let mut tool_calls = Vec::<Value>::new();
-                    for (idx, block) in blocks.iter().enumerate() {
-                        match block.get("type").and_then(Value::as_str).unwrap_or("") {
-                            "text" => {
-                                if let Some(t) = block.get("text").and_then(Value::as_str) {
-                                    text_chunks.push(t.to_string());
-                                }
-                            }
-                            "tool_use" => {
-                                let id = block
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .map(|s| s.to_string())
-                                    .unwrap_or_else(|| format!("tool_{}", idx + 1));
-                                let name = block
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("unknown_tool");
-                                let input = block.get("input").cloned().unwrap_or(json!({}));
-                                tool_calls.push(json!({
-                                    "id": id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": name,
-                                        "arguments": input.to_string(),
-                                    }
-                                }));
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    let mut assistant = json!({
-                        "role": "assistant",
-                        "content": text_chunks.join("\n"),
-                    });
-                    if !tool_calls.is_empty() {
-                        assistant["tool_calls"] = json!(tool_calls);
-                    }
-                    out.push(assistant);
-                } else if role == "user" {
-                    let mut user_text = Vec::<String>::new();
-                    for block in &blocks {
-                        match block.get("type").and_then(Value::as_str).unwrap_or("") {
-                            "tool_result" => {
-                                let tool_call_id = block
-                                    .get("tool_use_id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("unknown_tool_call");
-                                let (text_output, images) =
-                                    extract_text_and_images_from_tool_content(block.get("content"));
-                                let content = if text_output.is_empty() {
-                                    stringify_content(
-                                        block
-                                            .get("content")
-                                            .unwrap_or(&Value::String(String::new())),
-                                    )
-                                } else {
-                                    text_output
-                                };
-                                out.push(json!({
-                                    "role": "tool",
-                                    "tool_call_id": tool_call_id,
-                                    "content": content,
-                                }));
-                                // Inject user message with images for visual context
-                                for (media_type, data) in &images {
-                                    out.push(json!({
-                                        "role": "user",
-                                        "content": [{
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": format!("data:{media_type};base64,{data}")
-                                            }
-                                        }]
-                                    }));
-                                }
-                            }
-                            "text" => {
-                                if let Some(t) = block.get("text").and_then(Value::as_str) {
-                                    user_text.push(t.to_string());
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    if !user_text.is_empty() {
-                        out.push(json!({
-                            "role": "user",
-                            "content": user_text.join("\n"),
-                        }));
-                    }
-                } else {
-                    out.push(json!({
-                        "role": role,
-                        "content": Value::Array(blocks),
-                    }));
-                }
-            }
-            other => {
-                out.push(json!({
-                    "role": role,
-                    "content": other,
-                }));
-            }
-        }
-    }
-    out
-}
-
-fn convert_tools_to_openrouter(tools: &[Value]) -> Vec<Value> {
-    let mut out = Vec::<Value>::new();
-    for tool in tools {
-        let Some(name) = tool.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let description = tool
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let parameters = tool
-            .get("input_schema")
-            .cloned()
-            .unwrap_or(json!({"type": "object", "properties": {}}));
-        out.push(json!({
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": description,
-                "parameters": parameters,
-            }
-        }));
-    }
-    out
-}
 
 /// Build tool definitions for the LLM.
 ///

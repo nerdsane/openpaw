@@ -302,6 +302,7 @@ pub fn build_chat_completion_body(
     system_prompt: &str,
     messages: &[Value],
     tools: &[Value],
+    tool_choice: &str,
     max_tokens: i64,
     temperature: f64,
     stream: bool,
@@ -322,7 +323,13 @@ pub fn build_chat_completion_body(
     let chat_tools = convert_tools_to_chat(tools);
     if !chat_tools.is_empty() {
         body["tools"] = json!(chat_tools);
-        body["tool_choice"] = json!("auto");
+        // "required" comes from sessions whose work must only end via a typed
+        // completion action (ARN-269); everything else stays "auto".
+        body["tool_choice"] = json!(if tool_choice.trim().is_empty() {
+            "auto"
+        } else {
+            tool_choice.trim()
+        });
     }
 
     merge_provider_options(&mut body, provider_options_json)?;
@@ -558,6 +565,7 @@ mod tests {
                 "description": "Search",
                 "input_schema": {"type": "object"}
             })],
+            "auto",
             1024,
             0.7,
             true,
@@ -581,6 +589,7 @@ mod tests {
             "",
             &[],
             &[],
+            "auto",
             1,
             1.0,
             true,

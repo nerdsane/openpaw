@@ -838,6 +838,7 @@ fn build_compaction_request_body(
                 system_prompt,
                 &[json!({ "role": "user", "content": user_text })],
                 &[],
+                "auto",
                 2048,
                 1.0,
                 false,
