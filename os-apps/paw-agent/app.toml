@@ -10,6 +10,11 @@ criticality = "app-required"
 startup_loading = "eager"
 
 [[wasm_modules]]
+name = "sandbox_provisioner"
+criticality = "app-required"
+startup_loading = "eager"
+
+[[wasm_modules]]
 name = "context_preparer"
 criticality = "app-required"
 startup_loading = "eager"
