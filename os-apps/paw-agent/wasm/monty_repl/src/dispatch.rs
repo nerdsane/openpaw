@@ -1141,12 +1141,64 @@ fn temper_action(
     let body =
         with_curation_job_action_parent(ctx, &entity_set, &action_name, obj_arg_or_empty(args, 3));
     let key = escape_odata_key(&entity_id);
-    http_post(
+    let result = http_post(
         ctx,
         api_url,
         tenant,
         &format!("/tdata/{entity_set}('{key}')/Temper.{action_name}"),
         &body,
+    );
+    match result {
+        Err(error)
+            if error.contains("Unknown action") || error.contains("not valid from state") =>
+        {
+            Err(enrich_action_error(
+                ctx,
+                api_url,
+                tenant,
+                &entity_set,
+                &key,
+                &action_name,
+                error,
+            ))
+        }
+        other => other,
+    }
+}
+
+/// A wrong action name or wrong-state dispatch is a dead end for the model —
+/// smaller models respond to "Unknown action: X" by guessing another name.
+/// Turn the failure into a recovery path by appending the actions the entity
+/// actually offers right now.
+fn enrich_action_error(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    entity_set: &str,
+    key: &str,
+    action_name: &str,
+    error: String,
+) -> String {
+    let available = http_get(ctx, api_url, tenant, &format!("/tdata/{entity_set}('{key}')"))
+        .ok()
+        .and_then(|entity| {
+            entity.get("@odata.actions").and_then(|actions| {
+                actions.as_array().map(|list| {
+                    list.iter()
+                        .filter_map(|item| item.get("name").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+            })
+        })
+        .unwrap_or_default();
+    if available.is_empty() {
+        return format!(
+            "{error}\nDo not guess action names — call temper.get('{entity_set}', '{key}') and use only the actions listed under @odata.actions."
+        );
+    }
+    format!(
+        "{error}\n'{action_name}' is not available. Actions on {entity_set}('{key}') RIGHT NOW: {available}. temper.get('{entity_set}', '{key}') lists each action's exact name, params, and hint — use those, do not guess."
     )
 }
 

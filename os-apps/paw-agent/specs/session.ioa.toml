@@ -1079,7 +1079,8 @@ hint = "No steering messages queued. Set result and complete."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # ADR-0046: inline trigger — migrated from [[integration]] below.
@@ -1107,6 +1108,22 @@ module = "emit_ots_trajectory"
 temper_api_url = "{secret:temper_api_url}"
 
 
+# Release the session's sandbox on terminal transitions so compute is never
+# leaked (sessions provision lazily; nothing else deletes the sandbox).
+# Best-effort inside the module — never fails the terminal transition.
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "FinalizeResultNoReply"
 kind = "input"
@@ -1116,7 +1133,8 @@ params = ["result", "conversation", "session_leaf_id", "pending_tool_calls", "pe
 hint = "Direct no-reply steering completion. Set result, complete, and emit trajectory without invoking reply delivery."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 
@@ -1233,7 +1251,8 @@ effect = [
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 [[action]]
@@ -1247,7 +1266,8 @@ effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 [[action]]
@@ -1261,7 +1281,8 @@ effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # --- Actions: Heartbeat + ProgressMade ---
@@ -1292,7 +1313,8 @@ params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
 effect = [
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # --- Actions: Failure, Cancellation, Resume ---
@@ -1306,7 +1328,8 @@ params = ["error_message"]
 hint = "Mark session run as failed."
 effect = [
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 [[action]]
@@ -1317,7 +1340,8 @@ to = "Cancelled"
 hint = "Cancel session execution."
 effect = [
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 [[action]]
@@ -1355,7 +1379,8 @@ guard = "trajectory_retry_count < 1"
 hint = "Manually retry OTS emission once after a prior failure. Guarded to a single retry; further failures wait for Evolution Engine sweep."
 effect = [
   { type = "increment", var = "trajectory_retry_count" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # --- Actions: Session Recovery (ADR-0025) ---
