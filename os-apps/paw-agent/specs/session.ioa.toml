@@ -344,6 +344,15 @@ name = "compaction_auth_retry_count"
 type = "counter"
 initial = "0"
 
+# Bounds consecutive compaction rounds per session (ARN-280): when compaction
+# cannot get the context under budget, NeedsCompaction used to re-fire forever.
+# After the cap, NeedsCompaction is guarded off and PreparingContext's
+# state_timeout fails the session honestly instead of looping.
+[[state]]
+name = "compaction_round"
+type = "counter"
+initial = "0"
+
 # --- State Variables: Compaction (Phase 3) ---
 
 [[state]]
@@ -920,8 +929,10 @@ kind = "input"
 from = ["PreparingContext"]
 to = "EnsuringCompactionAuth"
 params = ["input_tokens", "output_tokens", "context_tokens", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "system_prompt_hash", "system_prompt_file_id"]
-hint = "Context preparation detected that the bounded context budget was exceeded. Ensure provider auth before compaction."
+guard = "compaction_round < 4"
+hint = "Context preparation detected that the bounded context budget was exceeded. Ensure provider auth before compaction. Guarded (ARN-280): after 4 rounds the session fails via the PreparingContext state_timeout instead of compacting forever."
 effect = [
+  { type = "increment", var = "compaction_round" },
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "trigger", name = "ensure_compaction_auth" }
