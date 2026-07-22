@@ -1018,19 +1018,81 @@ fn temper_list(
         None => format!("/tdata/{entity_set}"),
     };
     let resp = http_get(ctx, api_url, tenant, &path)?;
-    Ok(resp.get("value").cloned().unwrap_or(resp))
+    let mut value = resp.get("value").cloned().unwrap_or(resp);
+    if let Some(items) = value.as_array_mut() {
+        for item in items.iter_mut() {
+            shape_entity_for_agent(item);
+        }
+    }
+    Ok(value)
 }
 
 fn temper_get(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "get")?;
     let entity_id = str_arg(args, 1, "entity_id", "get")?;
     let key = escape_odata_key(&entity_id);
-    http_get(
+    let mut entity = http_get(
         ctx,
         api_url,
         tenant,
         &format!("/tdata/{entity_set}('{key}')"),
-    )
+    )?;
+    shape_entity_for_agent(&mut entity);
+    Ok(entity)
+}
+
+/// Trim an entity payload to what an agent can act on. A raw OData read is
+/// ~24KB (measured on a DesignLanguage): ~12KB of full-prose action hints,
+/// ~3KB of processed idempotency keys, and event-sourcing bookkeeping — all
+/// resent in context on every later turn. Keep the data (fields, booleans,
+/// status, id) and the complete action LIST (names + targets — platform
+/// awareness stays intact); cap each hint to a sentence. Kernel bookkeeping
+/// the model can never use is dropped.
+fn shape_entity_for_agent(entity: &mut Value) {
+    const HINT_CAP: usize = 160;
+    let Some(obj) = entity.as_object_mut() else {
+        return;
+    };
+    for key in [
+        "processed_idempotency_keys",
+        "sequence_nr",
+        "total_event_count",
+        "events_since_snapshot",
+        "last_snapshot_sequence_nr",
+        "item_count",
+        "@odata.context",
+        "@odata.id",
+    ] {
+        obj.remove(key);
+    }
+    // Drop empty collections that carry no information.
+    for key in ["events", "lists", "counters", "@odata.children"] {
+        let empty = obj
+            .get(key)
+            .map(|v| {
+                v.as_array().map(|a| a.is_empty()).unwrap_or(false)
+                    || v.as_object().map(|m| m.is_empty()).unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if empty {
+            obj.remove(key);
+        }
+    }
+    if let Some(actions) = obj.get_mut("@odata.actions").and_then(Value::as_array_mut) {
+        for action in actions.iter_mut() {
+            if let Some(hint) = action.get_mut("hint") {
+                if let Some(text) = hint.as_str() {
+                    if text.len() > HINT_CAP {
+                        let mut cut = HINT_CAP;
+                        while cut > 0 && !text.is_char_boundary(cut) {
+                            cut -= 1;
+                        }
+                        *hint = Value::String(format!("{}…", &text[..cut]));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1161,6 +1223,15 @@ fn temper_action(
                 &action_name,
                 error,
             ))
+        }
+        Ok(mut entity) => {
+            // Action responses embed the full entity plus its event history —
+            // the model only needs the resulting state.
+            if let Some(obj) = entity.as_object_mut() {
+                obj.remove("events");
+            }
+            shape_entity_for_agent(&mut entity);
+            Ok(entity)
         }
         other => other,
     }
