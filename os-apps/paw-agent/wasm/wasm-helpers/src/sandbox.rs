@@ -876,7 +876,17 @@ fn tensorlake_create(
                 .unwrap_or("tensorlake-sandbox")
         })
         .to_string();
-    let sandbox_url = format!("https://{sandbox_id}.sandbox.tensorlake.ai");
+    // Prefer the data-plane URL the API returns — Tensorlake regionalized
+    // its sandbox domains (e.g. <id>.sandbox.gcp-use4.tensorlake.ai) and the
+    // legacy constructed hostname stopped resolving, which made every
+    // readiness check fail forever.
+    let sandbox_url = parsed
+        .get("sandbox_url")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("https://{sandbox_id}.sandbox.tensorlake.ai"));
 
     Ok(SandboxHandle {
         sandbox_url,

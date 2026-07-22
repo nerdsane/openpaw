@@ -22,11 +22,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
         let ctx = Context::from_host()?;
 
-        // mode = "release": tear down the session's sandbox on terminal
-        // transitions so compute is never leaked (sessions provision lazily
-        // and previously nothing ever deleted the sandbox). Best-effort — a
-        // destroy failure must not fail the terminal transition.
-        if ctx.config.get("mode").map(String::as_str) == Some("release") {
+        // Tear down the session's sandbox on terminal transitions so compute
+        // is never leaked (sessions provision lazily and previously nothing
+        // ever deleted the sandbox). Decided by SESSION STATUS, not trigger
+        // config — trigger config resolution proved unreliable across
+        // actions, and provisioning at a terminal state is never correct.
+        // Best-effort — a destroy failure must not fail the transition.
+        let session_status = ctx
+            .entity_state
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if matches!(session_status, "Completed" | "Failed" | "Cancelled")
+            || ctx.config.get("mode").map(String::as_str) == Some("release")
+        {
             release_sandbox(&ctx);
             return Ok(());
         }
