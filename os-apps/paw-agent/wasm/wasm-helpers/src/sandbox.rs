@@ -988,11 +988,16 @@ fn tensorlake_exec(
     let err_file = format!("/tmp/.paw-err-{run_id}");
     let rc_file = format!("/tmp/.paw-rc-{run_id}");
 
-    // stdin is redirected from /dev/null: the data plane gives the process no
-    // usable stdin, and anything that reads it (heredocs, `python3 -`) hangs
-    // forever without this.
+    // Run the command from a script FILE, never as a bash -c argument:
+    // complex commands (large heredocs, heavy quoting) passed as process args
+    // hang at spawn on the data plane, while the identical script executed
+    // from a file runs instantly. This killed every in-session Playwright
+    // render and forced models to design blind. stdin is still redirected
+    // from /dev/null so nothing can block on it.
+    let cmd_file = format!("/tmp/.paw-cmd-{run_id}.sh");
+    tensorlake_file_write(ctx, api_key, sandbox_url, &cmd_file, command)?;
     let wrapped =
-        format!("({command}) < /dev/null > {out_file} 2> {err_file}; echo $? > {rc_file}");
+        format!("(bash {cmd_file}) < /dev/null > {out_file} 2> {err_file}; echo $? > {rc_file}");
 
     // Start process via Tensorlake data plane
     let body = json!({
@@ -1078,7 +1083,7 @@ fn tensorlake_exec(
         .unwrap_or_default();
 
     // Cleanup temp files (best effort)
-    for f in [&out_file, &err_file, &rc_file] {
+    for f in [&out_file, &err_file, &rc_file, &cmd_file] {
         let _ = ctx.http_call(
             "DELETE",
             &format!("{sandbox_url}/api/v1/files?path={}", url_encode(f)),
