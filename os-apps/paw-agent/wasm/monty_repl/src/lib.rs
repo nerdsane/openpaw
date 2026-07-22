@@ -1013,7 +1013,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // If a sandbox was lazily provisioned during this invocation,
         // include it in the callback params so it persists to entity state (ADR-0022).
-        if let Some((url, id, provider)) = dispatch::take_lazy_sandbox() {
+        let lazy_sandbox = dispatch::take_lazy_sandbox();
+        if let Some((url, id, provider)) = &lazy_sandbox {
             params["sandbox_url"] = json!(url);
             params["sandbox_id"] = json!(id);
             params["sandbox_provider"] = json!(provider);
@@ -1059,7 +1060,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         }
 
         if let Some(result_text) = done_result {
-            // Agent called temper.done() — complete the session
+            // Agent called temper.done() — complete the session. If the
+            // sandbox was provisioned in this very batch, its handle never
+            // reached entity state, so the terminal release trigger cannot
+            // see it — destroy it inline (best-effort; a double release later
+            // is a 404, which counts as released).
+            if let Some((url, id, provider)) = &lazy_sandbox {
+                let handle = wasm_helpers::sandbox::SandboxHandle {
+                    sandbox_url: url.clone(),
+                    sandbox_id: id.clone(),
+                    provider: provider.clone(),
+                };
+                if let Err(error) = wasm_helpers::sandbox::sandbox_destroy(&ctx, &handle) {
+                    ctx.log(
+                        "warn",
+                        &format!("monty_repl: same-batch sandbox release failed for {id}: {error}"),
+                    );
+                }
+            }
             let mut done_params = params.clone();
             done_params["result"] = json!(result_text);
             done_params["pending_tool_calls"] = json!("");

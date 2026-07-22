@@ -3088,9 +3088,21 @@ fn lazy_provision_sandbox(
         }
     }
 
+    // The sandbox was created but never reported ready — destroy it so a
+    // retry provisions fresh instead of orphaning this one (it would finish
+    // booting later with nothing referencing it).
+    if let Err(error) = sandbox::sandbox_destroy(ctx, &handle) {
+        ctx.log(
+            "warn",
+            &format!(
+                "lazy_provision_sandbox: failed to destroy not-ready sandbox {}: {error}",
+                handle.sandbox_id
+            ),
+        );
+    }
     Err(format!(
-        "sandbox {} did not become ready within {max_checks} readiness checks. \
-         The sandbox may still be booting — try again in a moment.",
+        "sandbox {} did not become ready within {max_checks} readiness checks and was discarded. \
+         Call the tool again to provision a fresh one.",
         handle.sandbox_id
     ))
 }

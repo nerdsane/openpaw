@@ -1138,6 +1138,19 @@ effect = [
 ]
 
 
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "Steer"
 kind = "input"
@@ -1244,7 +1257,7 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json", "sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
@@ -1255,12 +1268,25 @@ effect = [
   { type = "trigger", name = "release_sandbox" }
 ]
 
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "RecordResultNoReply"
 kind = "input"
 from = ["ApplyingProviderResponse"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json", "sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Direct no-route Session complete. Set result and emit trajectory without invoking terminal reply delivery."
 effect = [
   { type = "increment", var = "input_tokens" },
@@ -1270,12 +1296,25 @@ effect = [
   { type = "trigger", name = "release_sandbox" }
 ]
 
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "RecordResultInlineReply"
 kind = "input"
 from = ["ApplyingProviderResponse"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json", "sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Inline CLI/TUI reply already recorded on the Channel. Set result and emit trajectory without invoking terminal reply delivery."
 effect = [
   { type = "increment", var = "input_tokens" },
@@ -1286,6 +1325,19 @@ effect = [
 ]
 
 # --- Actions: Heartbeat + ProgressMade ---
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "Heartbeat"
@@ -1319,6 +1371,19 @@ effect = [
 
 # --- Actions: Failure, Cancellation, Resume ---
 
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "Fail"
 kind = "input"
@@ -1332,6 +1397,19 @@ effect = [
   { type = "trigger", name = "release_sandbox" }
 ]
 
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "Cancel"
 kind = "input"
@@ -1343,6 +1421,19 @@ effect = [
   { type = "trigger", name = "emit_ots_trajectory" },
   { type = "trigger", name = "release_sandbox" }
 ]
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "DeliveryFailed"
@@ -1384,6 +1475,19 @@ effect = [
 ]
 
 # --- Actions: Session Recovery (ADR-0025) ---
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "RecoverFromRestart"
