@@ -46,6 +46,9 @@ sandbox_image = (
     .apt_install("curl", "git", "jq", "build-essential", *PLAYWRIGHT_APT_DEPS)
     .pip_install("playwright", "pillow")
     .run_commands("python -m playwright install chromium")
+    # /workspace baked into the image: a post-create mkdir exec cost ~1.2s of
+    # the bridged acquire path (measured 2026-07-23).
+    .run_commands("mkdir -p /workspace")
 )
 
 bridge_image = modal.Image.debian_slim(python_version="3.12").pip_install("fastapi[standard]")
@@ -203,8 +206,7 @@ def create_sandbox(body: dict, authorization: str = ""):
                 + "\nTPWEOF"
             )
             sb.exec("bash", "-c", script).wait()
-        else:
-            sb.exec("mkdir", "-p", "/workspace").wait()
+        # else: /workspace is baked into the sandbox image — no exec needed.
         _log_bridge_event(
             "create",
             "create",
