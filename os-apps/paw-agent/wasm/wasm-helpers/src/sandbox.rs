@@ -219,7 +219,7 @@ pub fn apply_sandbox_resource_overrides(
     config: &mut SandboxConfig,
     ctx_config: &BTreeMap<String, String>,
     fields: &Value,
-) {
+) -> String {
     if let Some(cpus) =
         parse_resource_override(entity_field_str(fields, &["sandbox_cpus", "SandboxCpus"])).or_else(
             || parse_resource_override(ctx_config.get("sandbox_cpus").map(String::as_str)),
@@ -235,19 +235,44 @@ pub fn apply_sandbox_resource_overrides(
     {
         config.memory_mb = memory_mb;
     }
-    if let Some(image) = entity_field_str(fields, &["sandbox_image", "SandboxImage"])
+    // Resolve the sandbox image with full diagnostics: image=None sandboxes
+    // shipped blind agents (the provider default image has no render stack),
+    // and the failure was silent — we could not tell WHICH source (entity
+    // field vs trigger config) was empty or carried an unresolved secret
+    // template. Every provision now logs the exact state of both sources.
+    let field_raw = entity_field_str(fields, &["sandbox_image", "SandboxImage"])
         .map(str::trim)
-        .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
-        .or_else(|| {
-            ctx_config
-                .get("sandbox_image")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty() && !is_unresolved_secret(s))
-        })
+        .unwrap_or("");
+    let config_raw = ctx_config
+        .get("sandbox_image")
+        .map(String::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let describe = |raw: &str| -> String {
+        if raw.is_empty() {
+            "empty".to_string()
+        } else if is_unresolved_secret(raw) {
+            format!("UNRESOLVED template '{raw}'")
+        } else {
+            format!("'{raw}'")
+        }
+    };
+    if let Some(image) = [field_raw, config_raw]
+        .into_iter()
+        .find(|s| !s.is_empty() && !is_unresolved_secret(s))
     {
         config.image = image.to_string();
     }
+    format!(
+        "sandbox image resolution: entity field {} | trigger config {} | using {}",
+        describe(field_raw),
+        describe(config_raw),
+        if config.image.is_empty() {
+            "PROVIDER DEFAULT (likely missing the render stack!)".to_string()
+        } else {
+            format!("'{}'", config.image)
+        }
+    )
 }
 
 fn sandbox_policy_payload(config: &SandboxConfig) -> Value {

@@ -54,8 +54,59 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let tenant = &ctx.tenant;
 
+        // Typed sessions (tool_choice=required) terminate ONLY via their typed
+        // completion action. A tool-less end_turn is a protocol violation: some
+        // providers (observed: qwen via OpenRouter) return one anyway, and
+        // before this check the session silently "completed" without its typed
+        // completion — the owning job hung Running forever and the session's
+        // sandbox was never released. Nudge the model back into the loop a
+        // bounded number of times, then fail the session honestly (Fail is
+        // terminal, so the sandbox is released and the job's failure path —
+        // including auto-repair — runs).
+        const TYPED_NUDGE_LIMIT: i64 = 3;
+        const TYPED_PROTOCOL_NUDGE: &str = "PROTOCOL: this session terminates ONLY via its typed \
+            completion action — a plain text reply does not end it. Continue the task via tool \
+            calls. If the work is finished, dispatch the completion action named in your \
+            instructions (with its required params); if you are stuck, dispatch the Fail action \
+            on the job with an error_message instead of replying in text.";
+        let tool_choice_required = fields
+            .get("tool_choice")
+            .and_then(|v| v.as_str())
+            .map(|s| s.eq_ignore_ascii_case("required"))
+            .unwrap_or(false);
+        let mut typed_nudge = false;
+        if steering_messages.is_empty() && tool_choice_required {
+            if follow_up_count < TYPED_NUDGE_LIMIT {
+                typed_nudge = true;
+                steering_messages.push(json!({ "content": TYPED_PROTOCOL_NUDGE }));
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "steering_checker: typed session returned a tool-less turn; injecting protocol nudge {}/{TYPED_NUDGE_LIMIT}",
+                        follow_up_count + 1
+                    ),
+                );
+            } else {
+                ctx.log(
+                    "warn",
+                    &format!(
+                        "steering_checker: typed session returned {follow_up_count} tool-less turns; failing session to release resources"
+                    ),
+                );
+                set_success_result(
+                    "Fail",
+                    &json!({
+                        "error_message": format!(
+                            "typed session returned {follow_up_count} consecutive tool-less turns without dispatching its typed completion action (protocol violation; provider ignored tool_choice=required)"
+                        ),
+                    }),
+                );
+                return Ok(());
+            }
+        }
+
         // Check if we have steering messages AND haven't hit the follow-up limit
-        if !steering_messages.is_empty() && follow_up_count < max_follow_ups {
+        if !steering_messages.is_empty() && (follow_up_count < max_follow_ups || typed_nudge) {
             // Dequeue the first steering message
             let msg = steering_messages.remove(0);
             let msg_content = msg

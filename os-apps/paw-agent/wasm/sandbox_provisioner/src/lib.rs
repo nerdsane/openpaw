@@ -226,7 +226,11 @@ fn provision_sandbox(ctx: &Context, fields: &Value) -> Result<ProvisionStatus, S
         &format!("sandbox_provisioner: provisioning via {provider} provider"),
     );
     let mut config = sandbox::sandbox_config_from_fields(fields);
-    sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, fields);
+    let image_diag = sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, fields);
+    ctx.log(
+        if config.image.is_empty() { "warn" } else { "info" },
+        &format!("sandbox_provisioner: {image_diag}"),
+    );
     let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
     check_sandbox_ready(ctx, fields, handle)
 }

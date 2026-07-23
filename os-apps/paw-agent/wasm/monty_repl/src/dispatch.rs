@@ -3098,7 +3098,11 @@ fn lazy_provision_sandbox(
 
     // Create sandbox
     let mut config = sandbox_config_from_fields(&fields);
-    sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, &fields);
+    let image_diag = sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, &fields);
+    ctx.log(
+        if config.image.is_empty() { "warn" } else { "info" },
+        &format!("lazy_provision_sandbox: {image_diag}"),
+    );
     let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
 
     // Poll for readiness (max 12 retries = ~60s)
