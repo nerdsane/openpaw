@@ -347,6 +347,46 @@ fn sandbox_identity_from_fields(fields: &Value) -> (Option<String>, Option<Strin
 ///
 /// Called by the Monty event loop when user code invokes a method on a
 /// dataclass object. `obj_name` is `"temper"` or `"sandbox"`, `method`
+/// Write the execute tool's raw `files` payload into the sandbox before the
+/// code runs. Content arrives as raw strings in the tool-call JSON, so large
+/// HTML/CSS never has to be embedded as escaped Python string literals
+/// (Code Mode: code carries logic, not bulk bytes — escaping cost ~25% extra
+/// tokens and capped page size at what fits in one quoted literal). Reuses
+/// dispatch() so lazy provisioning, tool scoping, and provider routing behave
+/// exactly like sandbox.write.
+pub fn write_input_files(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    sandbox_url: &str,
+    workdir: &str,
+    files: &serde_json::Map<String, Value>,
+    tool_call_id: Option<&str>,
+) -> Result<String, String> {
+    let mut lines = Vec::new();
+    for (path, content) in files {
+        let Some(text) = content.as_str() else {
+            return Err(format!(
+                "files[\"{path}\"] must be a string of raw file content"
+            ));
+        };
+        dispatch(
+            ctx,
+            temper_api_url,
+            tenant,
+            sandbox_url,
+            workdir,
+            "sandbox",
+            "write",
+            tool_call_id,
+            &[json!(path), json!(text)],
+            &[],
+        )?;
+        lines.push(format!("[files] wrote {path} ({} bytes)", text.len()));
+    }
+    Ok(lines.join("\n"))
+}
+
 /// is the method name, and `args` are the JSON-converted positional args.
 pub fn dispatch(
     ctx: &Context,

@@ -668,6 +668,35 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             let input = call.get("input").cloned().unwrap_or(json!({}));
             let code = input.get("code").and_then(|v| v.as_str()).unwrap_or("");
             let tool_arguments_json = serde_json::to_string(&input).unwrap_or_default();
+            // Raw file channel: write any `files` payload into the sandbox
+            // BEFORE the code runs, so code refers to content by path instead
+            // of embedding it as escaped string literals.
+            let files_summary = match input.get("files").and_then(Value::as_object) {
+                Some(files) if !files.is_empty() => {
+                    match dispatch::write_input_files(
+                        &ctx,
+                        &temper_api_url,
+                        tenant,
+                        &sandbox_url,
+                        workdir,
+                        files,
+                        Some(tool_id),
+                    ) {
+                        Ok(summary) => summary,
+                        Err(e) => {
+                            tool_results.push(json!({
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": format!("files write failed (code was NOT executed): {e}"),
+                                "is_error": true,
+                            }));
+                            i += 1;
+                            continue;
+                        }
+                    }
+                }
+                _ => String::new(),
+            };
             let tool_started_ms = Context::get_time_millis();
             let mut outer_guest_span =
                 start_tool_guest_span(&ctx, tool_name, tool_id, &tool_arguments_json);
@@ -687,6 +716,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             // Execute via REPL feed_start() using a bounded collector so pathological
             // print output cannot force runaway reallocations inside the daemon.
             let mut printed = BoundedOutputCollector::new(MAX_TOOL_RESULT_BYTES);
+            if !files_summary.is_empty() {
+                printed.append_str(&files_summary);
+                printed.append_str("\n");
+            }
             let print = PrintWriter::Callback(&mut printed);
             let progress = match repl.feed_start(snippet, vec![], print) {
                 Ok(p) => p,

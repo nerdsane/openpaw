@@ -225,7 +225,12 @@ fn build_tool_definitions(tools_enabled: &str, _sandbox_url: &str, _workdir: &st
         "input_schema": {
             "type": "object",
             "properties": {
-                "code": { "type": "string", "description": "Python code to execute" }
+                "code": { "type": "string", "description": "Python code to execute" },
+                "files": {
+                    "type": "object",
+                    "description": "OPTIONAL raw file payload: map of absolute sandbox path -> full file content, written into the sandbox BEFORE the code runs. ALWAYS use this for file content over ~1KB (HTML, CSS, JS, Markdown) instead of embedding it in code as Python string literals — raw content needs no escaping, has no quoting bugs, and is cheaper. The code then refers to files by path (e.g. sandbox.bash('ls /tmp'), open via sandbox.read, or temper.write from the path). To build very large files in parts across turns, write /tmp/x.part1, /tmp/x.part2 in separate turns and join with sandbox.bash(\"cat /tmp/x.part* > /tmp/x.html\").",
+                    "additionalProperties": { "type": "string" }
+                }
             },
             "required": ["code"]
         }
