@@ -321,6 +321,7 @@ fn paw_media_exposes_contributor_owned_fal_image_editing() {
     let spec = read(root.join("os-apps/paw-media/specs/media_generation.ioa.toml"));
     let model = read(root.join("os-apps/paw-media/specs/model.csdl.xml"));
     let policy = read(root.join("os-apps/paw-media/policies/media_generation.cedar"));
+    let file_version_policy = read(root.join("os-apps/paw-fs/policies/file_version.cedar"));
     let build_script = read(root.join("os-apps/paw-media/wasm/build.sh"));
     let provider = format!(
         "{}\n{}",
@@ -408,6 +409,16 @@ fn paw_media_exposes_contributor_owned_fal_image_editing() {
         assert!(
             policy.contains(needle),
             "paw-media Cedar should contain {needle}"
+        );
+    }
+    for needle in [
+        "Action::\"read\"",
+        "Action::\"list\"",
+        "resource is FileVersion",
+    ] {
+        assert!(
+            file_version_policy.contains(needle),
+            "PawFS must allow immutable FileVersion metadata reads for contributor media verification: {needle}"
         );
     }
 
