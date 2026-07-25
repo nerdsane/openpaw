@@ -96,6 +96,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "slack_signing_secret",
         "github_token",
         "exa_api_key",
+        "fal_key",
         "tensorlake_api_key",
         "temper_api_key",
         "llm_provider",
@@ -340,6 +341,13 @@ fn secrets_schema() -> Vec<SecretSchema> {
             label: "Exa API Key",
             required: false,
             description: "Web search via exa.ai — agents can research the internet",
+        },
+        SecretSchema {
+            key: "fal_key",
+            category: "media",
+            label: "FAL API Key",
+            required: false,
+            description: "Optional image-edit provider credential used only by PawMedia",
         },
         SecretSchema {
             key: "sandbox_provider",
@@ -3955,6 +3963,21 @@ mod tests {
                 "{key} should be visible in dashboard schema"
             );
         }
+    }
+
+    #[test]
+    fn paw_media_fal_secret_is_allowed_and_rendered() {
+        assert!(
+            allowed_secret_keys().contains("fal_key"),
+            "PawMedia's FAL credential should be accepted by the setup API"
+        );
+        let schema = secrets_schema();
+        let fal = schema
+            .iter()
+            .find(|secret| secret.key == "fal_key")
+            .expect("FAL credential should be visible in dashboard schema");
+        assert_eq!(fal.category, "media");
+        assert!(fal.description.contains("only by PawMedia"));
     }
 
     #[test]
