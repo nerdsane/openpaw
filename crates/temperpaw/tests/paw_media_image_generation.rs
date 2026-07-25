@@ -334,7 +334,10 @@ fn paw_media_exposes_contributor_owned_fal_image_editing() {
         "name = \"fal_image_edit\"",
         "fal_key = \"{secret:fal_key}\"",
     ] {
-        assert!(app.contains(needle), "paw-media app should contain {needle}");
+        assert!(
+            app.contains(needle),
+            "paw-media app should contain {needle}"
+        );
     }
 
     for needle in [
@@ -390,7 +393,10 @@ fn paw_media_exposes_contributor_owned_fal_image_editing() {
         "<Property Name=\"ResultSha256\"",
         "<Action Name=\"Edit\"",
     ] {
-        assert!(model.contains(needle), "paw-media CSDL should contain {needle}");
+        assert!(
+            model.contains(needle),
+            "paw-media CSDL should contain {needle}"
+        );
     }
 
     for needle in [
@@ -443,7 +449,10 @@ fn paw_media_exposes_contributor_owned_fal_image_editing() {
         "source_file_id",
         "source_file_version_id",
     ] {
-        assert!(dispatch.contains(needle), "Monty dispatch should contain {needle}");
+        assert!(
+            dispatch.contains(needle),
+            "Monty dispatch should contain {needle}"
+        );
     }
 }
 
