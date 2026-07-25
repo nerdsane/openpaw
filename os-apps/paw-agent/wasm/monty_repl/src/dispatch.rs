@@ -726,6 +726,7 @@ fn temper_method_token(method: &str) -> Option<&'static str> {
         "web_search" => Some("temper_web_search"),
         "web_fetch" => Some("temper_web_fetch"),
         "image_generate" => Some("temper_image_generate"),
+        "image_edit" => Some("temper_image_edit"),
         "done" | "get_agent_id" | "get_session_id" | "switch_provider" | "switch_mode" => None,
         _ => None,
     }
@@ -980,6 +981,7 @@ fn dispatch_temper(
         "web_search" => temper_web_search(ctx, api_url, tenant, args),
         "web_fetch" => temper_web_fetch(ctx, api_url, tenant, args),
         "image_generate" => temper_image_generate(ctx, api_url, tenant, args),
+        "image_edit" => temper_image_edit(ctx, api_url, tenant, args),
 
         _ => Err(format!(
             "unknown temper method '{method}'. Available: \
@@ -991,7 +993,7 @@ fn dispatch_temper(
              spawn_session, list_sessions, abort_session, steer_session, \
              save_memory, recall_memory, write, read, ls, grep, glob, edit, rename, \
              search_history, run_coding_agent, datadog_query, railway, vercel, \
-             web_search, web_fetch, image_generate"
+             web_search, web_fetch, image_generate, image_edit"
         )),
     }
 }
@@ -1443,6 +1445,159 @@ fn temper_image_generate(
     Ok(rendered)
 }
 
+/// Edit one PawFS image through the PawMedia FAL provider.
+fn temper_image_edit(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let input = image_edit_input(ctx, api_url, tenant, args)?;
+    let entity = http_post(
+        ctx,
+        api_url,
+        tenant,
+        "/tdata/MediaGenerationRequests",
+        &json!({
+            "Prompt": input.prompt,
+            "MediaType": "image",
+            "Operation": "edit",
+            "Provider": "fal",
+            "Model": input.model,
+            "Size": input.size,
+            "Quality": input.quality,
+            "OutputFormat": input.output_format,
+            "Background": "auto",
+            "WorkspaceId": input.workspace_id,
+            "OutputPath": input.output_path,
+            "SourceFileId": input.source_file_id,
+            "SourceFileVersionId": input.source_file_version_id,
+        }),
+    )?;
+    let entity_id = entity
+        .get("entity_id")
+        .or_else(|| entity.get("EntityId"))
+        .or_else(|| entity.get("Id"))
+        .and_then(Value::as_str)
+        .or_else(|| entity_field_str(&entity, &["Id", "id"]))
+        .ok_or_else(|| {
+            "image_edit: failed to get entity_id from created MediaGenerationRequest".to_string()
+        })?;
+
+    let key = escape_odata_key(entity_id);
+    http_post(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/MediaGenerationRequests('{key}')/Temper.Edit?await_integration=true"),
+        &json!({
+            "prompt": input.prompt,
+            "media_type": "image",
+            "operation": "edit",
+            "provider": "fal",
+            "model": input.model,
+            "size": input.size,
+            "quality": input.quality,
+            "output_format": input.output_format,
+            "background": "auto",
+            "workspace_id": input.workspace_id,
+            "output_path": input.output_path,
+            "source_file_id": input.source_file_id,
+            "source_file_version_id": input.source_file_version_id,
+        }),
+    )?;
+
+    let result = http_get(
+        ctx,
+        api_url,
+        tenant,
+        &format!("/tdata/MediaGenerationRequests('{key}')"),
+    )?;
+    let rendered = render_media_generation_result(entity_id, &result, input.include_base64)?;
+    record_dispatch_image_result(&rendered);
+    Ok(rendered)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ImageEditInput {
+    prompt: String,
+    model: String,
+    size: String,
+    quality: String,
+    output_format: String,
+    workspace_id: String,
+    output_path: String,
+    source_file_id: String,
+    source_file_version_id: String,
+    include_base64: bool,
+}
+
+fn image_edit_input(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    args: &[Value],
+) -> Result<ImageEditInput, String> {
+    let (prompt, opts) = match args.first() {
+        Some(Value::Object(input)) => {
+            let prompt = input
+                .get("prompt")
+                .or_else(|| input.get("Prompt"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    "temper.image_edit(): object input must include non-empty prompt".to_string()
+                })?
+                .trim()
+                .to_string();
+            let opts = input
+                .get("opts")
+                .or_else(|| input.get("options"))
+                .filter(|value| value.is_object())
+                .cloned()
+                .unwrap_or_else(|| Value::Object(input.clone()));
+            (prompt, opts)
+        }
+        _ => {
+            let prompt = str_arg(args, 0, "prompt", "image_edit")?;
+            (prompt.trim().to_string(), obj_arg_or_empty(args, 1))
+        }
+    };
+    if prompt.is_empty() {
+        return Err("temper.image_edit(): prompt cannot be empty".to_string());
+    }
+    let source_file_id = opts_string(&opts, &["source_file_id", "SourceFileId"])
+        .ok_or_else(|| "temper.image_edit(): source_file_id is required".to_string())?;
+    let workspace_id = resolve_image_workspace_id(ctx, api_url, tenant, &opts)?;
+    Ok(ImageEditInput {
+        prompt,
+        model: opts_string(&opts, &["model", "Model"])
+            .unwrap_or_else(|| "openai/gpt-image-2/edit".to_string()),
+        size: opts_string(&opts, &["size", "Size"]).unwrap_or_else(|| "auto".to_string()),
+        quality: opts_string(&opts, &["quality", "Quality"])
+            .unwrap_or_else(|| "high".to_string()),
+        output_format: opts_string(&opts, &["output_format", "OutputFormat"])
+            .or_else(|| opts_string(&opts, &["format", "Format"]))
+            .unwrap_or_else(|| "png".to_string()),
+        workspace_id,
+        output_path: opts_string(&opts, &["output_path", "OutputPath"])
+            .or_else(|| opts_string(&opts, &["path", "Path"]))
+            .unwrap_or_default(),
+        source_file_id,
+        source_file_version_id: opts_string(
+            &opts,
+            &["source_file_version_id", "SourceFileVersionId"],
+        )
+        .unwrap_or_default(),
+        include_base64: opts
+            .get("inline")
+            .or_else(|| opts.get("include_base64"))
+            .or_else(|| opts.get("base64"))
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ImageGenerateInput {
     prompt: String,
@@ -1681,10 +1836,16 @@ fn render_media_generation_result(
         "path": path,
         "source_path": path,
         "prompt": entity_field_str(fields, &["Prompt", "prompt"]).unwrap_or(""),
+        "operation": entity_field_str(fields, &["Operation", "operation"]).unwrap_or("generate"),
         "revised_prompt": entity_field_str(fields, &["RevisedPrompt", "revised_prompt"]).unwrap_or(""),
         "provider": entity_field_str(fields, &["Provider", "provider"]).unwrap_or("openai_codex"),
         "model": entity_field_str(fields, &["Model", "model"]).unwrap_or(""),
         "provider_response_id": entity_field_str(fields, &["ProviderResponseId", "provider_response_id"]).unwrap_or(""),
+        "source_file_id": entity_field_str(fields, &["SourceFileId", "source_file_id"]).unwrap_or(""),
+        "source_file_version_id": entity_field_str(fields, &["SourceFileVersionId", "source_file_version_id"]).unwrap_or(""),
+        "source_sha256": entity_field_str(fields, &["SourceSha256", "source_sha256"]).unwrap_or(""),
+        "prompt_sha256": entity_field_str(fields, &["PromptSha256", "prompt_sha256"]).unwrap_or(""),
+        "result_sha256": entity_field_str(fields, &["ResultSha256", "result_sha256"]).unwrap_or(""),
         "byte_count": byte_count,
     });
     if include_base64 && !base64_data.is_empty() {

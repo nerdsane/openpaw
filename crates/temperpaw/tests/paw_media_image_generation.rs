@@ -123,6 +123,10 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
             source.contains("temper_image_generate"),
             "{label} should include temper_image_generate in default tools"
         );
+        assert!(
+            source.contains("temper_image_edit"),
+            "{label} should include temper_image_edit in default tools"
+        );
     }
 
     for needle in [
@@ -156,6 +160,8 @@ fn image_generation_tool_is_exposed_through_default_agent_tools() {
         "temper.image_generate",
         "For user image requests, call this tool",
         "gpt-image-*",
+        "temper.image_edit",
+        "contributor",
     ] {
         assert!(
             paw_agent_manual.contains(needle),
@@ -217,10 +223,12 @@ fn paw_media_wasm_is_built_into_ci_and_production_images() {
         identity_contract.contains("\"os-apps/paw-media/wasm/build.sh\""),
         "identity contract should keep paw-media in the audited WASM build-script set"
     );
-    assert!(
-        build_script.contains("openai_codex_image_generate.wasm"),
-        "paw-media build.sh must publish openai_codex_image_generate.wasm outside target/"
-    );
+    for module in ["openai_codex_image_generate", "fal_image_edit"] {
+        assert!(
+            build_script.contains(module),
+            "paw-media build.sh must build and publish {module}.wasm outside target/"
+        );
+    }
 }
 
 #[test]
@@ -232,11 +240,12 @@ fn paw_media_policy_limits_result_callbacks_to_runtime_modules() {
     Action::"create",
     Action::"read",
     Action::"list",
-    Action::"Generate"
+    Action::"Generate",
+    Action::"Edit"
   ]"#;
     assert!(
         policy.contains(user_actions),
-        "user-facing MediaGenerationRequest policy should only expose create/read/list/Generate"
+        "user-facing MediaGenerationRequest policy should only expose create/read/list/Generate/Edit"
     );
     for forbidden in [
         "Action::\"RecordAuthReady\"",
@@ -303,6 +312,139 @@ fn image_generation_tool_defaults_to_session_or_default_workspace() {
         !dispatch.contains("workspace_id is required because generated images are stored in PawFS"),
         "DM users should not see a missing workspace_id implementation error"
     );
+}
+
+#[test]
+fn paw_media_exposes_contributor_owned_fal_image_editing() {
+    let root = repo_root();
+    let app = read(root.join("os-apps/paw-media/app.toml"));
+    let spec = read(root.join("os-apps/paw-media/specs/media_generation.ioa.toml"));
+    let model = read(root.join("os-apps/paw-media/specs/model.csdl.xml"));
+    let policy = read(root.join("os-apps/paw-media/policies/media_generation.cedar"));
+    let build_script = read(root.join("os-apps/paw-media/wasm/build.sh"));
+    let provider = format!(
+        "{}\n{}",
+        read(root.join("os-apps/paw-media/wasm/fal_image_edit/src/lib.rs")),
+        read(root.join("os-apps/paw-media/wasm/fal_image_edit/src/pawfs.rs")),
+    );
+    let tool_catalog = read(root.join("os-apps/paw-agent/wasm/tool-catalog/src/lib.rs"));
+    let dispatch = read(root.join("os-apps/paw-agent/wasm/monty_repl/src/dispatch.rs"));
+
+    for needle in [
+        "name = \"fal_image_edit\"",
+        "fal_key = \"{secret:fal_key}\"",
+    ] {
+        assert!(app.contains(needle), "paw-media app should contain {needle}");
+    }
+
+    for needle in [
+        "name = \"source_file_id\"",
+        "name = \"source_file_version_id\"",
+        "name = \"source_sha256\"",
+        "name = \"prompt_sha256\"",
+        "name = \"result_sha256\"",
+        "name = \"Edit\"",
+        "module = \"fal_image_edit\"",
+    ] {
+        assert!(
+            spec.contains(needle),
+            "MediaGenerationRequest should contain {needle}"
+        );
+    }
+    let parsed_spec = spec
+        .parse::<toml::Value>()
+        .expect("paw-media IOA spec should parse as TOML");
+    let actions = parsed_spec
+        .get("action")
+        .and_then(toml::Value::as_array)
+        .expect("paw-media spec should declare actions");
+    for (action_name, trigger_name, module_name) in [
+        ("Generate", "ensure_provider_auth", "provider_auth_gate"),
+        ("Edit", "edit_fal_image", "fal_image_edit"),
+    ] {
+        let action = actions
+            .iter()
+            .find(|action| action.get("name").and_then(toml::Value::as_str) == Some(action_name))
+            .unwrap_or_else(|| panic!("paw-media should declare {action_name}"));
+        let trigger = action
+            .get("triggers")
+            .and_then(toml::Value::as_array)
+            .and_then(|triggers| {
+                triggers.iter().find(|trigger| {
+                    trigger.get("name").and_then(toml::Value::as_str) == Some(trigger_name)
+                })
+            })
+            .unwrap_or_else(|| panic!("{action_name} should own trigger {trigger_name}"));
+        assert_eq!(
+            trigger.get("module").and_then(toml::Value::as_str),
+            Some(module_name),
+            "{action_name} should dispatch only through {module_name}"
+        );
+    }
+
+    for needle in [
+        "<Property Name=\"SourceFileId\"",
+        "<Property Name=\"SourceFileVersionId\"",
+        "<Property Name=\"SourceSha256\"",
+        "<Property Name=\"PromptSha256\"",
+        "<Property Name=\"ResultSha256\"",
+        "<Action Name=\"Edit\"",
+    ] {
+        assert!(model.contains(needle), "paw-media CSDL should contain {needle}");
+    }
+
+    for needle in [
+        "Action::\"Edit\"",
+        "context.module == \"fal_image_edit\"",
+        "Action::\"http_call\"",
+        "Action::\"access_secret\"",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "paw-media Cedar should contain {needle}"
+        );
+    }
+
+    for needle in [
+        "openai/gpt-image-2/edit",
+        "fal-ai/nano-banana-2/edit",
+        "\"data:{};base64",
+        "/tdata/Files",
+        "/tdata/FileVersions",
+        "RecordResult",
+        "source_sha256",
+        "prompt_sha256",
+        "result_sha256",
+    ] {
+        assert!(
+            provider.contains(needle),
+            "FAL image-edit provider should contain {needle}"
+        );
+    }
+
+    assert!(
+        build_script.contains("fal_image_edit"),
+        "paw-media build must package the FAL image-edit provider"
+    );
+
+    for needle in [
+        "method: \"image_edit\"",
+        "token: Some(\"temper_image_edit\")",
+    ] {
+        assert!(
+            tool_catalog.contains(needle),
+            "tool catalog should expose {needle}"
+        );
+    }
+    for needle in [
+        "\"image_edit\" => Some(\"temper_image_edit\")",
+        "\"image_edit\" => temper_image_edit",
+        "Temper.Edit?await_integration=true",
+        "source_file_id",
+        "source_file_version_id",
+    ] {
+        assert!(dispatch.contains(needle), "Monty dispatch should contain {needle}");
+    }
 }
 
 #[test]

@@ -17,6 +17,8 @@
         <Property Name="Background" Type="Edm.String"/>
         <Property Name="WorkspaceId" Type="Edm.String"/>
         <Property Name="OutputPath" Type="Edm.String"/>
+        <Property Name="SourceFileId" Type="Edm.String"/>
+        <Property Name="SourceFileVersionId" Type="Edm.String"/>
         <Property Name="ProviderAuthStatus" Type="Edm.String"/>
         <Property Name="ProviderAuthCheckedAtMs" Type="Edm.String"/>
         <Property Name="ProviderAuthError" Type="Edm.String"/>
@@ -29,6 +31,9 @@
         <Property Name="RevisedPrompt" Type="Edm.String"/>
         <Property Name="ProviderResponseId" Type="Edm.String"/>
         <Property Name="UsageJson" Type="Edm.String"/>
+        <Property Name="SourceSha256" Type="Edm.String"/>
+        <Property Name="PromptSha256" Type="Edm.String"/>
+        <Property Name="ResultSha256" Type="Edm.String"/>
         <Property Name="ResultImageBase64" Type="Edm.String"/>
         <Property Name="Error" Type="Edm.String"/>
         <Property Name="LastError" Type="Edm.String"/>
@@ -49,6 +54,24 @@
         <Parameter Name="background" Type="Edm.String" Nullable="true"/>
         <Parameter Name="workspace_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="output_path" Type="Edm.String" Nullable="true"/>
+        <ReturnType Type="TemperPaw.Media.MediaGenerationRequest"/>
+      </Action>
+
+      <Action Name="Edit" IsBound="true">
+        <Parameter Name="bindingParameter" Type="TemperPaw.Media.MediaGenerationRequest"/>
+        <Parameter Name="prompt" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="media_type" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="operation" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="provider" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="model" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="size" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="quality" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="output_format" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="background" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="workspace_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="output_path" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="source_file_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="source_file_version_id" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Media.MediaGenerationRequest"/>
       </Action>
 
@@ -80,6 +103,9 @@
         <Parameter Name="provider_response_id" Type="Edm.String" Nullable="true"/>
         <Parameter Name="usage_json" Type="Edm.String" Nullable="true"/>
         <Parameter Name="result_image_base64" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="source_sha256" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="prompt_sha256" Type="Edm.String" Nullable="true"/>
+        <Parameter Name="result_sha256" Type="Edm.String" Nullable="true"/>
         <ReturnType Type="TemperPaw.Media.MediaGenerationRequest"/>
       </Action>
 

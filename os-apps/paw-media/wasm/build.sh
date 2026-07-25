@@ -19,17 +19,17 @@ copy_artifact() {
     fi
 }
 
-for module in openai_codex_image_generate; do
+for module in openai_codex_image_generate fal_image_edit; do
     echo "Building $module..."
     (cd "$SCRIPT_DIR/$module" && cargo build --target wasm32-unknown-unknown --release)
     copy_artifact "$module" "wasm32-unknown-unknown"
-    test -f "$SCRIPT_DIR/openai_codex_image_generate/openai_codex_image_generate.wasm"
+    test -f "$SCRIPT_DIR/$module/$module.wasm"
     echo "  -> $module built successfully"
 done
 
 echo ""
 echo "All paw-media WASM modules built. Binaries at:"
-for module in openai_codex_image_generate; do
+for module in openai_codex_image_generate fal_image_edit; do
     wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/${module}.wasm"
     if [ ! -f "$wasm_file" ]; then
         wasm_file="$SCRIPT_DIR/$module/target/wasm32-unknown-unknown/release/$(echo "$module" | tr '_' '-').wasm"

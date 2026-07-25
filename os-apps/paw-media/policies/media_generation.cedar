@@ -5,7 +5,8 @@ permit(
     Action::"create",
     Action::"read",
     Action::"list",
-    Action::"Generate"
+    Action::"Generate",
+    Action::"Edit"
   ],
   resource is MediaGenerationRequest
 );
@@ -20,6 +21,35 @@ permit(
   resource is MediaGenerationRequest
 ) when {
   context.module == "provider_auth_gate"
+};
+
+// The FAL editor owns callbacks for its explicit Edit path.
+permit(
+  principal is Agent,
+  action in [
+    Action::"RecordStoring",
+    Action::"RecordResult",
+    Action::"RecordError"
+  ],
+  resource is MediaGenerationRequest
+) when {
+  context.module == "fal_image_edit"
+};
+
+permit(
+  principal is Agent,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  context.module == "fal_image_edit"
+};
+
+permit(
+  principal is Agent,
+  action == Action::"access_secret",
+  resource is Secret
+) when {
+  context.module == "fal_image_edit"
 };
 
 // The Codex renderer is the only module that can store or finalize image results.

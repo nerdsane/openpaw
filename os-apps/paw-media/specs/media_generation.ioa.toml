@@ -69,6 +69,16 @@ name = "output_path"
 type = "string"
 initial = ""
 
+[[state]]
+name = "source_file_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "source_file_version_id"
+type = "string"
+initial = ""
+
 # --- Provider auth gate fields ---
 
 [[state]]
@@ -135,6 +145,21 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "source_sha256"
+type = "string"
+initial = ""
+
+[[state]]
+name = "prompt_sha256"
+type = "string"
+initial = ""
+
+[[state]]
+name = "result_sha256"
+type = "string"
+initial = ""
+
+[[state]]
 name = "result_image_base64"
 type = "string"
 initial = ""
@@ -172,6 +197,30 @@ temper_api_url = "{secret:temper_api_url}"
 default_llm_provider = "openai_codex"
 auth_action = "EnsureFresh"
 ready_action = "RecordAuthReady"
+
+[[action]]
+name = "Edit"
+kind = "input"
+from = ["Created", "Failed"]
+to = "Generating"
+params = ["prompt", "media_type", "operation", "provider", "model", "size", "quality", "output_format", "background", "workspace_id", "output_path", "source_file_id", "source_file_version_id"]
+hint = "Edit one PawFS image with the exact supplied prompt through a governed provider."
+effect = [{ type = "trigger", name = "edit_fal_image" }]
+
+[[action.triggers]]
+name = "edit_fal_image"
+kind = "wasm"
+module = "fal_image_edit"
+on_failure = "RecordError"
+llm = true
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+fal_key = "{secret:fal_key}"
+timeout_secs = "600"
+max_source_bytes = "8388608"
+max_result_bytes = "16777216"
+max_memory = "268435456"
 
 [[action]]
 name = "RecordAuthReady"
@@ -212,7 +261,7 @@ name = "RecordResult"
 kind = "input"
 from = ["Generating", "Storing"]
 to = "Complete"
-params = ["result_file_id", "result_file_version_id", "result_path", "mime_type", "revised_prompt", "provider_response_id", "usage_json", "result_image_base64"]
+params = ["result_file_id", "result_file_version_id", "result_path", "mime_type", "revised_prompt", "provider_response_id", "usage_json", "result_image_base64", "source_sha256", "prompt_sha256", "result_sha256"]
 hint = "Generation completed and durable PawFS output is available."
 
 [[action]]
