@@ -347,6 +347,46 @@ fn sandbox_identity_from_fields(fields: &Value) -> (Option<String>, Option<Strin
 ///
 /// Called by the Monty event loop when user code invokes a method on a
 /// dataclass object. `obj_name` is `"temper"` or `"sandbox"`, `method`
+/// Write the execute tool's raw `files` payload into the sandbox before the
+/// code runs. Content arrives as raw strings in the tool-call JSON, so large
+/// HTML/CSS never has to be embedded as escaped Python string literals
+/// (Code Mode: code carries logic, not bulk bytes — escaping cost ~25% extra
+/// tokens and capped page size at what fits in one quoted literal). Reuses
+/// dispatch() so lazy provisioning, tool scoping, and provider routing behave
+/// exactly like sandbox.write.
+pub fn write_input_files(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    sandbox_url: &str,
+    workdir: &str,
+    files: &serde_json::Map<String, Value>,
+    tool_call_id: Option<&str>,
+) -> Result<String, String> {
+    let mut lines = Vec::new();
+    for (path, content) in files {
+        let Some(text) = content.as_str() else {
+            return Err(format!(
+                "files[\"{path}\"] must be a string of raw file content"
+            ));
+        };
+        dispatch(
+            ctx,
+            temper_api_url,
+            tenant,
+            sandbox_url,
+            workdir,
+            "sandbox",
+            "write",
+            tool_call_id,
+            &[json!(path), json!(text)],
+            &[],
+        )?;
+        lines.push(format!("[files] wrote {path} ({} bytes)", text.len()));
+    }
+    Ok(lines.join("\n"))
+}
+
 /// is the method name, and `args` are the JSON-converted positional args.
 pub fn dispatch(
     ctx: &Context,
@@ -1018,19 +1058,81 @@ fn temper_list(
         None => format!("/tdata/{entity_set}"),
     };
     let resp = http_get(ctx, api_url, tenant, &path)?;
-    Ok(resp.get("value").cloned().unwrap_or(resp))
+    let mut value = resp.get("value").cloned().unwrap_or(resp);
+    if let Some(items) = value.as_array_mut() {
+        for item in items.iter_mut() {
+            shape_entity_for_agent(item);
+        }
+    }
+    Ok(value)
 }
 
 fn temper_get(ctx: &Context, api_url: &str, tenant: &str, args: &[Value]) -> Result<Value, String> {
     let entity_set = str_arg(args, 0, "entity_set", "get")?;
     let entity_id = str_arg(args, 1, "entity_id", "get")?;
     let key = escape_odata_key(&entity_id);
-    http_get(
+    let mut entity = http_get(
         ctx,
         api_url,
         tenant,
         &format!("/tdata/{entity_set}('{key}')"),
-    )
+    )?;
+    shape_entity_for_agent(&mut entity);
+    Ok(entity)
+}
+
+/// Trim an entity payload to what an agent can act on. A raw OData read is
+/// ~24KB (measured on a DesignLanguage): ~12KB of full-prose action hints,
+/// ~3KB of processed idempotency keys, and event-sourcing bookkeeping — all
+/// resent in context on every later turn. Keep the data (fields, booleans,
+/// status, id) and the complete action LIST (names + targets — platform
+/// awareness stays intact); cap each hint to a sentence. Kernel bookkeeping
+/// the model can never use is dropped.
+fn shape_entity_for_agent(entity: &mut Value) {
+    const HINT_CAP: usize = 160;
+    let Some(obj) = entity.as_object_mut() else {
+        return;
+    };
+    for key in [
+        "processed_idempotency_keys",
+        "sequence_nr",
+        "total_event_count",
+        "events_since_snapshot",
+        "last_snapshot_sequence_nr",
+        "item_count",
+        "@odata.context",
+        "@odata.id",
+    ] {
+        obj.remove(key);
+    }
+    // Drop empty collections that carry no information.
+    for key in ["events", "lists", "counters", "@odata.children"] {
+        let empty = obj
+            .get(key)
+            .map(|v| {
+                v.as_array().map(|a| a.is_empty()).unwrap_or(false)
+                    || v.as_object().map(|m| m.is_empty()).unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if empty {
+            obj.remove(key);
+        }
+    }
+    if let Some(actions) = obj.get_mut("@odata.actions").and_then(Value::as_array_mut) {
+        for action in actions.iter_mut() {
+            if let Some(hint) = action.get_mut("hint") {
+                if let Some(text) = hint.as_str() {
+                    if text.len() > HINT_CAP {
+                        let mut cut = HINT_CAP;
+                        while cut > 0 && !text.is_char_boundary(cut) {
+                            cut -= 1;
+                        }
+                        *hint = Value::String(format!("{}…", &text[..cut]));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1141,12 +1243,73 @@ fn temper_action(
     let body =
         with_curation_job_action_parent(ctx, &entity_set, &action_name, obj_arg_or_empty(args, 3));
     let key = escape_odata_key(&entity_id);
-    http_post(
+    let result = http_post(
         ctx,
         api_url,
         tenant,
         &format!("/tdata/{entity_set}('{key}')/Temper.{action_name}"),
         &body,
+    );
+    match result {
+        Err(error)
+            if error.contains("Unknown action") || error.contains("not valid from state") =>
+        {
+            Err(enrich_action_error(
+                ctx,
+                api_url,
+                tenant,
+                &entity_set,
+                &key,
+                &action_name,
+                error,
+            ))
+        }
+        Ok(mut entity) => {
+            // Action responses embed the full entity plus its event history —
+            // the model only needs the resulting state.
+            if let Some(obj) = entity.as_object_mut() {
+                obj.remove("events");
+            }
+            shape_entity_for_agent(&mut entity);
+            Ok(entity)
+        }
+        other => other,
+    }
+}
+
+/// A wrong action name or wrong-state dispatch is a dead end for the model —
+/// smaller models respond to "Unknown action: X" by guessing another name.
+/// Turn the failure into a recovery path by appending the actions the entity
+/// actually offers right now.
+fn enrich_action_error(
+    ctx: &Context,
+    api_url: &str,
+    tenant: &str,
+    entity_set: &str,
+    key: &str,
+    action_name: &str,
+    error: String,
+) -> String {
+    let available = http_get(ctx, api_url, tenant, &format!("/tdata/{entity_set}('{key}')"))
+        .ok()
+        .and_then(|entity| {
+            entity.get("@odata.actions").and_then(|actions| {
+                actions.as_array().map(|list| {
+                    list.iter()
+                        .filter_map(|item| item.get("name").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+            })
+        })
+        .unwrap_or_default();
+    if available.is_empty() {
+        return format!(
+            "{error}\nDo not guess action names — call temper.get('{entity_set}', '{key}') and use only the actions listed under @odata.actions."
+        );
+    }
+    format!(
+        "{error}\n'{action_name}' is not available. Actions on {entity_set}('{key}') RIGHT NOW: {available}. temper.get('{entity_set}', '{key}') lists each action's exact name, params, and hint — use those, do not guess."
     )
 }
 
@@ -2974,7 +3137,12 @@ fn lazy_provision_sandbox(
     super::session::send_heartbeat(ctx, temper_api_url, tenant);
 
     // Create sandbox
-    let config = sandbox_config_from_fields(&fields);
+    let mut config = sandbox_config_from_fields(&fields);
+    let image_diag = sandbox::apply_sandbox_resource_overrides(&mut config, &ctx.config, &fields);
+    ctx.log(
+        if config.image.is_empty() { "warn" } else { "info" },
+        &format!("lazy_provision_sandbox: {image_diag}"),
+    );
     let handle = sandbox::sandbox_create(ctx, &provider, &config)?;
 
     // Poll for readiness (max 12 retries = ~60s)
@@ -3035,9 +3203,21 @@ fn lazy_provision_sandbox(
         }
     }
 
+    // The sandbox was created but never reported ready — destroy it so a
+    // retry provisions fresh instead of orphaning this one (it would finish
+    // booting later with nothing referencing it).
+    if let Err(error) = sandbox::sandbox_destroy(ctx, &handle) {
+        ctx.log(
+            "warn",
+            &format!(
+                "lazy_provision_sandbox: failed to destroy not-ready sandbox {}: {error}",
+                handle.sandbox_id
+            ),
+        );
+    }
     Err(format!(
-        "sandbox {} did not become ready within {max_checks} readiness checks. \
-         The sandbox may still be booting — try again in a moment.",
+        "sandbox {} did not become ready within {max_checks} readiness checks and was discarded. \
+         Call the tool again to provision a fresh one.",
         handle.sandbox_id
     ))
 }

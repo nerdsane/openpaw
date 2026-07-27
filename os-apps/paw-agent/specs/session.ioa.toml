@@ -213,6 +213,11 @@ type = "string"
 initial = "/workspace"
 
 [[state]]
+name = "tool_choice"
+type = "string"
+initial = ""
+
+[[state]]
 name = "tools_enabled"
 type = "string"
 initial = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,temper_image_generate,read,write,edit,bash"
@@ -336,6 +341,15 @@ initial = "0"
 
 [[state]]
 name = "compaction_auth_retry_count"
+type = "counter"
+initial = "0"
+
+# Bounds consecutive compaction rounds per session (ARN-280): when compaction
+# cannot get the context under budget, NeedsCompaction used to re-fire forever.
+# After the cap, NeedsCompaction is guarded off and PreparingContext's
+# state_timeout fails the session honestly instead of looping.
+[[state]]
+name = "compaction_round"
 type = "counter"
 initial = "0"
 
@@ -579,7 +593,7 @@ initial = "0"
 name = "Configure"
 kind = "input"
 from = ["Created"]
-params = ["system_prompt", "user_message", "model", "provider", "provider_options_json", "temperature", "max_turns", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "sandbox_networking_type", "sandbox_allowed_hosts_json", "sandbox_allow_mcp_servers", "sandbox_allow_package_managers", "sandbox_packages_json", "temper_api_url", "soul_id", "agent_id", "reply_channel_id", "reply_thread_id", "reply_channel_entity_id", "reply_channel_type", "reply_route_source", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_entries_materialized", "prepared_context_file_id", "prepared_context_inline_json", "system_prompt_hash", "system_prompt_file_id", "session_mode", "gen_ai_parent_trace_id", "gen_ai_parent_span_id"]
+params = ["system_prompt", "user_message", "model", "provider", "provider_options_json", "temperature", "max_turns", "tool_choice", "tools_enabled", "workdir", "sandbox_url", "sandbox_id", "sandbox_provider", "sandbox_networking_type", "sandbox_allowed_hosts_json", "sandbox_allow_mcp_servers", "sandbox_allow_package_managers", "sandbox_packages_json", "temper_api_url", "soul_id", "agent_id", "reply_channel_id", "reply_thread_id", "reply_channel_entity_id", "reply_channel_type", "reply_route_source", "parent_session_id", "session_depth", "max_follow_ups", "hook_policy", "reserve_tokens", "keep_recent_tokens", "compaction_model", "heartbeat_timeout_seconds", "project_harness_id", "project_id", "workspace_id", "conversation_file_id", "file_manifest_id", "session_file_id", "session_leaf_id", "session_entries_materialized", "prepared_context_file_id", "prepared_context_inline_json", "system_prompt_hash", "system_prompt_file_id", "session_mode", "gen_ai_parent_trace_id", "gen_ai_parent_span_id"]
 hint = "Configure session. Auto-provisions after configuration. Resume fields (workspace_id, conversation_file_id, session_file_id, session_leaf_id) are accepted so continuations carry prior conversation state. Optional reply route fields preserve channel delivery context for terminal replies; optional GenAI parent trace fields preserve inbound distributed trace context."
 effect = [{ type = "schedule", action = "ProvisionWorkspace", delay_seconds = 0 }]
 
@@ -650,6 +664,9 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 sandbox_url = "{secret:sandbox_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_cpus = "{secret:sandbox_cpus}"
+sandbox_memory_mb = "{secret:sandbox_memory_mb}"
+sandbox_image = "{secret:sandbox_image}"
 sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
@@ -853,6 +870,9 @@ on_failure = "Fail"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_cpus = "{secret:sandbox_cpus}"
+sandbox_memory_mb = "{secret:sandbox_memory_mb}"
+sandbox_image = "{secret:sandbox_image}"
 sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
@@ -909,8 +929,10 @@ kind = "input"
 from = ["PreparingContext"]
 to = "EnsuringCompactionAuth"
 params = ["input_tokens", "output_tokens", "context_tokens", "prepared_context_bytes", "prepared_context_entries_loaded", "prepared_context_content_files_loaded", "system_prompt_hash", "system_prompt_file_id"]
-hint = "Context preparation detected that the bounded context budget was exceeded. Ensure provider auth before compaction."
+guard = "compaction_round < 4"
+hint = "Context preparation detected that the bounded context budget was exceeded. Ensure provider auth before compaction. Guarded (ARN-280): after 4 rounds the session fails via the PreparingContext state_timeout instead of compacting forever."
 effect = [
+  { type = "increment", var = "compaction_round" },
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "trigger", name = "ensure_compaction_auth" }
@@ -1068,7 +1090,8 @@ hint = "No steering messages queued. Set result and complete."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # ADR-0046: inline trigger — migrated from [[integration]] below.
@@ -1096,6 +1119,22 @@ module = "emit_ots_trajectory"
 temper_api_url = "{secret:temper_api_url}"
 
 
+# Release the session's sandbox on terminal transitions so compute is never
+# leaked (sessions provision lazily; nothing else deletes the sandbox).
+# Best-effort inside the module — never fails the terminal transition.
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+
 [[action]]
 name = "FinalizeResultNoReply"
 kind = "input"
@@ -1105,8 +1144,22 @@ params = ["result", "conversation", "session_leaf_id", "pending_tool_calls", "pe
 hint = "Direct no-reply steering completion. Set result, complete, and emit trajectory without invoking reply delivery."
 effect = [
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
+
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
 
 
 [[action]]
@@ -1215,45 +1268,87 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json", "sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "RecordResultNoReply"
 kind = "input"
 from = ["ApplyingProviderResponse"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json", "sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Direct no-route Session complete. Set result and emit trajectory without invoking terminal reply delivery."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "RecordResultInlineReply"
 kind = "input"
 from = ["ApplyingProviderResponse"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json", "sandbox_url", "sandbox_id", "sandbox_provider"]
 hint = "Inline CLI/TUI reply already recorded on the Channel. Set result and emit trajectory without invoking terminal reply delivery."
 effect = [
   { type = "increment", var = "input_tokens" },
   { type = "increment", var = "output_tokens" },
   { type = "set_bool", var = "has_result", value = "true" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # --- Actions: Heartbeat + ProgressMade ---
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "Heartbeat"
@@ -1281,10 +1376,24 @@ params = ["error_message"]
 hint = "Session timed out — no heartbeat within timeout period."
 effect = [
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # --- Actions: Failure, Cancellation, Resume ---
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "Fail"
@@ -1295,8 +1404,22 @@ params = ["error_message"]
 hint = "Mark session run as failed."
 effect = [
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "Cancel"
@@ -1306,8 +1429,22 @@ to = "Cancelled"
 hint = "Cancel session execution."
 effect = [
   { type = "trigger", name = "deliver_reply" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "DeliveryFailed"
@@ -1344,10 +1481,24 @@ guard = "trajectory_retry_count < 1"
 hint = "Manually retry OTS emission once after a prior failure. Guarded to a single retry; further failures wait for Evolution Engine sweep."
 effect = [
   { type = "increment", var = "trajectory_retry_count" },
-  { type = "trigger", name = "emit_ots_trajectory" }
+  { type = "trigger", name = "emit_ots_trajectory" },
+  { type = "trigger", name = "release_sandbox" }
 ]
 
 # --- Actions: Session Recovery (ADR-0025) ---
+
+[[action.triggers]]
+name = "release_sandbox"
+kind = "wasm"
+module = "sandbox_provisioner"
+
+[action.triggers.config]
+mode = "release"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_api_key = "{secret:sandbox_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
 
 [[action]]
 name = "RecoverFromRestart"
@@ -1484,6 +1635,9 @@ on_failure = "Fail"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+sandbox_cpus = "{secret:sandbox_cpus}"
+sandbox_memory_mb = "{secret:sandbox_memory_mb}"
+sandbox_image = "{secret:sandbox_image}"
 sandbox_provider = "{secret:sandbox_provider}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"

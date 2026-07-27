@@ -6,6 +6,7 @@
 //! WASM-compatible throughout.
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 use temper_wasm_sdk::context::Context;
 
@@ -14,6 +15,12 @@ use crate::entity_field_str;
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/// Wall-clock budget for a single sandbox.bash execution. Long enough for
+/// headless-browser renders and multi-page screenshot batches; commands that
+/// outlive it are reported as exceeding the budget (and keep running in the
+/// sandbox) rather than silently killed.
+const EXEC_BUDGET_MS: i64 = 240_000;
 
 /// Handle to a provisioned sandbox. Carries provider so subsequent operations
 /// route to the correct backend.
@@ -27,6 +34,8 @@ pub struct SandboxHandle {
 pub struct SandboxConfig {
     pub cpus: u32,
     pub memory_mb: u32,
+    /// Registered provider image name to boot from ("" = provider default).
+    pub image: String,
     pub timeout_seconds: u32,
     pub internet_access: bool,
     pub networking_type: String,
@@ -41,6 +50,7 @@ impl Default for SandboxConfig {
         Self {
             cpus: 2,
             memory_mb: 4096,
+            image: String::new(),
             timeout_seconds: 3600,
             internet_access: true,
             networking_type: String::new(),
@@ -189,6 +199,82 @@ pub fn sandbox_config_from_fields(fields: &Value) -> SandboxConfig {
     }
 }
 
+/// Parse a positive integer resource override. Empty strings and unresolved
+/// `{secret:...}` templates (an unset vault secret) read as "no override".
+fn parse_resource_override(raw: Option<&str>) -> Option<u32> {
+    let value = raw?.trim();
+    if value.is_empty() || is_unresolved_secret(value) {
+        return None;
+    }
+    value.parse::<u32>().ok().filter(|v| *v >= 1)
+}
+
+/// Apply configurable sandbox resources. Providers cap per-sandbox resources
+/// differently (e.g. Tensorlake plans limit vCPUs), so the compiled defaults
+/// must be overridable without a rebuild: per-session entity fields
+/// (`sandbox_cpus` / `sandbox_memory_mb`) win, then tenant config (vault
+/// secrets of the same names, delivered via the trigger config), then the
+/// `SandboxConfig` defaults.
+pub fn apply_sandbox_resource_overrides(
+    config: &mut SandboxConfig,
+    ctx_config: &BTreeMap<String, String>,
+    fields: &Value,
+) -> String {
+    if let Some(cpus) =
+        parse_resource_override(entity_field_str(fields, &["sandbox_cpus", "SandboxCpus"])).or_else(
+            || parse_resource_override(ctx_config.get("sandbox_cpus").map(String::as_str)),
+        )
+    {
+        config.cpus = cpus;
+    }
+    if let Some(memory_mb) = parse_resource_override(entity_field_str(
+        fields,
+        &["sandbox_memory_mb", "SandboxMemoryMb"],
+    ))
+    .or_else(|| parse_resource_override(ctx_config.get("sandbox_memory_mb").map(String::as_str)))
+    {
+        config.memory_mb = memory_mb;
+    }
+    // Resolve the sandbox image with full diagnostics: image=None sandboxes
+    // shipped blind agents (the provider default image has no render stack),
+    // and the failure was silent — we could not tell WHICH source (entity
+    // field vs trigger config) was empty or carried an unresolved secret
+    // template. Every provision now logs the exact state of both sources.
+    let field_raw = entity_field_str(fields, &["sandbox_image", "SandboxImage"])
+        .map(str::trim)
+        .unwrap_or("");
+    let config_raw = ctx_config
+        .get("sandbox_image")
+        .map(String::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let describe = |raw: &str| -> String {
+        if raw.is_empty() {
+            "empty".to_string()
+        } else if is_unresolved_secret(raw) {
+            format!("UNRESOLVED template '{raw}'")
+        } else {
+            format!("'{raw}'")
+        }
+    };
+    if let Some(image) = [field_raw, config_raw]
+        .into_iter()
+        .find(|s| !s.is_empty() && !is_unresolved_secret(s))
+    {
+        config.image = image.to_string();
+    }
+    format!(
+        "sandbox image resolution: entity field {} | trigger config {} | using {}",
+        describe(field_raw),
+        describe(config_raw),
+        if config.image.is_empty() {
+            "PROVIDER DEFAULT (likely missing the render stack!)".to_string()
+        } else {
+            format!("'{}'", config.image)
+        }
+    )
+}
+
 fn sandbox_policy_payload(config: &SandboxConfig) -> Value {
     json!({
         "networking_type": config.networking_type,
@@ -218,6 +304,9 @@ fn tensorlake_create_body(config: &SandboxConfig) -> Value {
         "timeout_seconds": config.timeout_seconds,
         "internet_access": config.internet_access
     });
+    if !config.image.trim().is_empty() {
+        body["image"] = json!(config.image.trim());
+    }
 
     body["network"] = json!({
         "allow_internet_access": config.internet_access,
@@ -387,6 +476,66 @@ pub fn sandbox_health_check(ctx: &Context, handle: &SandboxHandle) -> Result<boo
             "",
         ),
     }
+    result
+}
+
+/// Destroy a sandbox via the provider's control plane. Best-effort by
+/// contract: callers releasing compute on session teardown must not fail the
+/// terminal transition over a destroy error — surface it in the Result and
+/// let the caller log it.
+pub fn sandbox_destroy(ctx: &Context, handle: &SandboxHandle) -> Result<(), String> {
+    let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
+    let result = match handle.provider.as_str() {
+        "tensorlake" => {
+            let url = format!(
+                "https://api.tensorlake.ai/sandboxes/{}",
+                handle.sandbox_id
+            );
+            let resp = ctx.http_call("DELETE", &url, &bearer_headers(&api_key), "")?;
+            // 404 means it already expired or was deleted — released either way.
+            if (200..300).contains(&resp.status) || resp.status == 404 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "tensorlake sandbox delete returned HTTP {}: {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ))
+            }
+        }
+        "modal" => {
+            let base = modal_base_url(ctx)?;
+            let url = modal_url(&base, "terminate", &api_key, "");
+            let body = json!({ "sandbox_id": handle.sandbox_id });
+            let resp = ctx.http_call(
+                "POST",
+                &url,
+                &[("content-type".to_string(), "application/json".to_string())],
+                &body.to_string(),
+            )?;
+            if (200..300).contains(&resp.status) || resp.status == 404 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "modal sandbox terminate returned HTTP {}: {}",
+                    resp.status,
+                    &resp.body[..resp.body.len().min(200)]
+                ))
+            }
+        }
+        other => Err(format!("unsupported sandbox provider: {other}")),
+    };
+    let outcome = if result.is_ok() { "success" } else { "error" };
+    log_sandbox_observability(
+        ctx,
+        &handle.provider,
+        "destroy",
+        outcome,
+        &handle.sandbox_id,
+        None,
+        None,
+        "",
+    );
     result
 }
 
@@ -752,7 +901,17 @@ fn tensorlake_create(
                 .unwrap_or("tensorlake-sandbox")
         })
         .to_string();
-    let sandbox_url = format!("https://{sandbox_id}.sandbox.tensorlake.ai");
+    // Prefer the data-plane URL the API returns — Tensorlake regionalized
+    // its sandbox domains (e.g. <id>.sandbox.gcp-use4.tensorlake.ai) and the
+    // legacy constructed hostname stopped resolving, which made every
+    // readiness check fail forever.
+    let sandbox_url = parsed
+        .get("sandbox_url")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("https://{sandbox_id}.sandbox.tensorlake.ai"));
 
     Ok(SandboxHandle {
         sandbox_url,
@@ -815,6 +974,33 @@ fn tensorlake_file_delete(
     Ok(())
 }
 
+/// Dispatch `ProgressMade` on the owning session so the Executing
+/// state_timeout is reset while a sandbox command is legitimately still
+/// running. Mirrors provider_caller's unguarded stream-progress dispatch.
+/// Best-effort: callers that are not Session entities get a harmless 404.
+fn signal_exec_progress(ctx: &Context) {
+    let fields = ctx
+        .entity_state
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let api_url = crate::resolve_temper_api_url(ctx, &fields);
+    let url = format!(
+        "{api_url}/tdata/Sessions('{}')/TemperPaw.ProgressMade",
+        ctx.entity_id
+    );
+    let body = json!({ "last_progress_at": Context::get_time_millis().to_string() });
+    let headers = crate::runtime_headers_as(
+        ctx,
+        &ctx.tenant,
+        &fields,
+        "system",
+        Some("application/json"),
+        None,
+    );
+    let _ = ctx.http_call("POST", &url, &headers, &body.to_string());
+}
+
 fn tensorlake_exec(
     ctx: &Context,
     api_key: &str,
@@ -827,7 +1013,16 @@ fn tensorlake_exec(
     let err_file = format!("/tmp/.paw-err-{run_id}");
     let rc_file = format!("/tmp/.paw-rc-{run_id}");
 
-    let wrapped = format!("({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}");
+    // Run the command from a script FILE, never as a bash -c argument:
+    // complex commands (large heredocs, heavy quoting) passed as process args
+    // hang at spawn on the data plane, while the identical script executed
+    // from a file runs instantly. This killed every in-session Playwright
+    // render and forced models to design blind. stdin is still redirected
+    // from /dev/null so nothing can block on it.
+    let cmd_file = format!("/tmp/.paw-cmd-{run_id}.sh");
+    tensorlake_file_write(ctx, api_key, sandbox_url, &cmd_file, command)?;
+    let wrapped =
+        format!("(bash {cmd_file}) < /dev/null > {out_file} 2> {err_file}; echo $? > {rc_file}");
 
     // Start process via Tensorlake data plane
     let body = json!({
@@ -844,12 +1039,19 @@ fn tensorlake_exec(
         return Err(format!("sandbox.bash(): start failed: {}", resp.body));
     }
 
-    // Poll for exit code file (network latency provides natural backoff)
+    // Wait for the exit-code file under a wall-clock budget. Completion is
+    // signaled by rc_file appearing. Between checks, block on a short
+    // in-sandbox waiter (POST /processes/run streams until the waiter exits,
+    // and the waiter exits the moment rc_file exists — at most ~20s per call,
+    // under the host HTTP timeout) so waiting is paced by the sandbox rather
+    // than by hammering the files endpoint. If /processes/run is unavailable
+    // the loop degrades to plain polling, still bounded by the same budget.
     let headers = bearer_headers(api_key);
     let rc_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file));
+    let started_ms = Context::get_time_millis();
     let mut exit_code: i64 = -1;
     let mut found = false;
-    for _ in 0..600 {
+    loop {
         if let Ok(r) = ctx.http_call("GET", &rc_url, &headers, "") {
             if r.status >= 200 && r.status < 300 {
                 exit_code = r.body.trim().parse::<i64>().unwrap_or(-1);
@@ -857,10 +1059,32 @@ fn tensorlake_exec(
                 break;
             }
         }
+        if Context::get_time_millis() - started_ms > EXEC_BUDGET_MS {
+            break;
+        }
+        let waiter = json!({
+            "command": "/bin/bash",
+            "args": ["-c", format!("for _ in $(seq 1 40); do [ -f {rc_file} ] && exit 0; sleep 0.5; done")],
+        });
+        let _ = ctx.http_call(
+            "POST",
+            &format!("{sandbox_url}/api/v1/processes/run"),
+            &bearer_headers_json(api_key),
+            &waiter.to_string(),
+        );
+        // The command is legitimately still running — reset the session's
+        // Executing state_timeout so the 300s no-progress watchdog does not
+        // kill a session that is waiting on real sandbox work. (The per-batch
+        // ProgressMade in monty_repl is gated behind a flag nothing sets, so
+        // without this signal any tool batch containing a long command dies.)
+        signal_exec_progress(ctx);
     }
 
     if !found {
-        return Err("sandbox.bash(): process timed out".to_string());
+        let waited_secs = (Context::get_time_millis() - started_ms) / 1000;
+        return Err(format!(
+            "sandbox.bash(): command exceeded the {waited_secs}s execution budget and was left running in the sandbox. Break the work into smaller commands, or write progress to a file and check it with a follow-up sandbox.bash call."
+        ));
     }
 
     // Read stdout and stderr
@@ -884,7 +1108,7 @@ fn tensorlake_exec(
         .unwrap_or_default();
 
     // Cleanup temp files (best effort)
-    for f in [&out_file, &err_file, &rc_file] {
+    for f in [&out_file, &err_file, &rc_file, &cmd_file] {
         let _ = ctx.http_call(
             "DELETE",
             &format!("{sandbox_url}/api/v1/files?path={}", url_encode(f)),
@@ -1263,10 +1487,60 @@ mod tests {
     }
 
     #[test]
+    fn test_sandbox_resource_overrides_fields_then_config_then_default() {
+        // Default when nothing configured.
+        let mut config = SandboxConfig::default();
+        apply_sandbox_resource_overrides(&mut config, &BTreeMap::new(), &json!({}));
+        assert_eq!(config.cpus, 2);
+        assert_eq!(config.memory_mb, 4096);
+
+        // Tenant config (vault via trigger config) overrides the default.
+        let mut config = SandboxConfig::default();
+        let mut ctx_config = BTreeMap::new();
+        ctx_config.insert("sandbox_cpus".to_string(), "1".to_string());
+        ctx_config.insert("sandbox_memory_mb".to_string(), "2048".to_string());
+        apply_sandbox_resource_overrides(&mut config, &ctx_config, &json!({}));
+        assert_eq!(config.cpus, 1);
+        assert_eq!(config.memory_mb, 2048);
+
+        // Per-session entity fields win over tenant config.
+        let mut config = SandboxConfig::default();
+        let fields = json!({"sandbox_cpus": "4", "SandboxMemoryMb": "16384"});
+        apply_sandbox_resource_overrides(&mut config, &ctx_config, &fields);
+        assert_eq!(config.cpus, 4);
+        assert_eq!(config.memory_mb, 16384);
+
+        // Image override: fields win, then ctx config; unresolved secrets ignored.
+        let mut config = SandboxConfig::default();
+        let mut img_cfg = BTreeMap::new();
+        img_cfg.insert("sandbox_image".to_string(), "katagami-render".to_string());
+        apply_sandbox_resource_overrides(&mut config, &img_cfg, &json!({}));
+        assert_eq!(config.image, "katagami-render");
+        let mut config = SandboxConfig::default();
+        apply_sandbox_resource_overrides(&mut config, &img_cfg, &json!({"sandbox_image": "per-session-img"}));
+        assert_eq!(config.image, "per-session-img");
+        let mut config = SandboxConfig::default();
+        let mut unresolved_img = BTreeMap::new();
+        unresolved_img.insert("sandbox_image".to_string(), "{secret:sandbox_image}".to_string());
+        apply_sandbox_resource_overrides(&mut config, &unresolved_img, &json!({}));
+        assert_eq!(config.image, "");
+
+        // Unresolved secret templates and garbage read as "no override".
+        let mut config = SandboxConfig::default();
+        let mut unresolved = BTreeMap::new();
+        unresolved.insert("sandbox_cpus".to_string(), "{secret:sandbox_cpus}".to_string());
+        unresolved.insert("sandbox_memory_mb".to_string(), "zero".to_string());
+        apply_sandbox_resource_overrides(&mut config, &unresolved, &json!({"sandbox_cpus": "0"}));
+        assert_eq!(config.cpus, 2);
+        assert_eq!(config.memory_mb, 4096);
+    }
+
+    #[test]
     fn test_tensorlake_create_body_includes_network_policy() {
         let config = SandboxConfig {
             cpus: 4,
             memory_mb: 8192,
+            image: String::new(),
             timeout_seconds: 7200,
             internet_access: true,
             networking_type: "Limited".to_string(),

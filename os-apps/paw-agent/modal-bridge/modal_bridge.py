@@ -46,6 +46,9 @@ sandbox_image = (
     .apt_install("curl", "git", "jq", "build-essential", *PLAYWRIGHT_APT_DEPS)
     .pip_install("playwright", "pillow")
     .run_commands("python -m playwright install chromium")
+    # /workspace baked into the image: a post-create mkdir exec cost ~1.2s of
+    # the bridged acquire path (measured 2026-07-23).
+    .run_commands("mkdir -p /workspace")
 )
 
 bridge_image = modal.Image.debian_slim(python_version="3.12").pip_install("fastapi[standard]")
@@ -160,7 +163,7 @@ def _write_policy_file(sb, body: dict):
     f.close()
 
 
-@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=600)
+@app.function(image=bridge_image, secrets=[modal.Secret.from_name("temperpaw-bridge-auth")], timeout=600, min_containers=1)
 @modal.concurrent(max_inputs=100)
 @modal.fastapi_endpoint(method="POST", label="temperpaw-sandbox-bridge-create")
 def create_sandbox(body: dict, authorization: str = ""):
@@ -183,8 +186,27 @@ def create_sandbox(body: dict, authorization: str = ""):
             timeout=body.get("timeout_seconds", 3600),
             app=app,
         )
-        _ensure_dir(sb, "/workspace")
-        _write_policy_file(sb, body)
+        # One combined post-create operation instead of two round-trips
+        # (mkdir exec + policy file write each cost ~1s; measured 2026-07-23,
+        # they dominated bridged acquire latency: 2.0s vs 0.16s native create).
+        policy = _sandbox_policy(body)
+        needs_policy = any(
+            [
+                policy["networking_type"],
+                policy["allowed_hosts"],
+                policy["allow_mcp_servers"],
+                policy["allow_package_managers"],
+                policy["packages"],
+            ]
+        )
+        if needs_policy:
+            script = (
+                "mkdir -p /workspace && cat > /workspace/.temperpaw-sandbox-config.json <<'TPWEOF'\n"
+                + json.dumps(policy, indent=2)
+                + "\nTPWEOF"
+            )
+            sb.exec("bash", "-c", script).wait()
+        # else: /workspace is baked into the sandbox image — no exec needed.
         _log_bridge_event(
             "create",
             "create",

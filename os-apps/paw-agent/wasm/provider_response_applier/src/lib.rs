@@ -517,6 +517,20 @@ fn extract_text_response(content: &Value) -> String {
 }
 
 fn should_check_steering(fields: &Value) -> bool {
+    // Typed sessions (tool_choice=required) must ALWAYS route a tool-less
+    // end_turn through steering_checker: it enforces the typed-completion
+    // protocol (nudge, then Fail) instead of letting the session silently
+    // "complete" without its typed completion — which hung the owning job
+    // forever and leaked the session's sandbox.
+    let tool_choice_required = fields
+        .get("tool_choice")
+        .and_then(Value::as_str)
+        .map(|s| s.eq_ignore_ascii_case("required"))
+        .unwrap_or(false);
+    if tool_choice_required {
+        return true;
+    }
+
     let max_follow_ups = field_i64(fields, "max_follow_ups").unwrap_or(5);
     if max_follow_ups <= 0 {
         return false;
