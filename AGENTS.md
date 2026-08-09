@@ -104,6 +104,16 @@ Coding agents MUST verify every implementation end-to-end before considering it 
 
 Do NOT rely solely on unit tests passing. If you cannot run it and see it work, it is not done. Hand over PR links, merge commits, deployment links, and live test results.
 
+## Linear Sync (Mandatory)
+
+Linear is the source of truth for work tracking. For TemperPaw work, agents must keep Linear synchronized at discovery, start, and completion.
+
+- Discovering an issue -> search Linear first. If a matching issue exists, update or append to it; do not create a duplicate. If none exists, create one in the right project with clear title, priority, labels, and context.
+- Starting work -> find the relevant Linear issue before implementation, add a start/progress comment, assign it to yourself when appropriate, and move it to In Progress. If no issue exists, create one only after a dedup search.
+- Completing work -> move the issue to Done only after attaching every artifact of the work: commits, PRs, proof reports, deployment links, and relevant verification notes. Record residual risks and follow-ups as linked issues.
+
+All updates must be additive: append comments, links, and findings without overwriting prior context. If Linear tools are unavailable, say so explicitly and do not claim sync happened.
+
 ## Root Cause & Operations
 
 - When something "keeps happening" or "didn't use to happen": find **what changed** (read the code, read Datadog), fix the root cause, and explain the causal story — why it started, what the fix is, how you verified. Never stack fixes on fixes.

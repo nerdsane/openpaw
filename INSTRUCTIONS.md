@@ -17,6 +17,14 @@ git clone https://github.com/nerdsane/temperpaw.git
 cd temperpaw
 ```
 
+Before setup or implementation work, sync with Linear:
+
+- Search Linear for an existing matching issue before creating anything new.
+- If an issue exists, append progress there instead of creating a duplicate.
+- When starting work, move the issue to In Progress and add a start comment.
+- When completing work, attach commits, PRs, proof reports, deployment links, and verification notes before moving the issue to Done.
+- If Linear tools are unavailable, say so explicitly and do not claim sync happened.
+
 ### 2. Configure
 
 Write a `.env` file with the human's API key. The key goes in `ANTHROPIC_API_KEY` regardless of provider — the platform detects the provider from the key prefix.
