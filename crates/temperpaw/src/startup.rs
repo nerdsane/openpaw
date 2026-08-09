@@ -3634,17 +3634,14 @@ fn normalize_legacy_workdir(current_workdir: &str) -> Option<String> {
     None
 }
 
-/// OData GET helper with tenant + admin auth headers.
+/// OData GET helper with deployment tenant and bearer authentication.
 async fn odata_get(
     client: &reqwest::Client,
     url: &str,
     tenant: &str,
     api_key: &Option<String>,
 ) -> Result<serde_json::Value> {
-    let mut req = client
-        .get(url)
-        .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin");
+    let mut req = client.get(url).header("x-tenant-id", tenant);
     if let Some(key) = api_key {
         req = req.header("authorization", format!("Bearer {key}"));
     }
@@ -3657,7 +3654,7 @@ async fn odata_get(
     serde_json::from_str(&body).context("Failed to parse JSON response")
 }
 
-/// OData POST helper with tenant + admin auth headers.
+/// OData POST helper with deployment tenant and bearer authentication.
 async fn odata_post(
     client: &reqwest::Client,
     url: &str,
@@ -3668,7 +3665,6 @@ async fn odata_post(
     let mut req = client
         .post(url)
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .header("content-type", "application/json")
         .json(&body);
     if let Some(key) = api_key {
@@ -3694,7 +3690,6 @@ async fn odata_put_bytes(
     let mut req = client
         .put(url)
         .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin")
         .header("content-type", content_type)
         .body(body);
     if let Some(key) = api_key {
@@ -3716,10 +3711,7 @@ async fn odata_get_text(
     tenant: &str,
     api_key: &Option<String>,
 ) -> Result<String> {
-    let mut req = client
-        .get(url)
-        .header("x-tenant-id", tenant)
-        .header("x-temper-principal-kind", "admin");
+    let mut req = client.get(url).header("x-tenant-id", tenant);
     if let Some(key) = api_key {
         req = req.header("authorization", format!("Bearer {key}"));
     }
