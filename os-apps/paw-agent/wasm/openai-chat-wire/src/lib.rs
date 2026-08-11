@@ -74,12 +74,18 @@ pub const TOKEN_SIGNAL_FIELDS: &[&str] = &[
     "logprobs",
 ];
 
+/// Signals that describe the prompt, which does not grow while the completion
+/// streams. Repeating them on every chunk is common, so they are set once and
+/// never concatenated — the completion-side signals are the ones that append.
+const SET_ONCE_TOKEN_SIGNALS: &[&str] = &["prompt_token_ids"];
+
 /// Merge any token-level RL signals found in `source` into `signals`.
 ///
-/// Signals accumulate across streamed chunks, because a chat-completions server
-/// emits them one delta at a time. Every field is normalized to the flat array
-/// the OTS contract requires: `logprobs` arrives from OpenAI-compatible servers
-/// as `{"content": [{"token": …, "logprob": …}]}` and is flattened to the bare
+/// Completion-side signals accumulate across streamed chunks, because a
+/// chat-completions server emits them one delta at a time; prompt-side signals
+/// are set once. Every field is normalized to the flat array the OTS contract
+/// requires: `logprobs` arrives from OpenAI-compatible servers as
+/// `{"content": [{"token": …, "logprob": …}]}` and is flattened to the bare
 /// logprob values. Shapes that cannot be normalized are ignored rather than
 /// guessed at.
 pub fn merge_token_signals(signals: &mut Option<Value>, source: &Value) {
@@ -99,6 +105,11 @@ pub fn merge_token_signals(signals: &mut Option<Value>, source: &Value) {
         let Some(map) = map.as_object_mut() else {
             return;
         };
+        if SET_ONCE_TOKEN_SIGNALS.contains(field) {
+            map.entry((*field).to_string())
+                .or_insert_with(|| Value::Array(incoming));
+            continue;
+        }
         map.entry((*field).to_string())
             .or_insert_with(|| Value::Array(Vec::new()));
         if let Some(existing) = map.get_mut(*field).and_then(Value::as_array_mut) {
@@ -201,7 +212,6 @@ impl ChatCompletionStreamAccumulator {
                 .unwrap_or(self.output_tokens);
             merge_token_signals(&mut self.token_signals, usage);
         }
-        merge_token_signals(&mut self.token_signals, &event);
 
         if let Some(choice) = event
             .get("choices")
@@ -649,6 +659,17 @@ mod tests {
         assert_eq!(signals["logprobs"], json!([-0.1, -0.2]));
         assert_eq!(signals["completion_token_ids"], json!([7, 8]));
         assert_eq!(signals["response_mask"], json!([1, 1]));
+    }
+
+    #[test]
+    fn merge_token_signals_sets_prompt_ids_once_instead_of_concatenating() {
+        // A server that repeats the prompt ids on every chunk must not end up
+        // with the prompt counted N times.
+        let mut signals = None;
+        for _ in 0..4 {
+            merge_token_signals(&mut signals, &json!({ "prompt_token_ids": [11, 12, 13] }));
+        }
+        assert_eq!(signals.unwrap()["prompt_token_ids"], json!([11, 12, 13]));
     }
 
     #[test]
