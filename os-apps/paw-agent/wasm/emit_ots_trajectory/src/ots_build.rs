@@ -835,14 +835,22 @@ fn is_f64_array(value: &Value) -> bool {
         .is_some_and(|items| items.iter().all(|item| item.as_f64().is_some()))
 }
 
+/// Prefix marking a `session_file_id` that points at SessionEntry rows rather
+/// than a TemperFS file. Mirrors `wasm_helpers::session_entries_ref`.
+const SESSION_ENTRIES_REF_PREFIX: &str = "session-entries:";
+
 fn file_resource(resources: &mut Vec<Value>, kind: &str, file_id: &str) {
     if file_id.is_empty() {
         return;
     }
-    resources.push(json!({
-        "type": kind,
-        "uri": format!("temperfs://Files('{file_id}')"),
-    }));
+    // The session tree is entity-backed in production, so its "file id" is a
+    // SessionEntries reference. Pointing a consumer at Files('session-entries:…')
+    // would send it somewhere that does not exist.
+    let uri = match file_id.strip_prefix(SESSION_ENTRIES_REF_PREFIX) {
+        Some(session_id) => format!("temper://SessionEntries?SessionId={session_id}"),
+        None => format!("temperfs://Files('{file_id}')"),
+    };
+    resources.push(json!({ "type": kind, "uri": uri }));
 }
 
 /// Assemble a complete `OTSTrajectory` JSON document.
@@ -1737,6 +1745,14 @@ mod tests {
                 .find(|r| r["type"] == "tool_spans")
                 .unwrap()["uri"],
             "temperfs://Files('file-spans-1')"
+        );
+        assert_eq!(
+            resources
+                .iter()
+                .find(|r| r["type"] == "session_tree")
+                .unwrap()["uri"],
+            "temper://SessionEntries?SessionId=ss-1",
+            "an entity-backed transcript must not be advertised as a TemperFS file"
         );
     }
 
