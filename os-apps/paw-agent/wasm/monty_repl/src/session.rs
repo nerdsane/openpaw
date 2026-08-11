@@ -378,6 +378,19 @@ const TOOL_SPAN_ARGUMENTS_MAX_CHARS: usize = 2_000;
 /// Ceiling on the whole tool-span document. Past this the session stops
 /// appending rather than paying an unbounded read-modify-write per tool batch.
 const TOOL_SPANS_FILE_MAX_BYTES: usize = 262_144;
+/// Reserved tool name marking a span document that hit the ceiling. The OTS
+/// emitter recognizes it and records the truncation instead of turning it into
+/// a decision.
+pub const TOOL_SPANS_TRUNCATED_MARKER: &str = "_tool_spans_truncated";
+/// The marker line, written once when the document seals.
+const TOOL_SPANS_TRUNCATED_LINE: &str = "{\"tool_call_id\":\"\",\"tool_name\":\"_tool_spans_truncated\",\"result\":\"tool span file size ceiling reached\",\"duration_ms\":0,\"is_error\":false}\n";
+
+/// True once the document has been sealed by a truncation marker. Checked
+/// against the tail so a sealed document is not rescanned end to end.
+fn tool_spans_document_sealed(document: &str) -> bool {
+    let tail_start = document.len().saturating_sub(TOOL_SPANS_TRUNCATED_LINE.len() + 2);
+    document[tail_start..].contains(TOOL_SPANS_TRUNCATED_MARKER)
+}
 
 fn truncate_span_chars(value: &str, max_chars: usize) -> String {
     let total = value.chars().count();
@@ -420,16 +433,14 @@ pub fn encode_tool_spans_jsonl(existing: &str, new_events: &[Value]) -> String {
             out.push('\n');
         }
     }
-    if out.len() >= TOOL_SPANS_FILE_MAX_BYTES {
+    if out.len() >= TOOL_SPANS_FILE_MAX_BYTES || tool_spans_document_sealed(&out) {
         return out;
     }
     for event in new_events {
         let line = serde_json::to_string(&compact_tool_span(event))
             .unwrap_or_else(|_| "{}".to_string());
         if out.len() + line.len() + 1 > TOOL_SPANS_FILE_MAX_BYTES {
-            out.push_str(
-                "{\"tool_call_id\":\"\",\"tool_name\":\"_tool_spans_truncated\",\"result\":\"tool span file size ceiling reached\",\"duration_ms\":0,\"is_error\":false}\n",
-            );
+            out.push_str(TOOL_SPANS_TRUNCATED_LINE);
             break;
         }
         out.push_str(&line);
@@ -1000,5 +1011,26 @@ mod tests {
         let existing = format!("{}\n", "x".repeat(TOOL_SPANS_FILE_MAX_BYTES));
         let out = encode_tool_spans_jsonl(&existing, &[json!({"tool_call_id": "next"})]);
         assert_eq!(out, existing, "a full document must not grow further");
+    }
+
+    #[test]
+    fn encode_tool_spans_jsonl_seals_the_document_once() {
+        let event = json!({
+            "tool_call_id": "a",
+            "tool_name": "temper.bash",
+            "arguments": "z".repeat(TOOL_SPAN_ARGUMENTS_MAX_CHARS),
+            "result": "w".repeat(TOOL_SPAN_RESULT_MAX_CHARS),
+            "duration_ms": 1,
+            "is_error": false,
+        });
+        let events: Vec<Value> = std::iter::repeat_n(event.clone(), 400).collect();
+        let sealed = encode_tool_spans_jsonl("", &events);
+        let markers = sealed.matches(TOOL_SPANS_TRUNCATED_MARKER).count();
+        assert_eq!(markers, 1);
+
+        // A later batch must not stack a second marker onto a sealed document.
+        let again = encode_tool_spans_jsonl(&sealed, &[event]);
+        assert_eq!(again, sealed);
+        assert_eq!(again.matches(TOOL_SPANS_TRUNCATED_MARKER).count(), 1);
     }
 }

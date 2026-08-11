@@ -537,8 +537,16 @@ pub fn span_to_decision(span: &Value) -> Value {
     build_decision(&call, None, Some(span))
 }
 
-/// Parse a tool-span JSONL document into span values keyed by tool_call_id,
-/// preserving execution order.
+/// Reserved tool name `monty_repl` writes when the span document hits its size
+/// ceiling. It marks an incomplete record, not a decision the agent made.
+pub const TOOL_SPANS_TRUNCATED_MARKER: &str = "_tool_spans_truncated";
+
+fn is_truncation_marker(span: &Value) -> bool {
+    span.get("tool_name").and_then(Value::as_str) == Some(TOOL_SPANS_TRUNCATED_MARKER)
+}
+
+/// Parse a tool-span JSONL document into span values, preserving execution
+/// order and dropping the truncation marker (reported separately).
 ///
 /// Invalid lines are skipped silently — tool-span persistence is best-effort and
 /// the emitter must not fail on a corrupted span.
@@ -548,7 +556,14 @@ pub fn parse_tool_spans(tool_spans_jsonl: &str) -> Vec<Value> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|span| !is_truncation_marker(span))
         .collect()
+}
+
+/// True when the span document was sealed at its size ceiling, so the decision
+/// record for this session is knowingly incomplete.
+pub fn tool_spans_truncated(tool_spans_jsonl: &str) -> bool {
+    tool_spans_jsonl.contains(TOOL_SPANS_TRUNCATED_MARKER)
 }
 
 /// Extract first and last event timestamps from the entity event log.
@@ -1151,6 +1166,12 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         "_session_turn_count": fields.get("turn_count").and_then(json_u64).unwrap_or(0),
     });
 
+    if tool_spans_truncated(tool_spans_jsonl) {
+        // The span document hit its ceiling, so some tool timings are missing.
+        // A consumer training on this must know the record is partial.
+        trajectory["_tool_spans_truncated"] = json!(true);
+    }
+
     if !resources.is_empty() {
         trajectory["context"] = json!({ "resources": resources });
     }
@@ -1717,6 +1738,22 @@ mod tests {
                 .unwrap()["uri"],
             "temperfs://Files('file-spans-1')"
         );
+    }
+
+    #[test]
+    fn build_trajectory_reports_a_sealed_span_document_without_faking_a_decision() {
+        let spans = concat!(
+            "{\"tool_call_id\":\"tc-a\",\"tool_name\":\"read\",\"result\":\"ok\",\"duration_ms\":1,\"is_error\":false}\n",
+            "{\"tool_call_id\":\"\",\"tool_name\":\"_tool_spans_truncated\",\"result\":\"tool span file size ceiling reached\",\"duration_ms\":0,\"is_error\":false}\n",
+        );
+        let fields = json!({ "user_message": "x", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, "", spans, &state, "Completed"));
+
+        assert_eq!(t["_tool_spans_truncated"], true);
+        let decisions = t["turns"][0]["decisions"].as_array().unwrap();
+        assert_eq!(decisions.len(), 1, "the marker must not become a decision");
+        assert_eq!(decisions[0]["decision_id"], "tc-a");
     }
 
     #[test]
