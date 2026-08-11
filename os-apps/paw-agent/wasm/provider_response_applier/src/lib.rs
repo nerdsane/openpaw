@@ -384,7 +384,7 @@ fn append_assistant_response_to_session_tree(
 
     let content = &response.content;
     let output_tokens = response.output_tokens.max(0) as usize;
-    let extra = assistant_turn_extra(response);
+    let extra = assistant_turn_extra(response, Context::get_time_millis());
     let extra = Some(&extra);
 
     if is_session_entries_ref(&prepared.session_file_id) {
@@ -501,15 +501,23 @@ fn append_assistant_response_to_session_tree(
     Ok(Some(new_leaf))
 }
 
+/// Ceiling on a single token-level signal array stored on a SessionEntry.
+///
+/// These arrays scale with completion length, and the entry's ExtraJson has its
+/// own overflow ceiling; a long completion's logprobs must not be what pushes a
+/// turn over it.
+const MAX_TOKEN_SIGNAL_BYTES: usize = 32_768;
+
 /// Per-turn facts recorded on the assistant SessionEntry.
 ///
 /// The OTS emitter reads these back to date each turn, report its prompt and
 /// completion token counts, and carry token-level RL signals when the serving
 /// stack produced them. Everything here is already in hand — recording it costs
-/// no extra provider or storage round trip.
-fn assistant_turn_extra(response: &ProviderResponseArtifact) -> Value {
+/// no extra provider or storage round trip. `now_ms` is passed in rather than
+/// read here so the mapping stays testable off-host.
+fn assistant_turn_extra(response: &ProviderResponseArtifact, now_ms: i64) -> Value {
     let mut extra = json!({
-        "ts_ms": Context::get_time_millis(),
+        "ts_ms": now_ms,
         "provider": response.provider,
         "model": response.model,
         "stop_reason": response.stop_reason,
@@ -526,6 +534,13 @@ fn assistant_turn_extra(response: &ProviderResponseArtifact) -> Value {
         && let Some(target) = extra.as_object_mut()
     {
         for (key, value) in signals {
+            let size = serde_json::to_string(&value).map(|json| json.len()).unwrap_or(0);
+            if size > MAX_TOKEN_SIGNAL_BYTES {
+                // Record that it existed and how big it was; a dropped signal
+                // that leaves a trace is debuggable, a silent one is not.
+                target.insert(format!("{key}_dropped_bytes"), json!(size));
+                continue;
+            }
             target.insert(key, value);
         }
     }
@@ -938,6 +953,73 @@ fn note_phase_budget_overrun_after_committed_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn artifact_with_signals(token_signals: Option<Value>) -> ProviderResponseArtifact {
+        ProviderResponseArtifact {
+            version: 1,
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            content: json!([{"type": "text", "text": "done"}]),
+            stop_reason: "end_turn".to_string(),
+            input_tokens: 120,
+            output_tokens: 34,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            request_bytes: 256,
+            response_bytes: 512,
+            token_signals,
+        }
+    }
+
+    #[test]
+    fn assistant_turn_extra_records_the_facts_the_emitter_needs() {
+        let extra = assistant_turn_extra(&artifact_with_signals(None), 1_767_225_600_000);
+        assert_eq!(extra["provider"], "anthropic");
+        assert_eq!(extra["model"], "claude-sonnet-4-6");
+        assert_eq!(extra["stop_reason"], "end_turn");
+        assert_eq!(extra["input_tokens"], 120);
+        assert_eq!(extra["output_tokens"], 34);
+        assert_eq!(extra["ts_ms"], 1_767_225_600_000_i64, "turns must be datable");
+        assert!(extra.get("logprobs").is_none());
+    }
+
+    #[test]
+    fn assistant_turn_extra_carries_token_signals_when_present() {
+        let extra = assistant_turn_extra(
+            &artifact_with_signals(Some(json!({
+                "logprobs": [-0.5, -1.25],
+                "completion_token_ids": [7, 8],
+            }))),
+            1_767_225_600_000,
+        );
+        assert_eq!(extra["logprobs"], json!([-0.5, -1.25]));
+        assert_eq!(extra["completion_token_ids"], json!([7, 8]));
+    }
+
+    #[test]
+    fn assistant_turn_extra_drops_oversized_token_signals() {
+        let huge: Vec<Value> = (0..MAX_TOKEN_SIGNAL_BYTES).map(|i| json!(i % 10)).collect();
+        let extra = assistant_turn_extra(
+            &artifact_with_signals(Some(json!({
+                "logprobs": huge,
+                "completion_token_ids": [1, 2, 3],
+            }))),
+            1_767_225_600_000,
+        );
+        assert!(
+            extra.get("logprobs").is_none(),
+            "an oversized signal must not be written to the entity"
+        );
+        assert!(
+            extra["logprobs_dropped_bytes"].as_u64().unwrap() > MAX_TOKEN_SIGNAL_BYTES as u64,
+            "the drop must leave a trace"
+        );
+        assert_eq!(
+            extra["completion_token_ids"],
+            json!([1, 2, 3]),
+            "a signal that fits still gets recorded"
+        );
+    }
 
     #[test]
     fn extracts_tool_calls_only() {
