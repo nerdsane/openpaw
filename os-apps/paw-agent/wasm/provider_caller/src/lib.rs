@@ -12,7 +12,7 @@
 
 use openai_chat_wire::{
     ChatCompletionStreamAccumulator, ChatStreamDelta, ChatStreamParseFailure,
-    build_chat_completion_body, convert_messages_to_chat, parse_headers_json,
+    build_chat_completion_body, convert_messages_to_chat, merge_token_signals, parse_headers_json,
 };
 #[cfg(test)]
 use openai_codex_wire::base64_url_no_pad;
@@ -69,6 +69,8 @@ struct LlmResponse {
     cache_creation_input_tokens: i64,
     request_bytes: usize,
     response_bytes: usize,
+    /// Token-level RL signals the serving stack returned, when it returned any.
+    token_signals: Option<Value>,
 }
 
 fn normalize_provider(provider: &str) -> String {
@@ -409,6 +411,8 @@ struct ParsedProviderStream {
     response_bytes: usize,
     semantic_deltas: Vec<LlmStreamDelta>,
     completed: bool,
+    /// Token-level RL signals the serving stack streamed, when it streamed any.
+    token_signals: Option<Value>,
 }
 
 impl ParsedProviderStream {
@@ -422,6 +426,7 @@ impl ParsedProviderStream {
             cache_creation_input_tokens: self.cache_creation_input_tokens,
             request_bytes,
             response_bytes: self.response_bytes,
+            token_signals: self.token_signals,
         }
     }
 }
@@ -555,6 +560,7 @@ struct OpenAiStreamAccumulator {
     streamed_text: String,
     saw_completed: bool,
     semantic_deltas: Vec<LlmStreamDelta>,
+    token_signals: Option<Value>,
 }
 
 impl OpenAiStreamAccumulator {
@@ -618,8 +624,10 @@ impl OpenAiStreamAccumulator {
             "response.completed" => {
                 self.saw_completed = true;
                 if let Some(resp) = event.get("response") {
+                    merge_token_signals(&mut self.token_signals, resp);
                     if let Some(usage) = resp.get("usage") {
                         self.usage = usage.clone();
+                        merge_token_signals(&mut self.token_signals, usage);
                     }
                     if let Some(out) = resp.get("output").and_then(Value::as_array)
                         && !out.is_empty()
@@ -685,6 +693,7 @@ impl OpenAiStreamAccumulator {
             response_bytes,
             semantic_deltas: self.semantic_deltas,
             completed: true,
+            token_signals: self.token_signals,
         })
     }
 }
@@ -1001,6 +1010,8 @@ impl AnthropicStreamAccumulator {
             response_bytes,
             semantic_deltas: self.semantic_deltas,
             completed: true,
+            // The Anthropic Messages stream carries no token ids or logprobs.
+            token_signals: None,
         })
     }
 }
@@ -1033,6 +1044,7 @@ struct OpenRouterStreamAccumulator {
     output_tokens: i64,
     saw_done: bool,
     semantic_deltas: Vec<LlmStreamDelta>,
+    token_signals: Option<Value>,
 }
 
 impl OpenRouterStreamAccumulator {
@@ -1061,6 +1073,7 @@ impl OpenRouterStreamAccumulator {
                 .and_then(Value::as_i64)
                 .or_else(|| usage.get("output_tokens").and_then(Value::as_i64))
                 .unwrap_or(self.output_tokens);
+            merge_token_signals(&mut self.token_signals, usage);
         }
 
         if let Some(choice) = event
@@ -1068,6 +1081,7 @@ impl OpenRouterStreamAccumulator {
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
         {
+            merge_token_signals(&mut self.token_signals, choice);
             if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
                 self.finish_reason = finish_reason.to_string();
             }
@@ -1165,6 +1179,7 @@ impl OpenRouterStreamAccumulator {
             response_bytes,
             semantic_deltas: self.semantic_deltas,
             completed: true,
+            token_signals: self.token_signals,
         })
     }
 }
@@ -2438,6 +2453,7 @@ fn call_openai_compatible_chat(
         cache_creation_input_tokens: 0,
         request_bytes: body_str.len(),
         response_bytes: parsed.response_bytes,
+        token_signals: parsed.token_signals,
     })
 }
 
@@ -3488,6 +3504,7 @@ fn build_mock_step_response(
             cache_creation_input_tokens: 0,
             request_bytes: 0,
             response_bytes: serialized_content.len(),
+            token_signals: None,
         });
     }
 
@@ -3516,6 +3533,7 @@ fn mock_text_response(messages: &[Value], text: String) -> LlmResponse {
         cache_creation_input_tokens: 0,
         request_bytes: 0,
         response_bytes: text.len(),
+        token_signals: None,
     }
 }
 
@@ -4037,6 +4055,7 @@ pub fn run_provider_caller() -> Result<(), String> {
         cache_creation_input_tokens: response.cache_creation_input_tokens,
         request_bytes: response.request_bytes,
         response_bytes: response.response_bytes,
+        token_signals: response.token_signals,
     };
     let artifact_json = serde_json::to_string(&artifact)
         .map_err(|e| format!("provider response artifact serialize: {e}"))?;

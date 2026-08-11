@@ -161,8 +161,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &temper_api_url,
                 tenant,
                 &fields,
-                &response.content,
-                response.output_tokens as usize,
+                &response,
             );
             emit_phase_step_duration(
                 &ctx,
@@ -208,8 +207,7 @@ pub fn run_provider_response_applier() -> Result<(), String> {
                 &temper_api_url,
                 tenant,
                 &fields,
-                &response.content,
-                response.output_tokens as usize,
+                &response,
             );
             emit_phase_step_duration(
                 &ctx,
@@ -378,12 +376,16 @@ fn append_assistant_response_to_session_tree(
     temper_api_url: &str,
     tenant: &str,
     fields: &Value,
-    content: &Value,
-    output_tokens: usize,
+    response: &ProviderResponseArtifact,
 ) -> Result<Option<String>, String> {
     if !prepared.use_session_tree {
         return Ok(None);
     }
+
+    let content = &response.content;
+    let output_tokens = response.output_tokens.max(0) as usize;
+    let extra = assistant_turn_extra(response);
+    let extra = Some(&extra);
 
     if is_session_entries_ref(&prepared.session_file_id) {
         if !session_entries_materialized(fields) {
@@ -399,6 +401,7 @@ fn append_assistant_response_to_session_tree(
                 &user_message,
                 content,
                 output_tokens,
+                extra,
             )?;
             ctx.log(
                 "info",
@@ -420,6 +423,7 @@ fn append_assistant_response_to_session_tree(
             "assistant",
             content,
             output_tokens,
+            extra,
         )?;
         return Ok(Some(created.entry_id));
     }
@@ -452,21 +456,27 @@ fn append_assistant_response_to_session_tree(
                     &content_file_id,
                     None,
                     output_tokens,
+                    extra,
                 );
                 (leaf, true)
             }
             Err(_) => {
-                let (leaf, _) = tree.append_assistant_message(
+                let (leaf, _) = tree.append_assistant_message_with_extra(
                     &prepared.session_leaf_id,
                     content,
                     output_tokens,
+                    extra,
                 );
                 (leaf, false)
             }
         }
     } else {
-        let (leaf, _) =
-            tree.append_assistant_message(&prepared.session_leaf_id, content, output_tokens);
+        let (leaf, _) = tree.append_assistant_message_with_extra(
+            &prepared.session_leaf_id,
+            content,
+            output_tokens,
+            extra,
+        );
         (leaf, false)
     };
 
@@ -489,6 +499,37 @@ fn append_assistant_response_to_session_tree(
         &tree.to_jsonl(),
     )?;
     Ok(Some(new_leaf))
+}
+
+/// Per-turn facts recorded on the assistant SessionEntry.
+///
+/// The OTS emitter reads these back to date each turn, report its prompt and
+/// completion token counts, and carry token-level RL signals when the serving
+/// stack produced them. Everything here is already in hand — recording it costs
+/// no extra provider or storage round trip.
+fn assistant_turn_extra(response: &ProviderResponseArtifact) -> Value {
+    let mut extra = json!({
+        "ts_ms": Context::get_time_millis(),
+        "provider": response.provider,
+        "model": response.model,
+        "stop_reason": response.stop_reason,
+        "input_tokens": response.input_tokens.max(0),
+        "output_tokens": response.output_tokens.max(0),
+    });
+    if response.cache_read_input_tokens > 0 {
+        extra["cache_read_input_tokens"] = json!(response.cache_read_input_tokens);
+    }
+    if response.cache_creation_input_tokens > 0 {
+        extra["cache_creation_input_tokens"] = json!(response.cache_creation_input_tokens);
+    }
+    if let Some(Value::Object(signals)) = response.token_signals.clone()
+        && let Some(target) = extra.as_object_mut()
+    {
+        for (key, value) in signals {
+            target.insert(key, value);
+        }
+    }
+    extra
 }
 
 fn extract_tool_calls(content: &Value) -> Vec<Value> {
@@ -1131,6 +1172,7 @@ mod tests {
             cache_creation_input_tokens: 0,
             request_bytes: 256,
             response_bytes: 512,
+            token_signals: None,
         };
 
         assert!(legacy_updated_conversation_payload(&prepared, &artifact).is_none());
@@ -1168,6 +1210,7 @@ mod tests {
             cache_creation_input_tokens: 0,
             request_bytes: 256,
             response_bytes: 512,
+            token_signals: None,
         };
 
         let payload = legacy_updated_conversation_payload(&prepared, &artifact)

@@ -866,7 +866,11 @@ max_sync_file_bytes = "61440"
 max_sync_files = "64"
 sync_exclude = "__pycache__,node_modules,.git,.next,dist,build,target,coverage,venv,.venv"
 normal_repl_state_max_bytes = "524288"
-persist_tool_spans_file = "false"
+# Tool spans are the only record of tool-call wall-clock time and the input the
+# OTS emitter needs to complete each decision. Disabling this leaves every
+# stored trajectory with an empty decisions array (ARN-109). The span document
+# is compacted and size-capped in monty_repl, so the cost stays bounded.
+persist_tool_spans_file = "true"
 dd_api_key = "{secret:dd_api_key}"
 dd_app_key = "{secret:dd_app_key}"
 dd_site = "{secret:dd_site}"
@@ -1094,6 +1098,11 @@ module = "emit_ots_trajectory"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+# Identity of the spec this run executed under, emitted as
+# OTSMetadata.spec_version. The WASM guest context exposes no spec hash, so the
+# identity travels with the spec that declares it; `ots_trajectory_contract`
+# pins this literal to os-apps/paw-agent/app.toml so it cannot drift.
+spec_version = "paw-agent@0.1.0"
 
 
 [[action]]

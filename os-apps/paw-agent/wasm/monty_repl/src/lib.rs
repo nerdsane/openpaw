@@ -1229,11 +1229,24 @@ fn normal_repl_state_max_bytes(ctx: &Context) -> usize {
     }
 }
 
+/// Whether to persist this batch's tool spans to the session's span file.
+///
+/// Defaults to ON. The spans are the only record of tool-call wall-clock time,
+/// and the OTS emitter reads them to complete each decision — a missing config
+/// key silently emptying every stored trajectory (exactly what happened in
+/// production, ARN-109) is a worse failure than the write cost, which is
+/// bounded by `session::encode_tool_spans_jsonl`. Set the key to a false-y
+/// value to opt a deployment out.
 fn persist_tool_spans_file(ctx: &Context) -> bool {
     ctx.config
         .get("persist_tool_spans_file")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
+        })
+        .unwrap_or(true)
 }
 
 fn attach_llmobs_tool_spans(params: &mut Value, tool_span_events: &[Value]) {

@@ -59,6 +59,75 @@ pub struct ParsedChatCompletion {
     pub response_bytes: usize,
     pub semantic_deltas: Vec<ChatStreamDelta>,
     pub completed: bool,
+    /// Token-level RL signals the serving stack streamed alongside the text
+    /// (`logprobs`, `prompt_token_ids`, `completion_token_ids`,
+    /// `response_mask`). `None` unless the server actually sent them — the
+    /// caller never requests a second round trip to obtain them.
+    pub token_signals: Option<Value>,
+}
+
+/// Token-level RL signal field names, in the shape OTS turns use.
+pub const TOKEN_SIGNAL_FIELDS: &[&str] = &[
+    "prompt_token_ids",
+    "completion_token_ids",
+    "response_mask",
+    "logprobs",
+];
+
+/// Merge any token-level RL signals found in `source` into `signals`.
+///
+/// Signals accumulate across streamed chunks, because a chat-completions server
+/// emits them one delta at a time. Every field is normalized to the flat array
+/// the OTS contract requires: `logprobs` arrives from OpenAI-compatible servers
+/// as `{"content": [{"token": …, "logprob": …}]}` and is flattened to the bare
+/// logprob values. Shapes that cannot be normalized are ignored rather than
+/// guessed at.
+pub fn merge_token_signals(signals: &mut Option<Value>, source: &Value) {
+    for field in TOKEN_SIGNAL_FIELDS {
+        let Some(raw) = source.get(*field) else {
+            continue;
+        };
+        let incoming = if *field == "logprobs" {
+            normalize_logprobs(raw)
+        } else {
+            raw.as_array().cloned()
+        };
+        let Some(incoming) = incoming.filter(|items| !items.is_empty()) else {
+            continue;
+        };
+        let map = signals.get_or_insert_with(|| Value::Object(Map::new()));
+        let Some(map) = map.as_object_mut() else {
+            return;
+        };
+        map.entry((*field).to_string())
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if let Some(existing) = map.get_mut(*field).and_then(Value::as_array_mut) {
+            existing.extend(incoming);
+        }
+    }
+}
+
+/// Flatten an OpenAI-compatible `logprobs` payload to bare logprob values.
+fn normalize_logprobs(raw: &Value) -> Option<Vec<Value>> {
+    if let Some(items) = raw.as_array() {
+        if items.iter().all(Value::is_number) {
+            return Some(items.clone());
+        }
+        return Some(
+            items
+                .iter()
+                .filter_map(|item| item.get("logprob").filter(|v| v.is_number()).cloned())
+                .collect(),
+        );
+    }
+    raw.get("content")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("logprob").filter(|v| v.is_number()).cloned())
+                .collect()
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +167,7 @@ pub struct ChatCompletionStreamAccumulator {
     output_tokens: i64,
     saw_done: bool,
     semantic_deltas: Vec<ChatStreamDelta>,
+    token_signals: Option<Value>,
 }
 
 impl ChatCompletionStreamAccumulator {
@@ -129,13 +199,16 @@ impl ChatCompletionStreamAccumulator {
                 .and_then(Value::as_i64)
                 .or_else(|| usage.get("output_tokens").and_then(Value::as_i64))
                 .unwrap_or(self.output_tokens);
+            merge_token_signals(&mut self.token_signals, usage);
         }
+        merge_token_signals(&mut self.token_signals, &event);
 
         if let Some(choice) = event
             .get("choices")
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
         {
+            merge_token_signals(&mut self.token_signals, choice);
             if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
                 self.finish_reason = finish_reason.to_string();
             }
@@ -197,6 +270,7 @@ impl ChatCompletionStreamAccumulator {
             response_bytes,
             semantic_deltas: self.semantic_deltas,
             completed: true,
+            token_signals: self.token_signals,
         })
     }
 }
@@ -546,6 +620,75 @@ fn map_from_pairs(pairs: &[(String, String)]) -> Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_token_signals_flattens_openai_logprobs() {
+        let mut signals = None;
+        merge_token_signals(
+            &mut signals,
+            &json!({
+                "logprobs": { "content": [
+                    {"token": "he", "logprob": -0.25},
+                    {"token": "llo", "logprob": -1.5}
+                ]}
+            }),
+        );
+        assert_eq!(signals.unwrap()["logprobs"], json!([-0.25, -1.5]));
+    }
+
+    #[test]
+    fn merge_token_signals_accumulates_across_chunks() {
+        let mut signals = None;
+        merge_token_signals(&mut signals, &json!({ "logprobs": [-0.1] }));
+        merge_token_signals(&mut signals, &json!({ "logprobs": [-0.2] }));
+        merge_token_signals(
+            &mut signals,
+            &json!({ "completion_token_ids": [7, 8], "response_mask": [1, 1] }),
+        );
+        let signals = signals.unwrap();
+        assert_eq!(signals["logprobs"], json!([-0.1, -0.2]));
+        assert_eq!(signals["completion_token_ids"], json!([7, 8]));
+        assert_eq!(signals["response_mask"], json!([1, 1]));
+    }
+
+    #[test]
+    fn merge_token_signals_stays_none_for_providers_that_send_nothing() {
+        let mut signals = None;
+        merge_token_signals(
+            &mut signals,
+            &json!({ "usage": {"prompt_tokens": 10}, "logprobs": null }),
+        );
+        assert!(signals.is_none());
+    }
+
+    #[test]
+    fn chat_stream_accumulator_captures_streamed_logprobs() {
+        let mut accumulator = ChatCompletionStreamAccumulator::default();
+        accumulator
+            .ingest_data(
+                r#"{"choices":[{"delta":{"content":"hi"},"logprobs":{"content":[{"token":"hi","logprob":-0.5}]}}]}"#,
+            )
+            .expect("chunk parses");
+        accumulator
+            .ingest_data(
+                r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"prompt_token_ids":[11,12,13]}}"#,
+            )
+            .expect("final chunk parses");
+        let parsed = accumulator.finalize(128).expect("stream finalizes");
+        let signals = parsed.token_signals.expect("signals captured");
+        assert_eq!(signals["logprobs"], json!([-0.5]));
+        assert_eq!(signals["prompt_token_ids"], json!([11, 12, 13]));
+    }
+
+    #[test]
+    fn chat_stream_accumulator_leaves_signals_absent_without_them() {
+        let mut accumulator = ChatCompletionStreamAccumulator::default();
+        accumulator
+            .ingest_data(r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#)
+            .expect("chunk parses");
+        let parsed = accumulator.finalize(64).expect("stream finalizes");
+        assert!(parsed.token_signals.is_none());
+    }
 
     #[test]
     fn builds_chat_body_and_merges_safe_provider_options() {

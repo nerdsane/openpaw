@@ -48,6 +48,7 @@ pub struct CreatedSessionEntry {
     pub entry_id: String,
 }
 
+#[derive(Clone, Copy)]
 struct SessionEntryCreateSpec<'a> {
     session_id: &'a str,
     entry_id: &'a str,
@@ -282,6 +283,11 @@ pub fn create_session_entry(
     extra_json: Option<&Value>,
     tokens: usize,
 ) -> Result<CreatedSessionEntry, String> {
+    // Every entry carries its own wall-clock stamp. The entity event log is a
+    // hot tail (older events vanish at snapshot boundaries), so it cannot be
+    // trusted to date turns in a long session; the entry can.
+    let extra_json = stamp_recorded_at(extra_json, Context::get_time_millis());
+    let extra_json = Some(&extra_json);
     let spec = SessionEntryCreateSpec {
         session_id,
         entry_id,
@@ -397,6 +403,7 @@ pub fn materialize_initial_session_entries_with_assistant(
     user_message: &str,
     assistant_content: &Value,
     assistant_tokens: usize,
+    assistant_extra_json: Option<&Value>,
 ) -> Result<CreatedSessionEntry, String> {
     let user_entry_id = format!("u-{session_id}-0");
     let (assistant_entry_id, assistant_sequence) = next_session_entry_id("a", &user_entry_id);
@@ -425,7 +432,7 @@ pub fn materialize_initial_session_entries_with_assistant(
             content: Some(assistant_content),
             content_file_id: None,
             content_file_version_id: None,
-            extra_json: None,
+            extra_json: assistant_extra_json,
             tokens: assistant_tokens,
         },
     ];
@@ -473,10 +480,21 @@ fn create_session_entry_batch(
         Some("application/json"),
     );
     let create_url = format!("{temper_api_url}/tdata/SessionEntries");
+    // Same wall-clock stamp as the single-entry path — see create_session_entry.
+    let now_ms = Context::get_time_millis();
+    let stamped: Vec<Value> = specs
+        .iter()
+        .map(|spec| stamp_recorded_at(spec.extra_json, now_ms))
+        .collect();
     let create_requests = specs
         .iter()
-        .map(|spec| {
-            let body = session_entry_create_body(spec)?;
+        .zip(stamped.iter())
+        .map(|(spec, extra_json)| {
+            let spec = SessionEntryCreateSpec {
+                extra_json: Some(extra_json),
+                ..*spec
+            };
+            let body = session_entry_create_body(&spec)?;
             Ok(HttpRequest {
                 method: "POST".to_string(),
                 url: create_url.clone(),
@@ -615,6 +633,22 @@ fn verify_session_entries(
     Err(format!(
         "{label} entries acknowledged but read-back missed after {VERIFY_ATTEMPTS} attempts: SessionId={session_id}"
     ))
+}
+
+/// Add `ts_ms` to a SessionEntry's extra JSON without disturbing what the
+/// caller already put there. An explicit `ts_ms` from the caller wins.
+fn stamp_recorded_at(extra_json: Option<&Value>, now_ms: i64) -> Value {
+    let mut extra = match extra_json {
+        Some(Value::Object(map)) => Value::Object(map.clone()),
+        Some(other) if !other.is_null() => json!({ "extra": other.clone() }),
+        _ => json!({}),
+    };
+    if let Some(object) = extra.as_object_mut()
+        && !object.contains_key("ts_ms")
+    {
+        object.insert("ts_ms".to_string(), json!(now_ms));
+    }
+    extra
 }
 
 fn session_entry_create_body(spec: &SessionEntryCreateSpec<'_>) -> Result<Value, String> {
@@ -780,6 +814,13 @@ fn session_entry_verify_response_visible(body: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Append one SessionEntry under `parent_entry_id`.
+///
+/// `extra_json` carries per-turn facts the OTS emitter needs later (provider,
+/// model, stop reason, usage, token-level RL signals). It is merged into the
+/// entry's ExtraJson alongside the wall-clock stamp; pass `None` when the
+/// caller has nothing to add.
+#[allow(clippy::too_many_arguments)]
 pub fn append_session_entry_inline(
     ctx: &Context,
     temper_api_url: &str,
@@ -791,6 +832,7 @@ pub fn append_session_entry_inline(
     role: &str,
     content: &Value,
     tokens: usize,
+    extra_json: Option<&Value>,
 ) -> Result<CreatedSessionEntry, String> {
     let session_id = session_id_from_entries_ref(session_ref)
         .ok_or("append_session_entry_inline requires session-entries:<session_id> ref")?;
@@ -812,7 +854,7 @@ pub fn append_session_entry_inline(
         Some(content),
         None,
         None,
-        None,
+        extra_json,
         tokens,
     )
 }
@@ -2267,6 +2309,32 @@ mod tests {
         assert_eq!(lines[1000]["id"], "a-1000");
         assert_eq!(lines[1005]["id"], "u-1005");
         assert_eq!(lines[1005]["parentId"], "a-1004");
+    }
+
+    #[test]
+    fn stamp_recorded_at_adds_wall_clock_to_every_entry() {
+        let stamped = stamp_recorded_at(None, 1_767_225_600_000);
+        assert_eq!(stamped["ts_ms"], 1_767_225_600_000_i64);
+
+        let existing = json!({ "version": 1 });
+        let stamped = stamp_recorded_at(Some(&existing), 42);
+        assert_eq!(stamped["version"], 1, "caller extras must survive");
+        assert_eq!(stamped["ts_ms"], 42);
+    }
+
+    #[test]
+    fn stamp_recorded_at_preserves_an_explicit_timestamp() {
+        let existing = json!({ "ts_ms": 7 });
+        let stamped = stamp_recorded_at(Some(&existing), 99);
+        assert_eq!(stamped["ts_ms"], 7, "an explicit stamp is authoritative");
+    }
+
+    #[test]
+    fn stamp_recorded_at_wraps_non_object_extras() {
+        let existing = json!("legacy");
+        let stamped = stamp_recorded_at(Some(&existing), 5);
+        assert_eq!(stamped["extra"], "legacy");
+        assert_eq!(stamped["ts_ms"], 5);
     }
 
     #[test]
