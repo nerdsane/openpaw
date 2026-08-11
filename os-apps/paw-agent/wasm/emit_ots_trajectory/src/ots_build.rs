@@ -1836,6 +1836,85 @@ mod tests {
         assert_eq!(t["turns"][0]["timestamp"], "2026-03-01T00:00:09Z");
     }
 
+    /// The wire contract with the kernel. If a field name or type drifts, the
+    /// POST at `/api/ots/trajectories` stores a row that no consumer can read;
+    /// this catches it at build time instead.
+    #[test]
+    fn build_trajectory_deserializes_as_a_kernel_ots_trajectory() {
+        use temper_ots::models::{ContentType, DecisionType, MessageRole, OTSTrajectory, OutcomeType};
+
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"arguments\":\"{}\",\"result\":\"src/lib.rs:12: TODO\",\"duration_ms\":137,\"is_error\":false}\n";
+        let state = entity_state_with_events();
+        let document = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        let trajectory: OTSTrajectory = serde_json::from_value(document)
+            .expect("emitted document must deserialize as the kernel OTSTrajectory");
+
+        assert_eq!(trajectory.trajectory_id, "trj-ss-1");
+        assert_eq!(trajectory.version, OTS_VERSION);
+        assert_eq!(trajectory.metadata.outcome, OutcomeType::Success);
+        assert_eq!(trajectory.metadata.agent_id, "aj-1");
+        assert_eq!(trajectory.metadata.framework.as_deref(), Some("temperpaw"));
+        assert_eq!(trajectory.turns.len(), 2);
+
+        let first = &trajectory.turns[0];
+        assert_eq!(first.turn_id, 1);
+        assert_eq!(first.messages.len(), 2);
+        assert_eq!(first.messages[0].role, MessageRole::User);
+        assert_eq!(first.messages[1].role, MessageRole::Assistant);
+        assert_eq!(first.messages[1].content.content_type, ContentType::ToolCall);
+        assert_eq!(
+            first.messages[1].reasoning.as_deref(),
+            Some("I should grep first")
+        );
+        assert_eq!(first.decisions.len(), 1);
+        assert_eq!(first.decisions[0].decision_id, "tc-1");
+        assert_eq!(first.decisions[0].decision_type, DecisionType::ToolSelection);
+        assert_eq!(first.decisions[0].choice.action, "temper.bash");
+        assert!(first.decisions[0].consequence.success);
+        assert_eq!(first.duration_ms, Some(137.0));
+
+        let second = &trajectory.turns[1];
+        assert_eq!(second.turn_id, 2);
+        assert_eq!(second.messages[0].role, MessageRole::Tool);
+        assert_eq!(
+            second.messages[0].content.content_type,
+            ContentType::ToolResponse
+        );
+
+        // Session artifacts survive as context resources rather than payloads.
+        assert!(
+            trajectory
+                .context
+                .resources
+                .iter()
+                .any(|resource| resource.resource_type == "tool_spans"),
+            "tool span file must be referenced in the trajectory context"
+        );
+    }
+
+    /// Terminal states other than success have to survive the same round trip —
+    /// a failed run is training signal, not a row the consumer can skip.
+    #[test]
+    fn failed_and_cancelled_trajectories_also_deserialize() {
+        use temper_ots::models::{OTSTrajectory, OutcomeType};
+
+        let fields = json!({ "user_message": "x", "has_result": false });
+        let state = entity_state_with_events();
+        for (status, expected) in [
+            ("Failed", OutcomeType::Failure),
+            ("Cancelled", OutcomeType::PartialSuccess),
+        ] {
+            let document = build_trajectory(&inputs(&fields, "", "", &state, status));
+            let trajectory: OTSTrajectory = serde_json::from_value(document)
+                .unwrap_or_else(|err| panic!("{status} document must deserialize: {err}"));
+            assert_eq!(trajectory.metadata.outcome, expected);
+            assert_eq!(trajectory.turns.len(), 1);
+        }
+    }
+
     #[test]
     fn build_trajectory_bounds_oversized_tool_arguments() {
         let big_argument = "z".repeat(MAX_ARGUMENTS_CHARS * 2);
