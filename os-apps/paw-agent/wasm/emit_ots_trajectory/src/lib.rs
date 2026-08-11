@@ -7,9 +7,13 @@
 
 use serde_json::json;
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::{entity_field_str, resolve_temper_api_url, runtime_headers};
+use wasm_helpers::{
+    entity_field_str, read_session_from_temperfs, resolve_temper_api_url, runtime_headers,
+};
 
 mod ots_build;
+
+use ots_build::TrajectoryInputs;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -57,15 +61,48 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let tool_spans_jsonl =
             read_temperfs_file_safe(&ctx, &temper_api_url, &tenant, tool_spans_file_id)?;
 
-        let trajectory = ots_build::build_trajectory(
-            &trajectory_id,
-            &session_id,
-            &agent_id,
-            &status,
-            &fields,
-            &tool_spans_jsonl,
-            &ctx.entity_state,
-        );
+        // The transcript is the source of real turn boundaries. A read failure
+        // degrades the trajectory to spans-only rather than losing the emission.
+        let session_file_id = fields
+            .get("session_file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let session_jsonl = if session_file_id.is_empty() {
+            String::new()
+        } else {
+            match read_session_from_temperfs(
+                &ctx,
+                &temper_api_url,
+                &tenant,
+                &fields,
+                session_file_id,
+            ) {
+                Ok(jsonl) => jsonl,
+                Err(error) => {
+                    ctx.log(
+                        "warn",
+                        &format!(
+                            "emit_ots_trajectory: session transcript read failed for {session_id}; emitting spans-only trajectory: {error}"
+                        ),
+                    );
+                    String::new()
+                }
+            }
+        };
+
+        let spec_version = resolve_spec_version(&ctx);
+
+        let trajectory = ots_build::build_trajectory(&TrajectoryInputs {
+            trajectory_id: &trajectory_id,
+            session_id: &session_id,
+            agent_id: &agent_id,
+            status: &status,
+            fields: &fields,
+            session_jsonl: &session_jsonl,
+            tool_spans_jsonl: &tool_spans_jsonl,
+            entity_state: &ctx.entity_state,
+            spec_version: &spec_version,
+        });
 
         let body = trajectory.to_string();
         let url = format!("{temper_api_url}/api/ots/trajectories");
@@ -126,6 +163,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&error);
     }
     0
+}
+
+/// Identity of the actor spec this run executed under.
+///
+/// The WASM guest context carries no spec hash (`temper-wasm-sdk::Context`
+/// exposes config, trigger params, entity state and ids only — see ADR-0035
+/// decision section 9), so the governing identity is declared in the spec's own
+/// trigger config as `<app>@<version>` and travels with the spec that declares
+/// it. A repo contract test keeps that literal pinned to `app.toml`.
+fn resolve_spec_version(ctx: &Context) -> String {
+    ctx.config
+        .get("spec_version")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
 }
 
 fn read_temperfs_file_safe(
