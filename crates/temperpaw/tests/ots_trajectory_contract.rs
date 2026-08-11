@@ -204,6 +204,104 @@ fn emitter_keeps_trajectory_id_idempotency() {
     }
 }
 
+/// A trajectory is written once and marked emitted. Emitting one built from a
+/// transcript the emitter could not read stores a permanently incomplete row
+/// that retry will never repair, so an unreadable transcript has to fail the
+/// emission instead of degrading it.
+#[test]
+fn emitter_fails_closed_when_the_transcript_cannot_be_read() {
+    let lib = fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/emit_ots_trajectory/src/lib.rs"),
+    )
+    .expect("emit_ots_trajectory lib.rs should exist");
+
+    let read_call = lib
+        .find("match read_session_from_temperfs(")
+        .expect("the emitter must read the session transcript");
+    let error_arm = lib[read_call..]
+        .find("Err(error) => {")
+        .map(|offset| read_call + offset)
+        .expect("the transcript read must handle its error case");
+    let arm = &lib[error_arm..];
+    let arm = &arm[..arm.find("\n        };").unwrap_or(arm.len())];
+
+    assert!(
+        arm.contains("TrajectoryEmissionFailed"),
+        "an unreadable transcript must record a failed emission, not a partial trajectory"
+    );
+    assert!(
+        arm.contains("return Ok(())"),
+        "an unreadable transcript must stop before the POST"
+    );
+    assert!(
+        !arm.contains("String::new()"),
+        "substituting an empty transcript stores a spans-only row that is marked \
+         emitted and therefore never repaired"
+    );
+}
+
+/// Tool-call ids are unique only within a turn: providers that omit them get
+/// synthetic ones that restart at every response. Anything keyed on them across
+/// a session collapses two calls into one.
+#[test]
+fn tool_call_ids_survive_provider_fallbacks() {
+    let wire = fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs"),
+    )
+    .expect("openai-chat-wire lib.rs should exist");
+    assert!(
+        wire.contains("pub fn synthetic_tool_call_id("),
+        "the fallback id must be built in one place so every provider scopes it"
+    );
+    for source in [
+        "os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs",
+        "os-apps/paw-agent/wasm/provider_caller/src/lib.rs",
+    ] {
+        let text = fs::read_to_string(repo_root().join(source))
+            .unwrap_or_else(|_| panic!("{source} should exist"));
+        assert!(
+            !text.contains("format!(\"tool_{}\", idx + 1)")
+                && !text.contains("format!(\"or_tool_{}\", idx + 1)"),
+            "{source} must not mint a turn-local tool call id"
+        );
+    }
+
+    let emitter = emitter_source();
+    assert!(
+        emitter.contains("fn claim_span("),
+        "the emitter must match spans to calls per turn, not through a \
+         document-wide id index"
+    );
+    assert!(
+        !emitter.contains("span_by_id"),
+        "a document-wide id -> span map lets a later turn overwrite an earlier one"
+    );
+}
+
+/// Serde ignores unknown fields, so deserializing the emitted document into the
+/// kernel structs proves nothing about the fields the kernel does not model.
+/// Those are enumerated and asserted separately.
+#[test]
+fn emitter_pins_the_fields_the_kernel_does_not_model() {
+    let emitter = emitter_source();
+    assert!(
+        emitter.contains("KERNEL_UNMODELED_FIELDS"),
+        "the extensions the pinned kernel drops on a round trip must be named"
+    );
+    assert!(
+        emitter.contains("fn kernel_round_trip_drops_exactly_the_unmodeled_extensions"),
+        "the unmodeled set must be asserted, so modeling one of them is noticed"
+    );
+    assert!(
+        emitter.contains("fn rows_without_the_new_fields_still_deserialize"),
+        "an old-row fixture must prove the additions stayed additive"
+    );
+    assert!(
+        emitter.contains("HARNESS_TAG_PREFIX") && emitter.contains("SPEC_VERSION_TAG_PREFIX"),
+        "run provenance must also travel in kernel-modeled metadata.tags"
+    );
+}
+
 /// Per-turn timestamps and token counts come from the entry itself, because the
 /// entity event log is a hot tail that drops older events at snapshot boundaries.
 #[test]

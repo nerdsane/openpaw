@@ -62,7 +62,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             read_temperfs_file_safe(&ctx, &temper_api_url, &tenant, tool_spans_file_id)?;
 
         // The transcript is the source of real turn boundaries. A read failure
-        // degrades the trajectory to spans-only rather than losing the emission.
+        // is not a reason to store a spans-only row: the trajectory would be
+        // permanently incomplete and, being marked emitted, never repaired. It
+        // is recorded as a failed emission instead, which leaves the row absent
+        // and the retry path (`RetryTrajectoryEmission`, plus the Evolution
+        // Engine sweep) able to produce a complete one. An empty transcript is a
+        // different thing from an unreadable one and still emits: a first-turn
+        // session has no materialized entries yet.
         let session_file_id = fields
             .get("session_file_id")
             .and_then(|v| v.as_str())
@@ -79,13 +85,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ) {
                 Ok(jsonl) => jsonl,
                 Err(error) => {
-                    ctx.log(
-                        "warn",
-                        &format!(
-                            "emit_ots_trajectory: session transcript read failed for {session_id}; emitting spans-only trajectory: {error}"
-                        ),
+                    let msg = format!(
+                        "session transcript read failed for {session_id}; no trajectory emitted so a retry can produce a complete one: {error}"
                     );
-                    String::new()
+                    ctx.log("warn", &format!("emit_ots_trajectory: {msg}"));
+                    set_success_result(
+                        "TrajectoryEmissionFailed",
+                        &json!({
+                            "trajectory_emission_error": msg,
+                            "trajectory_emission_status": "failed",
+                        }),
+                    );
+                    return Ok(());
                 }
             }
         };

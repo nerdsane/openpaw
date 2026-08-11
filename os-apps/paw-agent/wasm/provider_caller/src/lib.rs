@@ -13,6 +13,7 @@
 use openai_chat_wire::{
     ChatCompletionStreamAccumulator, ChatStreamDelta, ChatStreamParseFailure,
     build_chat_completion_body, convert_messages_to_chat, merge_token_signals, parse_headers_json,
+    synthetic_tool_call_id,
 };
 #[cfg(test)]
 use openai_codex_wire::base64_url_no_pad;
@@ -1045,6 +1046,7 @@ struct OpenRouterStreamAccumulator {
     saw_done: bool,
     semantic_deltas: Vec<LlmStreamDelta>,
     token_signals: Option<Value>,
+    response_id: String,
 }
 
 impl OpenRouterStreamAccumulator {
@@ -1061,6 +1063,13 @@ impl OpenRouterStreamAccumulator {
             )
         })?;
         let mut deltas = Vec::new();
+
+        if self.response_id.is_empty()
+            && let Some(id) = event.get("id").and_then(Value::as_str)
+            && !id.is_empty()
+        {
+            self.response_id = id.to_string();
+        }
 
         if let Some(usage) = event.get("usage") {
             self.input_tokens = usage
@@ -1159,7 +1168,11 @@ impl OpenRouterStreamAccumulator {
             };
             content.push(json!({
                 "type": "tool_use",
-                "id": if tool_call.id.is_empty() { format!("or_tool_{}", idx + 1) } else { tool_call.id.clone() },
+                "id": if tool_call.id.is_empty() {
+                    synthetic_tool_call_id(&self.response_id, "or_tool", idx + 1)
+                } else {
+                    tool_call.id.clone()
+                },
                 "name": if tool_call.name.is_empty() { "unknown_tool".to_string() } else { tool_call.name.clone() },
                 "input": input,
             }));

@@ -210,6 +210,87 @@ long session's turns. Every SessionEntry is therefore stamped with its own
 `ts_ms` at creation, and the event log is only a fallback for entries written
 before that stamp existed.
 
+### 14. Tool-call ids are only unique within a turn (2026-08-11)
+
+Providers that omit tool-call ids get a synthetic one, and the synthetic id used
+to be positional (`tool_1`, `or_tool_1`), restarting with every response. Two
+turns that each made one call therefore shared an id, and the emitter's
+document-wide `id -> span` and `id -> observation` maps let the second call
+overwrite the first: both decisions reported the second call's result, error
+flag and duration.
+
+Both halves are fixed. The synthetic id is now scoped by the provider's own
+response id (`chatcmpl-…_tool_1`), and the conversion of transcript history back
+to chat format scopes its fallback by message position, so one request cannot
+carry the same call id twice. Independently of that, the emitter attributes
+observations and spans **per turn**: observations parsed from turn K's prompt
+answer turn K-1, and spans are claimed by position — the first `tool_1` span
+goes to the first `tool_1` call. Repeated ids therefore cost nothing even in
+rows written before the id change, and a model that reuses an id cannot collapse
+two decisions into one.
+
+### 15. Signals that are positionally aligned travel as a set (2026-08-11)
+
+`completion_token_ids`, `response_mask` and `logprobs` are indexed by generated
+token: element *i* of each describes the same token. A payload assembled from
+partial data breaks that silently, and a consumer has no way to detect it.
+
+Two gates. The OpenAI-compatible parser flattens a `logprobs.content[]` payload
+only when **every** entry carries a numeric `logprob`, rejecting the payload
+whole rather than skipping the bad entry and shortening the array. The emitter
+then refuses to write the completion-side signals unless the ones present agree
+on length, recording `_token_signals_misaligned` with the observed lengths so
+the drop is visible. Prompt-side ids do not index into the completion and are
+unaffected.
+
+The truncation marker has the same shape of problem. Whether a span document was
+sealed is decided from the reserved `tool_name` of a parsed record, never a
+substring search — a tool that reads or greps this source returns the marker
+literal in its own result, and that must not make a complete run look partial.
+The seal check also stopped slicing the document at a byte offset, which trapped
+the guest on any multibyte tail.
+
+### 16. An unreadable transcript fails the emission (2026-08-11)
+
+A trajectory is written once and the session is then marked emitted. Emitting a
+spans-only document because the transcript read returned 503 or a policy denial
+would store a permanently incomplete row that no retry ever repairs, because the
+session no longer looks failed.
+
+A transcript read **error** therefore records `TrajectoryEmissionFailed` and
+stops before the POST, leaving the row absent and `RetryTrajectoryEmission` (and
+the Evolution Engine sweep) able to produce a complete one. An *empty*
+transcript is a different thing and still emits: a first-turn session has no
+materialized SessionEntries yet, and a spans-only document is the honest record.
+
+### 17. Known gap: extensions the kernel's OTS structs do not model (2026-08-11)
+
+`metadata.trajectory_id`, `metadata.harness`, `metadata.spec_version`, the
+per-turn token-level RL signals and `decisions[].cause_id` are TemperPaw
+extensions. The pinned `temper-ots` structs do not declare them, and serde
+ignores unknown fields — so the round-trip test proves the kernel-modeled fields
+and says nothing about these.
+
+The stored row keeps them: the server persists the POST body verbatim
+(`temper-server`'s trajectories handler stores `data: body`), so the OTS query
+API returns them. What loses them is a consumer that deserializes a row into
+`OTSTrajectory` and writes it back. Three things follow, all asserted by tests:
+
+- The decision join key is `decision_id`, which the kernel does model.
+  `cause_id` mirrors it rather than carrying the join alone.
+- Run provenance is repeated in `metadata.tags` as `harness:temperpaw` and
+  `spec_version:<app>@<version>`. `tags` is kernel-modeled, and rejected
+  alternative 6 already named it as the home for harness-specific metadata.
+- `kernel_round_trip_drops_exactly_the_unmodeled_extensions` pins the exact set
+  of dropped fields, so the day `temper-ots` models one of them the test fails
+  and the decision is revisited deliberately.
+
+The residual is the token-level RL signals: large positional arrays with no
+kernel-modeled home, surviving only in the stored row. Giving them optional
+fields on `OTSTurn` is a temper-repo change, tracked separately; until then a
+consumer that needs them reads the raw trajectory document rather than a
+re-serialized struct.
+
 ## Consequences
 
 ### Positive
@@ -249,7 +330,10 @@ The foresight meta-loop behavioural rerun (Run 011) is explicitly deferred — t
   into `OTSTrajectory`, asserting the reconstructed turns, message roles,
   content types, decision types, and durations. A field-name or type drift on
   either side fails the build instead of storing an unreadable row. Terminal
-  states other than success round-trip too.
+  states other than success round-trip too. Because serde ignores unknown
+  fields, the extensions the kernel does not model are pinned separately by
+  `kernel_round_trip_drops_exactly_the_unmodeled_extensions`, and an old-row
+  fixture proves the additions stayed additive (decision section 17).
 - **Unit tests** — turn reconstruction from a two-cycle transcript, leaf
   fallback and parent-cycle guards, decision/observation pairing with
   `cause_id`, per-message and per-trajectory inline budgets, oversized tool
@@ -257,10 +341,14 @@ The foresight meta-loop behavioural rerun (Run 011) is explicitly deferred — t
   derivation, and the RFC-3339 conversion.
 - **Repo contract tests** — `crates/temperpaw/tests/ots_trajectory_contract.rs`
   pins span persistence to on, `spec_version` to `app.toml`, the OTS field names
-  the kernel deserializes, the inline budget, trajectory-id idempotency, and the
-  requirement that every terminal action still emits.
+  the kernel deserializes, the inline budget, trajectory-id idempotency, the
+  requirement that every terminal action still emits, that an unreadable
+  transcript fails the emission rather than degrading it, and that no provider
+  mints a turn-local tool-call id.
 - **Bounded-write tests** — `monty_repl` span compaction and the span-file size
-  ceiling, including that a truncated document still parses line by line.
+  ceiling, including that a truncated document still parses line by line, that
+  multibyte tool output does not trap the seal check, and that a tool result
+  quoting the marker does not seal the document.
 - **Guest build** — every touched module rebuilt for `wasm32-unknown-unknown`
   (`monty_repl` for `wasm32-wasip1`); the `temper-ots` dev-dependency is never
   part of a guest build.

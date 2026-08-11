@@ -385,11 +385,28 @@ pub const TOOL_SPANS_TRUNCATED_MARKER: &str = "_tool_spans_truncated";
 /// The marker line, written once when the document seals.
 const TOOL_SPANS_TRUNCATED_LINE: &str = "{\"tool_call_id\":\"\",\"tool_name\":\"_tool_spans_truncated\",\"result\":\"tool span file size ceiling reached\",\"duration_ms\":0,\"is_error\":false}\n";
 
-/// True once the document has been sealed by a truncation marker. Checked
-/// against the tail so a sealed document is not rescanned end to end.
+/// True once the document has been sealed by a truncation marker.
+///
+/// Only the last non-empty line is examined, and only its `tool_name` field:
+/// the marker is a reserved tool name, so a substring search would also fire on
+/// a tool result that merely quotes it. Byte slicing is avoided outright — a
+/// result carrying CJK or emoji puts arbitrary offsets inside a character.
 fn tool_spans_document_sealed(document: &str) -> bool {
-    let tail_start = document.len().saturating_sub(TOOL_SPANS_TRUNCATED_LINE.len() + 2);
-    document[tail_start..].contains(TOOL_SPANS_TRUNCATED_MARKER)
+    document
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .is_some_and(is_tool_spans_truncation_line)
+}
+
+/// True when a JSONL line is the reserved truncation marker record.
+fn is_tool_spans_truncation_line(line: &str) -> bool {
+    serde_json::from_str::<Value>(line.trim())
+        .ok()
+        .as_ref()
+        .and_then(|value| value.get("tool_name"))
+        .and_then(Value::as_str)
+        == Some(TOOL_SPANS_TRUNCATED_MARKER)
 }
 
 fn truncate_span_chars(value: &str, max_chars: usize) -> String {
@@ -1032,5 +1049,58 @@ mod tests {
         let again = encode_tool_spans_jsonl(&sealed, &[event]);
         assert_eq!(again, sealed);
         assert_eq!(again.matches(TOOL_SPANS_TRUNCATED_MARKER).count(), 1);
+    }
+
+    /// Tool output is arbitrary UTF-8. The seal check used to slice the document
+    /// at a byte offset, which traps the guest mid-character on any multibyte
+    /// tail — after the tools already ran, so the result callback never fires.
+    #[test]
+    fn encode_tool_spans_jsonl_survives_multibyte_tool_output() {
+        let existing = format!(
+            "{}\n",
+            json!({
+                "tool_call_id": "a",
+                "tool_name": "temper.bash",
+                "result": "日本語のテキスト🎌".repeat(20),
+                "duration_ms": 1,
+                "is_error": false,
+            })
+        );
+        let out = encode_tool_spans_jsonl(&existing, &[json!({"tool_call_id": "b"})]);
+        assert!(out.starts_with(&existing));
+        assert!(out.contains("\"tool_call_id\":\"b\""));
+    }
+
+    /// A tool that reads or greps this source returns the marker literal in its
+    /// own output. That must not look like a sealed document.
+    #[test]
+    fn encode_tool_spans_jsonl_ignores_a_quoted_marker_in_tool_output() {
+        let existing = format!(
+            "{}\n",
+            json!({
+                "tool_call_id": "a",
+                "tool_name": "temper.read",
+                "result": format!("const MARKER = \"{TOOL_SPANS_TRUNCATED_MARKER}\";"),
+                "duration_ms": 1,
+                "is_error": false,
+            })
+        );
+        let out = encode_tool_spans_jsonl(&existing, &[json!({"tool_call_id": "b"})]);
+        assert!(
+            out.contains("\"tool_call_id\":\"b\""),
+            "a quoted marker must not seal the document"
+        );
+    }
+
+    #[test]
+    fn tool_spans_document_sealed_reads_the_marker_record_only() {
+        assert!(!tool_spans_document_sealed(""));
+        assert!(tool_spans_document_sealed(TOOL_SPANS_TRUNCATED_LINE));
+        assert!(
+            !tool_spans_document_sealed(
+                "{\"tool_call_id\":\"a\",\"tool_name\":\"read\",\"result\":\"_tool_spans_truncated\"}\n"
+            ),
+            "the marker is a reserved tool_name, not a substring of any field"
+        );
     }
 }

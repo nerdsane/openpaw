@@ -22,8 +22,29 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Value of `metadata.harness` — identifies the runtime that produced the run.
 pub const HARNESS: &str = "temperpaw";
+/// Tag prefix mirroring `metadata.harness` into kernel-modeled `metadata.tags`.
+pub const HARNESS_TAG_PREFIX: &str = "harness:";
+/// Tag prefix mirroring `metadata.spec_version` into `metadata.tags`.
+pub const SPEC_VERSION_TAG_PREFIX: &str = "spec_version:";
 /// OTS schema version emitted by this module.
 pub const OTS_VERSION: &str = "0.1.0";
+
+// Some fields this emitter writes are TemperPaw extensions the pinned
+// `temper-ots` structs do not model: `metadata.trajectory_id`,
+// `metadata.harness`, `metadata.spec_version`, the per-turn token-level RL
+// signals, and `decisions[].cause_id`. The stored row keeps them — the server
+// persists the POST body verbatim (`temper-server`'s trajectories handler stores
+// `data: body`) — but a consumer that deserializes a row into `OTSTrajectory`
+// and writes it back drops every one, because serde ignores unknown fields.
+//
+// Two consequences are designed around that, and both are asserted by tests:
+// the decision join key is `decision_id`, which the kernel does model, and
+// `cause_id` only mirrors it; and run provenance is repeated in the
+// kernel-modeled `metadata.tags`. The token-level RL signals have no
+// kernel-modeled home and survive only in the stored row until `temper-ots`
+// gains optional fields for them — see ADR-0035, "known gap".
+// `KERNEL_UNMODELED_FIELDS` in the test module pins the exact set.
+
 /// Largest inline text body attached to a single OTS message.
 pub const MAX_MESSAGE_INLINE_CHARS: usize = 4_000;
 /// Largest total inline text across the whole trajectory document.
@@ -555,25 +576,40 @@ fn is_truncation_marker(span: &Value) -> bool {
     span.get("tool_name").and_then(Value::as_str) == Some(TOOL_SPANS_TRUNCATED_MARKER)
 }
 
-/// Parse a tool-span JSONL document into span values, preserving execution
-/// order and dropping the truncation marker (reported separately).
-///
-/// Invalid lines are skipped silently — tool-span persistence is best-effort and
-/// the emitter must not fail on a corrupted span.
-pub fn parse_tool_spans(tool_spans_jsonl: &str) -> Vec<Value> {
-    tool_spans_jsonl
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|span| !is_truncation_marker(span))
-        .collect()
+/// A parsed tool-span document.
+pub struct ToolSpanDocument {
+    /// Real spans, in execution order.
+    pub spans: Vec<Value>,
+    /// True when the document was sealed at its size ceiling, so the decision
+    /// record for this session is knowingly incomplete.
+    pub truncated: bool,
 }
 
-/// True when the span document was sealed at its size ceiling, so the decision
-/// record for this session is knowingly incomplete.
-pub fn tool_spans_truncated(tool_spans_jsonl: &str) -> bool {
-    tool_spans_jsonl.contains(TOOL_SPANS_TRUNCATED_MARKER)
+/// Parse a tool-span JSONL document into span values, preserving execution
+/// order and separating out the truncation marker.
+///
+/// Invalid lines are skipped silently — tool-span persistence is best-effort and
+/// the emitter must not fail on a corrupted span. Truncation is decided from the
+/// reserved `tool_name` of a parsed record, never from a substring search: a
+/// tool that reads or greps the emitter's own source returns the marker literal
+/// in its result, and that must not make a complete run look partial.
+pub fn parse_tool_span_document(tool_spans_jsonl: &str) -> ToolSpanDocument {
+    let mut spans = Vec::new();
+    let mut truncated = false;
+    for line in tool_spans_jsonl.lines().map(str::trim) {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(span) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if is_truncation_marker(&span) {
+            truncated = true;
+        } else {
+            spans.push(span);
+        }
+    }
+    ToolSpanDocument { spans, truncated }
 }
 
 /// Extract first and last event timestamps from the entity event log.
@@ -810,19 +846,70 @@ fn content_type_for_role(role: &str) -> &'static str {
     }
 }
 
+/// Shape check for a token-signal array before it is written to a turn.
+type SignalValidator = fn(&Value) -> bool;
+
+/// Completion-side token signals, in the order they are emitted. Element *i* of
+/// each one describes the same generated token, so they are positionally
+/// aligned with one another.
+const COMPLETION_TOKEN_SIGNALS: &[(&str, SignalValidator)] = &[
+    ("completion_token_ids", is_u32_array),
+    ("response_mask", is_u8_array),
+    ("logprobs", is_f64_array),
+];
+
 /// Copy token-id / mask / logprob signals onto the turn when the serving stack
 /// recorded them. Absent otherwise — the emitter never fabricates them and never
 /// makes a provider round-trip to fetch them.
+///
+/// The completion-side signals are emitted only when the ones that are present
+/// agree on length. Arrays of different lengths would hand an RL consumer
+/// probabilities and mask bits belonging to the wrong tokens, which is worse
+/// than having none: the misalignment is invisible downstream. A dropped set is
+/// recorded as `_token_signals_misaligned` so the loss is not silent.
 fn attach_token_signals(turn: &mut Value, source: &Value) {
-    for (field, validator) in [
-        ("prompt_token_ids", is_u32_array as fn(&Value) -> bool),
-        ("completion_token_ids", is_u32_array),
-        ("response_mask", is_u8_array),
-        ("logprobs", is_f64_array),
-    ] {
-        if let Some(value) = source.get(field).filter(|value| validator(value)) {
+    // Prompt-side ids describe the prompt, which the completion signals do not
+    // index into, so they stand on their own.
+    if let Some(value) = source
+        .get("prompt_token_ids")
+        .filter(|value| is_u32_array(value))
+    {
+        turn["prompt_token_ids"] = value.clone();
+    }
+
+    let present: Vec<(&str, &Value)> = COMPLETION_TOKEN_SIGNALS
+        .iter()
+        .filter_map(|(field, validator)| {
+            source
+                .get(*field)
+                .filter(|value| validator(value))
+                .map(|value| (*field, value))
+        })
+        .collect();
+    if present.is_empty() {
+        return;
+    }
+
+    let mut lengths = Map::new();
+    for (field, value) in &present {
+        lengths.insert(
+            (*field).to_string(),
+            json!(value.as_array().map(Vec::len).unwrap_or(0)),
+        );
+    }
+    let aligned = lengths
+        .values()
+        .map(|length| length.as_u64().unwrap_or(0))
+        .collect::<BTreeSet<u64>>()
+        .len()
+        <= 1;
+
+    if aligned {
+        for (field, value) in present {
             turn[field] = value.clone();
         }
+    } else {
+        turn["_token_signals_misaligned"] = Value::Object(lengths);
     }
 }
 
@@ -842,6 +929,22 @@ fn is_f64_array(value: &Value) -> bool {
     value
         .as_array()
         .is_some_and(|items| items.iter().all(|item| item.as_f64().is_some()))
+}
+
+/// Take the earliest span carrying `id` that no decision has claimed yet.
+///
+/// Repeated ids are matched in execution order, so the first `tool_1` call gets
+/// the first `tool_1` span. Without this, a document-wide `id -> span` map hands
+/// every call sharing an id the same duration and result.
+fn claim_span(
+    span_queue_by_id: &BTreeMap<&str, Vec<usize>>,
+    span_claimed: &mut [bool],
+    id: &str,
+) -> Option<usize> {
+    let queue = span_queue_by_id.get(id)?;
+    let index = *queue.iter().find(|index| !span_claimed[**index])?;
+    span_claimed[index] = true;
+    Some(index)
 }
 
 /// Prefix marking a `session_file_id` that points at SessionEntry rows rather
@@ -910,46 +1013,53 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             tags.push(value.to_string());
         }
     }
+    // Run provenance is also carried as tags because `metadata.tags` is a field
+    // the kernel's OTSMetadata models, while `harness` and `spec_version` are
+    // TemperPaw extensions it does not: a consumer that deserializes a stored
+    // row into OTSTrajectory and writes it back would otherwise lose which
+    // runtime and which spec produced the run. See KERNEL_UNMODELED_FIELDS.
+    tags.push(format!("{HARNESS_TAG_PREFIX}{HARNESS}"));
+    if !spec_version.is_empty() {
+        tags.push(format!("{SPEC_VERSION_TAG_PREFIX}{spec_version}"));
+    }
 
-    // Index every observation on the chain so a decision made in turn N can be
-    // answered by the tool_result that lands in turn N+1.
-    let mut observations: BTreeMap<String, Observation> = BTreeMap::new();
-    let mut turn_of_tool_call: BTreeMap<String, usize> = BTreeMap::new();
-    // Observation order preserves execution order for calls the assistant entry
-    // could not name (externalized body); BTreeMap iteration would not.
-    let mut observed_order: Vec<String> = Vec::new();
+    // Tool-call ids are unique only within a turn. Providers that omit them get
+    // synthetic ids that restart with each response, and a model can repeat one,
+    // so a document-wide index would let a later turn's call overwrite an
+    // earlier one — both decisions would then carry the last call's consequence
+    // and duration. Observations and spans are therefore attributed per turn.
+    //
+    // A tool_result on turn N's prompt answers a call made in turn N-1, so the
+    // observations parsed from turn K's prompt belong to turn K-1. Ones landing
+    // on the first turn answer a call made before this chain begins and have no
+    // decision to attach to.
+    let mut observations_by_turn: Vec<Vec<(String, Observation)>> =
+        vec![Vec::new(); turn_drafts.len()];
     for (turn_index, draft) in turn_drafts.iter().enumerate() {
-        if let Some(assistant) = draft.assistant {
-            for call in tool_calls_from_entry(&entries[assistant]) {
-                turn_of_tool_call.insert(call.id, turn_index);
-            }
-        }
+        let Some(answered_turn) = turn_index.checked_sub(1) else {
+            continue;
+        };
         for prompt_index in &draft.prompt {
-            for (id, observation) in observations_from_entry(&entries[*prompt_index]) {
-                // A tool_result on turn N's prompt answers a call made in N-1.
-                if turn_index > 0 {
-                    turn_of_tool_call.entry(id.clone()).or_insert(turn_index - 1);
-                }
-                if !observations.contains_key(&id) {
-                    observed_order.push(id.clone());
-                }
-                observations.insert(id, observation);
-            }
+            observations_by_turn[answered_turn]
+                .extend(observations_from_entry(&entries[*prompt_index]));
         }
     }
 
-    let spans = parse_tool_spans(tool_spans_jsonl);
-    let mut span_by_id: BTreeMap<String, &Value> = BTreeMap::new();
-    for span in &spans {
+    let span_document = parse_tool_span_document(tool_spans_jsonl);
+    let spans = span_document.spans;
+    // Spans are appended in execution order, so repeated ids are matched to
+    // calls first-come-first-served rather than collapsed onto one record.
+    let mut span_queue_by_id: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (index, span) in spans.iter().enumerate() {
         if let Some(id) = span.get("tool_call_id").and_then(Value::as_str) {
-            span_by_id.insert(id.to_string(), span);
+            span_queue_by_id.entry(id).or_default().push(index);
         }
     }
+    let mut span_claimed: Vec<bool> = vec![false; spans.len()];
 
     let boundary_timestamps = turn_boundary_event_timestamps(entity_state);
     let mut budget = InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS);
     let mut turns: Vec<Value> = Vec::new();
-    let mut claimed: BTreeSet<String> = BTreeSet::new();
 
     for (turn_index, draft) in turn_drafts.iter().enumerate() {
         let assistant = draft.assistant.map(|index| &entries[index]);
@@ -966,61 +1076,43 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             messages.push(build_message(entry, &timestamp, &mut budget));
         }
 
-        // Decisions the assistant made in this cycle, in call order, plus any
-        // call attributed here through its tool_result.
-        let mut ordered_ids: Vec<String> = Vec::new();
-        let mut calls: BTreeMap<String, ToolCall> = BTreeMap::new();
+        // Decisions the assistant made in this cycle, in call order. Everything
+        // below is scoped to this turn, because ids repeat across turns.
+        let mut calls: Vec<ToolCall> = Vec::new();
+        let mut named: BTreeSet<String> = BTreeSet::new();
         if let Some(entry) = assistant {
             for call in tool_calls_from_entry(entry) {
-                ordered_ids.push(call.id.clone());
-                calls.insert(call.id.clone(), call);
+                named.insert(call.id.clone());
+                calls.push(call);
             }
         }
-        for span in &spans {
-            let Some(id) = span.get("tool_call_id").and_then(Value::as_str) else {
-                continue;
-            };
-            if turn_of_tool_call.get(id) == Some(&turn_index) && !calls.contains_key(id) {
-                ordered_ids.push(id.to_string());
-                calls.insert(
-                    id.to_string(),
-                    ToolCall {
-                        id: id.to_string(),
-                        name: span
-                            .get("tool_name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        arguments: None,
-                    },
-                );
+        // Calls whose only evidence is the observation — the assistant body was
+        // externalized, so the tree cannot name them — still deserve a decision.
+        // `build_decision` recovers the tool name from the span when one exists.
+        for (id, _) in &observations_by_turn[turn_index] {
+            if named.insert(id.clone()) {
+                calls.push(ToolCall {
+                    id: id.clone(),
+                    name: "unknown".to_string(),
+                    arguments: None,
+                });
             }
         }
-        // Calls whose only evidence is the observation (assistant body was
-        // externalized and no span exists) still deserve a decision.
-        for id in &observed_order {
-            if turn_of_tool_call.get(id) == Some(&turn_index) && !calls.contains_key(id) {
-                ordered_ids.push(id.clone());
-                calls.insert(
-                    id.clone(),
-                    ToolCall {
-                        id: id.clone(),
-                        name: "unknown".to_string(),
-                        arguments: None,
-                    },
-                );
-            }
+
+        let mut observation_by_id: BTreeMap<&str, &Observation> = BTreeMap::new();
+        for (id, observation) in &observations_by_turn[turn_index] {
+            observation_by_id.entry(id.as_str()).or_insert(observation);
         }
 
         let mut decisions: Vec<Value> = Vec::new();
         let mut turn_error = false;
         let mut turn_duration_ms: u64 = 0;
-        for id in &ordered_ids {
-            let Some(call) = calls.get(id) else { continue };
+        for call in &calls {
+            let span_index = claim_span(&span_queue_by_id, &mut span_claimed, &call.id);
             let decision = build_decision(
                 call,
-                observations.get(id),
-                span_by_id.get(id).copied(),
+                observation_by_id.get(call.id.as_str()).copied(),
+                span_index.map(|index| &spans[index]),
                 &mut budget,
             );
             if decision["consequence"]["success"] == json!(false) {
@@ -1030,7 +1122,6 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
                 turn_duration_ms += duration;
             }
             decisions.push(decision);
-            claimed.insert(id.clone());
         }
 
         let span_id = assistant
@@ -1079,15 +1170,13 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
 
     // Spans no turn claimed (whole tree unavailable, or a call the tree never
     // recorded) still carry real decisions — attach them to the last turn so no
-    // evidence is silently dropped.
+    // evidence is silently dropped. Claiming is tracked by span position, so two
+    // spans sharing an id are two decisions, not one.
     let orphan_decisions: Vec<Value> = spans
         .iter()
-        .filter(|span| {
-            span.get("tool_call_id")
-                .and_then(Value::as_str)
-                .is_none_or(|id| !claimed.contains(id))
-        })
-        .map(|span| span_to_decision(span, &mut budget))
+        .enumerate()
+        .filter(|(index, _)| !span_claimed[*index])
+        .map(|(_, span)| span_to_decision(span, &mut budget))
         .collect();
 
     if !orphan_decisions.is_empty() {
@@ -1184,7 +1273,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         "_session_turn_count": fields.get("turn_count").and_then(json_u64).unwrap_or(0),
     });
 
-    if tool_spans_truncated(tool_spans_jsonl) {
+    if span_document.truncated {
         // The span document hit its ceiling, so some tool timings are missing.
         // A consumer training on this must know the record is partial.
         trajectory["_tool_spans_truncated"] = json!(true);
@@ -1209,6 +1298,23 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The exact set of emitted fields the pinned `temper-ots` structs do not
+    /// model, and therefore drop on a deserialize/re-serialize round trip.
+    /// Pinned by `kernel_round_trip_drops_exactly_the_unmodeled_extensions`,
+    /// which fails the day the kernel starts modeling one of them.
+    const KERNEL_UNMODELED_FIELDS: &[&str] = &[
+        // Read by the server's POST handler before any struct is involved, and
+        // repeated at the top level where the kernel does model it.
+        "metadata.trajectory_id",
+        "metadata.harness",
+        "metadata.spec_version",
+        "turns[].prompt_token_ids",
+        "turns[].completion_token_ids",
+        "turns[].response_mask",
+        "turns[].logprobs",
+        "turns[].decisions[].cause_id",
+    ];
 
     fn inputs<'a>(
         fields: &'a Value,
@@ -1409,7 +1515,8 @@ mod tests {
     fn parse_tool_spans_skips_invalid_lines() {
         let jsonl = "{\"tool_call_id\":\"a\",\"tool_name\":\"x\",\"result\":\"\",\"duration_ms\":0,\"is_error\":false}\nINVALID\n{\"tool_call_id\":\"b\",\"tool_name\":\"y\",\"result\":\"\",\"duration_ms\":0,\"is_error\":false}\n";
         let mut budget = InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS);
-        let decisions: Vec<Value> = parse_tool_spans(jsonl)
+        let decisions: Vec<Value> = parse_tool_span_document(jsonl)
+            .spans
             .iter()
             .map(|span| span_to_decision(span, &mut budget))
             .collect();
@@ -2047,6 +2154,371 @@ mod tests {
                 .is_none(),
             "the message must not duplicate the decision's arguments"
         );
+    }
+
+    /// Providers that omit tool-call ids get synthetic ones that restart at
+    /// every response, so two turns can both call `tool_1`. Indexing spans and
+    /// observations across the whole document made the second call overwrite the
+    /// first: both decisions then carried the second call's result and duration.
+    #[test]
+    fn build_trajectory_keeps_repeated_tool_call_ids_apart_per_turn() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"tool_use","id":"tool_1","name":"temper.read","input":{"path":"/first"}}]
+            }),
+            json!({
+                "id":"t-1","parentId":"a-1","type":"message","role":"user",
+                "content":[{"type":"tool_result","tool_use_id":"tool_1","content":"first result","is_error":false}]
+            }),
+            json!({
+                "id":"a-2","parentId":"t-1","type":"message","role":"assistant",
+                "content":[{"type":"tool_use","id":"tool_1","name":"temper.bash","input":{"cmd":"second"}}]
+            }),
+            json!({
+                "id":"t-2","parentId":"a-2","type":"message","role":"user",
+                "content":[{"type":"tool_result","tool_use_id":"tool_1","content":"second failed","is_error":true}]
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let spans = concat!(
+            "{\"tool_call_id\":\"tool_1\",\"tool_name\":\"temper.read\",\"result\":\"first result\",\"duration_ms\":11,\"is_error\":false}\n",
+            "{\"tool_call_id\":\"tool_1\",\"tool_name\":\"temper.bash\",\"result\":\"second failed\",\"duration_ms\":22,\"is_error\":true}\n",
+        );
+        let fields = json!({ "session_leaf_id": "t-2", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        let first = &t["turns"][0]["decisions"][0];
+        let second = &t["turns"][1]["decisions"][0];
+        assert_eq!(first["choice"]["action"], "temper.read");
+        assert_eq!(first["consequence"]["result_summary"], "first result");
+        assert_eq!(first["consequence"]["success"], true);
+        assert_eq!(first["_duration_ms"], 11);
+        assert_eq!(second["choice"]["action"], "temper.bash");
+        assert_eq!(second["consequence"]["result_summary"], "second failed");
+        assert_eq!(second["consequence"]["success"], false);
+        assert_eq!(second["_duration_ms"], 22);
+        assert_eq!(t["turns"][0]["error"], false);
+        assert_eq!(t["turns"][1]["error"], true);
+        assert_eq!(
+            t["turns"][0]["duration_ms"], 11.0,
+            "a repeated id must not double-count one span onto two turns"
+        );
+    }
+
+    /// Two spans sharing an id and no transcript to claim them are two calls,
+    /// not one — collapsing them would erase a whole tool execution.
+    #[test]
+    fn build_trajectory_keeps_repeated_ids_among_unclaimed_spans() {
+        let spans = concat!(
+            "{\"tool_call_id\":\"tool_1\",\"tool_name\":\"read\",\"result\":\"a\",\"duration_ms\":1,\"is_error\":false}\n",
+            "{\"tool_call_id\":\"tool_1\",\"tool_name\":\"bash\",\"result\":\"b\",\"duration_ms\":2,\"is_error\":false}\n",
+        );
+        let fields = json!({ "user_message": "x", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, "", spans, &state, "Completed"));
+
+        let decisions = t["turns"][0]["decisions"].as_array().unwrap();
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(decisions[0]["choice"]["action"], "read");
+        assert_eq!(decisions[1]["choice"]["action"], "bash");
+    }
+
+    /// A tool that reads or greps the emitter's own source returns the marker
+    /// literal in its result. That must not make a complete run look partial.
+    #[test]
+    fn build_trajectory_does_not_read_a_quoted_truncation_marker_as_truncation() {
+        let span = json!({
+            "tool_call_id": "tc-a",
+            "tool_name": "temper.read",
+            "result": format!("pub const MARKER: &str = \"{TOOL_SPANS_TRUNCATED_MARKER}\";"),
+            "duration_ms": 1,
+            "is_error": false,
+        });
+        let spans = format!("{span}\n");
+        let fields = json!({ "user_message": "x", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, "", &spans, &state, "Completed"));
+
+        assert!(
+            t.get("_tool_spans_truncated").is_none(),
+            "truncation is a reserved tool_name, not a substring of any result"
+        );
+        assert_eq!(t["turns"][0]["decisions"].as_array().unwrap().len(), 1);
+        assert!(!parse_tool_span_document(&spans).truncated);
+    }
+
+    /// Completion-side signals are positionally aligned with one another.
+    /// Emitting them at different lengths would silently pair probabilities and
+    /// mask bits with the wrong tokens.
+    #[test]
+    fn build_trajectory_drops_misaligned_completion_token_signals() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"done"}],
+                "prompt_token_ids":[1,2,3],
+                "completion_token_ids":[4,5,6],
+                "response_mask":[1,1,1],
+                "logprobs":[-0.1,-0.2]
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1" });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        let turn = &t["turns"][0];
+        assert_eq!(
+            turn["prompt_token_ids"],
+            json!([1, 2, 3]),
+            "the prompt side does not index into the completion and still travels"
+        );
+        for field in ["completion_token_ids", "response_mask", "logprobs"] {
+            assert!(
+                turn.get(field).is_none(),
+                "{field} must not ship in a misaligned set"
+            );
+        }
+        assert_eq!(turn["_token_signals_misaligned"]["logprobs"], json!(2));
+        assert_eq!(turn["_token_signals_misaligned"]["response_mask"], json!(3));
+    }
+
+    /// A provider that sends only one completion-side signal has nothing to
+    /// misalign against, so the signal still travels.
+    #[test]
+    fn build_trajectory_keeps_a_lone_completion_token_signal() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"done"}],
+                "logprobs":[-0.1,-0.2]
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1" });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(t["turns"][0]["logprobs"], json!([-0.1, -0.2]));
+        assert!(t["turns"][0].get("_token_signals_misaligned").is_none());
+    }
+
+    /// Run provenance has to survive a consumer that deserializes a stored row
+    /// into the kernel `OTSTrajectory` and writes it back. `metadata.harness`
+    /// and `metadata.spec_version` do not — `metadata.tags` does.
+    #[test]
+    fn build_trajectory_repeats_run_provenance_in_kernel_modeled_tags() {
+        use temper_ots::models::OTSTrajectory;
+
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+        let document = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        let trajectory: OTSTrajectory =
+            serde_json::from_value(document).expect("document deserializes");
+        assert!(
+            trajectory
+                .metadata
+                .tags
+                .contains(&format!("{HARNESS_TAG_PREFIX}{HARNESS}")),
+            "harness must survive the kernel round trip: {:?}",
+            trajectory.metadata.tags
+        );
+        assert!(
+            trajectory
+                .metadata
+                .tags
+                .contains(&format!("{SPEC_VERSION_TAG_PREFIX}paw-agent@0.1.0")),
+            "spec_version must survive the kernel round trip: {:?}",
+            trajectory.metadata.tags
+        );
+    }
+
+    /// The decision-to-observation join must not depend on a field the kernel
+    /// drops. `cause_id` mirrors `decision_id`, which the kernel does model, so
+    /// a consumer working from re-serialized rows can still join.
+    #[test]
+    fn cause_id_mirrors_the_kernel_modeled_decision_id() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        let mut checked = 0;
+        for turn in t["turns"].as_array().unwrap() {
+            for decision in turn["decisions"].as_array().unwrap() {
+                assert_eq!(
+                    decision["cause_id"], decision["decision_id"],
+                    "the join key must stay a kernel-modeled field"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "the fixture must contain decisions");
+    }
+
+    /// Serde ignores unknown fields, so the kernel round trip alone proves
+    /// nothing about the extensions this emitter adds. This names them, and
+    /// fails the day `temper-ots` starts modeling one — at which point the
+    /// emitter and ADR-0035 have to be revisited rather than drifting quietly.
+    #[test]
+    fn kernel_round_trip_drops_exactly_the_unmodeled_extensions() {
+        use temper_ots::models::OTSTrajectory;
+
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"tool_use","id":"tc-1","name":"temper.read","input":{}}],
+                "prompt_token_ids":[1,2],
+                "completion_token_ids":[3,4],
+                "response_mask":[1,1],
+                "logprobs":[-0.1,-0.2]
+            }),
+            json!({
+                "id":"t-2","parentId":"a-1","type":"message","role":"user",
+                "content":[{"type":"tool_result","tool_use_id":"tc-1","content":"ok"}]
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "t-2", "has_result": true });
+        let state = entity_state_with_events();
+        let emitted = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        let trajectory: OTSTrajectory =
+            serde_json::from_value(emitted.clone()).expect("document deserializes");
+        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
+
+        let mut dropped: Vec<String> = Vec::new();
+        collect_dropped_paths(&emitted, &round_tripped, "", &mut dropped);
+        let dropped: BTreeSet<String> = dropped
+            .into_iter()
+            // The `_`-prefixed fields are declared non-standard by ADR-0035 and
+            // are expected to be kernel-invisible; the ones without the prefix
+            // read like OTS fields and are the ones worth pinning.
+            .filter(|path| !path.split('.').any(|segment| segment.starts_with('_')))
+            .collect();
+        let expected: BTreeSet<String> = KERNEL_UNMODELED_FIELDS
+            .iter()
+            .map(|field| (*field).to_string())
+            .collect();
+
+        assert_eq!(
+            dropped, expected,
+            "the set of emitter fields the pinned kernel drops has changed; \
+             update KERNEL_UNMODELED_FIELDS and ADR-0035 deliberately"
+        );
+    }
+
+    /// Rows written before these fields existed must keep deserializing — the
+    /// additions are additive, and an evaluation worker reads old rows too.
+    #[test]
+    fn rows_without_the_new_fields_still_deserialize() {
+        use temper_ots::models::{OTSTrajectory, OutcomeType};
+
+        let old_row = json!({
+            "trajectory_id": "trj-old",
+            "version": "0.1.0",
+            "metadata": {
+                "trajectory_id": "trj-old",
+                "task_description": "an older run",
+                "domain": "temperpaw-agent",
+                "timestamp_start": "2026-01-01T00:00:00Z",
+                "timestamp_end": "2026-01-01T00:00:05Z",
+                "agent_id": "aj-old",
+                "framework": "temperpaw",
+                "environment": "production",
+                "outcome": "success",
+                "tags": ["claude-sonnet-4-6"],
+            },
+            "turns": [{
+                "turn_id": 1,
+                "span_id": "ss-old:a-1",
+                "timestamp": "2026-01-01T00:00:01Z",
+                "error": false,
+                "messages": [],
+                "decisions": [{
+                    "decision_id": "tc-old",
+                    "decision_type": "tool_selection",
+                    "choice": { "action": "temper.read" },
+                    "consequence": { "success": true, "result_summary": "ok" },
+                }],
+            }],
+        });
+
+        let trajectory: OTSTrajectory = serde_json::from_value(old_row)
+            .expect("a pre-ARN-109 row must still deserialize as an OTSTrajectory");
+        assert_eq!(trajectory.metadata.outcome, OutcomeType::Success);
+        assert_eq!(trajectory.turns[0].decisions[0].decision_id, "tc-old");
+        assert_eq!(trajectory.metadata.tags, vec!["claude-sonnet-4-6"]);
+    }
+
+    fn is_empty_collection(value: &Value) -> bool {
+        match value {
+            Value::Array(items) => items.is_empty(),
+            Value::Object(fields) => fields.is_empty(),
+            Value::Null => true,
+            _ => false,
+        }
+    }
+
+    /// Record every leaf path present in `emitted` but absent from
+    /// `round_tripped`, using the field paths `KERNEL_UNMODELED_FIELDS` names.
+    fn collect_dropped_paths(
+        emitted: &Value,
+        round_tripped: &Value,
+        path: &str,
+        dropped: &mut Vec<String>,
+    ) {
+        match emitted {
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    let child_path = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    match round_tripped.get(key) {
+                        Some(other) => {
+                            collect_dropped_paths(value, other, &child_path, dropped)
+                        }
+                        // An empty collection the kernel omits on write carries
+                        // no data, so its absence is formatting, not loss.
+                        None if is_empty_collection(value) => {}
+                        None => dropped.push(child_path),
+                    }
+                }
+            }
+            Value::Array(items) => {
+                let others = round_tripped.as_array();
+                for (index, item) in items.iter().enumerate() {
+                    let Some(other) = others.and_then(|others| others.get(index)) else {
+                        continue;
+                    };
+                    collect_dropped_paths(item, other, &format!("{path}[]"), dropped);
+                }
+            }
+            _ => {}
+        }
     }
 
     #[test]

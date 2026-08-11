@@ -124,21 +124,25 @@ fn normalize_logprobs(raw: &Value) -> Option<Vec<Value>> {
         if items.iter().all(Value::is_number) {
             return Some(items.clone());
         }
-        return Some(
-            items
-                .iter()
-                .filter_map(|item| item.get("logprob").filter(|v| v.is_number()).cloned())
-                .collect(),
-        );
+        return flatten_logprob_entries(items);
     }
     raw.get("content")
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.get("logprob").filter(|v| v.is_number()).cloned())
-                .collect()
-        })
+        .and_then(|items| flatten_logprob_entries(items))
+}
+
+/// Take the `logprob` of every entry, or nothing.
+///
+/// The flattened array is positional: element *i* is the probability of
+/// completion token *i*. Dropping one malformed entry would shift every later
+/// probability onto the wrong token, which is worse than having no
+/// probabilities at all — so a payload that cannot be flattened whole is
+/// rejected whole.
+fn flatten_logprob_entries(items: &[Value]) -> Option<Vec<Value>> {
+    items
+        .iter()
+        .map(|item| item.get("logprob").filter(|value| value.is_number()).cloned())
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,6 +183,7 @@ pub struct ChatCompletionStreamAccumulator {
     saw_done: bool,
     semantic_deltas: Vec<ChatStreamDelta>,
     token_signals: Option<Value>,
+    response_id: String,
 }
 
 impl ChatCompletionStreamAccumulator {
@@ -198,6 +203,13 @@ impl ChatCompletionStreamAccumulator {
             )
         })?;
         let mut deltas = Vec::new();
+
+        if self.response_id.is_empty()
+            && let Some(id) = event.get("id").and_then(Value::as_str)
+            && !id.is_empty()
+        {
+            self.response_id = id.to_string();
+        }
 
         if let Some(usage) = event.get("usage") {
             self.input_tokens = usage
@@ -269,7 +281,7 @@ impl ChatCompletionStreamAccumulator {
         }
 
         Ok(ParsedChatCompletion {
-            content: chat_content_blocks(&self.text, &self.tool_calls),
+            content: chat_content_blocks(&self.text, &self.tool_calls, &self.response_id),
             stop_reason: if !self.tool_calls.is_empty() {
                 "tool_use".to_string()
             } else {
@@ -324,7 +336,26 @@ fn ingest_tool_call_deltas(
     }
 }
 
-fn chat_content_blocks(text: &str, tool_calls: &BTreeMap<usize, ChatToolCallAccum>) -> Vec<Value> {
+/// Tool-call id for a provider that sent none.
+///
+/// A bare positional id (`tool_1`) restarts at every response, so two turns that
+/// each make one call end up sharing an id — and anything that indexes calls by
+/// id across a session (the OTS emitter's decisions and tool spans, the wire
+/// conversion back to chat format) then collapses them into one. The response id
+/// scopes the fallback to the completion that produced it.
+pub fn synthetic_tool_call_id(response_id: &str, scope: &str, position: usize) -> String {
+    if response_id.is_empty() {
+        format!("{scope}_{position}")
+    } else {
+        format!("{response_id}_{scope}_{position}")
+    }
+}
+
+fn chat_content_blocks(
+    text: &str,
+    tool_calls: &BTreeMap<usize, ChatToolCallAccum>,
+    response_id: &str,
+) -> Vec<Value> {
     let mut content = Vec::<Value>::new();
     if !text.is_empty() {
         content.push(json!({
@@ -341,7 +372,11 @@ fn chat_content_blocks(text: &str, tool_calls: &BTreeMap<usize, ChatToolCallAccu
         };
         content.push(json!({
             "type": "tool_use",
-            "id": if tool_call.id.is_empty() { format!("tool_{}", idx + 1) } else { tool_call.id.clone() },
+            "id": if tool_call.id.is_empty() {
+                synthetic_tool_call_id(response_id, "tool", idx + 1)
+            } else {
+                tool_call.id.clone()
+            },
             "name": if tool_call.name.is_empty() { "unknown_tool" } else { &tool_call.name },
             "input": input,
         }));
@@ -447,7 +482,7 @@ pub fn convert_messages_to_chat(system_prompt: &str, messages: &[Value]) -> Vec<
             "content": system_prompt,
         }));
     }
-    for msg in messages {
+    for (message_index, msg) in messages.iter().enumerate() {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
         let content = msg.get("content").cloned().unwrap_or(json!(""));
 
@@ -464,11 +499,20 @@ pub fn convert_messages_to_chat(system_prompt: &str, messages: &[Value]) -> Vec<
                             }
                         }
                         "tool_use" => {
+                            // Position within the message is not unique across a
+                            // conversation; scope it so two id-less assistant
+                            // turns cannot send the provider the same call id.
                             let id = block
                                 .get("id")
                                 .and_then(Value::as_str)
                                 .map(str::to_string)
-                                .unwrap_or_else(|| format!("tool_{}", idx + 1));
+                                .unwrap_or_else(|| {
+                                    synthetic_tool_call_id(
+                                        &format!("msg{message_index}"),
+                                        "tool",
+                                        idx + 1,
+                                    )
+                                });
                             let name = block
                                 .get("name")
                                 .and_then(Value::as_str)
@@ -672,6 +716,33 @@ mod tests {
         assert_eq!(signals.unwrap()["prompt_token_ids"], json!([11, 12, 13]));
     }
 
+    /// Logprobs are positional: element *i* belongs to completion token *i*.
+    /// Skipping a malformed entry shifts every later probability onto the wrong
+    /// token and leaves the arrays at different lengths, so the payload is
+    /// dropped whole instead.
+    #[test]
+    fn merge_token_signals_drops_logprobs_that_cannot_be_flattened_whole() {
+        let mut signals = None;
+        merge_token_signals(
+            &mut signals,
+            &json!({
+                "completion_token_ids": [7, 8, 9],
+                "response_mask": [1, 1, 1],
+                "logprobs": { "content": [
+                    {"token": "a", "logprob": -0.1},
+                    {"token": "b"},
+                    {"token": "c", "logprob": -0.3}
+                ]},
+            }),
+        );
+        let signals = signals.expect("token id signals still recorded");
+        assert_eq!(signals["completion_token_ids"], json!([7, 8, 9]));
+        assert!(
+            signals.get("logprobs").is_none(),
+            "a partial logprob array must never be stored alongside full token ids"
+        );
+    }
+
     #[test]
     fn merge_token_signals_stays_none_for_providers_that_send_nothing() {
         let mut signals = None;
@@ -772,6 +843,61 @@ mod tests {
         assert_eq!(parsed.content[0]["text"], "hi ");
         assert_eq!(parsed.content[1]["name"], "temper_list");
         assert_eq!(parsed.content[1]["input"]["kind"], "Session");
+    }
+
+    /// A provider that omits tool-call ids used to get `tool_1` on every turn,
+    /// so a session's second call overwrote the first everywhere calls are keyed
+    /// by id — OTS decisions, tool spans, and the wire conversion back to chat.
+    #[test]
+    fn synthetic_tool_call_ids_are_scoped_to_their_response() {
+        let call_without_id = |completion: &str| {
+            let events = vec![
+                format!(
+                    r#"{{"id":"{completion}","choices":[{{"delta":{{"tool_calls":[{{"index":0,"function":{{"name":"temper_list","arguments":"{{}}"}}}}]}}}}]}}"#
+                ),
+                r#"{"choices":[{"finish_reason":"tool_calls","delta":{}}]}"#.to_string(),
+                "[DONE]".to_string(),
+            ];
+            parse_chat_completion_stream_events(&events, 64).expect("stream parses").content[0]
+                ["id"]
+                .as_str()
+                .expect("tool_use id")
+                .to_string()
+        };
+
+        let first = call_without_id("chatcmpl-aaa");
+        let second = call_without_id("chatcmpl-bbb");
+        assert_eq!(first, "chatcmpl-aaa_tool_1");
+        assert_ne!(
+            first, second,
+            "two responses that both omit call ids must not share one"
+        );
+    }
+
+    #[test]
+    fn synthetic_tool_call_ids_fall_back_when_the_response_has_no_id() {
+        assert_eq!(synthetic_tool_call_id("", "tool", 1), "tool_1");
+        assert_eq!(synthetic_tool_call_id("gen-9", "or_tool", 2), "gen-9_or_tool_2");
+    }
+
+    /// Two assistant turns that both lost their call ids must not send the
+    /// provider one ambiguous id shared by both.
+    #[test]
+    fn converted_messages_scope_missing_tool_call_ids_per_message() {
+        let messages = vec![
+            json!({"role":"assistant","content":[{"type":"tool_use","name":"a","input":{}}]}),
+            json!({"role":"assistant","content":[{"type":"tool_use","name":"b","input":{}}]}),
+        ];
+        let converted = convert_messages_to_chat("", &messages);
+        let ids: Vec<&str> = converted
+            .iter()
+            .filter_map(|message| message.get("tool_calls"))
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|call| call["id"].as_str())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
     }
 
     #[test]
