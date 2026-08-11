@@ -424,19 +424,24 @@ fn observations_from_entry(entry: &TreeEntry) -> Vec<(String, Observation)> {
         .collect()
 }
 
-fn bound_arguments(arguments: Option<Value>) -> Option<Value> {
+/// Bound a tool-call argument payload, charging it to the trajectory's inline
+/// budget. Arguments are the largest attacker-shaped field in a decision — a
+/// file-write tool call carries the whole file — so they are capped per call
+/// and counted against the same global ceiling as message text.
+fn bound_arguments(arguments: Option<Value>, budget: &mut InlineBudget) -> Option<Value> {
     let arguments = arguments?;
     if arguments.is_null() {
         return None;
     }
     let serialized = serde_json::to_string(&arguments).unwrap_or_default();
-    if serialized.chars().count() <= MAX_ARGUMENTS_CHARS {
+    let (preview, dropped) = budget.take(&serialized, MAX_ARGUMENTS_CHARS);
+    if dropped == 0 {
         return Some(arguments);
     }
     Some(json!({
         "_truncated": true,
         "_original_chars": serialized.chars().count(),
-        "_preview": truncate_chars(&serialized, MAX_ARGUMENTS_CHARS),
+        "_preview": preview,
     }))
 }
 
@@ -455,6 +460,7 @@ fn build_decision(
     call: &ToolCall,
     observation: Option<&Observation>,
     span: Option<&Value>,
+    budget: &mut InlineBudget,
 ) -> Value {
     let name = if call.name.is_empty() || call.name == "unknown" {
         span.and_then(|s| s.get("tool_name"))
@@ -472,7 +478,7 @@ fn build_decision(
         .or_else(|| parse_arguments_field(span.and_then(|s| s.get("arguments"))));
 
     let mut choice = json!({ "action": if name.is_empty() { "unknown".to_string() } else { name } });
-    if let Some(arguments) = bound_arguments(arguments) {
+    if let Some(arguments) = bound_arguments(arguments, budget) {
         choice["arguments"] = arguments;
     }
 
@@ -520,7 +526,7 @@ fn build_decision(
 /// externalized to TemperFS, so the span is the only surviving evidence of the
 /// call. `_duration_ms` is preserved as a non-standard field for the evaluation
 /// agents; the OTS schema has no home for tool wall-clock time.
-pub fn span_to_decision(span: &Value) -> Value {
+fn span_to_decision(span: &Value, budget: &mut InlineBudget) -> Value {
     let call = ToolCall {
         id: span
             .get("tool_call_id")
@@ -534,7 +540,7 @@ pub fn span_to_decision(span: &Value) -> Value {
             .to_string(),
         arguments: None,
     };
-    build_decision(&call, None, Some(span))
+    build_decision(&call, None, Some(span), budget)
 }
 
 /// Reserved tool name `monty_repl` writes when the span document hits its size
@@ -707,14 +713,13 @@ fn build_message(entry: &TreeEntry, timestamp: &str, budget: &mut InlineBudget) 
                         }
                     }
                     "tool_use" => {
-                        let mut call = json!({
+                        // Identity only. The arguments live on the decision for
+                        // this call; duplicating them here would double the
+                        // largest field in the document for no new information.
+                        tool_calls.push(json!({
                             "id": block.get("id").and_then(Value::as_str).unwrap_or(""),
                             "name": block.get("name").and_then(Value::as_str).unwrap_or(""),
-                        });
-                        if let Some(arguments) = bound_arguments(block.get("input").cloned()) {
-                            call["arguments"] = arguments;
-                        }
-                        tool_calls.push(call);
+                        }));
                     }
                     "tool_result" => {
                         let text = match block.get("content") {
@@ -1012,6 +1017,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
                 call,
                 observations.get(id),
                 span_by_id.get(id).copied(),
+                &mut budget,
             );
             if decision["consequence"]["success"] == json!(false) {
                 turn_error = true;
@@ -1077,7 +1083,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
                 .and_then(Value::as_str)
                 .is_none_or(|id| !claimed.contains(id))
         })
-        .map(span_to_decision)
+        .map(|span| span_to_decision(span, &mut budget))
         .collect();
 
     if !orphan_decisions.is_empty() {
@@ -1338,7 +1344,7 @@ mod tests {
             "duration_ms": 42,
             "is_error": false,
         });
-        let dec = span_to_decision(&span);
+        let dec = span_to_decision(&span, &mut InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS));
         assert_eq!(dec["decision_id"], "tc-123");
         assert_eq!(dec["decision_type"], "tool_selection");
         assert_eq!(dec["cause_id"], "tc-123");
@@ -1360,7 +1366,7 @@ mod tests {
             "duration_ms": 5,
             "is_error": true,
         });
-        let dec = span_to_decision(&span);
+        let dec = span_to_decision(&span, &mut InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS));
         assert_eq!(dec["consequence"]["success"], false);
         assert_eq!(dec["consequence"]["error_type"], "cedar_denied");
     }
@@ -1375,7 +1381,7 @@ mod tests {
             "duration_ms": 0,
             "is_error": false,
         });
-        let dec = span_to_decision(&span);
+        let dec = span_to_decision(&span, &mut InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS));
         assert_eq!(dec["choice"]["arguments"], "not-valid-json");
     }
 
@@ -1390,7 +1396,7 @@ mod tests {
             "duration_ms": 1,
             "is_error": false,
         });
-        let dec = span_to_decision(&span);
+        let dec = span_to_decision(&span, &mut InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS));
         let summary = dec["consequence"]["result_summary"].as_str().unwrap();
         assert_eq!(summary.chars().count(), MAX_RESULT_SUMMARY_CHARS);
     }
@@ -1398,7 +1404,11 @@ mod tests {
     #[test]
     fn parse_tool_spans_skips_invalid_lines() {
         let jsonl = "{\"tool_call_id\":\"a\",\"tool_name\":\"x\",\"result\":\"\",\"duration_ms\":0,\"is_error\":false}\nINVALID\n{\"tool_call_id\":\"b\",\"tool_name\":\"y\",\"result\":\"\",\"duration_ms\":0,\"is_error\":false}\n";
-        let decisions: Vec<Value> = parse_tool_spans(jsonl).iter().map(span_to_decision).collect();
+        let mut budget = InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS);
+        let decisions: Vec<Value> = parse_tool_spans(jsonl)
+            .iter()
+            .map(|span| span_to_decision(span, &mut budget))
+            .collect();
         assert_eq!(decisions.len(), 2);
         assert_eq!(decisions[0]["decision_id"], "a");
         assert_eq!(decisions[1]["decision_id"], "b");
@@ -1966,6 +1976,73 @@ mod tests {
             assert_eq!(trajectory.metadata.outcome, expected);
             assert_eq!(trajectory.turns.len(), 1);
         }
+    }
+
+    /// Tool arguments are the largest field a decision can carry — a file-write
+    /// call holds the whole file — so many of them must not inflate the document
+    /// past the global ceiling.
+    #[test]
+    fn build_trajectory_counts_tool_arguments_against_the_global_budget() {
+        let payload = "q".repeat(MAX_ARGUMENTS_CHARS);
+        let mut lines: Vec<Value> = vec![json!({
+            "id":"u-0","parentId":null,"type":"message","role":"user","content":"go"
+        })];
+        let mut parent = "u-0".to_string();
+        for turn in 1..40 {
+            let assistant = format!("a-{turn}");
+            lines.push(json!({
+                "id": assistant, "parentId": parent, "type": "message", "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": format!("tc-{turn}"),
+                    "name": "temper.write",
+                    "input": {"body": payload}
+                }]
+            }));
+            let tool = format!("t-{turn}");
+            lines.push(json!({
+                "id": tool, "parentId": assistant, "type": "message", "role": "user",
+                "content": [{"type":"tool_result","tool_use_id":format!("tc-{turn}"),"content":"ok"}]
+            }));
+            parent = tool;
+        }
+        let jsonl = lines
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let fields = json!({ "session_leaf_id": parent, "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        let argument_chars: usize = t["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|turn| turn["decisions"].as_array().unwrap())
+            .filter_map(|decision| decision["choice"].get("arguments"))
+            .map(|arguments| {
+                serde_json::to_string(arguments)
+                    .unwrap_or_default()
+                    .chars()
+                    .count()
+            })
+            .sum();
+        assert!(
+            argument_chars <= MAX_TRAJECTORY_INLINE_CHARS * 2,
+            "tool arguments escaped the inline budget: {argument_chars} chars"
+        );
+        assert_eq!(
+            t["turns"][30]["decisions"][0]["choice"]["arguments"]["_truncated"],
+            json!(true),
+            "late decisions must degrade to a preview once the budget is spent"
+        );
+        assert!(
+            t["turns"][0]["messages"][1]["content"]["data"]["tool_calls"][0]
+                .get("arguments")
+                .is_none(),
+            "the message must not duplicate the decision's arguments"
+        );
     }
 
     #[test]
