@@ -282,7 +282,11 @@ pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> Vec<usize> {
         return chain;
     }
 
-    for index in (0..entries.len()).rev() {
+    // Try the newest entries only. Walking every entry would be quadratic on a
+    // long session, and a tree whose last hundred leaves are all unwalkable is
+    // damaged far past the point where a smarter search would help.
+    const FALLBACK_LEAF_ATTEMPTS: usize = 100;
+    for index in (0..entries.len()).rev().take(FALLBACK_LEAF_ATTEMPTS) {
         if let Some(chain) = walk(&entries[index].id)
             && has_message(&chain)
         {
