@@ -158,7 +158,7 @@ kind = "input"
 from = ["Created", "Failed"]
 to = "Authorizing"
 params = ["prompt", "media_type", "operation", "provider", "model", "size", "quality", "output_format", "background", "workspace_id", "output_path"]
-hint = "Start a governed media generation request."
+hint = "Start a governed media generation request. provider: omit it or pass 'openai_codex' (aliases: openai, codex) — the only v1 provider; media_type 'image', operation 'generate'."
 effect = [{ type = "trigger", name = "ensure_provider_auth" }]
 
 [[action.triggers]]

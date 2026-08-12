@@ -2967,6 +2967,21 @@ fn build_openai_responses_input(messages: &[Value]) -> OpenAiResponsesInput {
 ///
 /// Uses the Responses API format (not Chat Completions): instructions, input, stream=true.
 /// The WASM http_call buffers the full SSE stream — we parse the response.completed event.
+fn reasoning_effort_from_options(provider_options_json: &str) -> &'static str {
+    let parsed: Option<Value> = serde_json::from_str(provider_options_json).ok();
+    match parsed
+        .as_ref()
+        .and_then(|v| v.get("reasoning_effort"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+    {
+        "minimal" => "minimal",
+        "low" => "low",
+        "high" => "high",
+        _ => "medium",
+    }
+}
+
 fn call_openai(
     ctx: &Context,
     temper_api_url: &str,
@@ -2980,6 +2995,7 @@ fn call_openai(
     tools: &[Value],
     temperature: f64,
     provider: &str,
+    provider_options_json: &str,
 ) -> Result<LlmResponse, String> {
     // Convert Anthropic-format messages to Responses API input format
     let pre_convert_types: Vec<String> = messages
@@ -3046,7 +3062,9 @@ fn call_openai(
         "stream": true,
         "store": false,
         "reasoning": {
-            "effort": "medium",
+            // Session-configurable via provider_options_json
+            // {"reasoning_effort": ...}; "medium" preserves prior behavior.
+            "effort": reasoning_effort_from_options(provider_options_json),
             "summary": "auto",
         },
     });
@@ -3954,6 +3972,7 @@ pub fn run_provider_caller() -> Result<(), String> {
                 &prepared.tools,
                 temperature,
                 &provider,
+                &provider_options_json,
             ),
             other => Err(format!("unsupported LLM provider: {other}")),
         },
@@ -4235,6 +4254,18 @@ fn check_phase_budget(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reasoning_effort_defaults_to_medium_and_accepts_valid_levels() {
+        use super::reasoning_effort_from_options as effort;
+        assert_eq!(effort(""), "medium");
+        assert_eq!(effort("not json"), "medium");
+        assert_eq!(effort("{}"), "medium");
+        assert_eq!(effort(r#"{"reasoning_effort":"high"}"#), "high");
+        assert_eq!(effort(r#"{"reasoning_effort":"low"}"#), "low");
+        assert_eq!(effort(r#"{"reasoning_effort":"minimal"}"#), "minimal");
+        assert_eq!(effort(r#"{"reasoning_effort":"xhigh"}"#), "medium");
+    }
+
     use super::*;
 
     #[test]
