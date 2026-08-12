@@ -338,63 +338,43 @@ the two.
 The single-retry guard is unchanged: it counts retries, not statuses, so a
 degraded emission neither consumes nor triggers one.
 
-### 17. Interim carriers for the fields the pinned kernel does not model (2026-08-11)
+### 17. The JCS contract fields ride natively (2026-08-12, supersedes the interim carriers)
 
-`metadata.trajectory_id`, `metadata.harness`, `metadata.spec_version`, the
-per-turn token-level RL signals and `decisions[].cause_id` are the JCS contract
-fields. The temper branch `claude/jcs-trajectory-core` adds all of them to
-`temper-ots` as optional additive fields, but it is not on temper main — its
-pull request (nerdsane/temper#415) was closed unmerged on 2026-08-12 — and the
-pin in `emit_ots_trajectory/Cargo.toml` is a main revision. A bump is only
-possible once that work lands, under whatever pull request supersedes #415
-(repo convention: a `bump-temper` branch).
+`metadata.harness`, `metadata.spec_version`, the per-turn token-level RL signals
+and `decisions[].cause_id` are the JCS contract fields. The pin now sits on
+temper `a747f7d4` — the merge of nerdsane/temper#416 — where `temper-ots`
+declares every one of them as an optional additive field. They ride natively: a
+consumer that deserializes a stored row into `OTSTrajectory` and writes it back
+keeps them, and `kernel_round_trip_keeps_the_jcs_contract_fields` asserts each
+one survives with its value intact, through typed struct access rather than JSON
+shape alone.
 
-The pinned structs therefore do not declare them, and serde ignores unknown
-fields — so a round-trip test proves the kernel-modeled fields and says nothing
-about these. The stored row does keep them, because the server persists the POST
-body verbatim (`temper-server`'s trajectories handler stores `data: body`), so
-the OTS query API returns them. What loses them is a consumer that deserializes
-a row into `OTSTrajectory` and writes it back.
+`metadata.trajectory_id` stays unmodeled, by design and not by omission: the
+server's POST handler reads it from there before any struct is involved, and the
+kernel models the top-level `trajectory_id` that mirrors it.
+`kernel_round_trip_drops_exactly_the_unmodeled_extensions` now pins that as the
+only dropped field, so a new extension cannot appear unnoticed.
 
-Every one of them travels through a kernel-modeled carrier until the pin moves,
-and each carrier is asserted by a test rather than assumed:
+**What this replaced.** Until the bump, the pinned structs modelled none of
+these, and serde ignores unknown fields, so each one travelled through a field
+the kernel did model: `cause_id` mirroring the modelled `decision_id`; run
+provenance repeated in `metadata.tags` as `harness:` / `spec_version:`; and the
+token-level signals summarised as an inventory in `context.entities[]`
+(`turn_token_signals`) plus a `token_signals:present` tag. The signal arrays
+themselves always stayed on the turn, under the names the kernel now declares —
+copying megabyte-scale arrays into a carrier would have reproduced the payload
+failure section 11 exists to prevent — so the bump was a deletion rather than a
+migration, which is what it turned out to be.
 
-- The decision join key is `decision_id`, which the kernel does model.
-  `cause_id` mirrors it rather than carrying the join alone.
-- Run provenance is repeated in `metadata.tags` as `harness:temperpaw` and
-  `spec_version:<app>@<version>`. `tags` is kernel-modeled, and rejected
-  alternative 6 already named it as the home for harness-specific metadata.
-- The token-level signals repeat as an **inventory** in `context.entities[]`
-  (`type = "turn_token_signals"`), whose `metadata` is a kernel-modeled
-  `BTreeMap<String, Value>` and round-trips verbatim: per turn, which signals
-  the stored row holds, how many elements each has, and any misalignment or
-  budget drop. `metadata.tags` also gets `token_signals:present`.
+Those carriers are gone. A test failing is what removed them: the gate asserted
+each contract field was still dropped, so the bump made it fail and its message
+named the removal list. The contract test now asserts the carrier constants are
+absent, because a mirror that outlives its reason is a second source of truth
+with nothing keeping the copies equal.
 
-  The arrays themselves stay on the turn, under the names the JCS branch gives
-  `OTSTurn`, so the pin bump is a deletion rather than a migration. Copying
-  them into the carrier as well was rejected: they scale with completion length
-  and reach megabytes on a long session, and duplicating that is the payload
-  failure section 11 exists to prevent. What the carrier buys is that a consumer
-  holding a re-serialized copy can tell its copy is incomplete instead of
-  training on it as though it were whole — the loss becomes visible rather than
-  silent.
-- `kernel_round_trip_drops_exactly_the_unmodeled_extensions` pins the exact set
-  of dropped fields, and `pinned_kernel_still_lacks_the_jcs_contract_fields`
-  asserts each contract field is still dropped. The day a pin bump lands them,
-  both fail, and the failure message names the removal work: delete the
-  `turn_token_signals` carrier and the `token_signals:present` tag, drop the
-  harness and spec_version tag mirrors, shrink `KERNEL_UNMODELED_FIELDS`, and
-  amend this section.
-
-**Follow-up (blocking on another repo):** bump the `temper-wasm-sdk` and
-`temper-ots` pins in `os-apps/paw-agent/wasm/*/Cargo.toml` to a temper main
-revision that carries the JCS schema work, then remove the carriers above. It
-cannot be done in this pull request — no such revision exists yet — and the
-gate is keyed on the pin's own contents rather than on a pull-request number,
-so the interim state cannot outlive the bump quietly. CI runs the emitter's
-manifest directly (`.github/workflows/ci.yml`), because the os-app WASM modules
-are separate workspaces and `-p temperpaw` does not reach them: a gate nothing
-executes is not a gate.
+Degradation markers are the exception and stay in `metadata.tags`: the kernel
+models no field for "what this record was built without", and losing that marker
+turns a partial row into an apparently whole one (section 16).
 
 ### 18. Token-level signals are bounded twice (2026-08-11)
 
@@ -455,9 +435,9 @@ emitter saw them is distinguishable from a provider that sent none.
 
 In the **trajectory**, signals are bounded at 1MiB across the whole document,
 spent in turn order, with drops recorded as `_token_signals_dropped` on the turn
-and in the kernel-modeled inventory. A dropped signal that leaves a trace is
-debuggable; a silent one reads as a turn the serving stack never produced
-signals for.
+and `degraded:token_signals_dropped` on the row. A dropped signal that leaves a
+trace is debuggable; a silent one reads as a turn the serving stack never
+produced signals for.
 
 ## Consequences
 

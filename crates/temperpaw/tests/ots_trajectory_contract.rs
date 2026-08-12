@@ -354,30 +354,37 @@ fn emitter_marks_an_absent_transcript_degraded_rather_than_complete() {
     );
 }
 
-/// The degradation markers, the run provenance and the token-signal inventory
-/// all have to survive a consumer that deserializes a stored row into the
-/// kernel structs and writes it back — `metadata.tags` and
-/// `context.entities[].metadata` are kernel-modeled, the emitter's own
-/// extensions are not.
+/// The JCS contract fields ride natively on the pinned kernel structs, so a
+/// consumer that deserializes a stored row and writes it back keeps them. The
+/// carriers that stood in for them before the pin bump are gone and must stay
+/// gone — a mirror that outlives its reason is a second source of truth.
+/// Degradation markers are the exception: the kernel models no field for those,
+/// so `metadata.tags` still carries them.
 #[test]
 fn emitter_carries_unmodeled_signal_in_kernel_modeled_fields() {
     let emitter = emitter_source();
     assert!(
-        emitter.contains("pub const TOKEN_SIGNAL_CARRIER_TYPE"),
-        "the token-level signals need a kernel-modeled carrier while the pin lacks the fields"
-    );
-    assert!(
-        emitter.contains("fn token_signal_inventory_survives_the_kernel_round_trip"),
-        "the interim carrier must be proven lossless, not assumed"
+        emitter.contains("fn kernel_round_trip_keeps_the_jcs_contract_fields"),
+        "the native round trip is what the carriers were removed against; it \
+         has to be proven, not assumed"
     );
     assert!(
         emitter.contains("fn degradation_markers_survive_the_kernel_round_trip"),
         "a completeness marker that a re-serialization drops is worse than none"
     );
-    assert!(
-        emitter.contains("fn pinned_kernel_still_lacks_the_jcs_contract_fields"),
-        "the pin bump must fail loudly so the interim carriers get removed"
-    );
+    for gone in [
+        "TOKEN_SIGNAL_CARRIER_TYPE",
+        "TOKEN_SIGNALS_TAG",
+        "HARNESS_TAG_PREFIX",
+        "SPEC_VERSION_TAG_PREFIX",
+    ] {
+        assert!(
+            !emitter.contains(gone),
+            "{gone} is a pre-bump carrier. The kernel models these fields now, \
+             so mirroring them again would leave the row carrying the same fact \
+             twice with nothing keeping the copies equal"
+        );
+    }
 
     // `-p temperpaw` does not reach the os-app WASM modules — they are their
     // own workspaces — so a gate living in one of them only fires if CI runs
@@ -404,18 +411,21 @@ fn emitter_carries_unmodeled_signal_in_kernel_modeled_fields() {
         repo_root().join("os-apps/paw-agent/wasm/emit_ots_trajectory/Cargo.toml"),
     )
     .expect("emit_ots_trajectory Cargo.toml should exist");
-    let sdk_rev = manifest
-        .lines()
-        .find(|line| line.contains("temper-wasm-sdk"))
-        .and_then(|line| line.split("rev = \"").nth(1))
-        .and_then(|rest| rest.split('"').next())
-        .expect("the SDK dependency should pin a rev");
-    let ots_rev = manifest
-        .lines()
-        .find(|line| line.contains("temper-ots"))
-        .and_then(|line| line.split("rev = \"").nth(1))
-        .and_then(|rest| rest.split('"').next())
-        .expect("the temper-ots dev-dependency should pin a rev");
+    // Dependency lines only: the comments around them name these crates too,
+    // and matching one of those would read as "no rev pinned".
+    let pinned_rev = |crate_name: &str| -> String {
+        manifest
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#'))
+            .find(|line| line.starts_with(crate_name) && line.contains("rev = \""))
+            .and_then(|line| line.split("rev = \"").nth(1))
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or_else(|| panic!("{crate_name} should pin a rev"))
+            .to_string()
+    };
+    let sdk_rev = pinned_rev("temper-wasm-sdk");
+    let ots_rev = pinned_rev("temper-ots");
     assert_eq!(
         sdk_rev, ots_rev,
         "the round trip only proves anything if it runs against the kernel this \
@@ -668,10 +678,6 @@ fn emitter_pins_the_fields_the_kernel_does_not_model() {
     assert!(
         emitter.contains("fn rows_without_the_new_fields_still_deserialize"),
         "an old-row fixture must prove the additions stayed additive"
-    );
-    assert!(
-        emitter.contains("HARNESS_TAG_PREFIX") && emitter.contains("SPEC_VERSION_TAG_PREFIX"),
-        "run provenance must also travel in kernel-modeled metadata.tags"
     );
 }
 

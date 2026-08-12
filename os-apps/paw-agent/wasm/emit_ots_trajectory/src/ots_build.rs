@@ -23,10 +23,6 @@ use wasm_helpers::TranscriptPresence;
 
 /// Value of `metadata.harness` — identifies the runtime that produced the run.
 pub const HARNESS: &str = "temperpaw";
-/// Tag prefix mirroring `metadata.harness` into kernel-modeled `metadata.tags`.
-pub const HARNESS_TAG_PREFIX: &str = "harness:";
-/// Tag prefix mirroring `metadata.spec_version` into `metadata.tags`.
-pub const SPEC_VERSION_TAG_PREFIX: &str = "spec_version:";
 /// Tag prefix naming evidence this trajectory was built without.
 ///
 /// It lives in `metadata.tags` because that is kernel-modeled: a completeness
@@ -37,28 +33,22 @@ pub const DEGRADED_TAG_PREFIX: &str = "degraded:";
 /// OTS schema version emitted by this module.
 pub const OTS_VERSION: &str = "0.1.0";
 
-// Some fields this emitter writes are TemperPaw extensions the pinned
-// `temper-ots` structs do not model: `metadata.trajectory_id`,
-// `metadata.harness`, `metadata.spec_version`, the per-turn token-level RL
-// signals, and `decisions[].cause_id`. The stored row keeps them — the server
-// persists the POST body verbatim (`temper-server`'s trajectories handler stores
-// `data: body`) — but a consumer that deserializes a row into `OTSTrajectory`
-// and writes it back drops every one, because serde ignores unknown fields.
+// The JCS contract fields — `metadata.harness`, `metadata.spec_version`, the
+// per-turn token-level RL signals and `decisions[].cause_id` — are modeled by
+// the pinned `temper-ots` structs and ride natively. A consumer that
+// deserializes a stored row into `OTSTrajectory` and writes it back keeps them.
 //
-// Every one of them therefore also travels in a field the kernel does model,
-// and each carrier is asserted by a test:
+// They did not always. Until the pin reached the revision that added them, each
+// one travelled through a field the kernel did model — tag mirrors for the
+// provenance pair, an inventory in `context.entities[]` for the signals — and a
+// test failed the moment a bump made those carriers dead weight. That is what
+// removed them; `kernel_round_trip_keeps_the_jcs_contract_fields` now holds the
+// native path, and would fail if a carrier were reintroduced or the pin rolled
+// back.
 //
-// - `decisions[].cause_id` mirrors `decision_id`, so the decision-to-observation
-//   join never depends on a dropped field.
-// - `metadata.harness` and `metadata.spec_version` repeat in `metadata.tags`.
-// - The per-turn token-level signals repeat in `context.entities[]`, whose
-//   `metadata` is a kernel-modeled `BTreeMap<String, Value>` and survives a
-//   round trip verbatim (`TOKEN_SIGNAL_CARRIER_TYPE`).
-//
-// These carriers are interim. The kernel gains real fields for all of them in
-// temper PR #415, and `pinned_kernel_still_lacks_the_jcs_contract_fields` fails
-// the moment a pin bump lands them, so the carriers get deleted rather than
-// left behind. `KERNEL_UNMODELED_FIELDS` in the test module pins the exact set.
+// `metadata.trajectory_id` stays unmodeled by design: the server's POST handler
+// reads it from there before any struct is involved, and the kernel models the
+// top-level `trajectory_id` that mirrors it.
 
 /// Largest inline text body attached to a single OTS message.
 pub const MAX_MESSAGE_INLINE_CHARS: usize = 4_000;
@@ -79,26 +69,6 @@ pub const MAX_TASK_DESCRIPTION_CHARS: usize = 500;
 /// otherwise carry many megabytes of them. Signals past the ceiling are dropped
 /// visibly rather than silently.
 pub const MAX_TOKEN_SIGNAL_BYTES: usize = 1_048_576;
-
-/// `context.entities[].type` under which each turn's token-signal inventory is
-/// recorded.
-///
-/// Interim carrier for a known loss. The signal arrays themselves live on the
-/// turn, in the field names temper PR #415 gives `OTSTurn`, and the pinned
-/// kernel drops them on a deserialize/re-serialize round trip. Copying
-/// megabyte-scale arrays into a second place to survive that would reproduce
-/// the payload failure ADR-0035 section 11 exists to prevent, so what travels
-/// instead is the inventory: which signals the stored row carries, how long
-/// each one is, and where the authoritative row is. `OTSEntity.metadata` is a
-/// kernel-modeled `BTreeMap<String, Value>`, so the inventory survives the
-/// round trip verbatim, and a consumer holding a re-serialized copy can tell
-/// that its copy is incomplete instead of training on it as if it were whole.
-/// Delete the carrier when the pinned kernel models the turn fields.
-pub const TOKEN_SIGNAL_CARRIER_TYPE: &str = "turn_token_signals";
-
-/// Tag announcing that the stored row carries token-level signals the kernel
-/// structs cannot represent. Kernel-modeled, so it survives a round trip.
-pub const TOKEN_SIGNALS_TAG: &str = "token_signals:present";
 
 /// Every token-level signal name, in the shape OTS turns use. The prompt-side
 /// ids stand alone; the rest are the positionally aligned completion set.
@@ -989,10 +959,9 @@ impl TokenSignalBudget {
 /// recorded as `_token_signals_misaligned` so the loss is not silent, and a set
 /// dropped for exceeding `MAX_TOKEN_SIGNAL_BYTES` as `_token_signals_dropped`.
 ///
-/// Returns the inventory of what was written: signal name -> element count, plus
-/// any drop marker. It is what `TOKEN_SIGNAL_CARRIER_TYPE` records in a
-/// kernel-modeled field, so a consumer working from a re-serialized row can see
-/// which signals the stored row holds.
+/// Returns an inventory of what was written: signal name -> element count, plus
+/// any drop marker. The caller reads it to tell whether the turn's record came
+/// up short.
 fn attach_token_signals(
     turn: &mut Value,
     source: &Value,
@@ -1188,36 +1157,6 @@ fn file_resource(resources: &mut Vec<Value>, kind: &str, file_id: &str) {
     resources.push(json!({ "type": kind, "uri": uri }));
 }
 
-/// One turn's token-signal inventory, as a kernel-modeled context entity.
-///
-/// The arrays stay on the turn; this records what the turn holds so the fact
-/// survives a consumer that re-serializes the row through `OTSTrajectory`.
-fn token_signal_carrier(span_id: &Value, turn_id: i64, inventory: Map<String, Value>) -> Value {
-    let mut metadata = Map::new();
-    metadata.insert("turn_id".to_string(), json!(turn_id));
-
-    let mut lengths = Map::new();
-    for (key, value) in inventory {
-        // Drop and misalignment markers are facts about the turn; the rest are
-        // per-signal element counts.
-        if key.starts_with('_') {
-            metadata.insert(key, value);
-        } else {
-            lengths.insert(key, value);
-        }
-    }
-    if !lengths.is_empty() {
-        metadata.insert("lengths".to_string(), Value::Object(lengths));
-        metadata.insert("stored_on".to_string(), json!("turns[].<signal>"));
-    }
-
-    json!({
-        "type": TOKEN_SIGNAL_CARRIER_TYPE,
-        "id": span_id,
-        "metadata": metadata,
-    })
-}
-
 /// Evidence the finished document was built without, newest-first in the order
 /// the tags were added. Empty for a complete trajectory.
 ///
@@ -1297,18 +1236,10 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             tags.push(value.to_string());
         }
     }
-    // Run provenance is also carried as tags because `metadata.tags` is a field
-    // the kernel's OTSMetadata models, while `harness` and `spec_version` are
-    // TemperPaw extensions it does not: a consumer that deserializes a stored
-    // row into OTSTrajectory and writes it back would otherwise lose which
-    // runtime and which spec produced the run. See KERNEL_UNMODELED_FIELDS.
-    tags.push(format!("{HARNESS_TAG_PREFIX}{HARNESS}"));
-    if !spec_version.is_empty() {
-        tags.push(format!("{SPEC_VERSION_TAG_PREFIX}{spec_version}"));
-    }
-    // What the document was built without. Same reasoning as run provenance,
-    // with more at stake: a consumer that loses a completeness marker reads a
-    // partial record as a whole one.
+    // What the document was built without. `metadata.tags` is the carrier
+    // because a consumer that loses a completeness marker reads a partial
+    // record as a whole one — and unlike run provenance, which the kernel now
+    // models directly, there is no field of its own for this.
     //
     // Absence is only the loudest way a transcript can be short. It can also
     // arrive corrupted, arrive without the newest turns (the recorded leaf does
@@ -1392,8 +1323,6 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     let boundary_timestamps = turn_boundary_event_timestamps(entity_state);
     let mut budget = InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS);
     let mut signal_budget = TokenSignalBudget::new(MAX_TOKEN_SIGNAL_BYTES);
-    let mut signal_carriers: Vec<Value> = Vec::new();
-    let mut carried_token_signals = false;
     let mut lost_token_signals = false;
     let mut turns: Vec<Value> = Vec::new();
 
@@ -1499,23 +1428,12 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
 
         if let Some(entry) = assistant {
             let inventory = attach_token_signals(&mut turn, &entry.raw, &mut signal_budget);
-            // The tag announces signals a consumer can read. A turn whose
-            // signals were all dropped carries an inventory of the drop and no
-            // signal, so it must not advertise one.
-            carried_token_signals |= inventory.keys().any(|key| !key.starts_with('_'));
             // Misalignment discards the completion-side set exactly as a budget
             // drop does, and extras cut to fit the entry ceiling take turn facts
             // with them. All three are the record coming up short.
             lost_token_signals |= inventory.contains_key("_token_signals_dropped")
                 || inventory.contains_key("_token_signals_misaligned")
                 || inventory.contains_key("_turn_extras_dropped_members");
-            if !inventory.is_empty() {
-                signal_carriers.push(token_signal_carrier(
-                    &turn["span_id"],
-                    (turn_index + 1) as i64,
-                    inventory,
-                ));
-            }
         }
 
         turns.push(turn);
@@ -1575,9 +1493,6 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     // re-serialized row knows the stored row holds signals its structs cannot
     // represent. Only when a signal was actually written: a turn whose signals
     // were all dropped carries the record of the drop, not a signal to read.
-    if carried_token_signals {
-        tags.push(TOKEN_SIGNALS_TAG.to_string());
-    }
     // A signal the writer or this budget refused is evidence the row was built
     // without, which is what degraded means — so it reaches the Session status
     // the same way a missing transcript does, rather than only the document.
@@ -1671,15 +1586,8 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         trajectory["_tool_spans_write_failed"] = json!(true);
     }
 
-    if !resources.is_empty() || !signal_carriers.is_empty() {
-        let mut context = Map::new();
-        if !resources.is_empty() {
-            context.insert("resources".to_string(), json!(resources));
-        }
-        if !signal_carriers.is_empty() {
-            context.insert("entities".to_string(), json!(signal_carriers));
-        }
-        trajectory["context"] = Value::Object(context);
+    if !resources.is_empty() {
+        trajectory["context"] = json!({ "resources": resources });
     }
 
     let system_prompt = field_str(fields, "system_prompt");
@@ -1706,13 +1614,6 @@ mod tests {
         // Read by the server's POST handler before any struct is involved, and
         // repeated at the top level where the kernel does model it.
         "metadata.trajectory_id",
-        "metadata.harness",
-        "metadata.spec_version",
-        "turns[].prompt_token_ids",
-        "turns[].completion_token_ids",
-        "turns[].response_mask",
-        "turns[].logprobs",
-        "turns[].decisions[].cause_id",
     ];
 
     fn inputs<'a>(
@@ -2782,275 +2683,6 @@ mod tests {
         assert!(t["turns"][0].get("_token_signals_misaligned").is_none());
     }
 
-    /// Run provenance has to survive a consumer that deserializes a stored row
-    /// into the kernel `OTSTrajectory` and writes it back. `metadata.harness`
-    /// and `metadata.spec_version` do not — `metadata.tags` does.
-    #[test]
-    fn build_trajectory_repeats_run_provenance_in_kernel_modeled_tags() {
-        use temper_ots::models::OTSTrajectory;
-
-        let fields = two_turn_fields();
-        let jsonl = two_turn_session_jsonl();
-        let state = entity_state_with_events();
-        let document = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        let trajectory: OTSTrajectory =
-            serde_json::from_value(document).expect("document deserializes");
-        assert!(
-            trajectory
-                .metadata
-                .tags
-                .contains(&format!("{HARNESS_TAG_PREFIX}{HARNESS}")),
-            "harness must survive the kernel round trip: {:?}",
-            trajectory.metadata.tags
-        );
-        assert!(
-            trajectory
-                .metadata
-                .tags
-                .contains(&format!("{SPEC_VERSION_TAG_PREFIX}paw-agent@0.1.0")),
-            "spec_version must survive the kernel round trip: {:?}",
-            trajectory.metadata.tags
-        );
-    }
-
-    /// A transcript that is not there produces a spans-only document. Storing it
-    /// as if it were complete is the failure this marks: the row is written once
-    /// and the session is marked emitted, so nothing downstream ever revisits it.
-    #[test]
-    fn build_trajectory_marks_an_absent_transcript_as_degraded() {
-        let fields = json!({ "has_result": true, "tool_spans_file_id": "file-spans-1" });
-        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
-        let state = entity_state_with_events();
-
-        for (presence, expected) in [
-            (TranscriptPresence::MissingFile, "transcript_missing_file"),
-            (TranscriptPresence::EmptyFile, "transcript_empty_file"),
-            (
-                TranscriptPresence::PendingFirstTurn,
-                "transcript_pending_first_turn",
-            ),
-            (TranscriptPresence::NoEntries, "transcript_no_entries"),
-            (TranscriptPresence::Undeclared, "transcript_undeclared"),
-        ] {
-            let mut input = inputs(&fields, "", spans, &state, "Completed");
-            input.transcript = presence;
-            let t = build_trajectory(&input);
-
-            assert_eq!(
-                degradations(&t),
-                vec![expected.to_string()],
-                "a {} transcript must be reported as degraded",
-                presence.as_str()
-            );
-            assert_eq!(t["_transcript"]["present"], false);
-            assert_eq!(t["_transcript"]["reasons"], json!([presence.as_str()]));
-        }
-    }
-
-    /// The recorded leaf is the session's own claim about where its history
-    /// ends. When it does not resolve, the fallback chain is an older one — the
-    /// newest turns are exactly what is missing — and the row must not pass as
-    /// the whole session.
-    #[test]
-    fn build_trajectory_marks_an_unresolved_leaf_as_degraded() {
-        let mut fields = two_turn_fields();
-        fields["session_leaf_id"] = json!("a-5-never-written");
-        let jsonl = two_turn_session_jsonl();
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        assert_eq!(
-            degradations(&t),
-            vec!["transcript_leaf_unresolved".to_string()]
-        );
-        assert_eq!(t["_transcript"]["present"], true);
-        assert_eq!(
-            t["turns"].as_array().unwrap().len(),
-            2,
-            "the recoverable turns are still emitted"
-        );
-    }
-
-    /// A transcript whose entries yield no turn at all produces the same
-    /// synthetic single-turn document as an empty one, and must be labelled the
-    /// same way rather than passing as a session that genuinely did nothing.
-    #[test]
-    fn build_trajectory_marks_a_transcript_without_turns_as_degraded() {
-        let jsonl = json!({"id":"h-ss-1","parentId":null,"type":"header","tokens":0}).to_string();
-        let fields = json!({ "session_leaf_id": "h-ss-1", "has_result": true });
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        assert!(
-            degradations(&t).contains(&"transcript_no_turns".to_string()),
-            "tags: {:?}",
-            t["metadata"]["tags"]
-        );
-        assert_eq!(t["turns"].as_array().unwrap().len(), 1);
-    }
-
-    /// Span lines are skipped when they do not parse, so a partially written
-    /// append leaves tool calls with no evidence and nothing saying so.
-    #[test]
-    fn build_trajectory_marks_unparseable_tool_spans_as_degraded() {
-        let fields = two_turn_fields();
-        let jsonl = two_turn_session_jsonl();
-        let spans = concat!(
-            "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n",
-            "{\"tool_call_id\":\"tc-2\",\"tool_name\":\"temper.re\n"
-        );
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
-
-        assert_eq!(
-            degradations(&t),
-            vec!["tool_spans_unparseable".to_string()]
-        );
-        assert_eq!(t["_tool_spans_unparsed_lines"], 1);
-    }
-
-    /// A transcript that arrived but does not parse is missing history just as
-    /// surely as one that never arrived. Judging completeness by whether bytes
-    /// showed up would store a corrupted file as a complete record — the same
-    /// false-complete row an absent transcript used to produce, reached through
-    /// corruption instead of a 404.
-    #[test]
-    fn build_trajectory_marks_an_unparseable_transcript_as_degraded() {
-        let mut lines: Vec<String> = two_turn_session_jsonl()
-            .lines()
-            .map(str::to_string)
-            .collect();
-        lines.push("{\"id\":\"a-4\",\"parentId\":\"a-3\",\"type\"".to_string()); // write cut mid-line
-        let jsonl = lines.join("\n");
-        let fields = two_turn_fields();
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        assert_eq!(degradations(&t), vec!["transcript_unparseable".to_string()]);
-        assert_eq!(t["_transcript"]["present"], true);
-        assert_eq!(t["_transcript"]["unparsed_lines"], 1);
-        assert_eq!(
-            t["turns"].as_array().unwrap().len(),
-            2,
-            "the readable turns are still kept — one bad line must not cost the trajectory"
-        );
-    }
-
-    /// A complete run must not be labelled degraded — the marker is only useful
-    /// if it means something.
-    #[test]
-    fn build_trajectory_reports_no_degradation_for_a_complete_run() {
-        let fields = two_turn_fields();
-        let jsonl = two_turn_session_jsonl();
-        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
-
-        assert!(degradations(&t).is_empty(), "tags: {:?}", t["metadata"]["tags"]);
-        assert!(t.get("_transcript").is_none());
-        assert!(t.get("_tool_spans_missing").is_none());
-    }
-
-    /// A declared span file that 404s is missing evidence, not an absence of
-    /// tool calls, and a truncated span document is missing tool timings.
-    #[test]
-    fn build_trajectory_marks_missing_and_truncated_tool_spans() {
-        let fields = two_turn_fields();
-        let jsonl = two_turn_session_jsonl();
-        let state = entity_state_with_events();
-
-        let mut input = inputs(&fields, &jsonl, "", &state, "Completed");
-        input.tool_spans_missing = true;
-        let t = build_trajectory(&input);
-        assert_eq!(degradations(&t), vec!["tool_spans_missing_file".to_string()]);
-        assert_eq!(t["_tool_spans_missing"], true);
-
-        let sealed = format!(
-            "{}\n",
-            json!({"tool_name": TOOL_SPANS_TRUNCATED_MARKER, "tool_call_id":"", "result":"", "duration_ms":0, "is_error":false})
-        );
-        let t = build_trajectory(&inputs(&fields, &jsonl, &sealed, &state, "Completed"));
-        assert_eq!(t["_tool_spans_truncated"], true);
-        assert_eq!(degradations(&t), vec!["tool_spans_truncated".to_string()]);
-    }
-
-    /// A span write that failed leaves `tool_spans_file_id` empty, which reads
-    /// exactly like a session that called no tools. The session records the
-    /// failure so the two can be told apart.
-    #[test]
-    fn build_trajectory_marks_a_failed_span_write_as_degraded() {
-        let mut fields = two_turn_fields();
-        fields["tool_spans_file_id"] = json!("");
-        fields["tool_spans_write_failed"] = json!("true");
-        let jsonl = two_turn_session_jsonl();
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        assert_eq!(
-            degradations(&t),
-            vec!["tool_spans_write_failed".to_string()]
-        );
-        assert_eq!(t["_tool_spans_write_failed"], true);
-    }
-
-    /// Raw file order is not a walk. When no leaf resolves — recorded or not —
-    /// the parent structure is unusable and the order is a guess, so the
-    /// document must not present it as the session's shape.
-    #[test]
-    fn build_trajectory_marks_raw_order_fallback_as_degraded() {
-        // Every entry points at a parent that is not in the transcript, so no
-        // leaf walks, and no leaf was recorded either.
-        let jsonl = [
-            json!({"id":"u-1","parentId":"missing-a","type":"message","role":"user","content":"go"}),
-            json!({"id":"a-1","parentId":"missing-b","type":"message","role":"assistant","content":"ok"}),
-        ]
-        .iter()
-        .map(|v| v.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-        let fields = json!({ "has_result": true });
-        let state = entity_state_with_events();
-        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        assert!(
-            degradations(&t).contains(&"transcript_leaf_unresolved".to_string()),
-            "tags: {:?}",
-            t["metadata"]["tags"]
-        );
-
-        let resolved = resolve_chain(&parse_session_entries(&jsonl), "");
-        assert!(!resolved.from_recorded_leaf);
-    }
-
-    /// The completeness marker is the last thing that may be lost on a round
-    /// trip: without it a partial record reads as a whole one.
-    #[test]
-    fn degradation_markers_survive_the_kernel_round_trip() {
-        use temper_ots::models::OTSTrajectory;
-
-        let fields = json!({ "has_result": false });
-        let state = entity_state_with_events();
-        let mut input = inputs(&fields, "", "", &state, "Failed");
-        input.transcript = TranscriptPresence::MissingFile;
-        input.tool_spans_missing = true;
-        let document = build_trajectory(&input);
-
-        let trajectory: OTSTrajectory =
-            serde_json::from_value(document).expect("document deserializes");
-        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
-
-        assert_eq!(
-            degradations(&round_tripped),
-            vec![
-                "transcript_missing_file".to_string(),
-                "tool_spans_missing_file".to_string()
-            ],
-            "tags: {:?}",
-            trajectory.metadata.tags
-        );
-    }
-
     /// The decision-to-observation join must not depend on a field the kernel
     /// drops. `cause_id` mirrors `decision_id`, which the kernel does model, so
     /// a consumer working from re-serialized rows can still join.
@@ -3092,60 +2724,6 @@ mod tests {
         .map(|v| v.to_string())
         .collect::<Vec<_>>()
         .join("\n")
-    }
-
-    /// The interim carrier for the one extension with no kernel-modeled home.
-    /// The arrays stay on the turn — copying megabytes of them into a second
-    /// place to survive re-serialization is the payload failure ADR-0035
-    /// section 11 exists to prevent — so what has to survive verbatim is the
-    /// inventory that tells a consumer its re-serialized copy is incomplete.
-    #[test]
-    fn token_signal_inventory_survives_the_kernel_round_trip() {
-        use temper_ots::models::OTSTrajectory;
-
-        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
-        let state = entity_state_with_events();
-        let jsonl = token_signal_session_jsonl(2);
-        let emitted = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
-
-        let carrier = emitted["context"]["entities"][0].clone();
-        assert_eq!(carrier["type"], TOKEN_SIGNAL_CARRIER_TYPE);
-        assert_eq!(carrier["id"], emitted["turns"][0]["span_id"]);
-        assert_eq!(carrier["metadata"]["turn_id"], 1);
-        for field in [
-            "prompt_token_ids",
-            "completion_token_ids",
-            "response_mask",
-            "logprobs",
-        ] {
-            assert_eq!(
-                carrier["metadata"]["lengths"][field], 2,
-                "the inventory must record {field}"
-            );
-            assert!(
-                emitted["turns"][0][field].is_array(),
-                "{field} itself still travels on the turn"
-            );
-        }
-
-        let trajectory: OTSTrajectory =
-            serde_json::from_value(emitted.clone()).expect("document deserializes");
-        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
-
-        assert_eq!(
-            round_tripped["context"]["entities"][0], carrier,
-            "the inventory must round trip verbatim; without it a consumer \
-             cannot tell that its copy lost the signals"
-        );
-        assert!(
-            trajectory.metadata.tags.contains(&TOKEN_SIGNALS_TAG.to_string()),
-            "a tags-only consumer must still see that signals exist: {:?}",
-            trajectory.metadata.tags
-        );
-        assert!(
-            round_tripped["turns"][0].get("prompt_token_ids").is_none(),
-            "this test is meaningless if the pinned kernel keeps the arrays"
-        );
     }
 
     /// Token signals are the one payload the character budgets do not bound, so
@@ -3200,9 +2778,8 @@ mod tests {
             "a dropped signal must name itself and its length: {dropped}"
         );
         assert_eq!(
-            t["context"]["entities"][1]["metadata"]["_token_signals_dropped"]["response_mask"],
-            per_turn as u64,
-            "the drop must also reach the kernel-modeled inventory"
+            t["turns"][1]["_token_signals_dropped"]["response_mask"], per_turn as u64,
+            "every refused signal on the turn must name itself"
         );
     }
 
@@ -3266,19 +2843,9 @@ mod tests {
             t["turns"][0].get("completion_token_ids").is_none(),
             "the signal must not have been written"
         );
-        let tags: Vec<&str> = t["metadata"]["tags"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(Value::as_str)
-            .collect();
         assert!(
-            !tags.contains(&TOKEN_SIGNALS_TAG),
-            "a row that carries no signal must not advertise one: {tags:?}"
-        );
-        assert!(
-            t["context"]["entities"][0]["metadata"]["_token_signals_dropped"].is_object(),
-            "the drop itself still has to be recorded"
+            t["turns"][0]["_token_signals_dropped"].is_object(),
+            "the drop itself still has to be recorded on the turn"
         );
         assert!(
             degradations(&t).contains(&"token_signals_dropped".to_string()),
@@ -3309,10 +2876,10 @@ mod tests {
         let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
 
         assert_eq!(t["turns"][0]["_turn_extras_dropped_members"], 12);
-        assert_eq!(
-            t["context"]["entities"][0]["metadata"]["_turn_extras_dropped_members"],
-            12,
-            "the loss must reach the kernel-modeled inventory too"
+        assert!(
+            degradations(&t).contains(&"token_signals_dropped".to_string()),
+            "extras cut to fit take turn facts with them, so the row is short: {:?}",
+            t["metadata"]["tags"]
         );
         assert!(degradations(&t).contains(&"token_signals_dropped".to_string()));
     }
@@ -3345,33 +2912,31 @@ mod tests {
             40_000
         );
         assert_eq!(
-            t["context"]["entities"][0]["metadata"]["_token_signals_dropped"]["logprobs"],
-            52_000,
-            "the drop must reach the kernel-modeled inventory, not only the turn"
+            t["turns"][0]["_token_signals_dropped"]["logprobs"], 52_000,
+            "a refusal at capture must still be legible on the turn"
         );
-        assert!(degradations(&t).contains(&"token_signals_dropped".to_string()));
-        let tags: Vec<&str> = t["metadata"]["tags"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(Value::as_str)
-            .collect();
         assert!(
-            !tags.contains(&TOKEN_SIGNALS_TAG),
-            "nothing readable was carried: {tags:?}"
+            degradations(&t).contains(&"token_signals_dropped".to_string()),
+            "and must reach the Session status: {:?}",
+            t["metadata"]["tags"]
         );
     }
 
-    /// The gate on the interim carriers. Every field named here is modeled by
-    /// `OTSTrajectory` in temper PR #415; until that merges and the pin in
-    /// `Cargo.toml` moves to it, each one is dropped on a round trip and travels
-    /// through a carrier instead. When the bump lands this test fails, and the
-    /// carriers must be deleted rather than left behind.
+    /// The JCS contract fields ride natively now: the pinned `temper-ots`
+    /// models every one, so a consumer that deserializes a stored row and
+    /// writes it back keeps them, and the carriers that stood in for them are
+    /// gone.
+    ///
+    /// This is what those carriers were removed against, so it fails if either
+    /// half comes back. Each field must be emitted, survive the round trip with
+    /// its value intact, and be mirrored nowhere: no `harness:` /
+    /// `spec_version:` / `token_signals:present` tag, no `context.entities`
+    /// inventory.
     #[test]
-    fn pinned_kernel_still_lacks_the_jcs_contract_fields() {
+    fn kernel_round_trip_keeps_the_jcs_contract_fields() {
         use temper_ots::models::OTSTrajectory;
 
-        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let fields = two_turn_fields();
         let state = entity_state_with_events();
         let jsonl = token_signal_session_jsonl(2);
         let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.read\",\"result\":\"ok\",\"duration_ms\":1,\"is_error\":false}\n";
@@ -3381,9 +2946,6 @@ mod tests {
             serde_json::from_value(emitted.clone()).expect("document deserializes");
         let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
 
-        // Each field is read at the same path on both sides. Asserting only
-        // that the round trip lost it would pass vacuously the day the emitter
-        // stops producing one, and the carrier would then never be flagged.
         let contract_fields: [(&str, &Value, &Value); 7] = [
             (
                 "metadata.harness",
@@ -3424,24 +2986,49 @@ mod tests {
         for (path, before, after) in contract_fields {
             assert!(
                 !before.is_null(),
-                "the emitter stopped producing {path}; this gate only means \
+                "the emitter stopped producing {path}; this test only means \
                  something while every contract field is emitted"
             );
-            assert!(
-                after.is_null(),
-                "the pinned temper-ots now models {path}. The pin bump landed, so \
-                 the interim carriers are dead weight: delete the {TOKEN_SIGNAL_CARRIER_TYPE} \
-                 context entity and {TOKEN_SIGNALS_TAG}, drop the harness/spec_version \
-                 tag mirrors, remove {path} from KERNEL_UNMODELED_FIELDS, amend \
-                 ADR-0035 section 17, and delete this test"
+            assert_eq!(
+                before, after,
+                "{path} did not survive the kernel round trip. Either the pin \
+                 rolled back to a revision that does not model it, or the field \
+                 drifted — do not answer that by reintroducing a carrier"
             );
         }
+
+        // Typed access, not just JSON shape: the fields are on the structs.
+        assert_eq!(trajectory.metadata.harness.as_deref(), Some(HARNESS));
+        assert_eq!(
+            trajectory.metadata.spec_version.as_deref(),
+            Some("paw-agent@0.1.0")
+        );
+        assert_eq!(
+            trajectory.turns[0].decisions[0].cause_id.as_deref(),
+            Some("tc-1")
+        );
+
+        // The carriers are gone and must stay gone.
+        for tag in trajectory.metadata.tags.iter() {
+            assert!(
+                !tag.starts_with("harness:")
+                    && !tag.starts_with("spec_version:")
+                    && !tag.starts_with("token_signals:"),
+                "a provenance mirror came back as {tag:?}; the kernel models \
+                 these directly now"
+            );
+        }
+        assert!(
+            round_tripped["context"].get("entities").is_none(),
+            "the turn_token_signals inventory came back: {}",
+            round_tripped["context"]
+        );
     }
 
-    /// Serde ignores unknown fields, so the kernel round trip alone proves
-    /// nothing about the extensions this emitter adds. This names them, and
-    /// fails the day `temper-ots` starts modeling one — at which point the
-    /// emitter and ADR-0035 have to be revisited rather than drifting quietly.
+    /// Serde ignores unknown fields, so a round trip says nothing about a field
+    /// the kernel does not model. One is left by design — the POST handler reads
+    /// `metadata.trajectory_id` before any struct is involved — and this pins
+    /// that it is the only one, so a new extension cannot appear unnoticed.
     #[test]
     fn kernel_round_trip_drops_exactly_the_unmodeled_extensions() {
         use temper_ots::models::OTSTrajectory;
@@ -3613,6 +3200,243 @@ mod tests {
                 .chars()
                 .count()
                 <= MAX_ARGUMENTS_CHARS
+        );
+    }
+
+    /// A transcript that is not there produces a spans-only document. Storing it
+    /// as if it were complete is the failure this marks: the row is written once
+    /// and the session is marked emitted, so nothing downstream ever revisits it.
+    #[test]
+    fn build_trajectory_marks_an_absent_transcript_as_degraded() {
+        let fields = json!({ "has_result": true, "tool_spans_file_id": "file-spans-1" });
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
+        let state = entity_state_with_events();
+
+        for (presence, expected) in [
+            (TranscriptPresence::MissingFile, "transcript_missing_file"),
+            (TranscriptPresence::EmptyFile, "transcript_empty_file"),
+            (
+                TranscriptPresence::PendingFirstTurn,
+                "transcript_pending_first_turn",
+            ),
+            (TranscriptPresence::NoEntries, "transcript_no_entries"),
+            (TranscriptPresence::Undeclared, "transcript_undeclared"),
+        ] {
+            let mut input = inputs(&fields, "", spans, &state, "Completed");
+            input.transcript = presence;
+            let t = build_trajectory(&input);
+
+            assert_eq!(
+                degradations(&t),
+                vec![expected.to_string()],
+                "a {} transcript must be reported as degraded",
+                presence.as_str()
+            );
+            assert_eq!(t["_transcript"]["present"], false);
+            assert_eq!(t["_transcript"]["reasons"], json!([presence.as_str()]));
+        }
+    }
+
+    /// A transcript that arrived but does not parse is missing history just as
+    /// surely as one that never arrived. Judging completeness by whether bytes
+    /// showed up would store a corrupted file as a complete record — the same
+    /// false-complete row an absent transcript used to produce, reached through
+    /// corruption instead of a 404.
+    #[test]
+    fn build_trajectory_marks_an_unparseable_transcript_as_degraded() {
+        let mut lines: Vec<String> = two_turn_session_jsonl()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        lines.push("{\"id\":\"a-4\",\"parentId\":\"a-3\",\"type\"".to_string()); // write cut mid-line
+        let jsonl = lines.join("\n");
+        let fields = two_turn_fields();
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(degradations(&t), vec!["transcript_unparseable".to_string()]);
+        assert_eq!(t["_transcript"]["present"], true);
+        assert_eq!(t["_transcript"]["unparsed_lines"], 1);
+        assert_eq!(
+            t["turns"].as_array().unwrap().len(),
+            2,
+            "the readable turns are still kept — one bad line must not cost the trajectory"
+        );
+    }
+
+    /// The recorded leaf is the session's own claim about where its history
+    /// ends. When it does not resolve, the fallback chain is an older one — the
+    /// newest turns are exactly what is missing — and the row must not pass as
+    /// the whole session.
+    #[test]
+    fn build_trajectory_marks_an_unresolved_leaf_as_degraded() {
+        let mut fields = two_turn_fields();
+        fields["session_leaf_id"] = json!("a-5-never-written");
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(
+            degradations(&t),
+            vec!["transcript_leaf_unresolved".to_string()]
+        );
+        assert_eq!(t["_transcript"]["present"], true);
+        assert_eq!(
+            t["turns"].as_array().unwrap().len(),
+            2,
+            "the recoverable turns are still emitted"
+        );
+    }
+
+    /// A transcript whose entries yield no turn at all produces the same
+    /// synthetic single-turn document as an empty one, and must be labelled the
+    /// same way rather than passing as a session that genuinely did nothing.
+    #[test]
+    fn build_trajectory_marks_a_transcript_without_turns_as_degraded() {
+        let jsonl = json!({"id":"h-ss-1","parentId":null,"type":"header","tokens":0}).to_string();
+        let fields = json!({ "session_leaf_id": "h-ss-1", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(
+            degradations(&t).contains(&"transcript_no_turns".to_string()),
+            "tags: {:?}",
+            t["metadata"]["tags"]
+        );
+        assert_eq!(t["turns"].as_array().unwrap().len(), 1);
+    }
+
+    /// Span lines are skipped when they do not parse, so a partially written
+    /// append leaves tool calls with no evidence and nothing saying so.
+    #[test]
+    fn build_trajectory_marks_unparseable_tool_spans_as_degraded() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let spans = concat!(
+            "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n",
+            "{\"tool_call_id\":\"tc-2\",\"tool_name\":\"temper.re\n"
+        );
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        assert_eq!(
+            degradations(&t),
+            vec!["tool_spans_unparseable".to_string()]
+        );
+        assert_eq!(t["_tool_spans_unparsed_lines"], 1);
+    }
+
+    /// A complete run must not be labelled degraded — the marker is only useful
+    /// if it means something.
+    #[test]
+    fn build_trajectory_reports_no_degradation_for_a_complete_run() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        assert!(degradations(&t).is_empty(), "tags: {:?}", t["metadata"]["tags"]);
+        assert!(t.get("_transcript").is_none());
+        assert!(t.get("_tool_spans_missing").is_none());
+    }
+
+    /// A declared span file that 404s is missing evidence, not an absence of
+    /// tool calls, and a truncated span document is missing tool timings.
+    #[test]
+    fn build_trajectory_marks_missing_and_truncated_tool_spans() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+
+        let mut input = inputs(&fields, &jsonl, "", &state, "Completed");
+        input.tool_spans_missing = true;
+        let t = build_trajectory(&input);
+        assert_eq!(degradations(&t), vec!["tool_spans_missing_file".to_string()]);
+        assert_eq!(t["_tool_spans_missing"], true);
+
+        let sealed = format!(
+            "{}\n",
+            json!({"tool_name": TOOL_SPANS_TRUNCATED_MARKER, "tool_call_id":"", "result":"", "duration_ms":0, "is_error":false})
+        );
+        let t = build_trajectory(&inputs(&fields, &jsonl, &sealed, &state, "Completed"));
+        assert_eq!(t["_tool_spans_truncated"], true);
+        assert_eq!(degradations(&t), vec!["tool_spans_truncated".to_string()]);
+    }
+
+    /// A span write that failed leaves `tool_spans_file_id` empty, which reads
+    /// exactly like a session that called no tools. The session records the
+    /// failure so the two can be told apart.
+    #[test]
+    fn build_trajectory_marks_a_failed_span_write_as_degraded() {
+        let mut fields = two_turn_fields();
+        fields["tool_spans_file_id"] = json!("");
+        fields["tool_spans_write_failed"] = json!("true");
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(
+            degradations(&t),
+            vec!["tool_spans_write_failed".to_string()]
+        );
+        assert_eq!(t["_tool_spans_write_failed"], true);
+    }
+
+    /// Raw file order is not a walk. When no leaf resolves — recorded or not —
+    /// the parent structure is unusable and the order is a guess, so the
+    /// document must not present it as the session's shape.
+    #[test]
+    fn build_trajectory_marks_raw_order_fallback_as_degraded() {
+        // Every entry points at a parent that is not in the transcript, so no
+        // leaf walks, and no leaf was recorded either.
+        let jsonl = [
+            json!({"id":"u-1","parentId":"missing-a","type":"message","role":"user","content":"go"}),
+            json!({"id":"a-1","parentId":"missing-b","type":"message","role":"assistant","content":"ok"}),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(
+            degradations(&t).contains(&"transcript_leaf_unresolved".to_string()),
+            "tags: {:?}",
+            t["metadata"]["tags"]
+        );
+
+        let resolved = resolve_chain(&parse_session_entries(&jsonl), "");
+        assert!(!resolved.from_recorded_leaf);
+    }
+
+    /// The completeness marker is the last thing that may be lost on a round
+    /// trip: without it a partial record reads as a whole one.
+    #[test]
+    fn degradation_markers_survive_the_kernel_round_trip() {
+        use temper_ots::models::OTSTrajectory;
+
+        let fields = json!({ "has_result": false });
+        let state = entity_state_with_events();
+        let mut input = inputs(&fields, "", "", &state, "Failed");
+        input.transcript = TranscriptPresence::MissingFile;
+        input.tool_spans_missing = true;
+        let document = build_trajectory(&input);
+
+        let trajectory: OTSTrajectory =
+            serde_json::from_value(document).expect("document deserializes");
+        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
+
+        assert_eq!(
+            degradations(&round_tripped),
+            vec![
+                "transcript_missing_file".to_string(),
+                "tool_spans_missing_file".to_string()
+            ],
+            "tags: {:?}",
+            trajectory.metadata.tags
         );
     }
 }
