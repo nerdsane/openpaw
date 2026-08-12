@@ -49,159 +49,161 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // Session models. A "pending" row is invisible to the sweep for failed
         // emissions, so the trajectory would never be retried.
         let emit = || -> Result<(), String> {
-        let agent_id = fields
-            .get("agent_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(session_id.as_str())
-            .to_string();
+            let agent_id = fields
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(session_id.as_str())
+                .to_string();
 
-        // Stable trajectory_id across retries — enables INSERT OR REPLACE idempotency.
-        let existing_trajectory_id = fields
-            .get("trajectory_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let trajectory_id = if existing_trajectory_id.is_empty() {
-            format!("trj-{session_id}")
-        } else {
-            existing_trajectory_id.to_string()
-        };
+            // Stable trajectory_id across retries — enables INSERT OR REPLACE idempotency.
+            let existing_trajectory_id = fields
+                .get("trajectory_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let trajectory_id = if existing_trajectory_id.is_empty() {
+                format!("trj-{session_id}")
+            } else {
+                existing_trajectory_id.to_string()
+            };
 
-        let tool_spans_file_id = fields
-            .get("tool_spans_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        // A declared span file that 404s is missing evidence, not an absence of
-        // tool calls, and the trajectory has to say so.
-        let tool_spans_read =
-            read_temperfs_file_safe(&ctx, &temper_api_url, &tenant, tool_spans_file_id)?;
-        let tool_spans_missing = !tool_spans_file_id.is_empty() && tool_spans_read.is_none();
-        let tool_spans_jsonl = tool_spans_read.unwrap_or_default();
+            let tool_spans_file_id = fields
+                .get("tool_spans_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // A declared span file that 404s is missing evidence, not an absence of
+            // tool calls, and the trajectory has to say so.
+            let tool_spans_read =
+                read_temperfs_file_safe(&ctx, &temper_api_url, &tenant, tool_spans_file_id)?;
+            let tool_spans_missing = !tool_spans_file_id.is_empty() && tool_spans_read.is_none();
+            let tool_spans_jsonl = tool_spans_read.unwrap_or_default();
 
-        // The transcript is the source of real turn boundaries. A read failure
-        // is not a reason to store a spans-only row: the trajectory would be
-        // permanently incomplete and, being marked emitted, never repaired. It
-        // is recorded as a failed emission instead, which leaves the row absent
-        // and the retry path (`RetryTrajectoryEmission`, plus the Evolution
-        // Engine sweep) able to produce a complete one. An absent transcript is
-        // a different thing from an unreadable one and still emits — a
-        // first-turn session has no materialized entries yet — but the document
-        // is spans-only, and it says so rather than passing as complete.
-        let session_file_id = fields
-            .get("session_file_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let (session_jsonl, transcript) = if session_file_id.is_empty() {
-            (String::new(), TranscriptPresence::Undeclared)
-        } else {
-            match read_session_transcript(&ctx, &temper_api_url, &tenant, &fields, session_file_id)
-            {
-                Ok(read) => (read.jsonl, read.presence),
-                Err(error) => {
-                    let msg = format!(
-                        "session transcript read failed for {session_id}; no trajectory emitted so a retry can produce a complete one: {error}"
-                    );
-                    ctx.log("warn", &format!("emit_ots_trajectory: {msg}"));
-                    set_success_result(
-                        "TrajectoryEmissionFailed",
-                        &json!({
-                            "trajectory_emission_error": msg,
-                            "trajectory_emission_status": "failed",
-                        }),
-                    );
-                    return Ok(());
+            // The transcript is the source of real turn boundaries. A read failure
+            // is not a reason to store a spans-only row: the trajectory would be
+            // permanently incomplete and, being marked emitted, never repaired. It
+            // is recorded as a failed emission instead, which leaves the row absent
+            // and the retry path (`RetryTrajectoryEmission`, plus the Evolution
+            // Engine sweep) able to produce a complete one. An absent transcript is
+            // a different thing from an unreadable one and still emits — a
+            // first-turn session has no materialized entries yet — but the document
+            // is spans-only, and it says so rather than passing as complete.
+            let session_file_id = fields
+                .get("session_file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let (session_jsonl, transcript) = if session_file_id.is_empty() {
+                (String::new(), TranscriptPresence::Undeclared)
+            } else {
+                match read_session_transcript(
+                    &ctx,
+                    &temper_api_url,
+                    &tenant,
+                    &fields,
+                    session_file_id,
+                ) {
+                    Ok(read) => (read.jsonl, read.presence),
+                    Err(error) => {
+                        let msg = format!(
+                            "session transcript read failed for {session_id}; no trajectory emitted so a retry can produce a complete one: {error}"
+                        );
+                        ctx.log("warn", &format!("emit_ots_trajectory: {msg}"));
+                        set_success_result(
+                            "TrajectoryEmissionFailed",
+                            &json!({
+                                "trajectory_emission_error": msg,
+                                "trajectory_emission_status": "failed",
+                            }),
+                        );
+                        return Ok(());
+                    }
                 }
-            }
-        };
+            };
 
-        let spec_version = resolve_spec_version(&ctx);
+            let spec_version = resolve_spec_version(&ctx);
 
-        let trajectory = ots_build::build_trajectory(&TrajectoryInputs {
-            trajectory_id: &trajectory_id,
-            session_id: &session_id,
-            agent_id: &agent_id,
-            status: &status,
-            fields: &fields,
-            session_jsonl: &session_jsonl,
-            tool_spans_jsonl: &tool_spans_jsonl,
-            entity_state: &ctx.entity_state,
-            spec_version: &spec_version,
-            transcript,
-            tool_spans_missing,
-        });
+            let trajectory = ots_build::build_trajectory(&TrajectoryInputs {
+                trajectory_id: &trajectory_id,
+                session_id: &session_id,
+                agent_id: &agent_id,
+                status: &status,
+                fields: &fields,
+                session_jsonl: &session_jsonl,
+                tool_spans_jsonl: &tool_spans_jsonl,
+                entity_state: &ctx.entity_state,
+                spec_version: &spec_version,
+                transcript,
+                tool_spans_missing,
+            });
 
-        // Degradations are decided from the same inputs the document was built
-        // from, so the entity and the row cannot disagree about them.
-        let degradations = ots_build::degradations(&trajectory);
-        if !degradations.is_empty() {
-            ctx.log(
+            // Degradations are decided from the same inputs the document was built
+            // from, so the entity and the row cannot disagree about them.
+            let degradations = ots_build::degradations(&trajectory);
+            if !degradations.is_empty() {
+                ctx.log(
                 "warn",
                 &format!(
                     "emit_ots_trajectory: session {session_id} produced a degraded trajectory ({})",
                     degradations.join(", ")
                 ),
             );
-        }
+            }
 
-        let body = trajectory.to_string();
-        let url = format!("{temper_api_url}/api/ots/trajectories");
-        let mut headers = runtime_headers(
-            &ctx,
-            &tenant,
-            &fields,
-            Some("application/json"),
-            Some("application/json"),
-        );
-        headers.push(("X-Agent-Id".to_string(), agent_id.clone()));
-        headers.push(("X-Session-Id".to_string(), session_id.clone()));
-        headers.push(("X-Tenant-Id".to_string(), tenant.clone()));
-        headers.push(("X-Trajectory-Id".to_string(), trajectory_id.clone()));
-
-        let resp = ctx.http_call("POST", &url, &headers, &body)?;
-        if !(200..300).contains(&resp.status) {
-            let msg = format!(
-                "POST /api/ots/trajectories failed (HTTP {}): {}",
-                resp.status,
-                truncate_body(&resp.body)
+            let body = trajectory.to_string();
+            let url = format!("{temper_api_url}/api/ots/trajectories");
+            let mut headers = runtime_headers(
+                &ctx,
+                &tenant,
+                &fields,
+                Some("application/json"),
+                Some("application/json"),
             );
+            headers.push(("X-Agent-Id".to_string(), agent_id.clone()));
+            headers.push(("X-Session-Id".to_string(), session_id.clone()));
+            headers.push(("X-Tenant-Id".to_string(), tenant.clone()));
+            headers.push(("X-Trajectory-Id".to_string(), trajectory_id.clone()));
+
+            let resp = ctx.http_call("POST", &url, &headers, &body)?;
+            if !(200..300).contains(&resp.status) {
+                let msg = format!(
+                    "POST /api/ots/trajectories failed (HTTP {}): {}",
+                    resp.status,
+                    truncate_body(&resp.body)
+                );
+                ctx.log("warn", &format!("emit_ots_trajectory: {msg}"));
+                set_success_result(
+                    "TrajectoryEmissionFailed",
+                    &json!({
+                        "trajectory_emission_error": msg,
+                        "trajectory_emission_status": "failed",
+                    }),
+                );
+                return Ok(());
+            }
+
             ctx.log(
-                "warn",
-                &format!("emit_ots_trajectory: {msg}"),
-            );
-            set_success_result(
-                "TrajectoryEmissionFailed",
-                &json!({
-                    "trajectory_emission_error": msg,
-                    "trajectory_emission_status": "failed",
-                }),
-            );
-            return Ok(());
-        }
-
-        ctx.log(
             "info",
             &format!(
                 "emit_ots_trajectory: emitted trajectory {trajectory_id} for session {session_id} (status={status})"
             ),
         );
 
-        // A degraded row is still a row — retrying cannot restore a transcript
-        // that is not there — so it is marked emitted, with what it is missing
-        // recorded on the entity as well as inside the document.
-        let (emission_status, emission_error) = if degradations.is_empty() {
-            ("emitted", String::new())
-        } else {
-            ("emitted_degraded", degradations.join(","))
-        };
+            // A degraded row is still a row — retrying cannot restore a transcript
+            // that is not there — so it is marked emitted, with what it is missing
+            // recorded on the entity as well as inside the document.
+            let (emission_status, emission_error) = if degradations.is_empty() {
+                ("emitted", String::new())
+            } else {
+                ("emitted_degraded", degradations.join(","))
+            };
 
-        set_success_result(
-            "MarkTrajectoryEmitted",
-            &json!({
-                "trajectory_id": trajectory_id,
-                "trajectory_emission_status": emission_status,
-                "trajectory_emission_error": emission_error,
-            }),
-        );
-        Ok(())
+            set_success_result(
+                "MarkTrajectoryEmitted",
+                &json!({
+                    "trajectory_id": trajectory_id,
+                    "trajectory_emission_status": emission_status,
+                    "trajectory_emission_error": emission_error,
+                }),
+            );
+            Ok(())
         };
 
         if let Err(error) = emit() {
