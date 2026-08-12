@@ -3638,7 +3638,7 @@ fn extract_memory_keys(text: &str) -> Vec<String> {
 
 fn convert_messages_to_openrouter(messages: &[Value]) -> Vec<Value> {
     let mut out = Vec::<Value>::new();
-    for msg in messages {
+    for (message_index, msg) in messages.iter().enumerate() {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
         let content = msg.get("content").cloned().unwrap_or(json!(""));
 
@@ -3665,7 +3665,19 @@ fn convert_messages_to_openrouter(messages: &[Value]) -> Vec<Value> {
                                     .get("id")
                                     .and_then(Value::as_str)
                                     .map(|s| s.to_string())
-                                    .unwrap_or_else(|| format!("tool_{}", idx + 1));
+                                    .unwrap_or_else(|| {
+                                        // Position within the message is not
+                                        // unique across a conversation; scope
+                                        // it so two id-less assistant turns
+                                        // cannot send the provider the same
+                                        // call id, which would collapse two
+                                        // decisions into one (ADR-0035 §14).
+                                        synthetic_tool_call_id(
+                                            &format!("msg{message_index}"),
+                                            "tool",
+                                            idx + 1,
+                                        )
+                                    });
                                 let name = block
                                     .get("name")
                                     .and_then(Value::as_str)
