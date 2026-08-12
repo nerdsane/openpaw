@@ -81,7 +81,14 @@ fn find_directory(
         .and_then(|v| extract_id(v)))
 }
 
-/// Find a file by Path + WorkspaceId.
+/// Find the live file at Path + WorkspaceId.
+///
+/// A path names ONE live file. Archived entities are tombstones and never
+/// resolve — unlink followed by create must yield a fresh file, and an
+/// archived twin must never shadow a maintained one (this shadowing bug had
+/// synthesis sessions reading a months-old SKILL.md). If history left several
+/// live entities at one path, the most recent content write wins
+/// (last_version_id is time-ordered), so readers always see the latest write.
 fn find_file(
     ctx: &Context,
     api_url: &str,
@@ -94,10 +101,40 @@ fn find_file(
         "{api_url}/tdata/Files?$filter=Path%20eq%20'{path_enc}'%20and%20WorkspaceId%20eq%20'{ws_id}'"
     );
     let resp = http_get(ctx, &url, tenant)?;
-    let items = resp.get("value").and_then(|v| v.as_array());
-    Ok(items
-        .and_then(|arr| arr.first())
-        .and_then(|v| extract_id(v)))
+    let empty = Vec::new();
+    let items = resp
+        .get("value")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let mut live: Vec<&serde_json::Value> = items
+        .iter()
+        .filter(|v| {
+            let status = v
+                .get("Status")
+                .and_then(|s| s.as_str())
+                .or_else(|| v.get("status").and_then(|s| s.as_str()))
+                .unwrap_or("");
+            status != "Archived"
+        })
+        .collect();
+    if live.len() > 1 {
+        ctx.log(
+            "warn",
+            &format!(
+                "workspace_fs: {} live files at path '{file_path}' in workspace '{ws_id}' — resolving the most recently written",
+                live.len()
+            ),
+        );
+        live.sort_by_key(|v| {
+            v.get("fields")
+                .and_then(|f| f.get("last_version_id"))
+                .or_else(|| v.get("last_version_id"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string()
+        });
+    }
+    Ok(live.last().and_then(|v| extract_id(v)))
 }
 
 /// Resolve or create the directory hierarchy for a given dir_path.
