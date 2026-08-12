@@ -93,9 +93,23 @@ Emission failures surface as a state change on the Session entity via three new 
 
 Three new self-loop actions from `Completed | Failed | Cancelled`:
 - `MarkTrajectoryEmitted(trajectory_id, status, error)` — success path, degraded or not
-- `TrajectoryEmissionFailed(error)` — failure path, also fired via the integration's `on_failure` hook
+- `TrajectoryEmissionFailed(error, status)` — failure path
 - `RetryTrajectoryEmission` — guarded by `trajectory_retry_count < 1`, so it is a
   one-shot manual retry regardless of which status the last attempt recorded
+
+The guest dispatches both itself. It does not lean on an `on_failure` hook, and
+the trigger declares none: the kernel's callback params are `error`,
+`error_message`, `integration` and `duration_ms`, none of which this Session
+models, and no effect can set a string field to a literal — so a callback would
+fire an action that changes nothing and leave the status at `"pending"`, which
+the sweep for failed emissions does not look at. Every failure the guest can
+observe (transport error on either read, non-2xx from the POST) therefore routes
+through `TrajectoryEmissionFailed` with `trajectory_emission_status = "failed"`.
+What remains outside its reach is a guest trap or timeout, where the module
+never runs; with no `on_failure` declared the platform surfaces that as
+`temper_integration_failure_dropped_total` plus an `integration_failure_dropped`
+Observe event (ADR-0152), and the row stays `"pending"`. A sweep should treat a
+terminal session still at `"pending"` as unemitted for that reason.
 
 Retry is one-shot and state-machine-visible, not in-WASM retry loops. Beyond one retry, the Evolution Engine can sweep `trajectory_emission_status = "failed"` rows as an I-Record in a future track.
 
@@ -284,12 +298,17 @@ path is a way for a short record to look whole, so each one now reports:
 - `transcript_leaf_unresolved` — the recorded `session_leaf_id` is the session's
   own claim about where its history ends. When it does not resolve, the fallback
   chain of section 9 is an older leaf, so the *newest* turns are exactly what is
-  missing. That is the shape a half-written final turn takes.
+  missing. That is the shape a half-written final turn takes. A cyclic ancestry
+  counts as unresolved rather than as a chain that stopped early: everything
+  above the loop is unreachable, so the fragment is not the leaf's history.
 - `transcript_no_turns` — entries parsed but produced no turn, which yields the
   same synthetic single-turn document an empty transcript does.
 - `tool_spans_unparseable` — `parse_tool_span_document` skips malformed span
   lines for the same reason, and each one is a tool call whose only evidence is
   gone.
+- `token_signals_dropped` — a signal the SessionEntry writer or the trajectory
+  budget refused. Both record the size they dropped; the tag is what makes the
+  loss visible on the Session rather than only inside the document.
 
 Without these, corruption, a stale leaf, or a partially written span append each
 reach the same false-complete row that a 404 used to.
@@ -409,7 +428,18 @@ enforced at the single boundary every writer passes through
 non-essential members until the value fits and leaves `<key>_dropped_bytes`
 behind. That covers writers with no signal policy of their own — in particular
 the JSONL sync path, which re-materializes extras written before any of these
-bounds existed. The per-turn facts are the last thing it sacrifices.
+bounds existed. The per-turn facts are the last thing it sacrifices, and when
+they are themselves what does not fit (an oversized `stop_reason`, or so many
+members that the drop markers alone hold the value over) it shortens them and
+keeps a single count rather than returning a value over the ceiling: returning
+one costs the entire field, which is the outcome the bound exists to prevent.
+Members are measured once and dropped largest-first, because re-measuring per
+drop is quadratic on an object a corrupted line can make wide.
+
+The refusals travel forward. `<signal>_dropped_bytes` written at capture is read
+back by the emitter into the same `_token_signals_dropped` record a
+trajectory-budget drop produces, so a turn whose signals were refused before the
+emitter saw them is distinguishable from a provider that sent none.
 
 In the **trajectory**, signals are bounded at 1MiB across the whole document,
 spent in turn order, with drops recorded as `_token_signals_dropped` on the turn

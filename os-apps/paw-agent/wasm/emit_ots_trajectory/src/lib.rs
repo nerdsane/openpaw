@@ -33,11 +33,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .to_string();
 
         if !matches!(status.as_str(), "Completed" | "Failed" | "Cancelled") {
+            // Not an emission failure: nothing was owed yet, and no status
+            // field should claim otherwise.
             return Err(format!(
                 "emit_ots_trajectory: session {session_id} not in terminal state (status={status})"
             ));
         }
 
+        // Everything past this point is emission, and every way it can fail has
+        // to leave `trajectory_emission_status = "failed"` on the Session.
+        // Propagating an error instead would leave the field at "pending": the
+        // trigger declares no `on_failure`, and the kernel cannot set a string
+        // field from a callback anyway — its callback params are `error` /
+        // `error_message` / `integration` / `duration_ms`, none of which this
+        // Session models. A "pending" row is invisible to the sweep for failed
+        // emissions, so the trajectory would never be retried.
+        let emit = || -> Result<(), String> {
         let agent_id = fields
             .get("agent_id")
             .and_then(|v| v.as_str())
@@ -191,12 +202,27 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             }),
         );
         Ok(())
+        };
+
+        if let Err(error) = emit() {
+            let msg = format!("emit_ots_trajectory failed for {session_id}: {error}");
+            ctx.log("warn", &msg);
+            set_success_result(
+                "TrajectoryEmissionFailed",
+                &json!({
+                    "trajectory_emission_error": msg,
+                    "trajectory_emission_status": "failed",
+                }),
+            );
+        }
+        Ok(())
     })();
 
     if let Err(error) = result {
-        // Top-level errors still go through set_error_result so the platform's
-        // on_failure hook fires. These are panics / preflight failures, not
-        // remote HTTP errors (those route through set_success_result above).
+        // Only preflight failures reach here: no host context, or a session that
+        // is not terminal. Neither owes a trajectory, so neither may claim an
+        // emission status. A guest trap or timeout never reaches this code at
+        // all and surfaces as the platform's dropped-integration metric.
         set_error_result(&error);
     }
     0

@@ -100,6 +100,16 @@ pub const TOKEN_SIGNAL_CARRIER_TYPE: &str = "turn_token_signals";
 /// structs cannot represent. Kernel-modeled, so it survives a round trip.
 pub const TOKEN_SIGNALS_TAG: &str = "token_signals:present";
 
+/// Every token-level signal name, in the shape OTS turns use. The prompt-side
+/// ids stand alone; the rest are the positionally aligned completion set.
+/// `token_signal_fields_cover_every_signal` keeps the two in step.
+pub const TOKEN_SIGNAL_FIELDS: &[&str] = &[
+    "prompt_token_ids",
+    "completion_token_ids",
+    "response_mask",
+    "logprobs",
+];
+
 const EPOCH: &str = "1970-01-01T00:00:00Z";
 
 /// Everything the emitter knows about a finished session.
@@ -335,6 +345,11 @@ pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> ResolvedChain {
         by_id.insert(entry.id.as_str(), index);
     }
 
+    // `None` means this leaf did not yield a walkable chain — either an ancestor
+    // is missing, or the parent pointers loop. A cycle is not a chain that
+    // merely stops early: everything above the loop is unreachable, so treating
+    // the fragment as a resolved chain would report a truncated history as the
+    // whole one.
     let walk = |leaf: &str| -> Option<Vec<usize>> {
         let mut chain = Vec::new();
         let mut seen: BTreeSet<&str> = BTreeSet::new();
@@ -342,7 +357,7 @@ pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> ResolvedChain {
         while let Some(id) = cursor {
             let index = *by_id.get(id.as_str())?;
             if !seen.insert(entries[index].id.as_str()) {
-                break; // cycle guard — malformed parent pointer
+                return None; // cycle guard — malformed parent pointer
             }
             chain.push(index);
             cursor = entries[index].parent_id.clone();
@@ -978,6 +993,16 @@ fn attach_token_signals(
 ) -> Map<String, Value> {
     let mut inventory = Map::new();
 
+    // Signals the SessionEntry writer already refused, before the emitter ever
+    // saw them. Without carrying these forward, a turn whose signals were all
+    // dropped at capture is indistinguishable from a provider that sent none.
+    for field in TOKEN_SIGNAL_FIELDS {
+        let marker = format!("{field}_dropped_bytes");
+        if let Some(size) = source.get(&marker).and_then(json_u64) {
+            record_signal_drop_size(turn, &mut inventory, field, size);
+        }
+    }
+
     // Prompt-side ids describe the prompt, which the completion signals do not
     // index into, so they stand on their own.
     if let Some(value) = source
@@ -1047,20 +1072,36 @@ fn attach_token_signals(
     inventory
 }
 
-/// Record a signal the trajectory budget refused. A dropped signal that leaves a
-/// trace is debuggable; a silent one reads as a turn the serving stack never
-/// produced signals for.
+/// Record a signal the trajectory budget refused, by element count. A dropped
+/// signal that leaves a trace is debuggable; a silent one reads as a turn the
+/// serving stack never produced signals for.
 fn record_signal_drop(
     turn: &mut Value,
     inventory: &mut Map<String, Value>,
     field: &str,
     value: &Value,
 ) {
-    let dropped = turn
+    record_signal_drop_size(
+        turn,
+        inventory,
+        field,
+        value.as_array().map(Vec::len).unwrap_or(0) as u64,
+    );
+}
+
+/// Same record, from a size the caller already knows — the SessionEntry writer
+/// reports bytes rather than elements when it refuses a signal at capture.
+fn record_signal_drop_size(
+    turn: &mut Value,
+    inventory: &mut Map<String, Value>,
+    field: &str,
+    size: u64,
+) {
+    let entry = json!(size);
+    match turn
         .get_mut("_token_signals_dropped")
-        .and_then(Value::as_object_mut);
-    let entry = json!(value.as_array().map(Vec::len).unwrap_or(0));
-    match dropped {
+        .and_then(Value::as_object_mut)
+    {
         Some(existing) => {
             existing.insert(field.to_string(), entry.clone());
         }
@@ -1329,6 +1370,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     let mut signal_budget = TokenSignalBudget::new(MAX_TOKEN_SIGNAL_BYTES);
     let mut signal_carriers: Vec<Value> = Vec::new();
     let mut carried_token_signals = false;
+    let mut dropped_token_signals = false;
     let mut turns: Vec<Value> = Vec::new();
 
     for (turn_index, draft) in turn_drafts.iter().enumerate() {
@@ -1437,6 +1479,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             // signals were all dropped carries an inventory of the drop and no
             // signal, so it must not advertise one.
             carried_token_signals |= inventory.keys().any(|key| !key.starts_with('_'));
+            dropped_token_signals |= inventory.contains_key("_token_signals_dropped");
             if !inventory.is_empty() {
                 signal_carriers.push(token_signal_carrier(
                     &turn["span_id"],
@@ -1505,6 +1548,12 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     // were all dropped carries the record of the drop, not a signal to read.
     if carried_token_signals {
         tags.push(TOKEN_SIGNALS_TAG.to_string());
+    }
+    // A signal the writer or this budget refused is evidence the row was built
+    // without, which is what degraded means — so it reaches the Session status
+    // the same way a missing transcript does, rather than only the document.
+    if dropped_token_signals {
+        tags.push(format!("{DEGRADED_TAG_PREFIX}token_signals_dropped"));
     }
 
     // trajectory_id is duplicated inside `metadata` because Temper's server-side
@@ -1881,6 +1930,51 @@ mod tests {
         assert!(
             !resolved.from_recorded_leaf,
             "the fallback chain is missing the newest turns, and the caller has to know"
+        );
+    }
+
+    /// The names the carrier and the drop markers iterate must stay the same
+    /// set the turn writer emits, or a signal added later travels silently.
+    #[test]
+    fn token_signal_fields_cover_every_signal() {
+        let mut expected: Vec<&str> = vec!["prompt_token_ids"];
+        expected.extend(COMPLETION_TOKEN_SIGNALS.iter().map(|(field, _)| *field));
+        let mut expected: Vec<&str> = expected;
+        expected.sort_unstable();
+        let mut declared: Vec<&str> = TOKEN_SIGNAL_FIELDS.to_vec();
+        declared.sort_unstable();
+        assert_eq!(declared, expected);
+    }
+
+    /// A cycle is not a chain that stops early: everything above the loop is
+    /// unreachable, so accepting the fragment would report a truncated history
+    /// as the recorded leaf's own.
+    #[test]
+    fn resolve_chain_reports_a_cyclic_ancestry_as_unresolved() {
+        let jsonl = [
+            json!({"id":"u-0","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({"id":"a-0","parentId":"u-0","type":"message","role":"assistant","content":"ok"}),
+            json!({"id":"a","parentId":"b","type":"message","role":"assistant","content":"x"}),
+            json!({"id":"b","parentId":"a","type":"message","role":"user","content":"y"}),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let entries = parse_session_entries(&jsonl);
+        let resolved = resolve_chain(&entries, "a");
+        assert!(
+            !resolved.from_recorded_leaf,
+            "a leaf whose ancestry loops has not resolved"
+        );
+
+        let fields = json!({ "session_leaf_id": "a", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+        assert!(
+            degradations(&t).contains(&"transcript_leaf_unresolved".to_string()),
+            "tags: {:?}",
+            t["metadata"]["tags"]
         );
     }
 
@@ -3072,6 +3166,56 @@ mod tests {
         assert!(
             t["context"]["entities"][0]["metadata"]["_token_signals_dropped"].is_object(),
             "the drop itself still has to be recorded"
+        );
+        assert!(
+            degradations(&t).contains(&"token_signals_dropped".to_string()),
+            "a row built without signals it was offered is degraded: {:?}",
+            t["metadata"]["tags"]
+        );
+    }
+
+    /// The SessionEntry writer refuses signals that would push the entry over
+    /// its own ceiling and leaves `<signal>_dropped_bytes` behind. Without
+    /// carrying that forward, a turn whose signals were all refused at capture
+    /// looks exactly like a provider that never sent any.
+    #[test]
+    fn build_trajectory_carries_capture_stage_signal_drops() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"ok"}],
+                "completion_token_ids_dropped_bytes": 40_000,
+                "logprobs_dropped_bytes": 52_000
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(
+            t["turns"][0]["_token_signals_dropped"]["completion_token_ids"],
+            40_000
+        );
+        assert_eq!(
+            t["context"]["entities"][0]["metadata"]["_token_signals_dropped"]["logprobs"],
+            52_000,
+            "the drop must reach the kernel-modeled inventory, not only the turn"
+        );
+        assert!(degradations(&t).contains(&"token_signals_dropped".to_string()));
+        let tags: Vec<&str> = t["metadata"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            !tags.contains(&TOKEN_SIGNALS_TAG),
+            "nothing readable was carried: {tags:?}"
         );
     }
 

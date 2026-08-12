@@ -802,6 +802,11 @@ fn json_len(value: &Value) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+/// What one `"key":value,` member contributes to the stored field.
+fn member_cost(key: &str, value: &Value) -> usize {
+    stored_json_len(value) + key.len() + 4
+}
+
 /// Drop whatever does not fit under the entry's `extra_json` ceiling.
 ///
 /// Past the ceiling the kernel replaces or externalizes the *whole* field, so
@@ -820,28 +825,80 @@ fn bound_entry_extra(extra: Value) -> Value {
     }
 
     let mut extra = extra;
-    while stored_json_len(&extra) > MAX_ENTRY_EXTRA_BYTES {
-        let Some(fields) = extra.as_object_mut() else {
-            break;
-        };
-        // Each pass removes one droppable member and replaces it with a marker
-        // that is itself not droppable, so the loop is bounded by the member
-        // count even when a dropped member was smaller than its marker.
-        let largest = fields
+    if let Some(fields) = extra.as_object_mut() {
+        // Every member is measured once and the largest go first. Re-measuring
+        // the whole object per drop would be quadratic, and this runs inside a
+        // WASM guest on an object a corrupted transcript line can make wide.
+        let mut droppable: Vec<(String, usize)> = fields
             .iter()
             .filter(|(key, _)| {
                 !ENTRY_EXTRA_ESSENTIALS.contains(&key.as_str()) && !key.ends_with("_dropped_bytes")
             })
-            .max_by_key(|(_, value)| json_len(value))
-            .map(|(key, _)| key.clone());
-        let Some(key) = largest else {
-            break; // only the per-turn facts are left; they are worth keeping
-        };
-        let dropped = fields.remove(&key).map(|value| json_len(&value)).unwrap_or(0);
-        fields.insert(format!("{key}_dropped_bytes"), json!(dropped));
+            .map(|(key, value)| (key.clone(), member_cost(key, value)))
+            .collect();
+        droppable.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+
+        let mut total = stored_json_len(&Value::Object(fields.clone()));
+        for (key, cost) in droppable {
+            if total <= MAX_ENTRY_EXTRA_BYTES {
+                break;
+            }
+            let size = fields.remove(&key).map(|value| json_len(&value)).unwrap_or(0);
+            let marker = format!("{key}_dropped_bytes");
+            total = total.saturating_sub(cost) + member_cost(&marker, &json!(size));
+            fields.insert(marker, json!(size));
+        }
+
+        // A per-turn fact can be oversized on its own — a provider is free to
+        // return a huge `stop_reason` — and nothing above would have touched it.
+        truncate_oversized_strings(fields);
+    }
+
+    // Hard floor. An extras object with thousands of small members leaves a
+    // marker behind for each one, and the markers alone can hold the value over
+    // the ceiling. The per-turn facts are worth more than the drop record, so
+    // they are what survives, with a single count in place of the markers.
+    if stored_json_len(&extra) > MAX_ENTRY_EXTRA_BYTES
+        && let Some(fields) = extra.as_object_mut()
+    {
+        let before = fields.len();
+        fields.retain(|key, _| ENTRY_EXTRA_ESSENTIALS.contains(&key.as_str()));
+        let removed = before - fields.len();
+        truncate_oversized_strings(fields);
+        fields.insert(
+            "_extra_json_dropped_members".to_string(),
+            json!(removed),
+        );
     }
 
     extra
+}
+
+/// Cut every string member down to a size that cannot itself breach the entry
+/// ceiling, recording each cut. Reached only when nothing droppable is left.
+fn truncate_oversized_strings(fields: &mut serde_json::Map<String, Value>) {
+    /// Generous for a provider name, a model id or a stop reason, and small
+    /// enough that the whole essential set fits many times over.
+    const MAX_ESSENTIAL_STRING_CHARS: usize = 512;
+
+    let oversized: Vec<String> = fields
+        .iter()
+        .filter(|(_, value)| {
+            value
+                .as_str()
+                .is_some_and(|text| text.chars().count() > MAX_ESSENTIAL_STRING_CHARS)
+        })
+        .map(|(key, _)| key.clone())
+        .collect();
+    for key in oversized {
+        let Some(text) = fields.get(&key).and_then(Value::as_str) else {
+            continue;
+        };
+        let original = text.chars().count();
+        let cut: String = text.chars().take(MAX_ESSENTIAL_STRING_CHARS).collect();
+        fields.insert(key.clone(), json!(cut));
+        fields.insert(format!("{key}_truncated_chars"), json!(original));
+    }
 }
 
 fn session_entry_create_body(spec: &SessionEntryCreateSpec<'_>) -> Result<Value, String> {
@@ -2200,6 +2257,47 @@ mod tests {
         assert!(
             extra["logprobs_dropped_bytes"].as_u64().unwrap_or(0) > 0,
             "a dropped member must leave its size behind: {extra}"
+        );
+    }
+
+    /// The bound has to hold even when nothing is droppable. A provider is free
+    /// to return a huge `stop_reason`, and an extras object can carry thousands
+    /// of small members whose drop markers alone exceed the ceiling. Returning
+    /// an oversized value costs the entire field, which is the outcome the
+    /// bound exists to prevent, so both cases end under the ceiling.
+    #[test]
+    fn entry_extra_bound_holds_when_nothing_is_droppable() {
+        let huge_reason = "x".repeat(MAX_ENTRY_EXTRA_BYTES + 1024);
+        let bounded = bound_entry_extra(json!({
+            "ts_ms": 1_767_225_600_000_i64,
+            "provider": "anthropic",
+            "stop_reason": huge_reason,
+            "output_tokens": 34,
+        }));
+        assert!(
+            stored_json_len(&bounded) <= MAX_ENTRY_EXTRA_BYTES,
+            "an oversized essential must be shortened, not passed through"
+        );
+        assert_eq!(bounded["ts_ms"], 1_767_225_600_000_i64);
+        assert_eq!(bounded["output_tokens"], 34);
+        assert!(bounded["stop_reason_truncated_chars"].as_u64().unwrap() > 0);
+
+        let mut crowded = serde_json::Map::new();
+        crowded.insert("ts_ms".to_string(), json!(1_767_225_600_000_i64));
+        crowded.insert("model".to_string(), json!("claude-sonnet-4-6"));
+        for index in 0..20_000 {
+            crowded.insert(format!("k{index}"), json!("payload"));
+        }
+        let bounded = bound_entry_extra(Value::Object(crowded));
+        assert!(
+            stored_json_len(&bounded) <= MAX_ENTRY_EXTRA_BYTES,
+            "a marker per dropped member cannot be allowed to hold the value over"
+        );
+        assert_eq!(bounded["ts_ms"], 1_767_225_600_000_i64);
+        assert_eq!(bounded["model"], "claude-sonnet-4-6");
+        assert!(
+            bounded["_extra_json_dropped_members"].as_u64().unwrap() > 0,
+            "the count stands in for the markers it replaced: {bounded}"
         );
     }
 

@@ -273,6 +273,17 @@ fn emitter_marks_an_absent_transcript_degraded_rather_than_complete() {
          so the row and the Session cannot disagree"
     );
 
+    // A propagated error leaves trajectory_emission_status at "pending", which
+    // the sweep for failed emissions does not look at. The trigger declares no
+    // on_failure, and a kernel callback could not set the field anyway — its
+    // params are error / error_message / integration / duration_ms.
+    assert!(
+        lib.contains("if let Err(error) = emit()")
+            && lib.contains("\"trajectory_emission_status\": \"failed\""),
+        "every failure the guest can observe must record a failed emission, not \
+         propagate and leave the status pending"
+    );
+
     let emitter = emitter_source();
     assert!(
         emitter.contains("pub const DEGRADED_TAG_PREFIX"),

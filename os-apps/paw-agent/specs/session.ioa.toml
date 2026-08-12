@@ -1331,8 +1331,11 @@ hint = "Reply delivery failed after the session reached a terminal state."
 # as params, which the framework applies as field updates). A trajectory built
 # without its transcript or its tool spans is still stored — a retry cannot
 # restore evidence that is gone — so it reports status "emitted_degraded" and
-# names what is missing in trajectory_emission_error. On failure, the
-# integration's on_failure hook fires TrajectoryEmissionFailed instead.
+# names what is missing in trajectory_emission_error. On failure the guest
+# dispatches TrajectoryEmissionFailed itself, rather than relying on an
+# on_failure hook: the kernel's callback params are error / error_message /
+# integration / duration_ms, none of which this Session models, so a hook would
+# fire an action that changes nothing and leave the status at "pending".
 
 [[action]]
 name = "MarkTrajectoryEmitted"
