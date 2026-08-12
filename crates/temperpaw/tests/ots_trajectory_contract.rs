@@ -216,7 +216,7 @@ fn emitter_fails_closed_when_the_transcript_cannot_be_read() {
     .expect("emit_ots_trajectory lib.rs should exist");
 
     let read_call = lib
-        .find("match read_session_from_temperfs(")
+        .find("match read_session_transcript(")
         .expect("the emitter must read the session transcript");
     let error_arm = lib[read_call..]
         .find("Err(error) => {")
@@ -237,6 +237,193 @@ fn emitter_fails_closed_when_the_transcript_cannot_be_read() {
         !arm.contains("String::new()"),
         "substituting an empty transcript stores a spans-only row that is marked \
          emitted and therefore never repaired"
+    );
+}
+
+/// The read error is only half the problem. The shared TemperFS reader maps a
+/// missing file to `Ok("")`, so a transcript that is *gone* arrives looking
+/// exactly like a first-turn session that has not written one — and the
+/// spans-only document built from it would be stored as complete.
+#[test]
+fn emitter_marks_an_absent_transcript_degraded_rather_than_complete() {
+    let helpers =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
+            .expect("wasm-helpers lib.rs should exist");
+    assert!(
+        helpers.contains("pub fn read_session_transcript(")
+            && helpers.contains("pub enum TranscriptPresence"),
+        "the transcript reader must report whether the transcript was there"
+    );
+    assert!(
+        helpers.contains("fn read_temperfs_value_or_absent("),
+        "a 404 must be distinguishable from a 200 with an empty body"
+    );
+
+    let lib = fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/emit_ots_trajectory/src/lib.rs"),
+    )
+    .expect("emit_ots_trajectory lib.rs should exist");
+    assert!(
+        lib.contains("\"emitted_degraded\""),
+        "a trajectory built without its evidence must not report plain 'emitted'"
+    );
+    assert!(
+        lib.contains("ots_build::degradations(&trajectory)"),
+        "the entity status must be derived from the document that was stored, \
+         so the row and the Session cannot disagree"
+    );
+
+    let emitter = emitter_source();
+    assert!(
+        emitter.contains("pub const DEGRADED_TAG_PREFIX"),
+        "what a trajectory is missing must be named in the document"
+    );
+    assert!(
+        emitter.contains("fn build_trajectory_marks_an_absent_transcript_as_degraded"),
+        "every absence reason must be proven to reach the stored document"
+    );
+    assert!(
+        emitter.contains("fn build_trajectory_marks_an_unparseable_transcript_as_degraded"),
+        "arrival is not completeness: a transcript that is there but does not parse \
+         is missing history too, and skipped lines are what make that invisible"
+    );
+
+    let spec = session_spec();
+    let start = spec
+        .find("name = \"MarkTrajectoryEmitted\"")
+        .expect("MarkTrajectoryEmitted must exist");
+    let block = &spec[start..];
+    let block = &block[..block.find("\n[[action]]").unwrap_or(block.len())];
+    assert!(
+        block.contains("trajectory_emission_error"),
+        "a degraded emission must record what was missing on the entity too"
+    );
+}
+
+/// The degradation markers, the run provenance and the token-signal inventory
+/// all have to survive a consumer that deserializes a stored row into the
+/// kernel structs and writes it back — `metadata.tags` and
+/// `context.entities[].metadata` are kernel-modeled, the emitter's own
+/// extensions are not.
+#[test]
+fn emitter_carries_unmodeled_signal_in_kernel_modeled_fields() {
+    let emitter = emitter_source();
+    assert!(
+        emitter.contains("pub const TOKEN_SIGNAL_CARRIER_TYPE"),
+        "the token-level signals need a kernel-modeled carrier while the pin lacks the fields"
+    );
+    assert!(
+        emitter.contains("fn token_signal_inventory_survives_the_kernel_round_trip"),
+        "the interim carrier must be proven lossless, not assumed"
+    );
+    assert!(
+        emitter.contains("fn degradation_markers_survive_the_kernel_round_trip"),
+        "a completeness marker that a re-serialization drops is worse than none"
+    );
+    assert!(
+        emitter.contains("fn pinned_kernel_still_lacks_the_jcs_contract_fields"),
+        "the pin bump must fail loudly so the interim carriers get removed"
+    );
+
+    // `-p temperpaw` does not reach the os-app WASM modules — they are their
+    // own workspaces — so a gate living in one of them only fires if CI runs
+    // that manifest. Asserting the source text of a test nothing executes
+    // proves nothing.
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml"))
+        .expect("ci.yml should exist");
+    for module in [
+        "emit_ots_trajectory",
+        "provider_response_applier",
+        "wasm-helpers",
+        "openai-chat-wire",
+    ] {
+        assert!(
+            ci.contains(&format!(
+                "cargo test --manifest-path os-apps/paw-agent/wasm/{module}/Cargo.toml"
+            )),
+            "CI must run {module}'s tests; the OTS contract is asserted there"
+        );
+    }
+
+    let manifest = fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/emit_ots_trajectory/Cargo.toml"),
+    )
+    .expect("emit_ots_trajectory Cargo.toml should exist");
+    let sdk_rev = manifest
+        .lines()
+        .find(|line| line.contains("temper-wasm-sdk"))
+        .and_then(|line| line.split("rev = \"").nth(1))
+        .and_then(|rest| rest.split('"').next())
+        .expect("the SDK dependency should pin a rev");
+    let ots_rev = manifest
+        .lines()
+        .find(|line| line.contains("temper-ots"))
+        .and_then(|line| line.split("rev = \"").nth(1))
+        .and_then(|rest| rest.split('"').next())
+        .expect("the temper-ots dev-dependency should pin a rev");
+    assert_eq!(
+        sdk_rev, ots_rev,
+        "the round trip only proves anything if it runs against the kernel this \
+         module is built for"
+    );
+}
+
+/// Token-level signals scale with completion length. Bounding each one on its
+/// own does not bound their sum, and the entry's `extra_json` ceiling is
+/// enforced by the kernel on the whole value: cross it and the per-turn facts
+/// the emitter needs are replaced along with the signals.
+#[test]
+fn token_signals_are_bounded_against_their_aggregate_ceilings() {
+    let applier = fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/provider_response_applier/src/lib.rs"),
+    )
+    .expect("provider_response_applier lib.rs should exist");
+    assert!(
+        applier.contains("MAX_ENTRY_EXTRA_BYTES"),
+        "the SessionEntry writer must bound the whole extra_json value, not only each signal"
+    );
+    assert!(
+        applier.contains("fn assistant_turn_extra_bounds_signals_against_the_entry_ceiling")
+            && applier.contains("fn entry_extra_ceiling_matches_the_session_entry_spec"),
+        "the aggregate ceiling must be tested, and pinned to the spec that declares it"
+    );
+    assert!(
+        applier.contains("fn entry_extra_budget_counts_escaped_bytes"),
+        "extra_json is a string-typed field, so the budget must count the bytes the \
+         kernel measures — the escaped encoding, not the raw one"
+    );
+
+    // Choosing which signal to sacrifice is policy; the ceiling itself is an
+    // invariant, and writers with no policy of their own (the JSONL sync path
+    // re-materializing pre-bound extras) reach the same field.
+    let helpers =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/wasm-helpers/src/lib.rs"))
+            .expect("wasm-helpers lib.rs should exist");
+    assert!(
+        helpers.contains("pub const MAX_ENTRY_EXTRA_BYTES")
+            && helpers.contains("fn bound_entry_extra")
+            && helpers.contains("fn entry_extra_is_bounded_at_the_write_boundary"),
+        "the entry ceiling must be enforced at the boundary every writer passes through"
+    );
+
+    let wire = fs::read_to_string(
+        repo_root().join("os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs"),
+    )
+    .expect("openai-chat-wire lib.rs should exist");
+    assert!(
+        wire.contains("fn merge_token_signals_rejects_non_numeric_token_arrays"),
+        "token ids and mask bits come from a per-agent configurable endpoint; \
+         non-numeric elements must be rejected at capture, not sized as if numeric"
+    );
+
+    let emitter = emitter_source();
+    assert!(
+        emitter.contains("pub const MAX_TOKEN_SIGNAL_BYTES"),
+        "the trajectory must bound the one payload its character budgets do not"
+    );
+    assert!(
+        emitter.contains("fn build_trajectory_bounds_token_signals_across_the_document"),
+        "the trajectory-wide signal ceiling must be tested"
     );
 }
 

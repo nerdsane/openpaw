@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-04-16
-**Amended:** 2026-08-11 — sections 9-13 (ARN-109: real turns, decisions, and content)
+**Amended:** 2026-08-11 — sections 9-18 (ARN-109: real turns, decisions, content, and the completeness of what is stored)
 **Related:** ADR-0005 (Temper-Native Orchestration), ADR-0015 (Convergence Analyst), ADR-0022 (LLM Calling Infrastructure Optimizations), ADR-0032 (TemperFS Agent Operations), ADR-0034 (Bounded Session Context and LLM Turn Decomposition)
 
 ## Context
@@ -88,13 +88,14 @@ Serialization is snake_case per `temper-ots/src/models/enums.rs:22-29` (the enum
 Emission failures surface as a state change on the Session entity via three new fields:
 
 - `trajectory_id` (string) — generated once before first POST, reused on retry for idempotency (`INSERT OR REPLACE` on the Turso side is keyed on this)
-- `trajectory_emission_status` (string, initial `"pending"`) — transitions to `"emitted"` or `"failed"`
-- `trajectory_emission_error` (string) — last error message
+- `trajectory_emission_status` (string, initial `"pending"`) — transitions to `"emitted"`, `"emitted_degraded"` (stored, but built without some of its evidence — see section 16) or `"failed"`
+- `trajectory_emission_error` (string) — last error message, or the evidence a degraded emission was missing
 
 Three new self-loop actions from `Completed | Failed | Cancelled`:
-- `MarkTrajectoryEmitted(trajectory_id)` — success path
+- `MarkTrajectoryEmitted(trajectory_id, status, error)` — success path, degraded or not
 - `TrajectoryEmissionFailed(error)` — failure path, also fired via the integration's `on_failure` hook
-- `RetryTrajectoryEmission` — guarded by `trajectory_emission_status == "failed" AND retry_count < 1`
+- `RetryTrajectoryEmission` — guarded by `trajectory_retry_count < 1`, so it is a
+  one-shot manual retry regardless of which status the last attempt recorded
 
 Retry is one-shot and state-machine-visible, not in-WASM retry loops. Beyond one retry, the Evolution Engine can sweep `trajectory_emission_status = "failed"` rows as an I-Record in a future track.
 
@@ -250,7 +251,7 @@ literal in its own result, and that must not make a complete run look partial.
 The seal check also stopped slicing the document at a byte offset, which trapped
 the guest on any multibyte tail.
 
-### 16. An unreadable transcript fails the emission (2026-08-11)
+### 16. An unreadable transcript fails the emission; an absent one degrades it (2026-08-11)
 
 A trajectory is written once and the session is then marked emitted. Emitting a
 spans-only document because the transcript read returned 503 or a policy denial
@@ -259,37 +260,162 @@ session no longer looks failed.
 
 A transcript read **error** therefore records `TrajectoryEmissionFailed` and
 stops before the POST, leaving the row absent and `RetryTrajectoryEmission` (and
-the Evolution Engine sweep) able to produce a complete one. An *empty*
-transcript is a different thing and still emits: a first-turn session has no
-materialized SessionEntries yet, and a spans-only document is the honest record.
+the Evolution Engine sweep) able to produce a complete one.
 
-### 17. Known gap: extensions the kernel's OTS structs do not model (2026-08-11)
+An **absent** transcript is a different thing and still emits, because a retry
+cannot restore a transcript that is not there. It must not pass as complete
+either. The shared reader mapped every "nothing" case to `Ok("")` — a legacy
+404, a 200 with an empty body, a SessionEntries query with no rows, and a
+first-turn session that has not materialized any — so the emitter could not tell
+a session that never wrote history from one whose history is gone, and stored
+both as if the turn structure had simply not existed.
+
+`read_session_transcript` now returns the transcript together with a
+`TranscriptPresence`, and each non-present reason (`missing_file`, `empty_file`,
+`no_entries`, `pending_first_turn`, `undeclared`) reaches the stored document.
+The same applies to a declared tool-span file that 404s.
+
+Arrival is not the test, either. Every skip-and-continue in the reconstruction
+path is a way for a short record to look whole, so each one now reports:
+
+- `transcript_unparseable` — `parse_session_entries` skips lines that do not
+  parse, deliberately, so one corrupted line cannot cost a whole trajectory. The
+  count of skipped lines travels with the document.
+- `transcript_leaf_unresolved` — the recorded `session_leaf_id` is the session's
+  own claim about where its history ends. When it does not resolve, the fallback
+  chain of section 9 is an older leaf, so the *newest* turns are exactly what is
+  missing. That is the shape a half-written final turn takes.
+- `transcript_no_turns` — entries parsed but produced no turn, which yields the
+  same synthetic single-turn document an empty transcript does.
+- `tool_spans_unparseable` — `parse_tool_span_document` skips malformed span
+  lines for the same reason, and each one is a tool call whose only evidence is
+  gone.
+
+Without these, corruption, a stale leaf, or a partially written span append each
+reach the same false-complete row that a 404 used to.
+
+A degraded document carries the reason three ways, because each survives a
+different consumer:
+
+- `metadata.tags` gets `degraded:<reason>` — kernel-modeled, so it survives a
+  consumer that re-serializes the row through `OTSTrajectory`. A completeness
+  marker is the last thing that may be lost on a round trip: losing it turns a
+  partial record into an apparently whole one.
+- The document carries `_transcript` / `_tool_spans_missing` for a consumer
+  reading the raw row.
+- The Session reports `trajectory_emission_status = "emitted_degraded"` and
+  names the missing evidence in `trajectory_emission_error`, so a sweep can find
+  degraded rows without opening them. The status is derived from the document
+  that was actually stored, so the entity and the row cannot disagree.
+
+`turn_count` is deliberately not one of the checks. It counts continuations —
+tool results, steering, plan resumes — not assistant messages, so it does not
+equal the reconstructed turn count even on a healthy session; comparing them
+would mark nearly every trajectory degraded and make the marker worthless. It
+travels as `_session_turn_count` (section 9) for a consumer that wants to weigh
+the two.
+
+The single-retry guard is unchanged: it counts retries, not statuses, so a
+degraded emission neither consumes nor triggers one.
+
+### 17. Interim carriers for the fields the pinned kernel does not model (2026-08-11)
 
 `metadata.trajectory_id`, `metadata.harness`, `metadata.spec_version`, the
-per-turn token-level RL signals and `decisions[].cause_id` are TemperPaw
-extensions. The pinned `temper-ots` structs do not declare them, and serde
-ignores unknown fields — so the round-trip test proves the kernel-modeled fields
-and says nothing about these.
+per-turn token-level RL signals and `decisions[].cause_id` are the JCS contract
+fields. The temper branch `claude/jcs-trajectory-core` adds all of them to
+`temper-ots` as optional additive fields, but it is not on temper main — its
+pull request (nerdsane/temper#415) was closed unmerged on 2026-08-12 — and the
+pin in `emit_ots_trajectory/Cargo.toml` is a main revision. A bump is only
+possible once that work lands, under whatever pull request supersedes #415
+(repo convention: a `bump-temper` branch).
 
-The stored row keeps them: the server persists the POST body verbatim
-(`temper-server`'s trajectories handler stores `data: body`), so the OTS query
-API returns them. What loses them is a consumer that deserializes a row into
-`OTSTrajectory` and writes it back. Three things follow, all asserted by tests:
+The pinned structs therefore do not declare them, and serde ignores unknown
+fields — so a round-trip test proves the kernel-modeled fields and says nothing
+about these. The stored row does keep them, because the server persists the POST
+body verbatim (`temper-server`'s trajectories handler stores `data: body`), so
+the OTS query API returns them. What loses them is a consumer that deserializes
+a row into `OTSTrajectory` and writes it back.
+
+Every one of them travels through a kernel-modeled carrier until the pin moves,
+and each carrier is asserted by a test rather than assumed:
 
 - The decision join key is `decision_id`, which the kernel does model.
   `cause_id` mirrors it rather than carrying the join alone.
 - Run provenance is repeated in `metadata.tags` as `harness:temperpaw` and
   `spec_version:<app>@<version>`. `tags` is kernel-modeled, and rejected
   alternative 6 already named it as the home for harness-specific metadata.
-- `kernel_round_trip_drops_exactly_the_unmodeled_extensions` pins the exact set
-  of dropped fields, so the day `temper-ots` models one of them the test fails
-  and the decision is revisited deliberately.
+- The token-level signals repeat as an **inventory** in `context.entities[]`
+  (`type = "turn_token_signals"`), whose `metadata` is a kernel-modeled
+  `BTreeMap<String, Value>` and round-trips verbatim: per turn, which signals
+  the stored row holds, how many elements each has, and any misalignment or
+  budget drop. `metadata.tags` also gets `token_signals:present`.
 
-The residual is the token-level RL signals: large positional arrays with no
-kernel-modeled home, surviving only in the stored row. Giving them optional
-fields on `OTSTurn` is a temper-repo change, tracked separately; until then a
-consumer that needs them reads the raw trajectory document rather than a
-re-serialized struct.
+  The arrays themselves stay on the turn, under the names the JCS branch gives
+  `OTSTurn`, so the pin bump is a deletion rather than a migration. Copying
+  them into the carrier as well was rejected: they scale with completion length
+  and reach megabytes on a long session, and duplicating that is the payload
+  failure section 11 exists to prevent. What the carrier buys is that a consumer
+  holding a re-serialized copy can tell its copy is incomplete instead of
+  training on it as though it were whole — the loss becomes visible rather than
+  silent.
+- `kernel_round_trip_drops_exactly_the_unmodeled_extensions` pins the exact set
+  of dropped fields, and `pinned_kernel_still_lacks_the_jcs_contract_fields`
+  asserts each contract field is still dropped. The day a pin bump lands them,
+  both fail, and the failure message names the removal work: delete the
+  `turn_token_signals` carrier and the `token_signals:present` tag, drop the
+  harness and spec_version tag mirrors, shrink `KERNEL_UNMODELED_FIELDS`, and
+  amend this section.
+
+**Follow-up (blocking on another repo):** bump the `temper-wasm-sdk` and
+`temper-ots` pins in `os-apps/paw-agent/wasm/*/Cargo.toml` to a temper main
+revision that carries the JCS schema work, then remove the carriers above. It
+cannot be done in this pull request — no such revision exists yet — and the
+gate is keyed on the pin's own contents rather than on a pull-request number,
+so the interim state cannot outlive the bump quietly. CI runs the emitter's
+manifest directly (`.github/workflows/ci.yml`), because the os-app WASM modules
+are separate workspaces and `-p temperpaw` does not reach them: a gate nothing
+executes is not a gate.
+
+### 18. Token-level signals are bounded twice (2026-08-11)
+
+These arrays scale with completion length and are the only payload the
+character budgets of section 11 do not touch, so they are bounded where they are
+written and again where they are read.
+
+At **capture**, arrays streamed under `prompt_token_ids`,
+`completion_token_ids` and `response_mask` are accepted only when every element
+is a number. The OpenAI-compatible endpoint is configurable per agent, so what
+arrives under those names is not trusted; text there would be unbounded foreign
+content sized against a budget that assumes numbers, and the emitter's own shape
+checks would drop it from the trajectory regardless.
+
+On the **SessionEntry**, `extra_json` declares
+`overflow_inline_max_bytes = 131072`; past it the kernel replaces or
+externalizes the *whole* field, which would take the per-turn facts — `ts_ms`,
+provider, model, token counts — along with the signals that caused the overflow.
+Bounding each signal at 32KiB does not bound their sum: four signals just under
+that ceiling each pass and cross the entry ceiling together. The writer
+therefore spends a running budget and names what did not fit as
+`<signal>_dropped_bytes`. The budget counts bytes the way the kernel does —
+`extra_json` is a string-typed state variable, so the ceiling applies to the
+JSON encoded again as a JSON string, and counting the unescaped length would
+under-measure a quote-dense value. A test pins the constant to the spec that
+declares it, and another pins the measurement to that double encoding.
+
+Choosing *which* signal to sacrifice is policy and belongs to the writer that
+knows what the signals mean. The ceiling itself is an invariant, so it is also
+enforced at the single boundary every writer passes through
+(`session_entry_create_body` in `wasm-helpers`), which drops the largest
+non-essential members until the value fits and leaves `<key>_dropped_bytes`
+behind. That covers writers with no signal policy of their own — in particular
+the JSONL sync path, which re-materializes extras written before any of these
+bounds existed. The per-turn facts are the last thing it sacrifices.
+
+In the **trajectory**, signals are bounded at 1MiB across the whole document,
+spent in turn order, with drops recorded as `_token_signals_dropped` on the turn
+and in the kernel-modeled inventory. A dropped signal that leaves a trace is
+debuggable; a silent one reads as a turn the serving stack never produced
+signals for.
 
 ## Consequences
 
@@ -332,8 +458,12 @@ The foresight meta-loop behavioural rerun (Run 011) is explicitly deferred — t
   either side fails the build instead of storing an unreadable row. Terminal
   states other than success round-trip too. Because serde ignores unknown
   fields, the extensions the kernel does not model are pinned separately by
-  `kernel_round_trip_drops_exactly_the_unmodeled_extensions`, and an old-row
-  fixture proves the additions stayed additive (decision section 17).
+  `kernel_round_trip_drops_exactly_the_unmodeled_extensions` and
+  `pinned_kernel_still_lacks_the_jcs_contract_fields`; their kernel-modeled
+  carriers are proven lossless by
+  `token_signal_inventory_survives_the_kernel_round_trip` and
+  `degradation_markers_survive_the_kernel_round_trip`; and an old-row fixture
+  proves the additions stayed additive (decision section 17).
 - **Unit tests** — turn reconstruction from a two-cycle transcript, leaf
   fallback and parent-cycle guards, decision/observation pairing with
   `cause_id`, per-message and per-trajectory inline budgets, oversized tool
@@ -343,8 +473,11 @@ The foresight meta-loop behavioural rerun (Run 011) is explicitly deferred — t
   pins span persistence to on, `spec_version` to `app.toml`, the OTS field names
   the kernel deserializes, the inline budget, trajectory-id idempotency, the
   requirement that every terminal action still emits, that an unreadable
-  transcript fails the emission rather than degrading it, and that no provider
-  mints a turn-local tool-call id.
+  transcript fails the emission rather than degrading it, that an *absent* one
+  is marked degraded rather than stored as complete, that the unmodeled fields
+  travel through kernel-modeled carriers, that the round-trip runs against the
+  same kernel revision the guest is built for, that both token-signal ceilings
+  exist, and that no provider mints a turn-local tool-call id.
 - **Bounded-write tests** — `monty_repl` span compaction and the span-file size
   ceiling, including that a truncated document still parses line by line, that
   multibyte tool output does not trap the seal check, and that a tool result

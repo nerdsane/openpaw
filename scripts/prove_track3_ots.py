@@ -133,7 +133,12 @@ def main() -> None:
     for desc, ok in checks.items():
         print(f"  {'PASS' if ok else 'FAIL'}: {desc}")
     if not all(checks.values()):
-        print(f"  emission_error='{emission_error}' (if populated, indicates POST failed)")
+        if emission_status == "emitted_degraded":
+            # The row exists but was built without some of its evidence; the
+            # entity names which piece, so the proof does not have to guess.
+            print(f"  degraded emission: missing {emission_error}")
+        else:
+            print(f"  emission_error='{emission_error}' (if populated, indicates POST failed)")
         sys.exit(3)
 
     # ── Step 6: GET /api/ots/trajectories and match by trajectory_id ──

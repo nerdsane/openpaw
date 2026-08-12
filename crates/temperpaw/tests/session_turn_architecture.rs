@@ -331,9 +331,10 @@ fn first_turn_session_entries_materialize_after_provider_success() {
     );
     assert!(
         helpers.contains("fn session_entries_materialized")
-            && helpers.contains("return Ok(String::new());")
+            && helpers.contains("presence: TranscriptPresence::PendingFirstTurn,")
             && helpers.contains("virtual first-turn SessionEntries ref"),
-        "virtual first-turn SessionEntries reads should return empty JSONL without listing SessionEntries"
+        "virtual first-turn SessionEntries reads should return empty JSONL without listing \
+         SessionEntries, reported as pending rather than as a transcript that was read"
     );
     assert!(
         applier.contains("materialize_initial_session_entries_with_assistant"),

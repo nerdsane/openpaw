@@ -8,7 +8,8 @@
 use serde_json::json;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    entity_field_str, read_session_from_temperfs, resolve_temper_api_url, runtime_headers,
+    TranscriptPresence, entity_field_str, read_session_transcript, resolve_temper_api_url,
+    runtime_headers,
 };
 
 mod ots_build;
@@ -58,32 +59,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .get("tool_spans_file_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let tool_spans_jsonl =
+        // A declared span file that 404s is missing evidence, not an absence of
+        // tool calls, and the trajectory has to say so.
+        let tool_spans_read =
             read_temperfs_file_safe(&ctx, &temper_api_url, &tenant, tool_spans_file_id)?;
+        let tool_spans_missing = !tool_spans_file_id.is_empty() && tool_spans_read.is_none();
+        let tool_spans_jsonl = tool_spans_read.unwrap_or_default();
 
         // The transcript is the source of real turn boundaries. A read failure
         // is not a reason to store a spans-only row: the trajectory would be
         // permanently incomplete and, being marked emitted, never repaired. It
         // is recorded as a failed emission instead, which leaves the row absent
         // and the retry path (`RetryTrajectoryEmission`, plus the Evolution
-        // Engine sweep) able to produce a complete one. An empty transcript is a
-        // different thing from an unreadable one and still emits: a first-turn
-        // session has no materialized entries yet.
+        // Engine sweep) able to produce a complete one. An absent transcript is
+        // a different thing from an unreadable one and still emits — a
+        // first-turn session has no materialized entries yet — but the document
+        // is spans-only, and it says so rather than passing as complete.
         let session_file_id = fields
             .get("session_file_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let session_jsonl = if session_file_id.is_empty() {
-            String::new()
+        let (session_jsonl, transcript) = if session_file_id.is_empty() {
+            (String::new(), TranscriptPresence::Undeclared)
         } else {
-            match read_session_from_temperfs(
-                &ctx,
-                &temper_api_url,
-                &tenant,
-                &fields,
-                session_file_id,
-            ) {
-                Ok(jsonl) => jsonl,
+            match read_session_transcript(&ctx, &temper_api_url, &tenant, &fields, session_file_id)
+            {
+                Ok(read) => (read.jsonl, read.presence),
                 Err(error) => {
                     let msg = format!(
                         "session transcript read failed for {session_id}; no trajectory emitted so a retry can produce a complete one: {error}"
@@ -113,7 +114,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             tool_spans_jsonl: &tool_spans_jsonl,
             entity_state: &ctx.entity_state,
             spec_version: &spec_version,
+            transcript,
+            tool_spans_missing,
         });
+
+        // Degradations are decided from the same inputs the document was built
+        // from, so the entity and the row cannot disagree about them.
+        let degradations = ots_build::degradations(&trajectory);
+        if !degradations.is_empty() {
+            ctx.log(
+                "warn",
+                &format!(
+                    "emit_ots_trajectory: session {session_id} produced a degraded trajectory ({})",
+                    degradations.join(", ")
+                ),
+            );
+        }
 
         let body = trajectory.to_string();
         let url = format!("{temper_api_url}/api/ots/trajectories");
@@ -157,11 +173,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
+        // A degraded row is still a row — retrying cannot restore a transcript
+        // that is not there — so it is marked emitted, with what it is missing
+        // recorded on the entity as well as inside the document.
+        let (emission_status, emission_error) = if degradations.is_empty() {
+            ("emitted", String::new())
+        } else {
+            ("emitted_degraded", degradations.join(","))
+        };
+
         set_success_result(
             "MarkTrajectoryEmitted",
             &json!({
                 "trajectory_id": trajectory_id,
-                "trajectory_emission_status": "emitted",
+                "trajectory_emission_status": emission_status,
+                "trajectory_emission_error": emission_error,
             }),
         );
         Ok(())
@@ -191,14 +217,17 @@ fn resolve_spec_version(ctx: &Context) -> String {
         .unwrap_or_default()
 }
 
+/// Read a TemperFS file, reporting a missing one as `None` rather than as an
+/// empty body — the caller has to be able to tell "no tool calls" from "the
+/// record of the tool calls is gone".
 fn read_temperfs_file_safe(
     ctx: &Context,
     temper_api_url: &str,
     tenant: &str,
     file_id: &str,
-) -> Result<String, String> {
+) -> Result<Option<String>, String> {
     if file_id.is_empty() {
-        return Ok(String::new());
+        return Ok(Some(String::new()));
     }
     let fields = ctx
         .entity_state
@@ -215,8 +244,8 @@ fn read_temperfs_file_safe(
     );
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     match resp.status {
-        200 => Ok(resp.body),
-        404 => Ok(String::new()),
+        200 => Ok(Some(resp.body)),
+        404 => Ok(None),
         other => Err(format!(
             "emit_ots_trajectory: TemperFS read failed (HTTP {other})"
         )),

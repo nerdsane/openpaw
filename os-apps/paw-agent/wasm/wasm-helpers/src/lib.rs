@@ -114,16 +114,31 @@ fn read_temperfs_value_with_retry(
     headers: &[(String, String)],
     label: &str,
 ) -> Result<String, String> {
+    read_temperfs_value_or_absent(ctx, url, headers, label).map(Option::unwrap_or_default)
+}
+
+/// Same read, with a missing file reported as `None` instead of an empty body.
+///
+/// A writer starting a new tree treats both the same way, which is why the
+/// wrapper above collapses them. A reader deciding whether a record is complete
+/// cannot: an absent file is missing history, an empty one is a session that has
+/// not written history yet.
+fn read_temperfs_value_or_absent(
+    ctx: &Context,
+    url: &str,
+    headers: &[(String, String)],
+    label: &str,
+) -> Result<Option<String>, String> {
     let mut last_status = 0;
     let mut last_body = String::new();
 
     for attempt in 0..TEMPERFS_READ_ATTEMPTS {
         let resp = ctx.http_call("GET", url, headers, "")?;
         if resp.status == 200 {
-            return Ok(resp.body);
+            return Ok(Some(resp.body));
         }
         if resp.status == 404 {
-            return Ok(String::new());
+            return Ok(None);
         }
 
         last_status = resp.status;
@@ -215,7 +230,62 @@ pub fn resolve_temper_api_url(ctx: &Context, fields: &Value) -> String {
         .unwrap_or_else(|| "http://127.0.0.1:3000".to_string())
 }
 
+/// Why a session transcript read produced no entries — or that it produced some.
+///
+/// A transcript has several ways of being empty and they are not the same fact.
+/// A consumer that stores the result as a record of what an agent did has to be
+/// able to tell "nothing has been written yet" from "what was written is gone".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranscriptPresence {
+    /// The read returned at least one transcript line.
+    Present,
+    /// The transcript is SessionEntry rows and none are materialized yet — a
+    /// first-turn session that has not written one.
+    PendingFirstTurn,
+    /// The transcript is SessionEntry rows, materialization is on, and the
+    /// query returned nothing.
+    NoEntries,
+    /// The legacy TemperFS file the session points at does not exist.
+    MissingFile,
+    /// The legacy TemperFS file exists and holds nothing.
+    EmptyFile,
+    /// The session declares no transcript reference at all.
+    Undeclared,
+}
+
+impl TranscriptPresence {
+    /// True only when the read produced transcript content.
+    pub fn is_present(self) -> bool {
+        matches!(self, TranscriptPresence::Present)
+    }
+
+    /// Stable wire name, used in logs and in the emitted trajectory.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TranscriptPresence::Present => "present",
+            TranscriptPresence::PendingFirstTurn => "pending_first_turn",
+            TranscriptPresence::NoEntries => "no_entries",
+            TranscriptPresence::MissingFile => "missing_file",
+            TranscriptPresence::EmptyFile => "empty_file",
+            TranscriptPresence::Undeclared => "undeclared",
+        }
+    }
+}
+
+/// A session transcript plus whether it is actually there.
+#[derive(Debug, Clone)]
+pub struct TranscriptRead {
+    /// Transcript JSONL, empty for every non-`Present` presence.
+    pub jsonl: String,
+    /// Whether the transcript was found, and if not, why not.
+    pub presence: TranscriptPresence,
+}
+
 /// Read session JSONL from TemperFS by file ID.
+///
+/// Every "no transcript" case collapses to an empty string, which is what a
+/// writer resuming a tree wants. Readers that have to distinguish absence from
+/// emptiness use [`read_session_transcript`].
 pub fn read_session_from_temperfs(
     ctx: &Context,
     temper_api_url: &str,
@@ -223,6 +293,18 @@ pub fn read_session_from_temperfs(
     fields: &Value,
     file_id: &str,
 ) -> Result<String, String> {
+    read_session_transcript(ctx, temper_api_url, tenant, fields, file_id)
+        .map(|read| read.jsonl)
+}
+
+/// Read session JSONL and report whether the transcript exists.
+pub fn read_session_transcript(
+    ctx: &Context,
+    temper_api_url: &str,
+    tenant: &str,
+    fields: &Value,
+    file_id: &str,
+) -> Result<TranscriptRead, String> {
     if let Some(session_id) = session_id_from_entries_ref(file_id) {
         if !session_entries_materialized(fields) {
             ctx.log(
@@ -231,14 +313,40 @@ pub fn read_session_from_temperfs(
                     "read_session_from_temperfs: virtual first-turn SessionEntries ref for {session_id}; materialization is false"
                 ),
             );
-            return Ok(String::new());
+            return Ok(TranscriptRead {
+                jsonl: String::new(),
+                presence: TranscriptPresence::PendingFirstTurn,
+            });
         }
-        return read_session_from_entries(ctx, temper_api_url, tenant, fields, session_id);
+        let jsonl = read_session_from_entries(ctx, temper_api_url, tenant, fields, session_id)?;
+        return Ok(TranscriptRead {
+            presence: transcript_presence(&jsonl, TranscriptPresence::NoEntries),
+            jsonl,
+        });
     }
 
     let url = format!("{temper_api_url}/tdata/Files('{file_id}')/$value");
     let headers = runtime_headers(ctx, tenant, fields, None, None);
-    read_temperfs_value_with_retry(ctx, &url, &headers, "TemperFS session read failed")
+    match read_temperfs_value_or_absent(ctx, &url, &headers, "TemperFS session read failed")? {
+        Some(jsonl) => Ok(TranscriptRead {
+            presence: transcript_presence(&jsonl, TranscriptPresence::EmptyFile),
+            jsonl,
+        }),
+        None => Ok(TranscriptRead {
+            jsonl: String::new(),
+            presence: TranscriptPresence::MissingFile,
+        }),
+    }
+}
+
+/// A transcript of nothing but whitespace carries no entries, so it counts as
+/// the caller's "empty" case rather than as content.
+fn transcript_presence(jsonl: &str, when_empty: TranscriptPresence) -> TranscriptPresence {
+    if jsonl.lines().any(|line| !line.trim().is_empty()) {
+        TranscriptPresence::Present
+    } else {
+        when_empty
+    }
 }
 
 /// Write session JSONL to TemperFS by file ID.
@@ -651,6 +759,91 @@ fn stamp_recorded_at(extra_json: Option<&Value>, now_ms: i64) -> Value {
     extra
 }
 
+/// Ceiling on a SessionEntry's stored `extra_json`, matching
+/// `overflow_inline_max_bytes` on the `extra_json` state variable in
+/// `os-apps/paw-agent/specs/session_entry.ioa.toml`.
+pub const MAX_ENTRY_EXTRA_BYTES: usize = 131_072;
+
+/// Per-turn facts the OTS emitter reads back off an entry. They are small, and
+/// losing them costs a turn its date, its model and its token counts, so they
+/// are the last thing dropped rather than the first.
+const ENTRY_EXTRA_ESSENTIALS: &[&str] = &[
+    "ts_ms",
+    "provider",
+    "model",
+    "stop_reason",
+    "input_tokens",
+    "output_tokens",
+];
+
+/// Size of `value` as the kernel measures the stored field.
+///
+/// String-typed state variables hold JSON as text, so what the overflow ceiling
+/// sees is this JSON encoded *again* as a JSON string: every quote and
+/// backslash gains an escape byte, plus the two enclosing quotes. (`serde_json`
+/// output carries no raw control characters, so those are not a case.)
+pub fn stored_json_len(value: &Value) -> usize {
+    let Ok(json) = serde_json::to_string(value) else {
+        return usize::MAX;
+    };
+    json.len()
+        + json
+            .bytes()
+            .filter(|byte| matches!(byte, b'"' | b'\\'))
+            .count()
+        + 2
+}
+
+/// Serialized size of `value` before the field encoding — what a dropped-member
+/// marker reports, so the number means the same thing everywhere.
+fn json_len(value: &Value) -> usize {
+    serde_json::to_string(value)
+        .map(|json| json.len())
+        .unwrap_or(usize::MAX)
+}
+
+/// Drop whatever does not fit under the entry's `extra_json` ceiling.
+///
+/// Past the ceiling the kernel replaces or externalizes the *whole* field, so
+/// one oversized addition takes the per-turn facts with it. Writers that build
+/// their own extras bound them by policy — which signal to sacrifice first —
+/// but this is the invariant at the boundary every writer passes through,
+/// including the JSONL sync path that re-materializes extras written before any
+/// of those policies existed. Anything dropped leaves its size behind.
+fn bound_entry_extra(extra: Value) -> Value {
+    if stored_json_len(&extra) <= MAX_ENTRY_EXTRA_BYTES {
+        return extra;
+    }
+    if !extra.is_object() {
+        // Nothing to sacrifice member by member; record the size it had.
+        return json!({ "_extra_json_dropped_bytes": json_len(&extra) });
+    }
+
+    let mut extra = extra;
+    while stored_json_len(&extra) > MAX_ENTRY_EXTRA_BYTES {
+        let Some(fields) = extra.as_object_mut() else {
+            break;
+        };
+        // Each pass removes one droppable member and replaces it with a marker
+        // that is itself not droppable, so the loop is bounded by the member
+        // count even when a dropped member was smaller than its marker.
+        let largest = fields
+            .iter()
+            .filter(|(key, _)| {
+                !ENTRY_EXTRA_ESSENTIALS.contains(&key.as_str()) && !key.ends_with("_dropped_bytes")
+            })
+            .max_by_key(|(_, value)| json_len(value))
+            .map(|(key, _)| key.clone());
+        let Some(key) = largest else {
+            break; // only the per-turn facts are left; they are worth keeping
+        };
+        let dropped = fields.remove(&key).map(|value| json_len(&value)).unwrap_or(0);
+        fields.insert(format!("{key}_dropped_bytes"), json!(dropped));
+    }
+
+    extra
+}
+
 fn session_entry_create_body(spec: &SessionEntryCreateSpec<'_>) -> Result<Value, String> {
     let content_json = spec
         .content
@@ -660,7 +853,7 @@ fn session_entry_create_body(spec: &SessionEntryCreateSpec<'_>) -> Result<Value,
         .unwrap_or_default();
     let extra_json = spec
         .extra_json
-        .map(serde_json::to_string)
+        .map(|extra| serde_json::to_string(&bound_entry_extra(extra.clone())))
         .transpose()
         .map_err(|err| format!("serialize SessionEntry extra_json: {err}"))?
         .unwrap_or_else(|| "{}".to_string());
@@ -1958,6 +2151,102 @@ pub fn parse_iso8601_to_epoch_secs(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Past the `extra_json` ceiling the kernel replaces or externalizes the
+    /// whole field, so one oversized member costs the turn its date, model and
+    /// token counts as well. Writers bound their own extras by policy; this is
+    /// the invariant every writer passes through, including the JSONL sync path
+    /// that re-materializes extras written before any of those policies existed.
+    #[test]
+    fn entry_extra_is_bounded_at_the_write_boundary() {
+        let oversized: Vec<Value> = (0..MAX_ENTRY_EXTRA_BYTES).map(|i| json!(i % 10)).collect();
+        let spec = SessionEntryCreateSpec {
+            session_id: "ss-1",
+            entry_id: "a-1",
+            parent_entry_id: Some("u-1"),
+            sequence: 2,
+            entry_type: "message",
+            role: Some("assistant"),
+            content: None,
+            content_file_id: None,
+            content_file_version_id: None,
+            extra_json: Some(&json!({
+                "ts_ms": 1_767_225_600_000_i64,
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "input_tokens": 120,
+                "output_tokens": 34,
+                "logprobs": oversized,
+            })),
+            tokens: 34,
+        };
+
+        let body = session_entry_create_body(&spec).expect("body builds");
+        let stored = body["ExtraJson"].as_str().expect("ExtraJson is a string");
+        assert!(
+            stored_json_len(&Value::String(stored.to_string())) <= MAX_ENTRY_EXTRA_BYTES,
+            "the stored field must fit the ceiling the kernel measures, got {} bytes",
+            stored.len()
+        );
+
+        let extra: Value = serde_json::from_str(stored).expect("stored extra parses");
+        assert_eq!(
+            extra["ts_ms"], 1_767_225_600_000_i64,
+            "the per-turn facts are the last thing sacrificed"
+        );
+        assert_eq!(extra["provider"], "anthropic");
+        assert_eq!(extra["output_tokens"], 34);
+        assert!(extra.get("logprobs").is_none());
+        assert!(
+            extra["logprobs_dropped_bytes"].as_u64().unwrap_or(0) > 0,
+            "a dropped member must leave its size behind: {extra}"
+        );
+    }
+
+    /// A reader that stores what it read as a record of what an agent did has
+    /// to be able to tell an empty transcript from a missing one. Collapsing
+    /// both to `Ok("")` is right for a writer resuming a tree and wrong here.
+    #[test]
+    fn transcript_presence_separates_content_from_absence() {
+        assert_eq!(
+            transcript_presence("{\"id\":\"u-1\"}\n", TranscriptPresence::EmptyFile),
+            TranscriptPresence::Present
+        );
+        assert_eq!(
+            transcript_presence("", TranscriptPresence::EmptyFile),
+            TranscriptPresence::EmptyFile
+        );
+        assert_eq!(
+            transcript_presence("", TranscriptPresence::NoEntries),
+            TranscriptPresence::NoEntries
+        );
+        assert_eq!(
+            transcript_presence("  \n\n \n", TranscriptPresence::NoEntries),
+            TranscriptPresence::NoEntries,
+            "a transcript of nothing but whitespace carries no entries"
+        );
+    }
+
+    /// The reasons travel into the stored trajectory, so they are a wire
+    /// contract and cannot be renamed casually.
+    #[test]
+    fn transcript_presence_names_are_stable() {
+        for (presence, name) in [
+            (TranscriptPresence::Present, "present"),
+            (TranscriptPresence::PendingFirstTurn, "pending_first_turn"),
+            (TranscriptPresence::NoEntries, "no_entries"),
+            (TranscriptPresence::MissingFile, "missing_file"),
+            (TranscriptPresence::EmptyFile, "empty_file"),
+            (TranscriptPresence::Undeclared, "undeclared"),
+        ] {
+            assert_eq!(presence.as_str(), name);
+            assert_eq!(
+                presence.is_present(),
+                presence == TranscriptPresence::Present,
+                "only Present may report as present"
+            );
+        }
+    }
 
     #[test]
     fn bounded_read_helper_builds_point_lookup_urls() {

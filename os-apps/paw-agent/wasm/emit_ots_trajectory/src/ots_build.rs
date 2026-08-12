@@ -19,6 +19,7 @@
 
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use wasm_helpers::TranscriptPresence;
 
 /// Value of `metadata.harness` — identifies the runtime that produced the run.
 pub const HARNESS: &str = "temperpaw";
@@ -26,6 +27,13 @@ pub const HARNESS: &str = "temperpaw";
 pub const HARNESS_TAG_PREFIX: &str = "harness:";
 /// Tag prefix mirroring `metadata.spec_version` into `metadata.tags`.
 pub const SPEC_VERSION_TAG_PREFIX: &str = "spec_version:";
+/// Tag prefix naming evidence this trajectory was built without.
+///
+/// It lives in `metadata.tags` because that is kernel-modeled: a completeness
+/// marker is the last thing that may vanish when a consumer re-serializes a
+/// stored row, since losing it turns a partial record into an apparently
+/// complete one.
+pub const DEGRADED_TAG_PREFIX: &str = "degraded:";
 /// OTS schema version emitted by this module.
 pub const OTS_VERSION: &str = "0.1.0";
 
@@ -37,13 +45,20 @@ pub const OTS_VERSION: &str = "0.1.0";
 // `data: body`) — but a consumer that deserializes a row into `OTSTrajectory`
 // and writes it back drops every one, because serde ignores unknown fields.
 //
-// Two consequences are designed around that, and both are asserted by tests:
-// the decision join key is `decision_id`, which the kernel does model, and
-// `cause_id` only mirrors it; and run provenance is repeated in the
-// kernel-modeled `metadata.tags`. The token-level RL signals have no
-// kernel-modeled home and survive only in the stored row until `temper-ots`
-// gains optional fields for them — see ADR-0035, "known gap".
-// `KERNEL_UNMODELED_FIELDS` in the test module pins the exact set.
+// Every one of them therefore also travels in a field the kernel does model,
+// and each carrier is asserted by a test:
+//
+// - `decisions[].cause_id` mirrors `decision_id`, so the decision-to-observation
+//   join never depends on a dropped field.
+// - `metadata.harness` and `metadata.spec_version` repeat in `metadata.tags`.
+// - The per-turn token-level signals repeat in `context.entities[]`, whose
+//   `metadata` is a kernel-modeled `BTreeMap<String, Value>` and survives a
+//   round trip verbatim (`TOKEN_SIGNAL_CARRIER_TYPE`).
+//
+// These carriers are interim. The kernel gains real fields for all of them in
+// temper PR #415, and `pinned_kernel_still_lacks_the_jcs_contract_fields` fails
+// the moment a pin bump lands them, so the carriers get deleted rather than
+// left behind. `KERNEL_UNMODELED_FIELDS` in the test module pins the exact set.
 
 /// Largest inline text body attached to a single OTS message.
 pub const MAX_MESSAGE_INLINE_CHARS: usize = 4_000;
@@ -57,6 +72,33 @@ pub const MAX_ARGUMENTS_CHARS: usize = 4_000;
 pub const MAX_SYSTEM_PROMPT_CHARS: usize = 2_000;
 /// Largest task description taken from the user message.
 pub const MAX_TASK_DESCRIPTION_CHARS: usize = 500;
+/// Largest total serialized size of token-level signals in one trajectory.
+///
+/// These arrays scale with completion length and are the only payload in the
+/// document the character budgets above do not touch, so a long session could
+/// otherwise carry many megabytes of them. Signals past the ceiling are dropped
+/// visibly rather than silently.
+pub const MAX_TOKEN_SIGNAL_BYTES: usize = 1_048_576;
+
+/// `context.entities[].type` under which each turn's token-signal inventory is
+/// recorded.
+///
+/// Interim carrier for a known loss. The signal arrays themselves live on the
+/// turn, in the field names temper PR #415 gives `OTSTurn`, and the pinned
+/// kernel drops them on a deserialize/re-serialize round trip. Copying
+/// megabyte-scale arrays into a second place to survive that would reproduce
+/// the payload failure ADR-0035 section 11 exists to prevent, so what travels
+/// instead is the inventory: which signals the stored row carries, how long
+/// each one is, and where the authoritative row is. `OTSEntity.metadata` is a
+/// kernel-modeled `BTreeMap<String, Value>`, so the inventory survives the
+/// round trip verbatim, and a consumer holding a re-serialized copy can tell
+/// that its copy is incomplete instead of training on it as if it were whole.
+/// Delete the carrier when the pinned kernel models the turn fields.
+pub const TOKEN_SIGNAL_CARRIER_TYPE: &str = "turn_token_signals";
+
+/// Tag announcing that the stored row carries token-level signals the kernel
+/// structs cannot represent. Kernel-modeled, so it survives a round trip.
+pub const TOKEN_SIGNALS_TAG: &str = "token_signals:present";
 
 const EPOCH: &str = "1970-01-01T00:00:00Z";
 
@@ -80,6 +122,10 @@ pub struct TrajectoryInputs<'a> {
     pub entity_state: &'a Value,
     /// Identity of the governing actor spec (`<app>@<version>`).
     pub spec_version: &'a str,
+    /// Whether the transcript behind `session_jsonl` was actually there.
+    pub transcript: TranscriptPresence,
+    /// Whether a declared tool-span file could not be found.
+    pub tool_spans_missing: bool,
 }
 
 /// Map the Session's terminal state + has_result flag to an OTS `OutcomeType`.
@@ -266,13 +312,24 @@ pub fn parse_session_entries(session_jsonl: &str) -> Vec<TreeEntry> {
         .collect()
 }
 
+/// A root→leaf chain, and whether the session's own leaf produced it.
+pub struct ResolvedChain {
+    /// Entry indices from root to leaf.
+    pub chain: Vec<usize>,
+    /// False when a recorded `session_leaf_id` could not be walked and the
+    /// chain came from a fallback. The fallback keeps the trajectory usable,
+    /// but the newest turns are the ones missing from it, so a consumer has to
+    /// be told. An empty `session_leaf_id` claims nothing and stays true.
+    pub from_recorded_leaf: bool,
+}
+
 /// Resolve the root→leaf chain the session actually executed.
 ///
 /// Prefers the recorded `session_leaf_id`. When that leaf is missing or its
 /// parent chain is broken (continuation/recovery races can leave the Session
 /// field ahead of durable rows), falls back to the newest walkable entry and
 /// finally to raw file order, so a damaged tree still yields real turns.
-pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> Vec<usize> {
+pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> ResolvedChain {
     let mut by_id: BTreeMap<&str, usize> = BTreeMap::new();
     for (index, entry) in entries.iter().enumerate() {
         by_id.insert(entry.id.as_str(), index);
@@ -300,22 +357,32 @@ pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> Vec<usize> {
         && let Some(chain) = walk(leaf_id)
         && has_message(&chain)
     {
-        return chain;
+        return ResolvedChain {
+            chain,
+            from_recorded_leaf: true,
+        };
     }
 
     // Try the newest entries only. Walking every entry would be quadratic on a
     // long session, and a tree whose last hundred leaves are all unwalkable is
     // damaged far past the point where a smarter search would help.
     const FALLBACK_LEAF_ATTEMPTS: usize = 100;
+    let from_recorded_leaf = leaf_id.is_empty();
     for index in (0..entries.len()).rev().take(FALLBACK_LEAF_ATTEMPTS) {
         if let Some(chain) = walk(&entries[index].id)
             && has_message(&chain)
         {
-            return chain;
+            return ResolvedChain {
+                chain,
+                from_recorded_leaf,
+            };
         }
     }
 
-    (0..entries.len()).collect()
+    ResolvedChain {
+        chain: (0..entries.len()).collect(),
+        from_recorded_leaf,
+    }
 }
 
 /// One reconstructed LLM cycle: the prompt-side entries plus the assistant
@@ -583,6 +650,10 @@ pub struct ToolSpanDocument {
     /// True when the document was sealed at its size ceiling, so the decision
     /// record for this session is knowingly incomplete.
     pub truncated: bool,
+    /// Lines that did not parse. Skipping them keeps one bad append from
+    /// costing every span, but they are still tool calls with no evidence left,
+    /// so the count travels rather than the loss being silent.
+    pub unparsed_lines: usize,
 }
 
 /// Parse a tool-span JSONL document into span values, preserving execution
@@ -596,11 +667,13 @@ pub struct ToolSpanDocument {
 pub fn parse_tool_span_document(tool_spans_jsonl: &str) -> ToolSpanDocument {
     let mut spans = Vec::new();
     let mut truncated = false;
+    let mut unparsed_lines = 0;
     for line in tool_spans_jsonl.lines().map(str::trim) {
         if line.is_empty() {
             continue;
         }
         let Ok(span) = serde_json::from_str::<Value>(line) else {
+            unparsed_lines += 1;
             continue;
         };
         if is_truncation_marker(&span) {
@@ -609,7 +682,11 @@ pub fn parse_tool_span_document(tool_spans_jsonl: &str) -> ToolSpanDocument {
             spans.push(span);
         }
     }
-    ToolSpanDocument { spans, truncated }
+    ToolSpanDocument {
+        spans,
+        truncated,
+        unparsed_lines,
+    }
 }
 
 /// Extract first and last event timestamps from the entity event log.
@@ -858,6 +935,27 @@ const COMPLETION_TOKEN_SIGNALS: &[(&str, SignalValidator)] = &[
     ("logprobs", is_f64_array),
 ];
 
+/// Whole-trajectory ceiling on token-signal bytes, spent in write order.
+struct TokenSignalBudget {
+    remaining: usize,
+}
+
+impl TokenSignalBudget {
+    fn new(total: usize) -> Self {
+        TokenSignalBudget { remaining: total }
+    }
+
+    /// Serialized size of `value`, or `None` when it does not fit what is left.
+    fn take(&mut self, value: &Value) -> Option<usize> {
+        let size = serde_json::to_string(value).ok()?.len();
+        if size > self.remaining {
+            return None;
+        }
+        self.remaining -= size;
+        Some(size)
+    }
+}
+
 /// Copy token-id / mask / logprob signals onto the turn when the serving stack
 /// recorded them. Absent otherwise — the emitter never fabricates them and never
 /// makes a provider round-trip to fetch them.
@@ -866,15 +964,35 @@ const COMPLETION_TOKEN_SIGNALS: &[(&str, SignalValidator)] = &[
 /// agree on length. Arrays of different lengths would hand an RL consumer
 /// probabilities and mask bits belonging to the wrong tokens, which is worse
 /// than having none: the misalignment is invisible downstream. A dropped set is
-/// recorded as `_token_signals_misaligned` so the loss is not silent.
-fn attach_token_signals(turn: &mut Value, source: &Value) {
+/// recorded as `_token_signals_misaligned` so the loss is not silent, and a set
+/// dropped for exceeding `MAX_TOKEN_SIGNAL_BYTES` as `_token_signals_dropped`.
+///
+/// Returns the inventory of what was written: signal name -> element count, plus
+/// any drop marker. It is what `TOKEN_SIGNAL_CARRIER_TYPE` records in a
+/// kernel-modeled field, so a consumer working from a re-serialized row can see
+/// which signals the stored row holds.
+fn attach_token_signals(
+    turn: &mut Value,
+    source: &Value,
+    budget: &mut TokenSignalBudget,
+) -> Map<String, Value> {
+    let mut inventory = Map::new();
+
     // Prompt-side ids describe the prompt, which the completion signals do not
     // index into, so they stand on their own.
     if let Some(value) = source
         .get("prompt_token_ids")
         .filter(|value| is_u32_array(value))
     {
-        turn["prompt_token_ids"] = value.clone();
+        if budget.take(value).is_some() {
+            inventory.insert(
+                "prompt_token_ids".to_string(),
+                json!(value.as_array().map(Vec::len).unwrap_or(0)),
+            );
+            turn["prompt_token_ids"] = value.clone();
+        } else {
+            record_signal_drop(turn, &mut inventory, "prompt_token_ids", value);
+        }
     }
 
     let present: Vec<(&str, &Value)> = COMPLETION_TOKEN_SIGNALS
@@ -887,7 +1005,7 @@ fn attach_token_signals(turn: &mut Value, source: &Value) {
         })
         .collect();
     if present.is_empty() {
-        return;
+        return inventory;
     }
 
     let mut lengths = Map::new();
@@ -904,12 +1022,59 @@ fn attach_token_signals(turn: &mut Value, source: &Value) {
         .len()
         <= 1;
 
-    if aligned {
+    if !aligned {
+        turn["_token_signals_misaligned"] = Value::Object(lengths.clone());
+        inventory.insert("_token_signals_misaligned".to_string(), Value::Object(lengths));
+        return inventory;
+    }
+
+    // The aligned set travels or is dropped whole: keeping a mask without the
+    // ids it indexes leaves a consumer with signal it cannot use.
+    let set = Value::Array(present.iter().map(|(_, value)| (*value).clone()).collect());
+    if budget.take(&set).is_none() {
         for (field, value) in present {
-            turn[field] = value.clone();
+            record_signal_drop(turn, &mut inventory, field, value);
         }
-    } else {
-        turn["_token_signals_misaligned"] = Value::Object(lengths);
+        return inventory;
+    }
+    for (field, value) in present {
+        inventory.insert(
+            field.to_string(),
+            json!(value.as_array().map(Vec::len).unwrap_or(0)),
+        );
+        turn[field] = value.clone();
+    }
+    inventory
+}
+
+/// Record a signal the trajectory budget refused. A dropped signal that leaves a
+/// trace is debuggable; a silent one reads as a turn the serving stack never
+/// produced signals for.
+fn record_signal_drop(
+    turn: &mut Value,
+    inventory: &mut Map<String, Value>,
+    field: &str,
+    value: &Value,
+) {
+    let dropped = turn
+        .get_mut("_token_signals_dropped")
+        .and_then(Value::as_object_mut);
+    let entry = json!(value.as_array().map(Vec::len).unwrap_or(0));
+    match dropped {
+        Some(existing) => {
+            existing.insert(field.to_string(), entry.clone());
+        }
+        None => {
+            let mut map = Map::new();
+            map.insert(field.to_string(), entry.clone());
+            turn["_token_signals_dropped"] = Value::Object(map);
+        }
+    }
+    let carried = inventory
+        .entry("_token_signals_dropped".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(map) = carried.as_object_mut() {
+        map.insert(field.to_string(), entry);
     }
 }
 
@@ -965,6 +1130,54 @@ fn file_resource(resources: &mut Vec<Value>, kind: &str, file_id: &str) {
     resources.push(json!({ "type": kind, "uri": uri }));
 }
 
+/// One turn's token-signal inventory, as a kernel-modeled context entity.
+///
+/// The arrays stay on the turn; this records what the turn holds so the fact
+/// survives a consumer that re-serializes the row through `OTSTrajectory`.
+fn token_signal_carrier(span_id: &Value, turn_id: i64, inventory: Map<String, Value>) -> Value {
+    let mut metadata = Map::new();
+    metadata.insert("turn_id".to_string(), json!(turn_id));
+
+    let mut lengths = Map::new();
+    for (key, value) in inventory {
+        // Drop and misalignment markers are facts about the turn; the rest are
+        // per-signal element counts.
+        if key.starts_with('_') {
+            metadata.insert(key, value);
+        } else {
+            lengths.insert(key, value);
+        }
+    }
+    if !lengths.is_empty() {
+        metadata.insert("lengths".to_string(), Value::Object(lengths));
+        metadata.insert("stored_on".to_string(), json!("turns[].<signal>"));
+    }
+
+    json!({
+        "type": TOKEN_SIGNAL_CARRIER_TYPE,
+        "id": span_id,
+        "metadata": metadata,
+    })
+}
+
+/// Evidence the finished document was built without, newest-first in the order
+/// the tags were added. Empty for a complete trajectory.
+///
+/// Read back off the document rather than recomputed from the inputs, so the
+/// stored row and the Session entity cannot disagree about what is missing.
+pub fn degradations(trajectory: &Value) -> Vec<String> {
+    trajectory["metadata"]["tags"]
+        .as_array()
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|tag| tag.strip_prefix(DEGRADED_TAG_PREFIX))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Assemble a complete `OTSTrajectory` JSON document.
 pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     let TrajectoryInputs {
@@ -977,11 +1190,24 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         tool_spans_jsonl,
         entity_state,
         spec_version,
+        transcript,
+        tool_spans_missing,
     } = *inputs;
 
     let (event_start, timestamp_end) = extract_event_bookends(entity_state);
     let entries = parse_session_entries(session_jsonl);
-    let chain = resolve_chain(&entries, field_str(fields, "session_leaf_id"));
+    // A transcript that is there but does not parse is missing history just as
+    // surely as one that is absent, and `parse_session_entries` drops bad lines
+    // deliberately so a single corrupted line cannot cost the whole trajectory.
+    // Judging completeness by whether bytes arrived would let a truncated or
+    // corrupted file store as a complete record.
+    let unparsed_lines = session_jsonl
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count()
+        .saturating_sub(entries.len());
+    let resolved = resolve_chain(&entries, field_str(fields, "session_leaf_id"));
+    let chain = resolved.chain;
     let turn_drafts = group_turns(&entries, &chain);
 
     let timestamp_start = chain
@@ -1022,6 +1248,48 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     if !spec_version.is_empty() {
         tags.push(format!("{SPEC_VERSION_TAG_PREFIX}{spec_version}"));
     }
+    // What the document was built without. Same reasoning as run provenance,
+    // with more at stake: a consumer that loses a completeness marker reads a
+    // partial record as a whole one.
+    //
+    // Absence is only the loudest way a transcript can be short. It can also
+    // arrive corrupted, arrive without the newest turns (the recorded leaf does
+    // not resolve, so the fallback chain is an older one), or arrive with
+    // entries that yield no turn at all. Each of those produces a document that
+    // reads as a smaller session than the one that ran, and each is reported.
+    //
+    // `turn_count` is deliberately not one of these. It counts continuations
+    // (tool results, steering, plan resumes), not assistant messages, so it
+    // does not equal the reconstructed turn count even on a healthy session —
+    // comparing them would mark almost every trajectory degraded. It travels as
+    // `_session_turn_count` for a consumer that wants to weigh the two.
+    let mut transcript_reasons: Vec<&str> = Vec::new();
+    if !transcript.is_present() {
+        transcript_reasons.push(transcript.as_str());
+    } else {
+        if unparsed_lines > 0 {
+            transcript_reasons.push("unparseable");
+        }
+        if !resolved.from_recorded_leaf {
+            transcript_reasons.push("leaf_unresolved");
+        }
+        if turn_drafts.is_empty() {
+            transcript_reasons.push("no_turns");
+        }
+    }
+    for reason in &transcript_reasons {
+        tags.push(format!("{DEGRADED_TAG_PREFIX}transcript_{reason}"));
+    }
+    let span_document = parse_tool_span_document(tool_spans_jsonl);
+    if span_document.truncated {
+        tags.push(format!("{DEGRADED_TAG_PREFIX}tool_spans_truncated"));
+    }
+    if span_document.unparsed_lines > 0 {
+        tags.push(format!("{DEGRADED_TAG_PREFIX}tool_spans_unparseable"));
+    }
+    if tool_spans_missing {
+        tags.push(format!("{DEGRADED_TAG_PREFIX}tool_spans_missing_file"));
+    }
 
     // Tool-call ids are unique only within a turn. Providers that omit them get
     // synthetic ids that restart with each response, and a model can repeat one,
@@ -1045,7 +1313,6 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         }
     }
 
-    let span_document = parse_tool_span_document(tool_spans_jsonl);
     let spans = span_document.spans;
     // Spans are appended in execution order, so repeated ids are matched to
     // calls first-come-first-served rather than collapsed onto one record.
@@ -1059,6 +1326,9 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
 
     let boundary_timestamps = turn_boundary_event_timestamps(entity_state);
     let mut budget = InlineBudget::new(MAX_TRAJECTORY_INLINE_CHARS);
+    let mut signal_budget = TokenSignalBudget::new(MAX_TOKEN_SIGNAL_BYTES);
+    let mut signal_carriers: Vec<Value> = Vec::new();
+    let mut carried_token_signals = false;
     let mut turns: Vec<Value> = Vec::new();
 
     for (turn_index, draft) in turn_drafts.iter().enumerate() {
@@ -1162,7 +1432,18 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         turn["_completion_tokens"] = json!(completion_tokens);
 
         if let Some(entry) = assistant {
-            attach_token_signals(&mut turn, &entry.raw);
+            let inventory = attach_token_signals(&mut turn, &entry.raw, &mut signal_budget);
+            // The tag announces signals a consumer can read. A turn whose
+            // signals were all dropped carries an inventory of the drop and no
+            // signal, so it must not advertise one.
+            carried_token_signals |= inventory.keys().any(|key| !key.starts_with('_'));
+            if !inventory.is_empty() {
+                signal_carriers.push(token_signal_carrier(
+                    &turn["span_id"],
+                    (turn_index + 1) as i64,
+                    inventory,
+                ));
+            }
         }
 
         turns.push(turn);
@@ -1216,6 +1497,14 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             "messages": Vec::<Value>::new(),
             "decisions": Vec::<Value>::new(),
         }));
+    }
+
+    // Announced in a kernel-modeled field so a consumer working from a
+    // re-serialized row knows the stored row holds signals its structs cannot
+    // represent. Only when a signal was actually written: a turn whose signals
+    // were all dropped carries the record of the drop, not a signal to read.
+    if carried_token_signals {
+        tags.push(TOKEN_SIGNALS_TAG.to_string());
     }
 
     // trajectory_id is duplicated inside `metadata` because Temper's server-side
@@ -1279,8 +1568,37 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
         trajectory["_tool_spans_truncated"] = json!(true);
     }
 
-    if !resources.is_empty() {
-        trajectory["context"] = json!({ "resources": resources });
+    if span_document.unparsed_lines > 0 {
+        // Tool calls whose only evidence was a span line that did not parse.
+        trajectory["_tool_spans_unparsed_lines"] = json!(span_document.unparsed_lines);
+    }
+
+    if !transcript_reasons.is_empty() {
+        // The turn structure that makes a trajectory readable was not all
+        // there. Each reason is a different way of being short of the session
+        // that actually ran.
+        let mut marker = json!({
+            "present": transcript.is_present(),
+            "reasons": transcript_reasons,
+        });
+        if unparsed_lines > 0 {
+            marker["unparsed_lines"] = json!(unparsed_lines);
+        }
+        trajectory["_transcript"] = marker;
+    }
+    if tool_spans_missing {
+        trajectory["_tool_spans_missing"] = json!(true);
+    }
+
+    if !resources.is_empty() || !signal_carriers.is_empty() {
+        let mut context = Map::new();
+        if !resources.is_empty() {
+            context.insert("resources".to_string(), json!(resources));
+        }
+        if !signal_carriers.is_empty() {
+            context.insert("entities".to_string(), json!(signal_carriers));
+        }
+        trajectory["context"] = Value::Object(context);
     }
 
     let system_prompt = field_str(fields, "system_prompt");
@@ -1333,6 +1651,14 @@ mod tests {
             tool_spans_jsonl,
             entity_state,
             spec_version: "paw-agent@0.1.0",
+            // Fixtures that pass a transcript describe a session whose
+            // transcript was read; the degradation paths set this explicitly.
+            transcript: if session_jsonl.trim().is_empty() {
+                TranscriptPresence::NoEntries
+            } else {
+                TranscriptPresence::Present
+            },
+            tool_spans_missing: false,
         }
     }
 
@@ -1528,20 +1854,33 @@ mod tests {
     #[test]
     fn resolve_chain_prefers_recorded_leaf() {
         let entries = parse_session_entries(&two_turn_session_jsonl());
-        let chain = resolve_chain(&entries, "a-3");
-        let ids: Vec<&str> = chain.iter().map(|i| entries[*i].id.as_str()).collect();
+        let resolved = resolve_chain(&entries, "a-3");
+        let ids: Vec<&str> = resolved
+            .chain
+            .iter()
+            .map(|i| entries[*i].id.as_str())
+            .collect();
         assert_eq!(ids, vec!["h-ss-1", "u-ss-1-0", "a-1", "t-2", "a-3"]);
+        assert!(resolved.from_recorded_leaf);
     }
 
     #[test]
     fn resolve_chain_falls_back_when_leaf_is_missing() {
         let entries = parse_session_entries(&two_turn_session_jsonl());
-        let chain = resolve_chain(&entries, "a-999-never-written");
-        let ids: Vec<&str> = chain.iter().map(|i| entries[*i].id.as_str()).collect();
+        let resolved = resolve_chain(&entries, "a-999-never-written");
+        let ids: Vec<&str> = resolved
+            .chain
+            .iter()
+            .map(|i| entries[*i].id.as_str())
+            .collect();
         assert_eq!(
             ids,
             vec!["h-ss-1", "u-ss-1-0", "a-1", "t-2", "a-3"],
             "a leaf ahead of durable rows must not empty the trajectory"
+        );
+        assert!(
+            !resolved.from_recorded_leaf,
+            "the fallback chain is missing the newest turns, and the caller has to know"
         );
     }
 
@@ -1556,8 +1895,8 @@ mod tests {
         .collect::<Vec<_>>()
         .join("\n");
         let entries = parse_session_entries(&jsonl);
-        let chain = resolve_chain(&entries, "a");
-        assert!(chain.len() <= entries.len());
+        let resolved = resolve_chain(&entries, "a");
+        assert!(resolved.chain.len() <= entries.len());
     }
 
     #[test]
@@ -2349,6 +2688,195 @@ mod tests {
         );
     }
 
+    /// A transcript that is not there produces a spans-only document. Storing it
+    /// as if it were complete is the failure this marks: the row is written once
+    /// and the session is marked emitted, so nothing downstream ever revisits it.
+    #[test]
+    fn build_trajectory_marks_an_absent_transcript_as_degraded() {
+        let fields = json!({ "has_result": true, "tool_spans_file_id": "file-spans-1" });
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
+        let state = entity_state_with_events();
+
+        for (presence, expected) in [
+            (TranscriptPresence::MissingFile, "transcript_missing_file"),
+            (TranscriptPresence::EmptyFile, "transcript_empty_file"),
+            (
+                TranscriptPresence::PendingFirstTurn,
+                "transcript_pending_first_turn",
+            ),
+            (TranscriptPresence::NoEntries, "transcript_no_entries"),
+            (TranscriptPresence::Undeclared, "transcript_undeclared"),
+        ] {
+            let mut input = inputs(&fields, "", spans, &state, "Completed");
+            input.transcript = presence;
+            let t = build_trajectory(&input);
+
+            assert_eq!(
+                degradations(&t),
+                vec![expected.to_string()],
+                "a {} transcript must be reported as degraded",
+                presence.as_str()
+            );
+            assert_eq!(t["_transcript"]["present"], false);
+            assert_eq!(t["_transcript"]["reasons"], json!([presence.as_str()]));
+        }
+    }
+
+    /// The recorded leaf is the session's own claim about where its history
+    /// ends. When it does not resolve, the fallback chain is an older one — the
+    /// newest turns are exactly what is missing — and the row must not pass as
+    /// the whole session.
+    #[test]
+    fn build_trajectory_marks_an_unresolved_leaf_as_degraded() {
+        let mut fields = two_turn_fields();
+        fields["session_leaf_id"] = json!("a-5-never-written");
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(
+            degradations(&t),
+            vec!["transcript_leaf_unresolved".to_string()]
+        );
+        assert_eq!(t["_transcript"]["present"], true);
+        assert_eq!(
+            t["turns"].as_array().unwrap().len(),
+            2,
+            "the recoverable turns are still emitted"
+        );
+    }
+
+    /// A transcript whose entries yield no turn at all produces the same
+    /// synthetic single-turn document as an empty one, and must be labelled the
+    /// same way rather than passing as a session that genuinely did nothing.
+    #[test]
+    fn build_trajectory_marks_a_transcript_without_turns_as_degraded() {
+        let jsonl = json!({"id":"h-ss-1","parentId":null,"type":"header","tokens":0}).to_string();
+        let fields = json!({ "session_leaf_id": "h-ss-1", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(
+            degradations(&t).contains(&"transcript_no_turns".to_string()),
+            "tags: {:?}",
+            t["metadata"]["tags"]
+        );
+        assert_eq!(t["turns"].as_array().unwrap().len(), 1);
+    }
+
+    /// Span lines are skipped when they do not parse, so a partially written
+    /// append leaves tool calls with no evidence and nothing saying so.
+    #[test]
+    fn build_trajectory_marks_unparseable_tool_spans_as_degraded() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let spans = concat!(
+            "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n",
+            "{\"tool_call_id\":\"tc-2\",\"tool_name\":\"temper.re\n"
+        );
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        assert_eq!(
+            degradations(&t),
+            vec!["tool_spans_unparseable".to_string()]
+        );
+        assert_eq!(t["_tool_spans_unparsed_lines"], 1);
+    }
+
+    /// A transcript that arrived but does not parse is missing history just as
+    /// surely as one that never arrived. Judging completeness by whether bytes
+    /// showed up would store a corrupted file as a complete record — the same
+    /// false-complete row an absent transcript used to produce, reached through
+    /// corruption instead of a 404.
+    #[test]
+    fn build_trajectory_marks_an_unparseable_transcript_as_degraded() {
+        let mut lines: Vec<String> = two_turn_session_jsonl()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        lines.push("{\"id\":\"a-4\",\"parentId\":\"a-3\",\"type\"".to_string()); // write cut mid-line
+        let jsonl = lines.join("\n");
+        let fields = two_turn_fields();
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(degradations(&t), vec!["transcript_unparseable".to_string()]);
+        assert_eq!(t["_transcript"]["present"], true);
+        assert_eq!(t["_transcript"]["unparsed_lines"], 1);
+        assert_eq!(
+            t["turns"].as_array().unwrap().len(),
+            2,
+            "the readable turns are still kept — one bad line must not cost the trajectory"
+        );
+    }
+
+    /// A complete run must not be labelled degraded — the marker is only useful
+    /// if it means something.
+    #[test]
+    fn build_trajectory_reports_no_degradation_for_a_complete_run() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.bash\",\"result\":\"ok\",\"duration_ms\":3,\"is_error\":false}\n";
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        assert!(degradations(&t).is_empty(), "tags: {:?}", t["metadata"]["tags"]);
+        assert!(t.get("_transcript").is_none());
+        assert!(t.get("_tool_spans_missing").is_none());
+    }
+
+    /// A declared span file that 404s is missing evidence, not an absence of
+    /// tool calls, and a truncated span document is missing tool timings.
+    #[test]
+    fn build_trajectory_marks_missing_and_truncated_tool_spans() {
+        let fields = two_turn_fields();
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+
+        let mut input = inputs(&fields, &jsonl, "", &state, "Completed");
+        input.tool_spans_missing = true;
+        let t = build_trajectory(&input);
+        assert_eq!(degradations(&t), vec!["tool_spans_missing_file".to_string()]);
+        assert_eq!(t["_tool_spans_missing"], true);
+
+        let sealed = format!(
+            "{}\n",
+            json!({"tool_name": TOOL_SPANS_TRUNCATED_MARKER, "tool_call_id":"", "result":"", "duration_ms":0, "is_error":false})
+        );
+        let t = build_trajectory(&inputs(&fields, &jsonl, &sealed, &state, "Completed"));
+        assert_eq!(t["_tool_spans_truncated"], true);
+        assert_eq!(degradations(&t), vec!["tool_spans_truncated".to_string()]);
+    }
+
+    /// The completeness marker is the last thing that may be lost on a round
+    /// trip: without it a partial record reads as a whole one.
+    #[test]
+    fn degradation_markers_survive_the_kernel_round_trip() {
+        use temper_ots::models::OTSTrajectory;
+
+        let fields = json!({ "has_result": false });
+        let state = entity_state_with_events();
+        let mut input = inputs(&fields, "", "", &state, "Failed");
+        input.transcript = TranscriptPresence::MissingFile;
+        input.tool_spans_missing = true;
+        let document = build_trajectory(&input);
+
+        let trajectory: OTSTrajectory =
+            serde_json::from_value(document).expect("document deserializes");
+        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
+
+        assert_eq!(
+            degradations(&round_tripped),
+            vec![
+                "transcript_missing_file".to_string(),
+                "tool_spans_missing_file".to_string()
+            ],
+            "tags: {:?}",
+            trajectory.metadata.tags
+        );
+    }
+
     /// The decision-to-observation join must not depend on a field the kernel
     /// drops. `cause_id` mirrors `decision_id`, which the kernel does model, so
     /// a consumer working from re-serialized rows can still join.
@@ -2371,6 +2899,256 @@ mod tests {
             }
         }
         assert!(checked > 0, "the fixture must contain decisions");
+    }
+
+    /// Session JSONL whose single assistant turn carries every token signal.
+    fn token_signal_session_jsonl(tokens: usize) -> String {
+        [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"done"}],
+                "prompt_token_ids": vec![7_u64; tokens],
+                "completion_token_ids": vec![3_u64; tokens],
+                "response_mask": vec![1_u64; tokens],
+                "logprobs": vec![-0.5_f64; tokens]
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
+
+    /// The interim carrier for the one extension with no kernel-modeled home.
+    /// The arrays stay on the turn — copying megabytes of them into a second
+    /// place to survive re-serialization is the payload failure ADR-0035
+    /// section 11 exists to prevent — so what has to survive verbatim is the
+    /// inventory that tells a consumer its re-serialized copy is incomplete.
+    #[test]
+    fn token_signal_inventory_survives_the_kernel_round_trip() {
+        use temper_ots::models::OTSTrajectory;
+
+        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let state = entity_state_with_events();
+        let jsonl = token_signal_session_jsonl(2);
+        let emitted = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        let carrier = emitted["context"]["entities"][0].clone();
+        assert_eq!(carrier["type"], TOKEN_SIGNAL_CARRIER_TYPE);
+        assert_eq!(carrier["id"], emitted["turns"][0]["span_id"]);
+        assert_eq!(carrier["metadata"]["turn_id"], 1);
+        for field in [
+            "prompt_token_ids",
+            "completion_token_ids",
+            "response_mask",
+            "logprobs",
+        ] {
+            assert_eq!(
+                carrier["metadata"]["lengths"][field], 2,
+                "the inventory must record {field}"
+            );
+            assert!(
+                emitted["turns"][0][field].is_array(),
+                "{field} itself still travels on the turn"
+            );
+        }
+
+        let trajectory: OTSTrajectory =
+            serde_json::from_value(emitted.clone()).expect("document deserializes");
+        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
+
+        assert_eq!(
+            round_tripped["context"]["entities"][0], carrier,
+            "the inventory must round trip verbatim; without it a consumer \
+             cannot tell that its copy lost the signals"
+        );
+        assert!(
+            trajectory.metadata.tags.contains(&TOKEN_SIGNALS_TAG.to_string()),
+            "a tags-only consumer must still see that signals exist: {:?}",
+            trajectory.metadata.tags
+        );
+        assert!(
+            round_tripped["turns"][0].get("prompt_token_ids").is_none(),
+            "this test is meaningless if the pinned kernel keeps the arrays"
+        );
+    }
+
+    /// Token signals are the one payload the character budgets do not bound, so
+    /// a long session could otherwise carry many megabytes of them.
+    #[test]
+    fn build_trajectory_bounds_token_signals_across_the_document() {
+        // Two turns of roughly a megabyte of signals each: the first fits, the
+        // second cannot, and the drop has to be visible on both sides.
+        let per_turn = MAX_TOKEN_SIGNAL_BYTES / 8;
+        let mut lines: Vec<Value> = vec![
+            json!({"id":"u-0","parentId":null,"type":"message","role":"user","content":"go"}),
+        ];
+        let mut parent = "u-0".to_string();
+        for turn in 1..=2 {
+            let assistant = format!("a-{turn}");
+            lines.push(json!({
+                "id": assistant, "parentId": parent, "type": "message", "role": "assistant",
+                "content": [{"type":"text","text":"ok"}],
+                "completion_token_ids": vec![1234_u64; per_turn],
+                "response_mask": vec![1_u64; per_turn],
+            }));
+            parent = assistant;
+        }
+        let jsonl = lines
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let fields = json!({ "session_leaf_id": parent, "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        let signal_bytes: usize = t["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|turn| {
+                ["prompt_token_ids", "completion_token_ids", "response_mask", "logprobs"]
+                    .into_iter()
+                    .filter_map(|field| turn.get(field))
+                    .map(|value| value.to_string().len())
+            })
+            .sum();
+        assert!(
+            signal_bytes <= MAX_TOKEN_SIGNAL_BYTES,
+            "token signals must stay under the trajectory ceiling, got {signal_bytes}"
+        );
+
+        let dropped = &t["turns"][1]["_token_signals_dropped"];
+        assert_eq!(
+            dropped["completion_token_ids"], per_turn as u64,
+            "a dropped signal must name itself and its length: {dropped}"
+        );
+        assert_eq!(
+            t["context"]["entities"][1]["metadata"]["_token_signals_dropped"]["response_mask"],
+            per_turn as u64,
+            "the drop must also reach the kernel-modeled inventory"
+        );
+    }
+
+    /// The tag says a consumer can read token signals off this row. A turn whose
+    /// signals were all dropped carries a record of the drop and no signal, so
+    /// tagging it would send a consumer looking for data that is not there.
+    #[test]
+    fn build_trajectory_does_not_advertise_signals_it_dropped() {
+        let oversized = MAX_TOKEN_SIGNAL_BYTES;
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"ok"}],
+                "completion_token_ids": vec![123456_u64; oversized],
+                "response_mask": vec![1_u64; oversized],
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(
+            t["turns"][0].get("completion_token_ids").is_none(),
+            "the signal must not have been written"
+        );
+        let tags: Vec<&str> = t["metadata"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            !tags.contains(&TOKEN_SIGNALS_TAG),
+            "a row that carries no signal must not advertise one: {tags:?}"
+        );
+        assert!(
+            t["context"]["entities"][0]["metadata"]["_token_signals_dropped"].is_object(),
+            "the drop itself still has to be recorded"
+        );
+    }
+
+    /// The gate on the interim carriers. Every field named here is modeled by
+    /// `OTSTrajectory` in temper PR #415; until that merges and the pin in
+    /// `Cargo.toml` moves to it, each one is dropped on a round trip and travels
+    /// through a carrier instead. When the bump lands this test fails, and the
+    /// carriers must be deleted rather than left behind.
+    #[test]
+    fn pinned_kernel_still_lacks_the_jcs_contract_fields() {
+        use temper_ots::models::OTSTrajectory;
+
+        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let state = entity_state_with_events();
+        let jsonl = token_signal_session_jsonl(2);
+        let spans = "{\"tool_call_id\":\"tc-1\",\"tool_name\":\"temper.read\",\"result\":\"ok\",\"duration_ms\":1,\"is_error\":false}\n";
+        let emitted = build_trajectory(&inputs(&fields, &jsonl, spans, &state, "Completed"));
+
+        let trajectory: OTSTrajectory =
+            serde_json::from_value(emitted.clone()).expect("document deserializes");
+        let round_tripped = serde_json::to_value(&trajectory).expect("re-serializes");
+
+        // Each field is read at the same path on both sides. Asserting only
+        // that the round trip lost it would pass vacuously the day the emitter
+        // stops producing one, and the carrier would then never be flagged.
+        let contract_fields: [(&str, &Value, &Value); 7] = [
+            (
+                "metadata.harness",
+                &emitted["metadata"]["harness"],
+                &round_tripped["metadata"]["harness"],
+            ),
+            (
+                "metadata.spec_version",
+                &emitted["metadata"]["spec_version"],
+                &round_tripped["metadata"]["spec_version"],
+            ),
+            (
+                "turns[].prompt_token_ids",
+                &emitted["turns"][0]["prompt_token_ids"],
+                &round_tripped["turns"][0]["prompt_token_ids"],
+            ),
+            (
+                "turns[].completion_token_ids",
+                &emitted["turns"][0]["completion_token_ids"],
+                &round_tripped["turns"][0]["completion_token_ids"],
+            ),
+            (
+                "turns[].response_mask",
+                &emitted["turns"][0]["response_mask"],
+                &round_tripped["turns"][0]["response_mask"],
+            ),
+            (
+                "turns[].logprobs",
+                &emitted["turns"][0]["logprobs"],
+                &round_tripped["turns"][0]["logprobs"],
+            ),
+            (
+                "turns[].decisions[].cause_id",
+                &emitted["turns"][0]["decisions"][0]["cause_id"],
+                &round_tripped["turns"][0]["decisions"][0]["cause_id"],
+            ),
+        ];
+        for (path, before, after) in contract_fields {
+            assert!(
+                !before.is_null(),
+                "the emitter stopped producing {path}; this gate only means \
+                 something while every contract field is emitted"
+            );
+            assert!(
+                after.is_null(),
+                "the pinned temper-ots now models {path}. The pin bump landed, so \
+                 the interim carriers are dead weight: delete the {TOKEN_SIGNAL_CARRIER_TYPE} \
+                 context entity and {TOKEN_SIGNALS_TAG}, drop the harness/spec_version \
+                 tag mirrors, remove {path} from KERNEL_UNMODELED_FIELDS, amend \
+                 ADR-0035 section 17, and delete this test"
+            );
+        }
     }
 
     /// Serde ignores unknown fields, so the kernel round trip alone proves

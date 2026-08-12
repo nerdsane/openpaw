@@ -15,12 +15,28 @@ serde_json = "1"
 
 # Host-only. The emitted JSON is round-tripped through the kernel's real OTS
 # structs, so a drift in a field the kernel models fails here instead of
-# silently dropping data at the /api/ots/trajectories boundary.
+# silently dropping data at the /api/ots/trajectories boundary. This rev must
+# stay equal to the temper-wasm-sdk rev above — a round trip against a kernel
+# the guest is not built for proves nothing, and a contract test asserts it.
 #
 # What the round trip cannot prove: serde ignores unknown fields, so an
 # extension the kernel does not model passes it untouched. Those fields are
 # listed in `ots_build::KERNEL_UNMODELED_FIELDS` and asserted separately by
 # `kernel_round_trip_drops_exactly_the_unmodeled_extensions`, which fails the
 # day the kernel starts modeling one of them. Never built for wasm32.
+#
+# FOLLOW-UP: this pin predates the JCS contract fields. `OTSMetadata.harness` /
+# `.spec_version`, `OTSTurn.prompt_token_ids` / `.completion_token_ids` /
+# `.response_mask` / `.logprobs` and `OTSDecision.cause_id` exist only on the
+# temper branch `claude/jcs-trajectory-core` (PR nerdsane/temper#415, closed
+# unmerged on 2026-08-12); temper main, which this rev is, has none of them. So
+# all five are dropped on a round trip today and travel through the
+# kernel-modeled carriers in ADR-0035 section 17.
+#
+# Bump both revs together once that work lands on temper main — under whatever
+# pull request supersedes #415 — and delete the carriers. The trigger is the
+# test, not the PR number: `pinned_kernel_still_lacks_the_jcs_contract_fields`
+# fails the moment a bump brings the fields in, and its message names the
+# removal work.
 [dev-dependencies]
 temper-ots = { git = "https://github.com/nerdsane/temper.git", rev = "804633e2c5cab3b0bd334f78bfb5ea23aca1858d" }

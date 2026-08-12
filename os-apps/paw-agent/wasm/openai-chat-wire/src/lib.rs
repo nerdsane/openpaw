@@ -96,7 +96,14 @@ pub fn merge_token_signals(signals: &mut Option<Value>, source: &Value) {
         let incoming = if *field == "logprobs" {
             normalize_logprobs(raw)
         } else {
-            raw.as_array().cloned()
+            // Token ids and mask bits are numbers. An endpoint streaming
+            // anything else under these names is not producing the signal the
+            // field names, and passing it through would put unbounded foreign
+            // text on a SessionEntry whose budget assumes numbers — and would
+            // be dropped by the emitter's own shape checks anyway.
+            raw.as_array()
+                .filter(|items| items.iter().all(Value::is_number))
+                .cloned()
         };
         let Some(incoming) = incoming.filter(|items| !items.is_empty()) else {
             continue;
@@ -740,6 +747,31 @@ mod tests {
         assert!(
             signals.get("logprobs").is_none(),
             "a partial logprob array must never be stored alongside full token ids"
+        );
+    }
+
+    /// Token ids and mask bits are numbers. An OpenAI-compatible endpoint is
+    /// configurable per agent, so what it streams under these names is not
+    /// trusted: text elements here would be unbounded foreign content written
+    /// onto a SessionEntry whose size budget assumes numbers, and the emitter's
+    /// own shape checks would drop them from the trajectory anyway.
+    #[test]
+    fn merge_token_signals_rejects_non_numeric_token_arrays() {
+        let mut signals = None;
+        merge_token_signals(
+            &mut signals,
+            &json!({
+                "prompt_token_ids": ["hello", "world"],
+                "completion_token_ids": [7, 8],
+                "response_mask": [1, "0"],
+            }),
+        );
+        let signals = signals.expect("the numeric signal is still recorded");
+        assert_eq!(signals["completion_token_ids"], json!([7, 8]));
+        assert!(
+            signals.get("prompt_token_ids").is_none()
+                && signals.get("response_mask").is_none(),
+            "arrays carrying anything but numbers must be dropped whole: {signals}"
         );
     }
 

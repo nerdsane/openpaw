@@ -17,10 +17,11 @@ use session_turn_artifacts::{
 };
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    append_session_entry_inline, create_content_file, is_session_entries_ref,
-    materialize_initial_session_entries_with_assistant, read_content_file,
+    MAX_ENTRY_EXTRA_BYTES, append_session_entry_inline, create_content_file,
+    is_session_entries_ref, materialize_initial_session_entries_with_assistant, read_content_file,
     read_session_from_temperfs, resolve_temper_api_url, runtime_headers,
-    session_id_from_entries_ref, write_session_to_temperfs, write_temperfs_value_with_retry,
+    session_id_from_entries_ref, stored_json_len as escaped_json_len, write_session_to_temperfs,
+    write_temperfs_value_with_retry,
 };
 
 const SESSION_ENTRY_FILE_THRESHOLD_BYTES: usize = 4096;
@@ -508,6 +509,23 @@ fn append_assistant_response_to_session_tree(
 /// turn over it.
 const MAX_TOKEN_SIGNAL_BYTES: usize = 32_768;
 
+// The entry's `extra_json` ceiling (`MAX_ENTRY_EXTRA_BYTES`) is spent here as
+// policy: bounding each signal on its own does not bound their sum — four
+// signals just under the per-signal ceiling each pass and cross the entry
+// ceiling together — and past it the kernel replaces or externalizes the
+// *entire* field, taking the per-turn facts the OTS emitter needs with it.
+// Choosing which signal to sacrifice, and naming it, belongs to this writer;
+// `wasm_helpers` enforces the same ceiling at the write boundary for every
+// writer, including ones that never come through here.
+
+/// Headroom withheld from `MAX_ENTRY_EXTRA_BYTES`.
+///
+/// `create_session_entry` stamps `recorded_at` onto the object after this
+/// function has returned, and the `<signal>_dropped_bytes` markers written
+/// below are themselves not charged against the budget. Escaping is not part of
+/// the headroom — `escaped_json_len` accounts for it exactly.
+const ENTRY_EXTRA_HEADROOM_BYTES: usize = 4_096;
+
 /// Per-turn facts recorded on the assistant SessionEntry.
 ///
 /// The OTS emitter reads these back to date each turn, report its prompt and
@@ -530,12 +548,29 @@ fn assistant_turn_extra(response: &ProviderResponseArtifact, now_ms: i64) -> Val
     if response.cache_creation_input_tokens > 0 {
         extra["cache_creation_input_tokens"] = json!(response.cache_creation_input_tokens);
     }
-    if let Some(Value::Object(signals)) = response.token_signals.clone()
-        && let Some(target) = extra.as_object_mut()
-    {
+    if let Some(Value::Object(signals)) = response.token_signals.clone() {
+        // Signals are added against a running total, so the entry keeps as many
+        // as fit and the ones that do not fit are named. The per-turn facts
+        // above are never at risk: they are already in the object, and nothing
+        // below can push the value past the ceiling.
+        let mut remaining = MAX_ENTRY_EXTRA_BYTES
+            .saturating_sub(ENTRY_EXTRA_HEADROOM_BYTES)
+            .saturating_sub(escaped_json_len(&extra));
         for (key, value) in signals {
             let size = serde_json::to_string(&value).map(|json| json.len()).unwrap_or(0);
-            if size > MAX_TOKEN_SIGNAL_BYTES {
+            // The key, quotes, colon and separator ride along with the value,
+            // and the kernel measures the field after JSON-escaping it.
+            let cost = escaped_json_len(&value) + key.len() + 4;
+            let dropped = if size > MAX_TOKEN_SIGNAL_BYTES || cost > remaining {
+                true
+            } else {
+                remaining -= cost;
+                false
+            };
+            let Some(target) = extra.as_object_mut() else {
+                break;
+            };
+            if dropped {
                 // Record that it existed and how big it was; a dropped signal
                 // that leaves a trace is debuggable, a silent one is not.
                 target.insert(format!("{key}_dropped_bytes"), json!(size));
@@ -546,6 +581,7 @@ fn assistant_turn_extra(response: &ProviderResponseArtifact, now_ms: i64) -> Val
     }
     extra
 }
+
 
 fn extract_tool_calls(content: &Value) -> Vec<Value> {
     content
@@ -1018,6 +1054,125 @@ mod tests {
             extra["completion_token_ids"],
             json!([1, 2, 3]),
             "a signal that fits still gets recorded"
+        );
+    }
+
+    /// Four signals that each clear the per-signal ceiling still cross the
+    /// entry's own ceiling together. Past it the kernel replaces or
+    /// externalizes the whole `extra_json` value, so the per-turn facts go with
+    /// them — the turn loses its timestamp, provider, model and token counts
+    /// because of signals nothing was even asking for.
+    #[test]
+    fn assistant_turn_extra_bounds_signals_against_the_entry_ceiling() {
+        // Single-digit elements serialize to two bytes each, so this lands just
+        // under the per-signal ceiling: every one of these passes the individual
+        // check, and four of them do not fit the entry together.
+        let near_ceiling: Vec<Value> = (0..MAX_TOKEN_SIGNAL_BYTES / 2 - 8)
+            .map(|i| json!(i % 10))
+            .collect();
+        assert!(
+            serde_json::to_string(&near_ceiling).unwrap().len() <= MAX_TOKEN_SIGNAL_BYTES,
+            "the fixture has to clear the per-signal ceiling for the test to mean anything"
+        );
+        let extra = assistant_turn_extra(
+            &artifact_with_signals(Some(json!({
+                "prompt_token_ids": near_ceiling,
+                "completion_token_ids": near_ceiling,
+                "response_mask": near_ceiling,
+                "logprobs": near_ceiling,
+            }))),
+            1_767_225_600_000,
+        );
+
+        // Measured the way the kernel measures it: the field is a JSON string,
+        // so the ceiling applies to the escaped encoding.
+        let size = escaped_json_len(&extra);
+        assert!(
+            size <= MAX_ENTRY_EXTRA_BYTES - ENTRY_EXTRA_HEADROOM_BYTES,
+            "extra_json must stay under the entry ceiling, got {size} bytes"
+        );
+        assert_eq!(
+            extra["ts_ms"], 1_767_225_600_000_i64,
+            "the per-turn facts must survive whatever the signals do"
+        );
+        assert_eq!(extra["provider"], "anthropic");
+        assert_eq!(extra["input_tokens"], 120);
+
+        let dropped: Vec<&String> = extra
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|key| key.ends_with("_dropped_bytes"))
+            .collect();
+        assert!(
+            !dropped.is_empty(),
+            "signals that did not fit must name themselves: {extra}"
+        );
+        for key in dropped {
+            let signal = key.trim_end_matches("_dropped_bytes");
+            assert!(
+                extra.get(signal).is_none(),
+                "{signal} must not be both written and reported dropped"
+            );
+        }
+    }
+
+    /// The kernel measures `extra_json` after encoding it as a JSON string, so
+    /// a quote-dense value costs more stored bytes than it serializes to. A
+    /// budget that counts the unescaped length would let such a value cross the
+    /// ceiling and take the whole field — per-turn facts included — with it.
+    #[test]
+    fn entry_extra_budget_counts_escaped_bytes() {
+        // Ground truth: what the kernel stores is the extras JSON encoded again
+        // as a JSON string, which is what its overflow ceiling measures.
+        for value in [json!("\"\"\"\"\"\"\"\""), json!("\n"), json!({"a": [1, 2]})] {
+            let inner = serde_json::to_string(&value).unwrap();
+            let stored = serde_json::to_string(&Value::String(inner)).unwrap();
+            assert_eq!(
+                escaped_json_len(&value),
+                stored.len(),
+                "escaped size must match the encoding the kernel measures for {value}"
+            );
+        }
+
+        // A signal of quote-heavy strings: rejected at capture, and bounded
+        // here as a second line of defence.
+        let dense: Vec<Value> = (0..MAX_TOKEN_SIGNAL_BYTES / 8)
+            .map(|_| json!("\"\"\""))
+            .collect();
+        let extra = assistant_turn_extra(
+            &artifact_with_signals(Some(json!({
+                "prompt_token_ids": dense.clone(),
+                "completion_token_ids": dense.clone(),
+                "response_mask": dense.clone(),
+                "logprobs": dense,
+            }))),
+            1_767_225_600_000,
+        );
+        let size = escaped_json_len(&extra);
+        assert!(
+            size <= MAX_ENTRY_EXTRA_BYTES - ENTRY_EXTRA_HEADROOM_BYTES,
+            "escaped extra_json must stay under the entry ceiling, got {size} bytes"
+        );
+        assert_eq!(extra["ts_ms"], 1_767_225_600_000_i64);
+    }
+
+    /// The ceiling is the spec's, not a number of this module's own choosing.
+    #[test]
+    fn entry_extra_ceiling_matches_the_session_entry_spec() {
+        let spec = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../specs/session_entry.ioa.toml"
+        ))
+        .expect("session_entry.ioa.toml should exist");
+        let extra_json_block = spec
+            .split("[[state]]")
+            .find(|block| block.contains("name = \"extra_json\""))
+            .expect("session_entry.ioa.toml should declare extra_json");
+        assert!(
+            extra_json_block
+                .contains(&format!("overflow_inline_max_bytes = \"{MAX_ENTRY_EXTRA_BYTES}\"")),
+            "MAX_ENTRY_EXTRA_BYTES must track the extra_json overflow ceiling: {extra_json_block}"
         );
     }
 

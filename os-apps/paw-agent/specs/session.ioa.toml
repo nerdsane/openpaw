@@ -1327,16 +1327,19 @@ hint = "Reply delivery failed after the session reached a terminal state."
 
 # --- Actions: OTS Trajectory Emission (ADR-0035) ---
 # The emit_ots_trajectory integration dispatches MarkTrajectoryEmitted on success
-# (passing both trajectory_id and trajectory_emission_status="emitted" as params,
-# which the framework applies as field updates). On failure, the integration's
-# on_failure hook fires TrajectoryEmissionFailed which records the error.
+# (passing trajectory_id, trajectory_emission_status and trajectory_emission_error
+# as params, which the framework applies as field updates). A trajectory built
+# without its transcript or its tool spans is still stored — a retry cannot
+# restore evidence that is gone — so it reports status "emitted_degraded" and
+# names what is missing in trajectory_emission_error. On failure, the
+# integration's on_failure hook fires TrajectoryEmissionFailed instead.
 
 [[action]]
 name = "MarkTrajectoryEmitted"
 kind = "input"
 from = ["Completed", "Failed", "Cancelled"]
-params = ["trajectory_id", "trajectory_emission_status"]
-hint = "emit_ots_trajectory succeeded — record the trajectory_id and mark emission complete."
+params = ["trajectory_id", "trajectory_emission_status", "trajectory_emission_error"]
+hint = "emit_ots_trajectory succeeded — record the trajectory_id and mark emission complete ('emitted', or 'emitted_degraded' with the missing evidence named in trajectory_emission_error)."
 
 [[action]]
 name = "TrajectoryEmissionFailed"
