@@ -570,6 +570,39 @@ fn token_signals_are_bounded_against_their_aggregate_ceilings() {
          non-numeric elements must be rejected at capture, not sized as if numeric"
     );
 
+    // Completion-side signals accumulate across events, so a signal taken twice
+    // from one event is stored twice — and with a single signal present there
+    // is no second array to disagree on length, so nothing downstream detects
+    // it. Every accumulator must collapse an event's levels before merging.
+    // This holds the rule for the three that exist and for the next one added.
+    let caller =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/provider_caller/src/lib.rs"))
+            .expect("provider_caller lib.rs should exist");
+    for (source, whose) in [(&wire, "openai-chat-wire"), (&caller, "provider_caller")] {
+        for (index, line) in source.lines().enumerate() {
+            let call = line.trim_start();
+            if call.starts_with("merge_token_signals(&mut self.") {
+                assert!(
+                    call.ends_with("&source);"),
+                    "{whose}:{} merges a raw event level straight into an \
+                     accumulator. Route it through event_token_signals first, or \
+                     one event's signals get stored twice: {call}",
+                    index + 1
+                );
+            }
+        }
+    }
+    for test in [
+        "fn one_event_contributes_each_token_signal_once",
+        "fn openrouter_event_contributes_each_token_signal_once",
+        "fn openai_response_completed_contributes_each_token_signal_once",
+    ] {
+        assert!(
+            wire.contains(test) || caller.contains(test),
+            "each accumulator needs its own repeated-payload test ({test})"
+        );
+    }
+
     let emitter = emitter_source();
     assert!(
         emitter.contains("pub const MAX_TOKEN_SIGNAL_BYTES"),

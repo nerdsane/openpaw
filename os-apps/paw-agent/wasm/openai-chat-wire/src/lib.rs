@@ -74,17 +74,25 @@ pub const TOKEN_SIGNAL_FIELDS: &[&str] = &[
     "logprobs",
 ];
 
-/// Collapse one event's two possible signal homes into a single source.
+/// Collapse one stream event's two possible signal homes into a single source.
 ///
-/// Returns `None` when neither level carries a signal field. Where both carry
-/// the same field, the per-choice value wins — the chat-completions format puts
-/// these on the choice, and `usage` repeating them is a server quirk rather
-/// than a second measurement.
-fn event_token_signals(usage: Option<&Value>, choice: Option<&Value>) -> Option<Value> {
+/// Completion-side signals accumulate across events, so a signal taken twice
+/// from one event is stored twice — and when only one signal is present nothing
+/// downstream can detect it, because there is no second array to disagree on
+/// length. Every accumulator routes an event through this before merging,
+/// whatever its wire shape.
+///
+/// `content` is the level carrying the model's output for that event: the
+/// choice in a chat-completions chunk, the response in a Responses
+/// `response.completed`. `usage` is the token-accounting object beside it.
+/// Where both carry the same field the content level wins — `usage` repeating a
+/// signal is a server quirk, not a second measurement. `None` when neither
+/// level carries any signal field.
+pub fn event_token_signals(usage: Option<&Value>, content: Option<&Value>) -> Option<Value> {
     let mut source = Map::new();
     for field in TOKEN_SIGNAL_FIELDS {
-        let value = choice
-            .and_then(|choice| choice.get(*field))
+        let value = content
+            .and_then(|content| content.get(*field))
             .or_else(|| usage.and_then(|usage| usage.get(*field)));
         if let Some(value) = value {
             source.insert((*field).to_string(), value.clone());
@@ -250,13 +258,7 @@ impl ChatCompletionStreamAccumulator {
                 .unwrap_or(self.output_tokens);
         }
 
-        // One event contributes each signal once. Completion-side signals
-        // accumulate across events, so a server that repeats the same payload
-        // under both `usage` and `choices[0]` of a single event would append it
-        // twice — and when only one signal is present, nothing downstream can
-        // detect the doubling, because there is no second array to disagree
-        // with. The per-choice level wins where both carry a field: that is
-        // where the chat-completions format defines these.
+        // One event contributes each signal once — see `event_token_signals`.
         if let Some(source) = event_token_signals(
             event.get("usage"),
             event

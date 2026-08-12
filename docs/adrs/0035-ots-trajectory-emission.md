@@ -409,6 +409,17 @@ arrives under those names is not trusted; text there would be unbounded foreign
 content sized against a budget that assumes numbers, and the emitter's own shape
 checks would drop it from the trajectory regardless.
 
+Capture also counts each signal once per event. Completion-side signals
+accumulate across events, so a server carrying the same payload at both levels
+of a single event — `usage` and `choices[0]` in a chat chunk, `response` and
+`response.usage` in a Responses `response.completed` — would have it stored
+twice, and when only one signal is present nothing downstream can detect that:
+there is no second array to disagree on length. All three stream accumulators
+collapse an event's levels through one shared `event_token_signals` before
+merging, the content level winning over the accounting one. A contract test
+refuses any accumulator that merges a raw event level directly, so a fourth wire
+shape cannot reintroduce it.
+
 On the **SessionEntry**, `extra_json` declares
 `overflow_inline_max_bytes = 131072`; past it the kernel replaces or
 externalizes the *whole* field, which would take the per-turn facts — `ts_ms`,

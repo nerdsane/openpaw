@@ -12,8 +12,8 @@
 
 use openai_chat_wire::{
     ChatCompletionStreamAccumulator, ChatStreamDelta, ChatStreamParseFailure,
-    build_chat_completion_body, convert_messages_to_chat, merge_token_signals, parse_headers_json,
-    synthetic_tool_call_id,
+    build_chat_completion_body, convert_messages_to_chat, event_token_signals,
+    merge_token_signals, parse_headers_json, synthetic_tool_call_id,
 };
 #[cfg(test)]
 use openai_codex_wire::base64_url_no_pad;
@@ -625,10 +625,14 @@ impl OpenAiStreamAccumulator {
             "response.completed" => {
                 self.saw_completed = true;
                 if let Some(resp) = event.get("response") {
-                    merge_token_signals(&mut self.token_signals, resp);
+                    // One event contributes each signal once — the response is
+                    // the content level, `response.usage` the accounting one.
+                    // See `event_token_signals`.
+                    if let Some(source) = event_token_signals(resp.get("usage"), Some(resp)) {
+                        merge_token_signals(&mut self.token_signals, &source);
+                    }
                     if let Some(usage) = resp.get("usage") {
                         self.usage = usage.clone();
-                        merge_token_signals(&mut self.token_signals, usage);
                     }
                     if let Some(out) = resp.get("output").and_then(Value::as_array)
                         && !out.is_empty()
@@ -1082,7 +1086,17 @@ impl OpenRouterStreamAccumulator {
                 .and_then(Value::as_i64)
                 .or_else(|| usage.get("output_tokens").and_then(Value::as_i64))
                 .unwrap_or(self.output_tokens);
-            merge_token_signals(&mut self.token_signals, usage);
+        }
+
+        // One event contributes each signal once — see `event_token_signals`.
+        if let Some(source) = event_token_signals(
+            event.get("usage"),
+            event
+                .get("choices")
+                .and_then(Value::as_array)
+                .and_then(|choices| choices.first()),
+        ) {
+            merge_token_signals(&mut self.token_signals, &source);
         }
 
         if let Some(choice) = event
@@ -1090,7 +1104,6 @@ impl OpenRouterStreamAccumulator {
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
         {
-            merge_token_signals(&mut self.token_signals, choice);
             if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
                 self.finish_reason = finish_reason.to_string();
             }
@@ -4299,6 +4312,71 @@ mod tests {
     }
 
     use super::*;
+
+    /// A server that carries the same signals at both levels of one event must
+    /// not have them stored twice. Completion-side signals accumulate across
+    /// events, and with a single signal present there is no second array to
+    /// disagree on length — so the doubling would reach an RL consumer as real
+    /// token ids. Same class as the chat accumulator's; these two are the other
+    /// two wire shapes.
+    #[test]
+    fn openrouter_event_contributes_each_token_signal_once() {
+        let mut accumulator = OpenRouterStreamAccumulator::default();
+        accumulator
+            .ingest_data(
+                &json!({
+                    "usage": {"completion_tokens": 2, "completion_token_ids": [7, 8]},
+                    "choices": [{"completion_token_ids": [7, 8], "delta": {"content": "hi"}}],
+                })
+                .to_string(),
+            )
+            .expect("event parses");
+
+        let signals = accumulator
+            .token_signals
+            .clone()
+            .expect("token signals recorded");
+        assert_eq!(
+            signals["completion_token_ids"],
+            json!([7, 8]),
+            "the repeated payload must be taken once, not concatenated"
+        );
+    }
+
+    #[test]
+    fn openai_response_completed_contributes_each_token_signal_once() {
+        let mut accumulator = OpenAiStreamAccumulator::default();
+        accumulator
+            .ingest_data(
+                &json!({
+                    "type": "response.completed",
+                    "response": {
+                        "completion_token_ids": [4, 5, 6],
+                        "usage": {
+                            "input_tokens": 3,
+                            "output_tokens": 3,
+                            "completion_token_ids": [4, 5, 6],
+                        },
+                    },
+                })
+                .to_string(),
+            )
+            .expect("event parses");
+
+        let signals = accumulator
+            .token_signals
+            .clone()
+            .expect("token signals recorded");
+        assert_eq!(
+            signals["completion_token_ids"],
+            json!([4, 5, 6]),
+            "response and response.usage are one event, not two measurements"
+        );
+        assert_eq!(
+            accumulator.usage["output_tokens"], 3,
+            "usage accounting is still captured"
+        );
+    }
 
     #[test]
     fn provider_progress_wrapper_emits_start_and_end_on_success() {
