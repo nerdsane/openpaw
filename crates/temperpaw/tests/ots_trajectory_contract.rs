@@ -17,6 +17,37 @@ fn session_spec() -> String {
         .expect("session.ioa.toml should exist")
 }
 
+/// Byte offset just past the `}` that closes the first `{` in `source`.
+///
+/// Braces inside string and char literals do not count — `format!("{id}")` is
+/// balanced but a `"{"` would not be. Returns `None` when the braces never
+/// balance, so a caller fails instead of silently widening its window.
+fn closing_brace(source: &str) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index += 1;
+                while index < bytes.len() && bytes[index] != b'"' {
+                    index += if bytes[index] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
 fn emitter_source() -> String {
     fs::read_to_string(
         repo_root().join("os-apps/paw-agent/wasm/emit_ots_trajectory/src/ots_build.rs"),
@@ -223,22 +254,19 @@ fn emitter_fails_closed_when_the_transcript_cannot_be_read() {
         .map(|offset| read_call + offset)
         .expect("the transcript read must handle its error case");
     // The arm ends where its brace closes. Counting braces rather than matching
-    // a literal keeps this from breaking on an indentation change.
+    // a literal keeps this from breaking on an indentation change — but string
+    // literals hold braces too (`format!("{session_id}")`), so they are blanked
+    // first. An unbalanced scan fails rather than falling back to the whole
+    // file, where the strings asserted below all appear somewhere.
     let arm = &lib[error_arm..];
-    let mut depth = 0usize;
-    let end = arm
-        .char_indices()
-        .find(|(_, character)| {
-            match character {
-                '{' => depth += 1,
-                '}' => depth -= 1,
-                _ => {}
-            }
-            *character == '}' && depth == 0
-        })
-        .map(|(index, _)| index + 1)
-        .unwrap_or(arm.len());
+    let end = closing_brace(arm).expect("the transcript error arm must close");
     let arm = &arm[..end];
+    assert!(
+        arm.len() < 2_000,
+        "the extracted arm is {} bytes — the scan lost its bounds, and the \
+         assertions below would then be reading the rest of the file",
+        arm.len()
+    );
 
     assert!(
         arm.contains("TrajectoryEmissionFailed"),
@@ -432,10 +460,9 @@ fn token_signals_are_bounded_against_their_aggregate_ceilings() {
         "the entry ceiling must be enforced at the boundary every writer passes through"
     );
 
-    let wire = fs::read_to_string(
-        repo_root().join("os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs"),
-    )
-    .expect("openai-chat-wire lib.rs should exist");
+    let wire =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs"))
+            .expect("openai-chat-wire lib.rs should exist");
     assert!(
         wire.contains("fn merge_token_signals_rejects_non_numeric_token_arrays"),
         "token ids and mask bits come from a per-agent configurable endpoint; \
@@ -458,10 +485,9 @@ fn token_signals_are_bounded_against_their_aggregate_ceilings() {
 /// a session collapses two calls into one.
 #[test]
 fn tool_call_ids_survive_provider_fallbacks() {
-    let wire = fs::read_to_string(
-        repo_root().join("os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs"),
-    )
-    .expect("openai-chat-wire lib.rs should exist");
+    let wire =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/openai-chat-wire/src/lib.rs"))
+            .expect("openai-chat-wire lib.rs should exist");
     assert!(
         wire.contains("pub fn synthetic_tool_call_id("),
         "the fallback id must be built in one place so every provider scopes it"

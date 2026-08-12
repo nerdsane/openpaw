@@ -30,8 +30,8 @@ serde_json = "1"
 # `.response_mask` / `.logprobs` and `OTSDecision.cause_id` exist only on the
 # temper branch `claude/jcs-trajectory-core` (PR nerdsane/temper#415, closed
 # unmerged on 2026-08-12); temper main, which this rev is, has none of them. So
-# all five are dropped on a round trip today and travel through the
-# kernel-modeled carriers in ADR-0035 section 17.
+# every one of them is dropped on a round trip today, and each travels through
+# a kernel-modeled carrier instead — see ADR-0035 section 17.
 #
 # Bump both revs together once that work lands on temper main — under whatever
 # pull request supersedes #415 — and delete the carriers. The trigger is the

@@ -98,11 +98,12 @@ Three new self-loop actions from `Completed | Failed | Cancelled`:
   one-shot manual retry regardless of which status the last attempt recorded
 
 The guest dispatches both itself. It does not lean on an `on_failure` hook, and
-the trigger declares none: the kernel's callback params are `error`,
-`error_message`, `integration` and `duration_ms`, none of which this Session
-models, and no effect can set a string field to a literal — so a callback would
-fire an action that changes nothing and leave the status at `"pending"`, which
-the sweep for failed emissions does not look at. Every failure the guest can
+the trigger declares none: a WASM callback receives `error`, `error_message` and
+`integration`, and no effect kind sets a string field to a literal — so a hook
+could not write `trajectory_emission_status` at all and would leave it at
+`"pending"`, which the sweep for failed emissions does not look at, while
+`error_message` (a Session state variable) would be overwritten with a
+trajectory error in place of the session's own recorded failure reason. Every failure the guest can
 observe (transport error on either read, non-2xx from the POST) therefore routes
 through `TrajectoryEmissionFailed` with `trajectory_emission_status = "failed"`.
 What remains outside its reach is a guest trap or timeout, where the module

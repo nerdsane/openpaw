@@ -1158,6 +1158,8 @@ mod tests {
     }
 
     /// The ceiling is the spec's, not a number of this module's own choosing.
+    /// (It equals the kernel's default field ceiling too, so the bound holds
+    /// whichever of the two applies to this write path.)
     #[test]
     fn entry_extra_ceiling_matches_the_session_entry_spec() {
         let spec = std::fs::read_to_string(concat!(

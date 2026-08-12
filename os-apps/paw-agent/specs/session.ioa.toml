@@ -1333,9 +1333,10 @@ hint = "Reply delivery failed after the session reached a terminal state."
 # restore evidence that is gone — so it reports status "emitted_degraded" and
 # names what is missing in trajectory_emission_error. On failure the guest
 # dispatches TrajectoryEmissionFailed itself, rather than relying on an
-# on_failure hook: the kernel's callback params are error / error_message /
-# integration / duration_ms, none of which this Session models, so a hook would
-# fire an action that changes nothing and leave the status at "pending".
+# on_failure hook: a WASM callback receives error / error_message / integration,
+# and no effect kind sets a string field to a literal, so a hook could not write
+# trajectory_emission_status and would leave it at "pending" — while writing
+# error_message over the session's own recorded failure reason.
 
 [[action]]
 name = "MarkTrajectoryEmitted"

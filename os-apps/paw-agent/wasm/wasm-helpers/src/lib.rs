@@ -162,7 +162,7 @@ fn read_temperfs_value_or_absent(
     Err(format!(
         "{label} (HTTP {}): {}",
         last_status,
-        &last_body[..last_body.len().min(200)]
+        error_excerpt(&last_body, 200)
     ))
 }
 
@@ -209,7 +209,7 @@ pub fn write_temperfs_value_with_retry(
     Err(format!(
         "{label} (HTTP {}): {}",
         last_status,
-        &last_body[..last_body.len().min(200)]
+        error_excerpt(&last_body, 200)
     ))
 }
 
@@ -423,7 +423,7 @@ pub fn create_session_entry(
         return Err(format!(
             "SessionEntry creation failed (HTTP {}): {}",
             resp.status,
-            &resp.body[..resp.body.len().min(300)]
+            error_excerpt(&resp.body, 300)
         ));
     }
     let created = parse_created_session_entry_ack(&resp.body, session_id, entry_id)?;
@@ -627,7 +627,7 @@ fn create_session_entry_batch(
                 "{label} {} creation failed (HTTP {}): {}",
                 spec.entry_id,
                 resp.status,
-                &resp.body[..resp.body.len().min(300)]
+                error_excerpt(&resp.body, 300)
             ));
         }
         created.push(parse_created_session_entry_ack(
@@ -759,9 +759,13 @@ fn stamp_recorded_at(extra_json: Option<&Value>, now_ms: i64) -> Value {
     extra
 }
 
-/// Ceiling on a SessionEntry's stored `extra_json`, matching
-/// `overflow_inline_max_bytes` on the `extra_json` state variable in
-/// `os-apps/paw-agent/specs/session_entry.ioa.toml`.
+/// Ceiling on a SessionEntry's stored `extra_json`.
+///
+/// The same 131072 twice over: it is what `session_entry.ioa.toml` declares as
+/// `overflow_inline_max_bytes` on the `extra_json` state variable, and it is
+/// also the kernel's own `DEFAULT_FIELD_INLINE_MAX` when no per-field override
+/// applies to a write path. The bound therefore holds whichever of the two the
+/// kernel ends up measuring against.
 pub const MAX_ENTRY_EXTRA_BYTES: usize = 131_072;
 
 /// Per-turn facts the OTS emitter reads back off an entry. They are small, and
@@ -792,6 +796,17 @@ pub fn stored_json_len(value: &Value) -> usize {
             .filter(|byte| matches!(byte, b'"' | b'\\'))
             .count()
         + 2
+}
+
+/// A char-safe prefix of a response body, for putting inside an error message.
+///
+/// Slicing by byte offset traps the guest whenever a multibyte character
+/// straddles the cut — and it is the failure-reporting paths that do the
+/// slicing, so the trap replaces the report: the module dies before it can say
+/// what went wrong, and the entity keeps whatever status it already had. The
+/// same class already cost `monty_repl` its span document (ADR-0035 §15).
+pub fn error_excerpt(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
 }
 
 /// Serialized size of `value` before the field encoding — what a dropped-member
@@ -850,8 +865,10 @@ fn bound_entry_extra(extra: Value) -> Value {
         }
 
         // A per-turn fact can be oversized on its own — a provider is free to
-        // return a huge `stop_reason` — and nothing above would have touched it.
-        truncate_oversized_strings(fields);
+        // return a huge `stop_reason`, and the JSONL sync path copies whatever
+        // a transcript line put under that key — and nothing above would have
+        // touched it, because the drop loop skips the essentials.
+        bound_essential_values(fields);
     }
 
     // Hard floor. An extras object with thousands of small members leaves a
@@ -864,40 +881,65 @@ fn bound_entry_extra(extra: Value) -> Value {
         let before = fields.len();
         fields.retain(|key, _| ENTRY_EXTRA_ESSENTIALS.contains(&key.as_str()));
         let removed = before - fields.len();
-        truncate_oversized_strings(fields);
-        fields.insert(
-            "_extra_json_dropped_members".to_string(),
-            json!(removed),
-        );
+        bound_essential_values(fields);
+        fields.insert("_extra_json_dropped_members".to_string(), json!(removed));
+    }
+
+    // The invariant is unconditional: returning a value over the ceiling costs
+    // the entire field, which is what this function exists to prevent. Nothing
+    // above should be able to reach here, so if anything does, the size is the
+    // one fact worth keeping.
+    if stored_json_len(&extra) > MAX_ENTRY_EXTRA_BYTES {
+        extra = json!({ "_extra_json_dropped_bytes": json_len(&extra) });
     }
 
     extra
 }
 
-/// Cut every string member down to a size that cannot itself breach the entry
-/// ceiling, recording each cut. Reached only when nothing droppable is left.
-fn truncate_oversized_strings(fields: &mut serde_json::Map<String, Value>) {
+/// Cut every member down to a size that cannot itself breach the entry ceiling,
+/// recording each cut. Reached when nothing droppable is left, so it must handle
+/// the per-turn facts themselves: they are small by construction only when the
+/// writer is well behaved, and one of the writers copies a transcript line's
+/// keys verbatim.
+fn bound_essential_values(fields: &mut serde_json::Map<String, Value>) {
     /// Generous for a provider name, a model id or a stop reason, and small
     /// enough that the whole essential set fits many times over.
     const MAX_ESSENTIAL_STRING_CHARS: usize = 512;
+    /// Anything not a short string or a scalar is not the fact this key names.
+    const MAX_ESSENTIAL_VALUE_BYTES: usize = 4_096;
 
     let oversized: Vec<String> = fields
         .iter()
-        .filter(|(_, value)| {
-            value
-                .as_str()
-                .is_some_and(|text| text.chars().count() > MAX_ESSENTIAL_STRING_CHARS)
+        .filter(|(key, value)| {
+            !key.ends_with("_truncated_chars")
+                && !key.ends_with("_dropped_bytes")
+                && (value
+                    .as_str()
+                    .is_some_and(|text| text.chars().count() > MAX_ESSENTIAL_STRING_CHARS)
+                    || json_len(value) > MAX_ESSENTIAL_VALUE_BYTES)
         })
         .map(|(key, _)| key.clone())
         .collect();
+
     for key in oversized {
-        let Some(text) = fields.get(&key).and_then(Value::as_str) else {
+        let Some(value) = fields.get(&key) else {
             continue;
         };
-        let original = text.chars().count();
-        let cut: String = text.chars().take(MAX_ESSENTIAL_STRING_CHARS).collect();
-        fields.insert(key.clone(), json!(cut));
-        fields.insert(format!("{key}_truncated_chars"), json!(original));
+        match value.as_str() {
+            Some(text) => {
+                let original = text.chars().count();
+                let cut: String = text.chars().take(MAX_ESSENTIAL_STRING_CHARS).collect();
+                fields.insert(key.clone(), json!(cut));
+                fields.insert(format!("{key}_truncated_chars"), json!(original));
+            }
+            // An array or object under a per-turn fact's key is corrupt data,
+            // not the fact. Its size is the only part worth keeping.
+            None => {
+                let size = json_len(value);
+                fields.remove(&key);
+                fields.insert(format!("{key}_dropped_bytes"), json!(size));
+            }
+        }
     }
 }
 
@@ -1249,7 +1291,7 @@ fn list_session_entries(
             return Err(format!(
                 "SessionEntry list failed (HTTP {}): {}",
                 resp.status,
-                &resp.body[..resp.body.len().min(300)]
+                error_excerpt(&resp.body, 300)
             ));
         }
         let parsed: Value = serde_json::from_str(&resp.body)
@@ -1432,7 +1474,7 @@ pub fn read_text_files_batch(
     Err(format!(
         "TemperFS batch read failed (HTTP {}): {}",
         last_status,
-        &last_body[..last_body.len().min(200)]
+        error_excerpt(&last_body, 200)
     ))
 }
 
@@ -1487,7 +1529,7 @@ pub fn read_text_file_versions_batch(
     Err(format!(
         "TemperFS batch version read failed (HTTP {}): {}",
         last_status,
-        &last_body[..last_body.len().min(200)]
+        error_excerpt(&last_body, 200)
     ))
 }
 
@@ -1640,7 +1682,7 @@ pub fn create_content_file_ref(
         return Err(format!(
             "content file creation failed (HTTP {}): {}",
             file_resp.status,
-            &file_resp.body[..file_resp.body.len().min(300)]
+            error_excerpt(&file_resp.body, 300)
         ));
     }
 
@@ -1826,7 +1868,7 @@ fn read_content_file_head(
         return Err(format!(
             "content file head read failed (HTTP {}): {}",
             resp.status,
-            &resp.body[..resp.body.len().min(200)]
+            error_excerpt(&resp.body, 200)
         ));
     }
     serde_json::from_str(&resp.body).map_err(|e| format!("parse content file head response: {e}"))
@@ -1879,7 +1921,7 @@ pub mod bounded_reads {
     use serde_json::{Value, json};
     use temper_wasm_sdk::prelude::*;
 
-    use super::entity_field_str;
+    use super::{entity_field_str, error_excerpt};
 
     pub const POINT_LOOKUP_TOP: usize = 20;
 
@@ -1971,7 +2013,7 @@ pub mod bounded_reads {
             return Err(format!(
                 "{label}: GET {path} failed (HTTP {}): {}",
                 resp.status,
-                &resp.body[..resp.body.len().min(300)]
+                error_excerpt(&resp.body, 300)
             ));
         }
         if resp.body.is_empty() {
@@ -2281,6 +2323,22 @@ mod tests {
         assert_eq!(bounded["ts_ms"], 1_767_225_600_000_i64);
         assert_eq!(bounded["output_tokens"], 34);
         assert!(bounded["stop_reason_truncated_chars"].as_u64().unwrap() > 0);
+
+        // Not every oversized essential is a string: the JSONL sync path copies
+        // a transcript line's keys verbatim, so a corrupted line can put an
+        // array under one. Truncation does not apply, and the drop loop skips
+        // essentials, so this used to sail past the bound entirely.
+        let bounded = bound_entry_extra(json!({
+            "ts_ms": 1_767_225_600_000_i64,
+            "stop_reason": vec![7_u64; MAX_ENTRY_EXTRA_BYTES],
+        }));
+        assert!(
+            stored_json_len(&bounded) <= MAX_ENTRY_EXTRA_BYTES,
+            "an oversized non-string essential must be bounded too, got {} bytes",
+            stored_json_len(&bounded)
+        );
+        assert_eq!(bounded["ts_ms"], 1_767_225_600_000_i64);
+        assert!(bounded["stop_reason_dropped_bytes"].as_u64().unwrap() > 0);
 
         let mut crowded = serde_json::Map::new();
         crowded.insert("ts_ms".to_string(), json!(1_767_225_600_000_i64));

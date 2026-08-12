@@ -8,8 +8,8 @@
 use serde_json::json;
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::{
-    TranscriptPresence, entity_field_str, read_session_transcript, resolve_temper_api_url,
-    runtime_headers,
+    TranscriptPresence, entity_field_str, error_excerpt, read_session_transcript,
+    resolve_temper_api_url, runtime_headers,
 };
 
 mod ots_build;
@@ -42,12 +42,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Everything past this point is emission, and every way it can fail has
         // to leave `trajectory_emission_status = "failed"` on the Session.
-        // Propagating an error instead would leave the field at "pending": the
-        // trigger declares no `on_failure`, and the kernel cannot set a string
-        // field from a callback anyway — its callback params are `error` /
-        // `error_message` / `integration` / `duration_ms`, none of which this
-        // Session models. A "pending" row is invisible to the sweep for failed
-        // emissions, so the trajectory would never be retried.
+        // Propagating an error instead would leave the field at "pending", and a
+        // "pending" row is invisible to the sweep for failed emissions, so the
+        // trajectory would never be retried. An `on_failure` hook cannot stand
+        // in for this: the kernel passes a WASM callback `error`,
+        // `error_message` and `integration`, and no effect kind sets a string
+        // field to a literal, so the hook could not write
+        // `trajectory_emission_status` at all — while `error_message` *is* a
+        // Session state variable, so it would overwrite the session's own
+        // recorded failure reason with this one.
         let emit = || -> Result<(), String> {
             let agent_id = fields
                 .get("agent_id")
@@ -280,11 +283,38 @@ fn read_temperfs_file_safe(
     }
 }
 
+/// A bounded excerpt of a failing response body.
+///
+/// Cut by characters, never by byte offset: this runs on the path that reports
+/// the failure, and a multibyte character straddling the cut would trap the
+/// guest there — replacing the recorded failure with a dead module and a
+/// Session still reading "pending".
 fn truncate_body(body: &str) -> String {
     const LIMIT: usize = 240;
-    if body.len() <= LIMIT {
-        body.to_string()
+    let excerpt = error_excerpt(body, LIMIT);
+    if excerpt.len() == body.len() {
+        excerpt
     } else {
-        format!("{}...", &body[..LIMIT])
+        format!("{excerpt}...")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// This runs while reporting a failed POST. Cutting the body at a byte
+    /// offset traps the guest whenever a multibyte character straddles the cut,
+    /// so the failure report is replaced by a dead module and a Session still
+    /// reading "pending" — the exact outcome the failure path exists to avoid.
+    #[test]
+    fn truncate_body_survives_a_multibyte_body() {
+        let body = "é".repeat(400);
+        let truncated = truncate_body(&body);
+        assert!(truncated.ends_with("..."));
+        assert_eq!(truncated.trim_end_matches('.').chars().count(), 240);
+
+        assert_eq!(truncate_body("short"), "short");
+        assert_eq!(truncate_body(""), "");
     }
 }

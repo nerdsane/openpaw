@@ -1370,7 +1370,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     let mut signal_budget = TokenSignalBudget::new(MAX_TOKEN_SIGNAL_BYTES);
     let mut signal_carriers: Vec<Value> = Vec::new();
     let mut carried_token_signals = false;
-    let mut dropped_token_signals = false;
+    let mut lost_token_signals = false;
     let mut turns: Vec<Value> = Vec::new();
 
     for (turn_index, draft) in turn_drafts.iter().enumerate() {
@@ -1479,7 +1479,10 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             // signals were all dropped carries an inventory of the drop and no
             // signal, so it must not advertise one.
             carried_token_signals |= inventory.keys().any(|key| !key.starts_with('_'));
-            dropped_token_signals |= inventory.contains_key("_token_signals_dropped");
+            // Misalignment discards the completion-side set exactly as a budget
+            // drop does. It is the same loss and it reaches the same status.
+            lost_token_signals |= inventory.contains_key("_token_signals_dropped")
+                || inventory.contains_key("_token_signals_misaligned");
             if !inventory.is_empty() {
                 signal_carriers.push(token_signal_carrier(
                     &turn["span_id"],
@@ -1552,7 +1555,7 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     // A signal the writer or this budget refused is evidence the row was built
     // without, which is what degraded means — so it reaches the Session status
     // the same way a missing transcript does, rather than only the document.
-    if dropped_token_signals {
+    if lost_token_signals {
         tags.push(format!("{DEGRADED_TAG_PREFIX}token_signals_dropped"));
     }
 
@@ -3123,6 +3126,39 @@ mod tests {
             t["context"]["entities"][1]["metadata"]["_token_signals_dropped"]["response_mask"],
             per_turn as u64,
             "the drop must also reach the kernel-modeled inventory"
+        );
+    }
+
+    /// Misaligned completion signals are discarded whole — the same loss a
+    /// budget drop is — so the row is degraded, not merely annotated.
+    #[test]
+    fn build_trajectory_marks_misaligned_signals_as_degraded() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"ok"}],
+                "completion_token_ids":[7, 8, 9],
+                "response_mask":[1, 1],
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(t["turns"][0]["_token_signals_misaligned"].is_object());
+        assert!(
+            t["turns"][0].get("completion_token_ids").is_none(),
+            "the misaligned set is discarded whole"
+        );
+        assert!(
+            degradations(&t).contains(&"token_signals_dropped".to_string()),
+            "the discard must reach the Session status, not only the document: {:?}",
+            t["metadata"]["tags"]
         );
     }
 
