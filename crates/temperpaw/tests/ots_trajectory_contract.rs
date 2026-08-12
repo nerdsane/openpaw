@@ -222,8 +222,23 @@ fn emitter_fails_closed_when_the_transcript_cannot_be_read() {
         .find("Err(error) => {")
         .map(|offset| read_call + offset)
         .expect("the transcript read must handle its error case");
+    // The arm ends where its brace closes. Counting braces rather than matching
+    // a literal keeps this from breaking on an indentation change.
     let arm = &lib[error_arm..];
-    let arm = &arm[..arm.find("\n        };").unwrap_or(arm.len())];
+    let mut depth = 0usize;
+    let end = arm
+        .char_indices()
+        .find(|(_, character)| {
+            match character {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            *character == '}' && depth == 0
+        })
+        .map(|(index, _)| index + 1)
+        .unwrap_or(arm.len());
+    let arm = &arm[..end];
 
     assert!(
         arm.contains("TrajectoryEmissionFailed"),
