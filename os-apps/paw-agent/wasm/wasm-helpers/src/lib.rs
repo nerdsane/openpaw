@@ -780,6 +780,16 @@ const ENTRY_EXTRA_ESSENTIALS: &[&str] = &[
     "output_tokens",
 ];
 
+/// The markers a token-signal refusal leaves behind. Bounded to one per signal,
+/// and the emitter reads them to tell "the serving stack sent none" from "they
+/// were sent and refused" — so the hard floor keeps them.
+const TOKEN_SIGNAL_DROP_MARKERS: &[&str] = &[
+    "prompt_token_ids_dropped_bytes",
+    "completion_token_ids_dropped_bytes",
+    "response_mask_dropped_bytes",
+    "logprobs_dropped_bytes",
+];
+
 /// Size of `value` as the kernel measures the stored field.
 ///
 /// String-typed state variables hold JSON as text, so what the overflow ceiling
@@ -879,7 +889,15 @@ fn bound_entry_extra(extra: Value) -> Value {
         && let Some(fields) = extra.as_object_mut()
     {
         let before = fields.len();
-        fields.retain(|key, _| ENTRY_EXTRA_ESSENTIALS.contains(&key.as_str()));
+        // The token-signal drop markers survive alongside the facts. They are
+        // the emitter's only evidence that signals existed and were refused,
+        // and there are at most four of them, so they cannot be what holds the
+        // value over — unlike the arbitrary `<key>_dropped_bytes` markers this
+        // floor exists to shed.
+        fields.retain(|key, _| {
+            ENTRY_EXTRA_ESSENTIALS.contains(&key.as_str())
+                || TOKEN_SIGNAL_DROP_MARKERS.contains(&key.as_str())
+        });
         let removed = before - fields.len();
         bound_essential_values(fields);
         fields.insert("_extra_json_dropped_members".to_string(), json!(removed));
@@ -2357,6 +2375,31 @@ mod tests {
             bounded["_extra_json_dropped_members"].as_u64().unwrap() > 0,
             "the count stands in for the markers it replaced: {bounded}"
         );
+    }
+
+    /// The hard floor sheds drop markers, but the token-signal ones are the
+    /// emitter's only evidence that signals existed and were refused — losing
+    /// them turns a refused signal back into "the serving stack sent none".
+    /// There are at most four, so they cannot be what holds the value over.
+    #[test]
+    fn entry_extra_bound_keeps_the_token_signal_drop_markers() {
+        let mut crowded = serde_json::Map::new();
+        crowded.insert("ts_ms".to_string(), json!(1_767_225_600_000_i64));
+        crowded.insert("logprobs_dropped_bytes".to_string(), json!(40_000));
+        crowded.insert("completion_token_ids_dropped_bytes".to_string(), json!(35_000));
+        for index in 0..20_000 {
+            crowded.insert(format!("k{index}"), json!("payload"));
+        }
+
+        let bounded = bound_entry_extra(Value::Object(crowded));
+        assert!(stored_json_len(&bounded) <= MAX_ENTRY_EXTRA_BYTES);
+        assert_eq!(bounded["ts_ms"], 1_767_225_600_000_i64);
+        assert_eq!(
+            bounded["logprobs_dropped_bytes"], 40_000,
+            "a refused signal must stay visible: {bounded}"
+        );
+        assert_eq!(bounded["completion_token_ids_dropped_bytes"], 35_000);
+        assert!(bounded["_extra_json_dropped_members"].as_u64().unwrap() > 0);
     }
 
     /// A reader that stores what it read as a record of what an agent did has

@@ -439,6 +439,16 @@ name = "tool_spans_file_id"
 type = "string"
 initial = ""
 
+# Set to "true" the first time a tool-span append fails. An empty
+# tool_spans_file_id reads identically whether the session made no tool calls or
+# made them and lost the record, and the emitter has to tell those apart. Never
+# cleared: a later successful append does not undo the earlier loss.
+
+[[state]]
+name = "tool_spans_write_failed"
+type = "string"
+initial = ""
+
 # --- State Variables: OTS Trajectory Emission (ADR-0035) ---
 
 [[state]]
@@ -886,7 +896,7 @@ name = "HandleToolResults"
 kind = "input"
 from = ["Executing"]
 to = "PreparingContext"
-params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["pending_tool_calls", "conversation", "session_leaf_id", "repl_file_id", "tool_spans_file_id", "tool_spans_write_failed", "sandbox_url", "sandbox_id", "sandbox_provider", "system_prompt_hash", "system_prompt_file_id", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
 hint = "Tool results received. Increment turn, transition to PreparingContext, and assemble the next bounded provider turn."
 effect = [
   { type = "increment", var = "turn_count" },
@@ -1224,7 +1234,7 @@ name = "RecordResult"
 kind = "input"
 from = ["ApplyingProviderResponse", "Executing"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "tool_spans_write_failed", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
 hint = "Session complete. Triggered by LLM end_turn or agent calling temper.done(result)."
 effect = [
   { type = "increment", var = "input_tokens" },
@@ -1239,7 +1249,7 @@ name = "RecordResultNoReply"
 kind = "input"
 from = ["ApplyingProviderResponse"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "tool_spans_write_failed", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
 hint = "Direct no-route Session complete. Set result and emit trajectory without invoking terminal reply delivery."
 effect = [
   { type = "increment", var = "input_tokens" },
@@ -1253,7 +1263,7 @@ name = "RecordResultInlineReply"
 kind = "input"
 from = ["ApplyingProviderResponse"]
 to = "Completed"
-params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
+params = ["result", "conversation", "input_tokens", "output_tokens", "session_leaf_id", "session_entries_materialized", "repl_file_id", "tool_spans_file_id", "tool_spans_write_failed", "system_prompt_hash", "system_prompt_file_id", "provider_response_file_id", "provider_response_inline_json", "pending_tool_calls", "pending_tool_context", "pending_decision_id", "reply_attachments_json"]
 hint = "Inline CLI/TUI reply already recorded on the Channel. Set result and emit trajectory without invoking terminal reply delivery."
 effect = [
   { type = "increment", var = "input_tokens" },

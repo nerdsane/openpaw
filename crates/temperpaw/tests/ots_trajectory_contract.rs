@@ -390,6 +390,7 @@ fn emitter_carries_unmodeled_signal_in_kernel_modeled_fields() {
         "provider_response_applier",
         "wasm-helpers",
         "openai-chat-wire",
+        "monty_repl",
     ] {
         assert!(
             ci.contains(&format!(
@@ -419,6 +420,106 @@ fn emitter_carries_unmodeled_signal_in_kernel_modeled_fields() {
         sdk_rev, ots_rev,
         "the round trip only proves anything if it runs against the kernel this \
          module is built for"
+    );
+}
+
+/// A span append that fails leaves `tool_spans_file_id` empty, which reads
+/// exactly like a session that called no tools. The calls happened and their
+/// record did not, so the difference has to reach the entity and the document.
+#[test]
+fn a_failed_span_write_is_recorded_rather_than_looking_like_no_tool_calls() {
+    let spec = session_spec();
+    assert!(
+        spec.contains("name = \"tool_spans_write_failed\""),
+        "the Session must model the failure; nothing else distinguishes it"
+    );
+    let carriers = spec
+        .matches("\"tool_spans_file_id\", \"tool_spans_write_failed\"")
+        .count();
+    assert!(
+        carriers >= 4,
+        "every action that carries tool_spans_file_id must carry the failure \
+         flag with it, or the flag never reaches the entity (found {carriers})"
+    );
+
+    let repl = fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/lib.rs"))
+        .expect("monty_repl lib.rs should exist");
+    assert!(
+        repl.contains("params[\"tool_spans_write_failed\"] = json!(\"true\")"),
+        "the writer must record the failure, not only log it"
+    );
+
+    let emitter = emitter_source();
+    assert!(
+        emitter.contains("tool_spans_write_failed"),
+        "the emitter must read the flag back and degrade on it"
+    );
+    assert!(
+        emitter.contains("fn build_trajectory_marks_a_failed_span_write_as_degraded"),
+        "the degradation must be proven to reach the stored document"
+    );
+}
+
+/// A tool-span document that is already at its ceiling without a seal keeps
+/// swallowing spans on every later batch. Nothing downstream can see that: the
+/// document parses clean, so the trajectory built from it claims to hold every
+/// tool call the session made.
+#[test]
+fn a_full_span_document_seals_itself_before_it_starts_dropping_spans() {
+    let session =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/session.rs"))
+            .expect("monty_repl session.rs should exist");
+    assert!(
+        session.contains("fn encode_tool_spans_jsonl_seals_a_full_document_it_refuses_to_grow"),
+        "the seal on the refuse-to-grow path must be tested"
+    );
+    assert!(
+        session.contains(
+            "fn encode_tool_spans_jsonl_does_not_seal_a_full_document_with_nothing_to_add"
+        ),
+        "sealing a document that dropped nothing would mark a complete run partial"
+    );
+}
+
+/// The truncation marker is a two-sided contract kept as two independent
+/// literals: `monty_repl` seals a full span document with it, and the emitter
+/// recognizes it instead of turning it into a decision. Nothing tied them
+/// together, so a rename on one side would leave the other reading a real tool
+/// call named `_tool_spans_truncated` — a decision the agent never made,
+/// attributed to it, on a record that no longer knows it is partial.
+#[test]
+fn the_span_truncation_marker_means_the_same_thing_on_both_sides() {
+    const DECL: &str = "pub const TOOL_SPANS_TRUNCATED_MARKER: &str = \"";
+
+    fn marker_literal(source: &str, whose: &str) -> String {
+        let start = source
+            .find(DECL)
+            .unwrap_or_else(|| panic!("{whose} must declare TOOL_SPANS_TRUNCATED_MARKER"));
+        let rest = &source[start + DECL.len()..];
+        let end = rest
+            .find('"')
+            .unwrap_or_else(|| panic!("{whose}'s marker literal must terminate"));
+        rest[..end].to_string()
+    }
+
+    let writer =
+        fs::read_to_string(repo_root().join("os-apps/paw-agent/wasm/monty_repl/src/session.rs"))
+            .expect("monty_repl session.rs should exist");
+    let written = marker_literal(&writer, "the writer");
+    let read = marker_literal(&emitter_source(), "the emitter");
+
+    assert_eq!(
+        written, read,
+        "the writer seals with {written:?} and the emitter looks for {read:?}; a \
+         document sealed by one would be invisible to the other"
+    );
+
+    // The line the writer appends has to carry that same value as its
+    // `tool_name`, because that field — not a substring search — is what the
+    // emitter matches on.
+    assert!(
+        writer.contains(&format!("\\\"tool_name\\\":\\\"{written}\\\"")),
+        "the sealing line must carry the marker as its tool_name"
     );
 }
 

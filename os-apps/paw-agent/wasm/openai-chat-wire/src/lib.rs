@@ -74,6 +74,25 @@ pub const TOKEN_SIGNAL_FIELDS: &[&str] = &[
     "logprobs",
 ];
 
+/// Collapse one event's two possible signal homes into a single source.
+///
+/// Returns `None` when neither level carries a signal field. Where both carry
+/// the same field, the per-choice value wins — the chat-completions format puts
+/// these on the choice, and `usage` repeating them is a server quirk rather
+/// than a second measurement.
+fn event_token_signals(usage: Option<&Value>, choice: Option<&Value>) -> Option<Value> {
+    let mut source = Map::new();
+    for field in TOKEN_SIGNAL_FIELDS {
+        let value = choice
+            .and_then(|choice| choice.get(*field))
+            .or_else(|| usage.and_then(|usage| usage.get(*field)));
+        if let Some(value) = value {
+            source.insert((*field).to_string(), value.clone());
+        }
+    }
+    (!source.is_empty()).then(|| Value::Object(source))
+}
+
 /// Signals that describe the prompt, which does not grow while the completion
 /// streams. Repeating them on every chunk is common, so they are set once and
 /// never concatenated — the completion-side signals are the ones that append.
@@ -229,7 +248,23 @@ impl ChatCompletionStreamAccumulator {
                 .and_then(Value::as_i64)
                 .or_else(|| usage.get("output_tokens").and_then(Value::as_i64))
                 .unwrap_or(self.output_tokens);
-            merge_token_signals(&mut self.token_signals, usage);
+        }
+
+        // One event contributes each signal once. Completion-side signals
+        // accumulate across events, so a server that repeats the same payload
+        // under both `usage` and `choices[0]` of a single event would append it
+        // twice — and when only one signal is present, nothing downstream can
+        // detect the doubling, because there is no second array to disagree
+        // with. The per-choice level wins where both carry a field: that is
+        // where the chat-completions format defines these.
+        if let Some(source) = event_token_signals(
+            event.get("usage"),
+            event
+                .get("choices")
+                .and_then(Value::as_array)
+                .and_then(|choices| choices.first()),
+        ) {
+            merge_token_signals(&mut self.token_signals, &source);
         }
 
         if let Some(choice) = event
@@ -237,7 +272,6 @@ impl ChatCompletionStreamAccumulator {
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
         {
-            merge_token_signals(&mut self.token_signals, choice);
             if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
                 self.finish_reason = finish_reason.to_string();
             }
@@ -773,6 +807,63 @@ mod tests {
                 && signals.get("response_mask").is_none(),
             "arrays carrying anything but numbers must be dropped whole: {signals}"
         );
+    }
+
+    /// A server that echoes the same payload under both `usage` and
+    /// `choices[0]` of one event must not have it counted twice. With a single
+    /// signal present there is no second array to disagree on length, so the
+    /// doubling would reach an RL consumer as real token ids.
+    #[test]
+    fn one_event_contributes_each_token_signal_once() {
+        let mut acc = ChatCompletionStreamAccumulator::default();
+        acc.ingest_data(
+            &json!({
+                "usage": {"completion_token_ids": [7, 8]},
+                "choices": [{"completion_token_ids": [7, 8], "delta": {"content": "hi"}}],
+            })
+            .to_string(),
+        )
+        .expect("event parses");
+
+        let signals = acc.token_signals.clone().expect("signals recorded");
+        assert_eq!(
+            signals["completion_token_ids"],
+            json!([7, 8]),
+            "the repeated payload must be taken once, not concatenated"
+        );
+    }
+
+    /// Where both levels carry the same field the per-choice value wins, and a
+    /// field only `usage` carries is still picked up.
+    #[test]
+    fn choice_level_token_signals_win_over_usage_level() {
+        let source = event_token_signals(
+            Some(&json!({"completion_token_ids": [1], "prompt_token_ids": [5, 6]})),
+            Some(&json!({"completion_token_ids": [9]})),
+        )
+        .expect("a source is produced");
+
+        assert_eq!(source["completion_token_ids"], json!([9]), "choice wins");
+        assert_eq!(
+            source["prompt_token_ids"],
+            json!([5, 6]),
+            "a field only usage carries is still taken"
+        );
+        assert!(event_token_signals(None, None).is_none());
+        assert!(event_token_signals(Some(&json!({"prompt_tokens": 4})), None).is_none());
+    }
+
+    /// Across events the completion side still accumulates — that is what makes
+    /// a streamed completion whole.
+    #[test]
+    fn completion_signals_still_accumulate_across_events() {
+        let mut acc = ChatCompletionStreamAccumulator::default();
+        for chunk in [json!({"choices": [{"completion_token_ids": [1]}]}),
+                      json!({"choices": [{"completion_token_ids": [2]}]})] {
+            acc.ingest_data(&chunk.to_string()).expect("event parses");
+        }
+        let signals = acc.token_signals.clone().expect("signals recorded");
+        assert_eq!(signals["completion_token_ids"], json!([1, 2]));
     }
 
     #[test]

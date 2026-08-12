@@ -394,9 +394,16 @@ pub fn resolve_chain(entries: &[TreeEntry], leaf_id: &str) -> ResolvedChain {
         }
     }
 
+    // Raw file order is not a walk. No leaf — recorded or not — produced a
+    // chain with a message in it, so the parent structure is unusable and the
+    // order is a guess at what followed what. That holds whether or not a leaf
+    // was recorded, so it is reported even when none was: a session with no
+    // recorded leaf and dangling parents is still missing its shape. An empty
+    // transcript is the one case with nothing to have resolved, and the
+    // presence reasons already speak for it.
     ResolvedChain {
         chain: (0..entries.len()).collect(),
-        from_recorded_leaf,
+        from_recorded_leaf: entries.is_empty(),
     }
 }
 
@@ -1003,6 +1010,16 @@ fn attach_token_signals(
         }
     }
 
+    // The entry's extras were themselves cut to fit the field ceiling. Which
+    // members went is no longer knowable — only how many — but the turn's
+    // record is short either way.
+    if let Some(dropped) = source.get("_extra_json_dropped_members").and_then(json_u64)
+        && dropped > 0
+    {
+        turn["_turn_extras_dropped_members"] = json!(dropped);
+        inventory.insert("_turn_extras_dropped_members".to_string(), json!(dropped));
+    }
+
     // Prompt-side ids describe the prompt, which the completion signals do not
     // index into, so they stand on their own.
     if let Some(value) = source
@@ -1331,6 +1348,13 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     if tool_spans_missing {
         tags.push(format!("{DEGRADED_TAG_PREFIX}tool_spans_missing_file"));
     }
+    // The session recorded that an append failed. Its tool calls happened and
+    // their record did not survive, which an empty span file cannot distinguish
+    // from a session that called nothing.
+    let tool_spans_write_failed = field_str(fields, "tool_spans_write_failed") == "true";
+    if tool_spans_write_failed {
+        tags.push(format!("{DEGRADED_TAG_PREFIX}tool_spans_write_failed"));
+    }
 
     // Tool-call ids are unique only within a turn. Providers that omit them get
     // synthetic ids that restart with each response, and a model can repeat one,
@@ -1480,9 +1504,11 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
             // signal, so it must not advertise one.
             carried_token_signals |= inventory.keys().any(|key| !key.starts_with('_'));
             // Misalignment discards the completion-side set exactly as a budget
-            // drop does. It is the same loss and it reaches the same status.
+            // drop does, and extras cut to fit the entry ceiling take turn facts
+            // with them. All three are the record coming up short.
             lost_token_signals |= inventory.contains_key("_token_signals_dropped")
-                || inventory.contains_key("_token_signals_misaligned");
+                || inventory.contains_key("_token_signals_misaligned")
+                || inventory.contains_key("_turn_extras_dropped_members");
             if !inventory.is_empty() {
                 signal_carriers.push(token_signal_carrier(
                     &turn["span_id"],
@@ -1640,6 +1666,9 @@ pub fn build_trajectory(inputs: &TrajectoryInputs<'_>) -> Value {
     }
     if tool_spans_missing {
         trajectory["_tool_spans_missing"] = json!(true);
+    }
+    if tool_spans_write_failed {
+        trajectory["_tool_spans_write_failed"] = json!(true);
     }
 
     if !resources.is_empty() || !signal_carriers.is_empty() {
@@ -2946,6 +2975,54 @@ mod tests {
         assert_eq!(degradations(&t), vec!["tool_spans_truncated".to_string()]);
     }
 
+    /// A span write that failed leaves `tool_spans_file_id` empty, which reads
+    /// exactly like a session that called no tools. The session records the
+    /// failure so the two can be told apart.
+    #[test]
+    fn build_trajectory_marks_a_failed_span_write_as_degraded() {
+        let mut fields = two_turn_fields();
+        fields["tool_spans_file_id"] = json!("");
+        fields["tool_spans_write_failed"] = json!("true");
+        let jsonl = two_turn_session_jsonl();
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(
+            degradations(&t),
+            vec!["tool_spans_write_failed".to_string()]
+        );
+        assert_eq!(t["_tool_spans_write_failed"], true);
+    }
+
+    /// Raw file order is not a walk. When no leaf resolves — recorded or not —
+    /// the parent structure is unusable and the order is a guess, so the
+    /// document must not present it as the session's shape.
+    #[test]
+    fn build_trajectory_marks_raw_order_fallback_as_degraded() {
+        // Every entry points at a parent that is not in the transcript, so no
+        // leaf walks, and no leaf was recorded either.
+        let jsonl = [
+            json!({"id":"u-1","parentId":"missing-a","type":"message","role":"user","content":"go"}),
+            json!({"id":"a-1","parentId":"missing-b","type":"message","role":"assistant","content":"ok"}),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(
+            degradations(&t).contains(&"transcript_leaf_unresolved".to_string()),
+            "tags: {:?}",
+            t["metadata"]["tags"]
+        );
+
+        let resolved = resolve_chain(&parse_session_entries(&jsonl), "");
+        assert!(!resolved.from_recorded_leaf);
+    }
+
     /// The completeness marker is the last thing that may be lost on a round
     /// trip: without it a partial record reads as a whole one.
     #[test]
@@ -3208,6 +3285,36 @@ mod tests {
             "a row built without signals it was offered is degraded: {:?}",
             t["metadata"]["tags"]
         );
+    }
+
+    /// When the entry's extras were themselves cut to fit the field ceiling,
+    /// which members went is no longer knowable — only how many. The turn's
+    /// record is short either way, and the row must say so.
+    #[test]
+    fn build_trajectory_marks_turn_extras_cut_to_fit_as_degraded() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"ok"}],
+                "_extra_json_dropped_members": 12
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1", "has_result": true });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert_eq!(t["turns"][0]["_turn_extras_dropped_members"], 12);
+        assert_eq!(
+            t["context"]["entities"][0]["metadata"]["_turn_extras_dropped_members"],
+            12,
+            "the loss must reach the kernel-modeled inventory too"
+        );
+        assert!(degradations(&t).contains(&"token_signals_dropped".to_string()));
     }
 
     /// The SessionEntry writer refuses signals that would push the entry over

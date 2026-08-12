@@ -450,7 +450,19 @@ pub fn encode_tool_spans_jsonl(existing: &str, new_events: &[Value]) -> String {
             out.push('\n');
         }
     }
-    if out.len() >= TOOL_SPANS_FILE_MAX_BYTES || tool_spans_document_sealed(&out) {
+    if tool_spans_document_sealed(&out) {
+        return out;
+    }
+    if out.len() >= TOOL_SPANS_FILE_MAX_BYTES {
+        // At the ceiling with no seal on it: a document written before this
+        // ceiling existed, or a batch that landed byte-exact on it. The spans
+        // in hand are being dropped, so the document has to say so — otherwise
+        // it parses clean and the trajectory built from it reads as holding
+        // every tool call the session made. Sealing costs one line over the
+        // ceiling, which is bounded; silence costs the record.
+        if !new_events.is_empty() {
+            out.push_str(TOOL_SPANS_TRUNCATED_LINE);
+        }
         return out;
     }
     for event in new_events {
@@ -1024,10 +1036,42 @@ mod tests {
     }
 
     #[test]
-    fn encode_tool_spans_jsonl_refuses_to_grow_a_full_document() {
+    fn encode_tool_spans_jsonl_seals_a_full_document_it_refuses_to_grow() {
         let existing = format!("{}\n", "x".repeat(TOOL_SPANS_FILE_MAX_BYTES));
         let out = encode_tool_spans_jsonl(&existing, &[json!({"tool_call_id": "next"})]);
-        assert_eq!(out, existing, "a full document must not grow further");
+
+        assert!(
+            out.starts_with(&existing),
+            "a full document must not grow with new spans"
+        );
+        assert!(
+            !out.contains("\"tool_call_id\":\"next\""),
+            "the refused span must not be written"
+        );
+        assert!(
+            tool_spans_document_sealed(&out),
+            "a document that is dropping spans must say so; a clean parse of it \
+             otherwise reads as a complete record of the session's tool calls"
+        );
+
+        // Sealing is idempotent — later batches find the seal and stop.
+        let again = encode_tool_spans_jsonl(&out, &[json!({"tool_call_id": "later"})]);
+        assert_eq!(again, out, "an already sealed document must not grow");
+        assert_eq!(
+            again.matches(TOOL_SPANS_TRUNCATED_MARKER).count(),
+            1,
+            "the seal is written once"
+        );
+    }
+
+    #[test]
+    fn encode_tool_spans_jsonl_does_not_seal_a_full_document_with_nothing_to_add() {
+        let existing = format!("{}\n", "x".repeat(TOOL_SPANS_FILE_MAX_BYTES));
+        let out = encode_tool_spans_jsonl(&existing, &[]);
+        assert_eq!(
+            out, existing,
+            "no spans were dropped, so nothing was lost and nothing is marked"
+        );
     }
 
     #[test]

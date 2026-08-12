@@ -1035,10 +1035,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                     params["tool_spans_file_id"] = json!(id);
                 }
                 Ok(_) => {}
-                Err(e) => ctx.log(
-                    "warn",
-                    &format!("monty_repl: tool_spans append failed: {e}"),
-                ),
+                Err(e) => {
+                    // The tool calls happened; only the record of them is gone.
+                    // An empty tool_spans_file_id reads exactly like a session
+                    // that called no tools, so the loss is recorded on the
+                    // entity and the emitter degrades the trajectory for it.
+                    params["tool_spans_write_failed"] = json!("true");
+                    ctx.log(
+                        "warn",
+                        &format!("monty_repl: tool_spans append failed: {e}"),
+                    );
+                }
             }
         } else if !tool_span_events.is_empty() {
             ctx.log(
