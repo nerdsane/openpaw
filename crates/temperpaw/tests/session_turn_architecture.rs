@@ -331,9 +331,10 @@ fn first_turn_session_entries_materialize_after_provider_success() {
     );
     assert!(
         helpers.contains("fn session_entries_materialized")
-            && helpers.contains("return Ok(String::new());")
+            && helpers.contains("presence: TranscriptPresence::PendingFirstTurn,")
             && helpers.contains("virtual first-turn SessionEntries ref"),
-        "virtual first-turn SessionEntries reads should return empty JSONL without listing SessionEntries"
+        "virtual first-turn SessionEntries reads should return empty JSONL without listing \
+         SessionEntries, reported as pending rather than as a transcript that was read"
     );
     assert!(
         applier.contains("materialize_initial_session_entries_with_assistant"),
@@ -701,7 +702,7 @@ fn record_result_clears_pending_tool_state_on_terminal_completion() {
 
     assert!(
         spec.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"tool_spans_write_failed\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResult should be able to clear pending tool and approval fields on completion"
     );
@@ -760,7 +761,7 @@ fn record_result_no_reply_preserves_terminal_cleanup_without_delivery_trigger() 
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"tool_spans_write_failed\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResultNoReply should keep RecordResult cleanup/accounting params"
     );
@@ -830,7 +831,7 @@ fn record_result_inline_reply_preserves_channel_audit_without_agent_reply() {
     let action_block = &action_tail[..action_end];
     assert!(
         action_block.contains(
-            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
+            "params = [\"result\", \"conversation\", \"input_tokens\", \"output_tokens\", \"session_leaf_id\", \"session_entries_materialized\", \"repl_file_id\", \"tool_spans_file_id\", \"tool_spans_write_failed\", \"system_prompt_hash\", \"system_prompt_file_id\", \"provider_response_file_id\", \"provider_response_inline_json\", \"pending_tool_calls\", \"pending_tool_context\", \"pending_decision_id\", \"reply_attachments_json\"]"
         ),
         "RecordResultInlineReply should keep RecordResult cleanup/accounting params"
     );

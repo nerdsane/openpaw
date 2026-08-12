@@ -49,6 +49,27 @@ def wait_for_terminal(client: ODataClient, session_id: str, timeout_s: float) ->
     )
 
 
+# Statuses `emit_ots_trajectory` records when it is done with a session.
+SETTLED_EMISSION_STATUSES = {"emitted", "emitted_degraded", "failed"}
+
+
+def wait_for_emission(client: ODataClient, session_id: str, timeout_s: float) -> dict:
+    """Re-read the Session until the emitter has recorded its outcome.
+
+    The terminal transition only *triggers* emission; the guest runs after it.
+    Reading the entity the moment the status turns terminal races that, and the
+    race reads as "no trajectory was emitted" rather than "not yet".
+    """
+    deadline = time.time() + timeout_s
+    fields: dict = {}
+    while time.time() < deadline:
+        fields = client.get("Sessions", session_id).get("fields", {})
+        if (fields.get("trajectory_emission_status") or "") in SETTLED_EMISSION_STATUSES:
+            return fields
+        time.sleep(2)
+    return fields
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Prove Track 3 OTS emission end-to-end.")
     parser.add_argument(
@@ -65,7 +86,25 @@ def main() -> None:
     )
     parser.add_argument(
         "--user-message",
-        default="List the files in /workspace and then call temper.done(\"ok\").",
+        default=(
+            "Use the temper.list tool once to list up to 3 Sessions, then reply "
+            "with how many you saw. Do not call any other tool."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("LLM_MODEL", ""),
+        help="Provider model; defaults to LLM_MODEL from the environment.",
+    )
+    parser.add_argument(
+        "--provider",
+        default=os.environ.get("LLM_PROVIDER", ""),
+        help="Provider id; defaults to LLM_PROVIDER from the environment.",
+    )
+    parser.add_argument(
+        "--tools-enabled",
+        default="temper_list,temper_get",
+        help="Tools the session may call. At least one is needed for decisions.",
     )
     parser.add_argument(
         "--timeout-s",
@@ -96,14 +135,30 @@ def main() -> None:
 
     # ── Step 2: Create a Session ────────────────────────────────
     print("[2/6] Creating a Session...")
-    session = client.create("Sessions", {"user_message": args.user_message})
+    session = client.create("Sessions", {})
     sid = entity_id(session)
     print(f"  PASS: Session entity_id={sid}")
 
-    # ── Step 3: Start it ────────────────────────────────────────
-    print("[3/6] Dispatching TemperPaw.Start...")
-    client.action("Sessions", sid, "TemperPaw.Start", {})
-    print("  PASS: Start action accepted")
+    # ── Step 3: Configure it ────────────────────────────────────
+    # Same entry point production uses: `route_message` creates a blank Session
+    # and dispatches TemperPaw.Configure, which schedules ProvisionWorkspace
+    # itself. There is no Start action on the Session automaton.
+    print("[3/6] Dispatching TemperPaw.Configure...")
+    client.action(
+        "Sessions",
+        sid,
+        "TemperPaw.Configure",
+        {
+            "user_message": args.user_message,
+            "model": args.model,
+            "provider": args.provider,
+            "tools_enabled": args.tools_enabled,
+            "temper_api_url": args.base_url,
+            "max_turns": "6",
+            "session_mode": "execute",
+        },
+    )
+    print("  PASS: Configure action accepted")
 
     # ── Step 4: Wait for terminal state ─────────────────────────
     print(f"[4/6] Waiting up to {args.timeout_s:.0f}s for a terminal state...")
@@ -119,7 +174,9 @@ def main() -> None:
 
     # ── Step 5: Verify Phase 1 + Phase 2 fields on the entity ───
     print("[5/6] Verifying OTS-related entity fields...")
-    fields = final_session.get("fields", final_session)
+    fields = wait_for_emission(client, sid, 60.0) or final_session.get(
+        "fields", final_session
+    )
     tool_spans_file_id = fields.get("tool_spans_file_id") or ""
     trajectory_id = fields.get("trajectory_id") or ""
     emission_status = fields.get("trajectory_emission_status") or ""
@@ -133,7 +190,12 @@ def main() -> None:
     for desc, ok in checks.items():
         print(f"  {'PASS' if ok else 'FAIL'}: {desc}")
     if not all(checks.values()):
-        print(f"  emission_error='{emission_error}' (if populated, indicates POST failed)")
+        if emission_status == "emitted_degraded":
+            # The row exists but was built without some of its evidence; the
+            # entity names which piece, so the proof does not have to guess.
+            print(f"  degraded emission: missing {emission_error}")
+        else:
+            print(f"  emission_error='{emission_error}' (if populated, indicates POST failed)")
         sys.exit(3)
 
     # ── Step 6: GET /api/ots/trajectories and match by trajectory_id ──
