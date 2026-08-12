@@ -923,9 +923,13 @@ type SignalValidator = fn(&Value) -> bool;
 /// aligned with one another.
 const COMPLETION_TOKEN_SIGNALS: &[(&str, SignalValidator)] = &[
     ("completion_token_ids", is_u32_array),
-    ("response_mask", is_u8_array),
+    ("response_mask", is_mask_array),
     ("logprobs", is_f64_array),
 ];
+
+/// The completion-side signal the other two index into. The kernel requires it
+/// to be present whenever they are, so the emitter does too.
+const COMPLETION_ANCHOR: &str = "completion_token_ids";
 
 /// Whole-trajectory ceiling on token-signal bytes, spent in write order.
 struct TokenSignalBudget {
@@ -1016,6 +1020,24 @@ fn attach_token_signals(
         })
         .collect();
     if present.is_empty() {
+        return inventory;
+    }
+
+    // `completion_token_ids` is the anchor the other two index into, and the
+    // kernel enforces exactly that: `OTSTurn::validate_token_signals` rejects a
+    // turn carrying `response_mask` or `logprobs` without it. A rejected
+    // document is not a partial write — the POST answers 400, the emission is
+    // recorded failed, and `build_trajectory` is deterministic, so every retry
+    // rebuilds the identical rejected document and the row is lost for good.
+    //
+    // Anchorless sets reach here for real rather than in theory: the
+    // SessionEntry writer bounds each signal independently, and the ids are
+    // several times the size of the mask, so a long completion loses the ids
+    // while the mask survives.
+    if !present.iter().any(|(field, _)| *field == COMPLETION_ANCHOR) {
+        for (field, value) in present {
+            record_signal_drop(turn, &mut inventory, field, value);
+        }
         return inventory;
     }
 
@@ -1111,10 +1133,14 @@ fn is_u32_array(value: &Value) -> bool {
         .is_some_and(|items| items.iter().all(|item| item.as_u64().is_some_and(|n| n <= u32::MAX as u64)))
 }
 
-fn is_u8_array(value: &Value) -> bool {
+/// `response_mask` is a per-token loss switch: every entry is 0 or 1. The kernel
+/// rejects the whole turn over a single entry above 1, so a looser check here
+/// would hand it a document it refuses — and a refused document is lost, not
+/// degraded (`validate_token_signals`).
+fn is_mask_array(value: &Value) -> bool {
     value
         .as_array()
-        .is_some_and(|items| items.iter().all(|item| item.as_u64().is_some_and(|n| n <= u8::MAX as u64)))
+        .is_some_and(|items| items.iter().all(|item| matches!(item.as_u64(), Some(0 | 1))))
 }
 
 fn is_f64_array(value: &Value) -> bool {
@@ -2659,16 +2685,63 @@ mod tests {
         assert_eq!(turn["_token_signals_misaligned"]["response_mask"], json!(3));
     }
 
-    /// A provider that sends only one completion-side signal has nothing to
-    /// misalign against, so the signal still travels.
+    /// A completion-side signal with no `completion_token_ids` to index into is
+    /// dropped, not carried. The kernel rejects that turn outright, and a
+    /// rejected document is lost rather than degraded: the POST answers 400 and
+    /// every retry rebuilds the identical document.
+    ///
+    /// This is reachable, not hypothetical — the SessionEntry writer bounds each
+    /// signal on its own, and the ids are several times the size of the mask, so
+    /// a long completion loses the ids and keeps the mask.
     #[test]
-    fn build_trajectory_keeps_a_lone_completion_token_signal() {
+    fn build_trajectory_drops_completion_signals_with_no_anchor() {
+        for (name, signal) in [
+            ("logprobs", json!([-0.1, -0.2])),
+            ("response_mask", json!([1, 1])),
+        ] {
+            let mut assistant = json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"done"}],
+            });
+            assistant[name] = signal;
+            let jsonl = [
+                json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+                assistant,
+            ]
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+            let fields = json!({ "session_leaf_id": "a-1" });
+            let state = entity_state_with_events();
+            let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+            assert!(
+                t["turns"][0].get(name).is_none(),
+                "{name} has nothing to align against and must not be written"
+            );
+            assert!(
+                t["turns"][0]["_token_signals_dropped"][name].is_number(),
+                "the drop must be recorded: {}",
+                t["turns"][0]
+            );
+            assert!(
+                degradations(&t).contains(&"token_signals_dropped".to_string()),
+                "and must reach the Session status"
+            );
+        }
+    }
+
+    /// The anchor itself travels alone: it is what the others index into, so
+    /// nothing is missing.
+    #[test]
+    fn build_trajectory_keeps_a_lone_completion_token_ids_signal() {
         let jsonl = [
             json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
             json!({
                 "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
                 "content":[{"type":"text","text":"done"}],
-                "logprobs":[-0.1,-0.2]
+                "completion_token_ids":[7,8]
             }),
         ]
         .iter()
@@ -2679,8 +2752,82 @@ mod tests {
         let state = entity_state_with_events();
         let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
 
-        assert_eq!(t["turns"][0]["logprobs"], json!([-0.1, -0.2]));
-        assert!(t["turns"][0].get("_token_signals_misaligned").is_none());
+        assert_eq!(t["turns"][0]["completion_token_ids"], json!([7, 8]));
+        assert!(t["turns"][0].get("_token_signals_dropped").is_none());
+    }
+
+    /// `response_mask` is a loss switch: the kernel rejects a turn over a single
+    /// entry above 1, so a mask carrying one is not written at all.
+    #[test]
+    fn build_trajectory_refuses_a_response_mask_that_is_not_binary() {
+        let jsonl = [
+            json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+            json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"done"}],
+                "completion_token_ids":[7,8],
+                "response_mask":[1,2]
+            }),
+        ]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+        let fields = json!({ "session_leaf_id": "a-1" });
+        let state = entity_state_with_events();
+        let t = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+        assert!(t["turns"][0].get("response_mask").is_none());
+        assert_eq!(
+            t["turns"][0]["completion_token_ids"],
+            json!([7, 8]),
+            "the anchor is still valid on its own"
+        );
+    }
+
+    /// The whole point of the three rules above: whatever the emitter builds,
+    /// the pinned kernel accepts it. A rejected document is not a partial write
+    /// — it is a row that never lands and that no retry can change.
+    #[test]
+    fn every_asymmetric_signal_shape_still_deserializes_as_a_kernel_turn() {
+        use temper_ots::models::OTSTrajectory;
+
+        let shapes = [
+            json!({"logprobs": [-0.1, -0.2]}),
+            json!({"response_mask": [1, 1]}),
+            json!({"response_mask": [1, 2], "completion_token_ids": [7, 8]}),
+            json!({"logprobs": [-0.1], "completion_token_ids": [7, 8]}),
+            json!({"response_mask": [1, 1], "logprobs": [-0.1, -0.2]}),
+            json!({"completion_token_ids": [7, 8], "response_mask": [1, 1], "logprobs": [-0.1, -0.2]}),
+            json!({"prompt_token_ids": [1, 2, 3], "response_mask": [1, 1]}),
+        ];
+        for shape in shapes {
+            let mut assistant = json!({
+                "id":"a-1","parentId":"u-1","type":"message","role":"assistant",
+                "content":[{"type":"text","text":"done"}],
+            });
+            for (key, value) in shape.as_object().unwrap() {
+                assistant[key] = value.clone();
+            }
+            let jsonl = [
+                json!({"id":"u-1","parentId":null,"type":"message","role":"user","content":"go"}),
+                assistant,
+            ]
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+            let fields = json!({ "session_leaf_id": "a-1" });
+            let state = entity_state_with_events();
+            let document = build_trajectory(&inputs(&fields, &jsonl, "", &state, "Completed"));
+
+            serde_json::from_value::<OTSTrajectory>(document.clone()).unwrap_or_else(|err| {
+                panic!(
+                    "the kernel refuses a document this emitter built from {shape}: {err}\n\
+                     the POST would answer 400 and every retry would rebuild it\n{document}"
+                )
+            });
+        }
     }
 
     /// The decision-to-observation join must not depend on a field the kernel
@@ -2881,7 +3028,6 @@ mod tests {
             "extras cut to fit take turn facts with them, so the row is short: {:?}",
             t["metadata"]["tags"]
         );
-        assert!(degradations(&t).contains(&"token_signals_dropped".to_string()));
     }
 
     /// The SessionEntry writer refuses signals that would push the entry over

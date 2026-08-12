@@ -1032,6 +1032,49 @@ mod tests {
         assert_eq!(extra["completion_token_ids"], json!([7, 8]));
     }
 
+    /// The per-signal ceiling is applied to each signal on its own, and the ids
+    /// are several times the size of the mask — so there is a completion length
+    /// at which the ids are refused and the mask survives. That leaves an
+    /// anchorless set, which the kernel rejects outright: the emitter has to
+    /// drop it rather than pass it on, and this test pins that the writer really
+    /// does produce that shape, so the emitter's guard is not guarding a
+    /// hypothetical.
+    #[test]
+    fn assistant_turn_extra_can_keep_a_mask_after_refusing_its_token_ids() {
+        // Roughly an 8,000-token completion: five-digit ids plus separators run
+        // past the ceiling, a binary mask does not.
+        let ids: Vec<Value> = (0..8_000).map(|i| json!(10_000 + (i % 50_000))).collect();
+        let mask: Vec<Value> = (0..8_000).map(|_| json!(1)).collect();
+        let ids_bytes = serde_json::to_string(&ids).unwrap().len();
+        let mask_bytes = serde_json::to_string(&mask).unwrap().len();
+        assert!(
+            ids_bytes > MAX_TOKEN_SIGNAL_BYTES && mask_bytes <= MAX_TOKEN_SIGNAL_BYTES,
+            "fixture must straddle the ceiling: ids={ids_bytes} mask={mask_bytes}"
+        );
+
+        let extra = assistant_turn_extra(
+            &artifact_with_signals(Some(json!({
+                "completion_token_ids": ids,
+                "response_mask": mask,
+            }))),
+            1_767_225_600_000,
+        );
+
+        assert!(
+            extra.get("completion_token_ids").is_none(),
+            "the ids are over the per-signal ceiling and are refused"
+        );
+        assert!(
+            extra["completion_token_ids_dropped_bytes"].as_u64().unwrap() > 0,
+            "and the refusal is recorded so the emitter can see it"
+        );
+        assert!(
+            extra["response_mask"].is_array(),
+            "the mask fits, so the writer keeps it — this is the anchorless set \
+             the emitter must not pass to the kernel"
+        );
+    }
+
     #[test]
     fn assistant_turn_extra_drops_oversized_token_signals() {
         let huge: Vec<Value> = (0..MAX_TOKEN_SIGNAL_BYTES).map(|i| json!(i % 10)).collect();

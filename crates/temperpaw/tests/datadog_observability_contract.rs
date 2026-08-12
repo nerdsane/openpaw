@@ -66,6 +66,10 @@ fn temper_dependency_pin_uses_budgeted_wasm_host_call_revision() {
     let parent_only_rev = "4fbfcb971c7c9513ad6605cb8376a8c492c21482";
     let parentless_rev = "ffa0a15212966dbada3db8da6e652f081e5f261b";
     let legacy_rev = "5a19c5f4406e95533896a860b5da15a7a68a70ee";
+    // Superseded by the JCS OTS schema merge: rolling back to it would leave the
+    // emitter writing contract fields the structs no longer model, and the OTS
+    // round-trip test would fail to compile rather than at runtime.
+    let pre_jcs_schema_rev = "804633e2c5cab3b0bd334f78bfb5ea23aca1858d";
 
     for temper_crate in [
         "temper-platform",
@@ -96,8 +100,10 @@ fn temper_dependency_pin_uses_budgeted_wasm_host_call_revision() {
             && !manifest.contains(parentless_rev)
             && !lockfile.contains(parentless_rev)
             && !manifest.contains(host_boundary_rev)
-            && !lockfile.contains(host_boundary_rev),
-        "TemperPaw must not pin Temper revs without budgeted WASM host-call deadlines, complete WASM host-boundary observability, hard-coded LLMObs identity, parentless direct LLMObs spans, or one-span LLMObs traces"
+            && !lockfile.contains(host_boundary_rev)
+            && !manifest.contains(pre_jcs_schema_rev)
+            && !lockfile.contains(pre_jcs_schema_rev),
+        "TemperPaw must not pin Temper revs without budgeted WASM host-call deadlines, complete WASM host-boundary observability, hard-coded LLMObs identity, parentless direct LLMObs spans, one-span LLMObs traces, or the pre-JCS OTS schema"
     );
     assert!(
         !manifest.contains(pre_llmobs_opt_out_rev) && !lockfile.contains(pre_llmobs_opt_out_rev),

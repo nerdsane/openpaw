@@ -1033,6 +1033,18 @@ fn parse_anthropic_stream_events(
     acc.finalize(response_bytes)
 }
 
+// The OpenRouter-specific path below is NOT the live one. `call_provider`
+// dispatches "openrouter" to `call_openai_compatible_chat`, which uses the
+// shared `openai_chat_wire` conversions and accumulator. Everything from here
+// to `convert_tools_to_openrouter` is unreachable — the compiler says so on
+// every build ("never used" / "never constructed"), and those warnings are left
+// standing deliberately rather than silenced with `#[allow(dead_code)]`.
+//
+// It is kept, not deleted, because whether this copy has a future is
+// nerdsane/temperpaw#459's call, not this branch's. It is still maintained to
+// the same invariants — a reader who mistakes it for the live path must not
+// find a stale rule in it.
+
 #[derive(Default)]
 struct OpenRouterToolCallAccum {
     id: String,
@@ -2483,6 +2495,8 @@ fn call_openai_compatible_chat(
     })
 }
 
+/// Unreachable: `call_provider` sends "openrouter" to
+/// `call_openai_compatible_chat`. See the note above `OpenRouterToolCallAccum`.
 fn call_openrouter(
     ctx: &Context,
     temper_api_url: &str,
@@ -3636,6 +3650,9 @@ fn extract_memory_keys(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Unreachable, and kept in step with the live `convert_messages_to_chat`
+/// anyway: the fallback tool-call id is scoped per message, because a reader
+/// who mistakes this for the live path must not find the unscoped rule here.
 fn convert_messages_to_openrouter(messages: &[Value]) -> Vec<Value> {
     let mut out = Vec::<Value>::new();
     for (message_index, msg) in messages.iter().enumerate() {
@@ -4324,6 +4341,35 @@ mod tests {
     }
 
     use super::*;
+
+    /// The dead OpenRouter conversion is kept in step with the live one. This
+    /// exact line regressed once already — a rebase restored a copy predating
+    /// the fix — so the invariant is pinned here rather than trusted to the
+    /// code being unreachable today. Position within a message is not unique
+    /// across a conversation: two id-less assistant turns would otherwise send
+    /// the provider the same call id, and the emitter would collapse two
+    /// decisions into one (ADR-0035 section 14).
+    #[test]
+    fn openrouter_conversion_scopes_missing_tool_call_ids_per_message() {
+        let messages = vec![
+            json!({"role":"assistant","content":[{"type":"tool_use","name":"a","input":{}}]}),
+            json!({"role":"assistant","content":[{"type":"tool_use","name":"b","input":{}}]}),
+        ];
+        let converted = convert_messages_to_openrouter(&messages);
+        let ids: Vec<&str> = converted
+            .iter()
+            .filter_map(|message| message.get("tool_calls"))
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|call| call["id"].as_str())
+            .collect();
+
+        assert_eq!(ids.len(), 2);
+        assert_ne!(
+            ids[0], ids[1],
+            "two id-less assistant turns must not share a synthetic call id"
+        );
+    }
 
     /// A server that carries the same signals at both levels of one event must
     /// not have them stored twice. Completion-side signals accumulate across
