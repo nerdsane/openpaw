@@ -31,7 +31,7 @@ single-use internal invocation bearer minted by the pinned Temper runtime.
 Normal tenant bearer credentials continue unchanged.
 
 The development dependency pins exact reviewed Temper commit
-`77806f58a0468957d81e366ddae5b42bdc85143d`, which contains both scoped
+`0190ce8995de1d62cefd1dfe9c39edd3d032aea4`, which contains both scoped
 schema-routing merge `7e3c70dcc00f6e693a637b219d065e10ec862e87`
 and Temper ADR-0176's typed outer-authentication primitive. This fork pin must
 be replaced by an exact `nerdsane/temper` descendant with the same contracts
