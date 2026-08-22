@@ -58,7 +58,7 @@ Temper ADR-0176 and TemperPaw ADR-0066 record the typed outer-authentication com
 | Container restart | Same durable state recovers and becomes ready | Same container and file-backed volume restarted; `/readyz` 200 and `status=ready`; ready in 441 ms | PASS |
 | Installed-app compatibility | Packaged core app surface reconciles | 10 apps reconciled with `wasm_failures: []`; `artifact_batch_apply` registered and post-restart metadata exposes `ArtifactBatch` / `ArtifactBatches` | PASS |
 | Full TemperPaw validation | All local gates pass | `cargo test --locked -p temperpaw` passed; format/check/clippy passed | PASS |
-| Temper review CI | Reviewed dependency branch passes required jobs | Integrity, compile/lint, storage, foundations, and completed DST lanes green; final random/server lanes were still running at proof capture | PENDING |
+| Temper review CI | Reviewed dependency branch passes required jobs | Run `32599494427` completed successfully; compile/lint, integrity, storage, foundations, server, platform apps, backend parity, and all deterministic/DST lanes passed | PASS |
 | Railway and Datadog | Live production deployment observable | `RAILWAY_TOKEN`, `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT`, `DD_API_KEY`, and `DD_APP_KEY` absent | BLOCKED |
 
 ## What Worked
