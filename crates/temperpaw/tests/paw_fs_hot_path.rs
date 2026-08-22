@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const EXPECTED_TEMPER_REPOSITORY: &str = "https://github.com/nikstern/temper.git";
-const EXPECTED_TEMPER_REV: &str = "0190ce8995de1d62cefd1dfe9c39edd3d032aea4";
+const EXPECTED_TEMPER_REV: &str = "9eb14a1e88e1a6a69b66666aff99f3dc93c3e2f9";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
