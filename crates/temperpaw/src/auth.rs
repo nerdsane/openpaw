@@ -1,6 +1,6 @@
 //! Authentication routes and middleware for the embedded dashboard.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -19,7 +19,8 @@ use axum::{Json, Router};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
-use temper_platform::bearer_auth::PreAuthenticatedRequest;
+use temper_authz::{AuthenticatedRequestContext, Principal, PrincipalKind, SecurityContext};
+use temper_runtime::tenant::TenantId;
 #[cfg(test)]
 use temper_store_turso::TursoEventStore;
 
@@ -139,23 +140,19 @@ pub async fn middleware(
 
     if let Some(claims) = claims_from_headers(&state, request.headers()) {
         inject_auth_headers(&mut request, &claims, state.tenant());
-        request.extensions_mut().insert(PreAuthenticatedRequest);
+        let authenticated = match local_session_context(&claims, state.tenant()) {
+            Ok(authenticated) => authenticated,
+            Err(error) => {
+                tracing::error!(%error, tenant = state.tenant(), "Could not bind local session authority");
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+        };
+        request.extensions_mut().insert(authenticated);
         return next.run(request).await;
     }
 
     if has_bearer_auth(request.headers()) {
         ensure_tenant_header(request.headers_mut(), state.tenant());
-        return next.run(request).await;
-    }
-
-    // Internal WASM agent calls carry principal headers but no Bearer token
-    // or session cookie. Mark as pre-authenticated so Temper's bearer_auth_check
-    // passes through.
-    if request.headers().contains_key("x-temper-principal-kind")
-        && request.headers().contains_key("x-temper-principal-id")
-    {
-        ensure_tenant_header(request.headers_mut(), state.tenant());
-        request.extensions_mut().insert(PreAuthenticatedRequest);
         return next.run(request).await;
     }
 
@@ -249,6 +246,27 @@ fn inject_auth_headers(request: &mut Request<Body>, claims: &SessionClaims, tena
     if let Ok(value) = HeaderValue::from_str(&claims.email) {
         request.headers_mut().insert("x-temper-principal-id", value);
     }
+}
+
+fn local_session_context(
+    claims: &SessionClaims,
+    tenant: &str,
+) -> Result<AuthenticatedRequestContext> {
+    let tenant = TenantId::try_new(tenant)
+        .map_err(|error| anyhow::anyhow!("invalid configured tenant: {error}"))?;
+    let security_context = SecurityContext {
+        principal: Principal {
+            id: claims.email.clone(),
+            kind: PrincipalKind::Admin,
+            role: None,
+            acting_for: None,
+            agent_type: None,
+            attributes: HashMap::new(),
+        },
+        context_attrs: HashMap::new(),
+        correlation_id: uuid::Uuid::new_v4().to_string(),
+    };
+    Ok(AuthenticatedRequestContext::new(tenant, security_context))
 }
 
 fn ensure_tenant_header(headers: &mut HeaderMap, tenant: &str) {
@@ -624,7 +642,7 @@ mod tests {
     use axum::middleware::from_fn_with_state;
     use axum::response::IntoResponse;
     use axum::routing::get;
-    use axum::{Json, Router};
+    use axum::{Extension, Json, Router};
     use serde_json::json;
     use tower::ServiceExt;
 
@@ -760,7 +778,10 @@ mod tests {
 
     #[tokio::test]
     async fn tdata_subpaths_accept_cookie_sessions() {
-        async fn tdata_handler(headers: HeaderMap) -> impl IntoResponse {
+        async fn tdata_handler(
+            headers: HeaderMap,
+            Extension(authenticated): Extension<temper_authz::AuthenticatedRequestContext>,
+        ) -> impl IntoResponse {
             let kind = headers
                 .get("x-temper-principal-kind")
                 .and_then(|value| value.to_str().ok())
@@ -773,7 +794,10 @@ mod tests {
                 StatusCode::OK,
                 Json(json!({
                     "kind": kind,
-                    "id": id
+                    "id": id,
+                    "typed_tenant": authenticated.tenant().as_str(),
+                    "typed_principal": authenticated.security_context().principal.id,
+                    "typed_kind": format!("{:?}", authenticated.security_context().principal.kind)
                 })),
             )
         }
@@ -818,6 +842,9 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["kind"], "admin");
         assert_eq!(payload["id"], "owner@example.com");
+        assert_eq!(payload["typed_tenant"], "default");
+        assert_eq!(payload["typed_principal"], "owner@example.com");
+        assert_eq!(payload["typed_kind"], "Admin");
     }
 
     #[tokio::test]
