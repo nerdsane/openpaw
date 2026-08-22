@@ -294,6 +294,26 @@ fn artifact_batch_apply_returns_explicit_success_to_wasm_host() {
 }
 
 #[test]
+fn artifact_batch_apply_is_built_for_ci_and_production_images() {
+    for (path, build_command) in [
+        (
+            "Dockerfile",
+            "cd /app/os-apps/paw-fs/wasm/artifact_batch_apply && bash build.sh",
+        ),
+        (
+            ".github/workflows/railway-redeploy.yml",
+            "bash os-apps/paw-fs/wasm/artifact_batch_apply/build.sh",
+        ),
+    ] {
+        let source = repo_file(path);
+        assert!(
+            source.contains(build_command),
+            "{path} must build the app-required artifact_batch_apply module"
+        );
+    }
+}
+
+#[test]
 fn all_temper_dependency_pins_match_reviewed_repository_and_revision() {
     let root = repo_root();
     let mut manifests = Vec::new();
