@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const EXPECTED_TEMPER_REV: &str = "a747f7d40cb556371168f8460bc72806c3574d2b";
-const OLD_TEMPER_REV: &str = "c584a52b59924e66502576646f50131b0d763a2a";
+const EXPECTED_TEMPER_REPOSITORY: &str = "https://github.com/nikstern/temper.git";
+const EXPECTED_TEMPER_REV: &str = "346fc85da3c4555fda5a62bdead24f81aa4d5fc0";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -17,7 +17,7 @@ fn repo_file(path: &str) -> String {
     fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("read {path}: {e}"))
 }
 
-fn collect_cargo_tomls(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect_named_files(dir: &Path, file_name: &str, out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display())) {
         let entry = entry.unwrap_or_else(|e| panic!("read_dir entry {}: {e}", dir.display()));
         let file_type = entry
@@ -28,8 +28,8 @@ fn collect_cargo_tomls(dir: &Path, out: &mut Vec<PathBuf>) {
         }
         let path = entry.path();
         if file_type.is_dir() {
-            collect_cargo_tomls(&path, out);
-        } else if file_type.is_file() && path.file_name().is_some_and(|name| name == "Cargo.toml") {
+            collect_named_files(&path, file_name, out);
+        } else if file_type.is_file() && path.file_name().is_some_and(|name| name == file_name) {
             out.push(path);
         }
     }
@@ -294,18 +294,48 @@ fn artifact_batch_apply_returns_explicit_success_to_wasm_host() {
 }
 
 #[test]
-fn packaged_wasm_sdk_pins_match_temper_dependency_revision() {
+fn artifact_batch_apply_is_built_for_ci_and_production_images() {
+    for (path, build_command) in [
+        (
+            "Dockerfile",
+            "cd /app/os-apps/paw-fs/wasm/artifact_batch_apply && bash build.sh",
+        ),
+        (
+            ".github/workflows/railway-redeploy.yml",
+            "bash os-apps/paw-fs/wasm/artifact_batch_apply/build.sh",
+        ),
+    ] {
+        let source = repo_file(path);
+        assert!(
+            source.contains(build_command),
+            "{path} must build the app-required artifact_batch_apply module"
+        );
+    }
+}
+
+#[test]
+fn all_temper_dependency_pins_match_reviewed_repository_and_revision() {
     let root = repo_root();
     let mut manifests = Vec::new();
-    collect_cargo_tomls(&root.join("os-apps"), &mut manifests);
+    let mut lockfiles = Vec::new();
+    collect_named_files(&root, "Cargo.toml", &mut manifests);
+    collect_named_files(&root, "Cargo.lock", &mut lockfiles);
 
     let mut stale = Vec::new();
+    let mut manifest_pins = 0;
     for manifest in manifests {
         let source = fs::read_to_string(&manifest)
             .unwrap_or_else(|e| panic!("read {}: {e}", manifest.display()));
-        if source.contains("temper-wasm-sdk")
-            && (source.contains(OLD_TEMPER_REV) || !source.contains(EXPECTED_TEMPER_REV))
-        {
+        let temper_lines: Vec<_> = source
+            .lines()
+            .filter(|line| {
+                line.contains("git = \"https://github.com/") && line.contains("/temper.git\"")
+            })
+            .collect();
+        manifest_pins += temper_lines.len();
+        if temper_lines.iter().any(|line| {
+            !line.contains(EXPECTED_TEMPER_REPOSITORY) || !line.contains(EXPECTED_TEMPER_REV)
+        }) {
             stale.push(
                 manifest
                     .strip_prefix(&root)
@@ -316,8 +346,36 @@ fn packaged_wasm_sdk_pins_match_temper_dependency_revision() {
         }
     }
 
+    let mut lock_pins = 0;
+    for lockfile in lockfiles {
+        let source = fs::read_to_string(&lockfile)
+            .unwrap_or_else(|e| panic!("read {}: {e}", lockfile.display()));
+        let temper_lines: Vec<_> = source
+            .lines()
+            .filter(|line| {
+                line.contains("source = \"git+https://github.com/")
+                    && line.contains("/temper.git?rev=")
+            })
+            .collect();
+        lock_pins += temper_lines.len();
+        if temper_lines.iter().any(|line| {
+            !line.contains(EXPECTED_TEMPER_REPOSITORY) || !line.contains(EXPECTED_TEMPER_REV)
+        }) {
+            stale.push(
+                lockfile
+                    .strip_prefix(&root)
+                    .unwrap_or(&lockfile)
+                    .display()
+                    .to_string(),
+            );
+        }
+    }
+
+    assert!(manifest_pins > 0, "Temper manifest pins must exist");
+    assert!(lock_pins > 0, "checked-in Temper lockfile pins must exist");
+
     assert!(
         stale.is_empty(),
-        "packaged WASM manifests must pin temper-wasm-sdk to {EXPECTED_TEMPER_REV}; stale: {stale:?}"
+        "all Temper dependencies must pin {EXPECTED_TEMPER_REPOSITORY}@{EXPECTED_TEMPER_REV}; stale: {stale:?}"
     );
 }
