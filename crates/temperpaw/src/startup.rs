@@ -1094,6 +1094,20 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 "Skipping built-in default agent specs bootstrap; paw-agent OS app owns default agent specs"
             );
         }
+        // Bootstrap the operator credential so the deployment's TEMPER_API_KEY
+        // resolves to a real tenant AgentCredential on the credential-bound
+        // auth edge (ADR-0157). Without this the kernel edge has no credential
+        // to resolve and every authenticated request fails closed with 401.
+        if let Some(ref api_key) = config.temper_api_key {
+            temper_platform::bootstrap_operator_credential(&state, api_key, &tenant).await;
+            tracing::info!(tenant = %tenant, "Bootstrapped operator credential for TEMPER_API_KEY");
+        } else {
+            tracing::warn!(
+                "No TEMPER_API_KEY resolved; operator credential not bootstrapped — \
+                 authenticated requests will fail closed on the credential-bound edge"
+            );
+        }
+
         tracing::info!("Bootstrapped startup platform specs for temper-system and {tenant}");
     }
 
