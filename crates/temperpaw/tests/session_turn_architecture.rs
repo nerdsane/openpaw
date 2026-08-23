@@ -9,11 +9,7 @@ fn repo_root() -> std::path::PathBuf {
 }
 
 fn agent_context(id: &str, agent_type: &str) -> SecurityContext {
-    SecurityContext::from_headers(&[
-        ("X-Temper-Principal-Id".to_string(), id.to_string()),
-        ("X-Temper-Principal-Kind".to_string(), "agent".to_string()),
-        ("X-Temper-Agent-Type".to_string(), agent_type.to_string()),
-    ])
+    SecurityContext::from_resolved_identity(id, agent_type, None)
 }
 
 fn resource_attrs(pairs: &[(&str, serde_json::Value)]) -> HashMap<String, serde_json::Value> {
