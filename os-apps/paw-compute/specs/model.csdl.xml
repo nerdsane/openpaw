@@ -92,6 +92,8 @@
         <Property Name="ExitCode" Type="Edm.String" />
         <Property Name="StdoutTail" Type="Edm.String" />
         <Property Name="StderrTail" Type="Edm.String" />
+        <Property Name="StdoutPath" Type="Edm.String" />
+        <Property Name="StdoutBytes" Type="Edm.String" />
         <Property Name="Error" Type="Edm.String" />
         <Property Name="CreatedBy" Type="Edm.String" />
 
@@ -107,6 +109,8 @@
           <Parameter Name="exit_code" Type="Edm.String" Nullable="false" />
           <Parameter Name="stdout_tail" Type="Edm.String" />
           <Parameter Name="stderr_tail" Type="Edm.String" />
+          <Parameter Name="stdout_path" Type="Edm.String" />
+          <Parameter Name="stdout_bytes" Type="Edm.String" />
         </Action>
 
         <Action Name="RunFailed" IsBound="true">

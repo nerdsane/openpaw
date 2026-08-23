@@ -44,6 +44,19 @@ name = "stderr_tail"
 type = "string"
 initial = ""
 
+# Path to the per-exec log file on the sandbox holding the FULL combined
+# output, and its total byte count — so output larger than the tail can be
+# paged via follow-up Execs (grep/sed/tail on stdout_path).
+[[state]]
+name = "stdout_path"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stdout_bytes"
+type = "string"
+initial = ""
+
 [[state]]
 name = "error"
 type = "string"
@@ -83,8 +96,8 @@ name = "RunSucceeded"
 kind = "input"
 from = ["Running"]
 to = "Succeeded"
-params = ["exit_code", "stdout_tail", "stderr_tail"]
-hint = "Callback from computer_exec — the command finished; record exit code and truncated output."
+params = ["exit_code", "stdout_tail", "stderr_tail", "stdout_path", "stdout_bytes"]
+hint = "Callback from computer_exec — the command finished; record exit code, truncated output tail, and the full-output log path/size."
 
 [[action]]
 name = "RunFailed"
