@@ -1,7 +1,7 @@
 # Copy this file to `.cargo/config.toml` when you need to develop TemperPaw
 # against a local Temper checkout instead of the upstream git dependency.
 #
-# [patch."https://github.com/nerdsane/temper.git"]
+# [patch."https://github.com/nikstern/temper.git"]
 # temper-authz = { path = "../temper/crates/temper-authz" }
 # temper-jit = { path = "../temper/crates/temper-jit" }
 # temper-macros = { path = "../temper/crates/temper-macros" }

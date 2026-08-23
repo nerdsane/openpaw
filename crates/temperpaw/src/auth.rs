@@ -139,7 +139,7 @@ pub async fn middleware(
     }
 
     if let Some(claims) = claims_from_headers(&state, request.headers()) {
-        inject_auth_headers(&mut request, &claims, state.tenant());
+        ensure_tenant_header(request.headers_mut(), state.tenant());
         let principal = Principal {
             id: claims.email.clone(),
             kind: PrincipalKind::Admin,
@@ -156,37 +156,6 @@ pub async fn middleware(
 
     if has_bearer_auth(request.headers()) {
         ensure_tenant_header(request.headers_mut(), state.tenant());
-        return next.run(request).await;
-    }
-
-    // Internal WASM agent calls carry principal headers but no Bearer token
-    // or session cookie. Build the authenticated context from those headers so
-    // the kernel guard admits the request (the kernel strips the headers
-    // themselves at its edge). Per ADR-0157 this loopback path should move to
-    // minted credentials (follow-up).
-    if let (Some(id), Some(kind)) = (
-        header_value(request.headers(), "x-temper-principal-id"),
-        header_value(request.headers(), "x-temper-principal-kind"),
-    ) {
-        let kind = match kind.as_str() {
-            "admin" => PrincipalKind::Admin,
-            "agent" => PrincipalKind::Agent,
-            // "system" is never accepted from headers; anything else stays
-            // Customer, matching the retired kernel header parser.
-            _ => PrincipalKind::Customer,
-        };
-        let principal = Principal {
-            id,
-            kind,
-            role: None,
-            acting_for: None,
-            agent_type: header_value(request.headers(), "x-temper-agent-type"),
-            attributes: Default::default(),
-        };
-        ensure_tenant_header(request.headers_mut(), state.tenant());
-        request
-            .extensions_mut()
-            .insert(authenticated_context(state.tenant(), principal));
         return next.run(request).await;
     }
 
@@ -218,13 +187,6 @@ async fn is_safe_setup_path_public_during_bootstrap(
             false
         }
     }
-}
-
-fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string)
 }
 
 /// Bind a locally-authenticated principal to the tenant as the typed authority
@@ -285,16 +247,6 @@ fn claims_from_headers(state: &AuthState, headers: &HeaderMap) -> Option<Session
         tracing::warn!(cookies, "Invalid paw session cookie");
         None
     })
-}
-
-fn inject_auth_headers(request: &mut Request<Body>, claims: &SessionClaims, tenant: &str) {
-    ensure_tenant_header(request.headers_mut(), tenant);
-    request
-        .headers_mut()
-        .insert("x-temper-principal-kind", HeaderValue::from_static("admin"));
-    if let Ok(value) = HeaderValue::from_str(&claims.email) {
-        request.headers_mut().insert("x-temper-principal-id", value);
-    }
 }
 
 fn ensure_tenant_header(headers: &mut HeaderMap, tenant: &str) {
@@ -665,6 +617,7 @@ enum AuthError {
 #[cfg(test)]
 mod tests {
     use axum::body::{Body, to_bytes};
+    use axum::extract::Extension;
     use axum::http::HeaderMap;
     use axum::http::{Request, StatusCode};
     use axum::middleware::from_fn_with_state;
@@ -806,20 +759,18 @@ mod tests {
 
     #[tokio::test]
     async fn tdata_subpaths_accept_cookie_sessions() {
-        async fn tdata_handler(headers: HeaderMap) -> impl IntoResponse {
-            let kind = headers
-                .get("x-temper-principal-kind")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default();
-            let id = headers
-                .get("x-temper-principal-id")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default();
+        async fn tdata_handler(
+            headers: HeaderMap,
+            Extension(authenticated): Extension<temper_authz::AuthenticatedRequestContext>,
+        ) -> impl IntoResponse {
             (
                 StatusCode::OK,
                 Json(json!({
-                    "kind": kind,
-                    "id": id
+                    "kind": format!("{:?}", authenticated.security_context().principal.kind),
+                    "id": authenticated.security_context().principal.id,
+                    "tenant": authenticated.tenant().as_str(),
+                    "has_principal_headers": headers.contains_key("x-temper-principal-kind")
+                        || headers.contains_key("x-temper-principal-id"),
                 })),
             )
         }
@@ -862,8 +813,30 @@ mod tests {
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload["kind"], "admin");
+        assert_eq!(payload["kind"], "Admin");
         assert_eq!(payload["id"], "owner@example.com");
+        assert_eq!(payload["tenant"], "default");
+        assert_eq!(payload["has_principal_headers"], false);
+    }
+
+    #[tokio::test]
+    async fn raw_principal_headers_never_authenticate_requests() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let state = AuthState::for_tests(tempdir.path()).await;
+        let app = Router::new()
+            .route("/tdata/Agents", get(|| async { StatusCode::OK }))
+            .layer(from_fn_with_state(state.clone(), middleware));
+
+        let request = Request::builder()
+            .method("GET")
+            .uri("/tdata/Agents")
+            .header("x-temper-principal-kind", "admin")
+            .header("x-temper-principal-id", "forged@example.com")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
