@@ -55,6 +55,106 @@ fn collect_cargo_manifests(root: &Path, relative_dir: &Path, files: &mut Vec<Pat
     }
 }
 
+fn collect_named_files(
+    root: &Path,
+    relative_dir: &Path,
+    file_name: &str,
+    files: &mut Vec<PathBuf>,
+) {
+    let dir = root.join(relative_dir);
+    let entries =
+        fs::read_dir(&dir).unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()));
+
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|err| panic!("failed to read dir entry: {err}"));
+        let relative_path = relative_dir.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .unwrap_or_else(|err| panic!("failed to stat {}: {err}", relative_path.display()));
+
+        if file_type.is_dir() {
+            let name = entry.file_name();
+            if name != ".git" && name != "target" && name != "node_modules" {
+                collect_named_files(root, &relative_path, file_name, files);
+            }
+        } else if file_type.is_file()
+            && relative_path
+                .file_name()
+                .is_some_and(|name| name == file_name)
+        {
+            files.push(relative_path);
+        }
+    }
+}
+
+#[test]
+fn temper_dependencies_use_one_fork_and_revision() {
+    const EXPECTED_URL: &str = "https://github.com/nikstern/temper.git";
+    const EXPECTED_REV: &str = "9a2bf1fa";
+    const EXPECTED_COMMIT: &str = "9a2bf1fa1f1688b4818d6b7e2a3e82449245a0e8";
+
+    let root = repo_root();
+    let mut manifests = Vec::new();
+    collect_named_files(&root, Path::new(""), "Cargo.toml", &mut manifests);
+
+    let mut dependency_count = 0usize;
+    for relative_path in manifests {
+        let manifest = fs::read_to_string(root.join(&relative_path))
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", relative_path.display()));
+        for (line_index, line) in manifest.lines().enumerate() {
+            if !line.trim_start().starts_with("temper-") || !line.contains("git =") {
+                continue;
+            }
+            dependency_count += 1;
+            assert!(
+                line.contains(&format!("git = \"{EXPECTED_URL}\""))
+                    && line.contains(&format!("rev = \"{EXPECTED_REV}\"")),
+                "{}:{} must source every Temper crate from {EXPECTED_URL} at {EXPECTED_REV}: {line}",
+                relative_path.display(),
+                line_index + 1,
+            );
+            assert!(
+                !line.contains("branch =") && !line.contains("tag ="),
+                "{}:{} must use the immutable Temper revision, not a branch or tag: {line}",
+                relative_path.display(),
+                line_index + 1,
+            );
+        }
+    }
+    assert!(
+        dependency_count > 50,
+        "contract must inspect the full server and packaged WASM dependency surface"
+    );
+
+    let mut lockfiles = Vec::new();
+    collect_named_files(&root, Path::new(""), "Cargo.lock", &mut lockfiles);
+    let expected_source = format!(
+        "source = \"git+{EXPECTED_URL}?rev={EXPECTED_REV}#{EXPECTED_COMMIT}\""
+    );
+    let mut locked_temper_sources = 0usize;
+    for relative_path in lockfiles {
+        let lockfile = fs::read_to_string(root.join(&relative_path))
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", relative_path.display()));
+        for (line_index, line) in lockfile.lines().enumerate() {
+            if !line.starts_with("source = \"git+") || !line.contains("/temper.git?") {
+                continue;
+            }
+            locked_temper_sources += 1;
+            assert_eq!(
+                line,
+                expected_source,
+                "{}:{} contains a mixed or upstream Temper lock source",
+                relative_path.display(),
+                line_index + 1,
+            );
+        }
+    }
+    assert!(
+        locked_temper_sources > 10,
+        "contract must inspect resolved Temper sources in checked-in lockfiles"
+    );
+}
+
 #[test]
 fn temper_dependency_pin_uses_budgeted_wasm_host_call_revision() {
     let manifest = load_text("crates/temperpaw/Cargo.toml");
