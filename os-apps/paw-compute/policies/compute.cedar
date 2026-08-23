@@ -40,19 +40,26 @@ permit(
 )
 when { principal.authenticated == true };
 
-// Entity operations: any authenticated principal in the tenant can create
-// computers and read the registry to attach by name. The Computer row is the
-// live agent<->sandbox mapping (no sidecar store), so attach = read-by-name.
+// Entity operations. The Computer row is the live agent<->sandbox mapping
+// (no sidecar store), so attach = read-by-name. Read/list are open within
+// the tenant (API access is already credential-gated); create requires an
+// Agent principal. Note: `principal.authenticated` conditions are avoided —
+// the deployed principal model does not carry that attribute, and Cedar
+// treats a missing attribute as deny.
 permit(
     principal,
     action in [
-        Action::"create",
         Action::"read",
         Action::"list"
     ],
     resource is Computer
-)
-when { principal.authenticated == true };
+);
+
+permit(
+    principal is Agent,
+    action == Action::"create",
+    resource is Computer
+);
 
 // Exec: agents run commands on a computer's sandbox through the Exec entity —
 // every invocation is a Cedar-gated, audited row (ADR-0002).

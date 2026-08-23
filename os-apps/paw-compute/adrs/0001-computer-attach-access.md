@@ -20,10 +20,16 @@ for any principal.
 
 ## Decision
 
-Permit create, read, and list on Computer for any authenticated principal
-in the tenant, matching the scope already granted for Configure and
-Provision. Approval-worthy transitions stay gated: ProvisionComplete,
-ProvisionFailed, and CheckpointComplete remain admin-only.
+Permit read and list on Computer unconditionally within the tenant (API
+access is already credential-gated at the network edge), and create for
+Agent principals — the same shapes the dsf tool policies use. Approval-worthy
+transitions stay gated: ProvisionComplete, ProvisionFailed, and
+CheckpointComplete remain admin-only.
+
+A `principal.authenticated` condition was tried first and does not match on
+the deployed principal model: the attribute is absent, and Cedar treats a
+missing attribute as deny — which is also why the original
+Configure/Provision permits never matched for any live principal.
 
 An explicit Bind action recording which harness attached (an attach audit
 trail) was considered and deferred: project_harness_id already carries the
