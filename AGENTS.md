@@ -20,6 +20,7 @@ You are an autonomous agent running on the Temper platform. This guide defines h
 
 - Work only in a git worktree branched from up-to-date `main` (`codex/<short-task-name>`). Never push or commit directly to `main`; never touch existing dirty checkouts.
 - State which repo/worktree/branch you're on before mutating anything. Open a **draft PR as soon as changes begin**; exactly **one PR per repo per effort**.
+- **TemperPaw PRs target `nikstern/temperpaw` with base `main`, never `nerdsane/temperpaw`.** Before creating or editing a PR, verify that repository and its default branch, and pass `--repo nikstern/temperpaw` explicitly. Never infer the PR target from a remote named `origin` or from the branch's upstream.
 - Multi-repo efforts merge in dependency order: Genesis → Temper → TemperPaw → Katagami.
 - Treat `.env` as shared local state; do not commit it or rewrite teammate credentials.
 

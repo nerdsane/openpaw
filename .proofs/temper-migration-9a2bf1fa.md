@@ -6,11 +6,11 @@
 
 ## Branch / Commit
 
-- Repository: `nerdsane/temperpaw` on GitHub
+- Repository: `nikstern/temperpaw` on GitHub
 - Branch: `codex/temper-migration-9a2bf1fa`
 - Red-test commit: `dd7104ba`
 - Green implementation commit: `843bc95a`
-- Pull request: https://github.com/nerdsane/temperpaw/pull/463
+- Pull request: https://github.com/nikstern/temperpaw/pull/2
 
 ## What Was Done
 
@@ -68,7 +68,7 @@
 
 ## Artifacts
 
-- Draft PR: https://github.com/nerdsane/temperpaw/pull/463
+- Draft PR: https://github.com/nikstern/temperpaw/pull/2
 - Full Temper merge commit: `9a2bf1fa1f1688b4818d6b7e2a3e82449245a0e8`
 
 ## Architecture Diagram
