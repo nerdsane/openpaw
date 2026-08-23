@@ -2,3 +2,8 @@ name = "paw-compute"
 description = "Compute provisioning for agent sandboxes via Fly.io"
 version = "0.1.0"
 dependencies = []
+
+[[wasm_modules]]
+name = "computer_exec"
+criticality = "app-required"
+startup_loading = "lazy"

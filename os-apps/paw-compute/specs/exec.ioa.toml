@@ -1,0 +1,105 @@
+# Exec — one governed shell command on a Computer's sandbox.
+#
+# Third-party harnesses execute commands on a Computer through this entity
+# instead of talking to the sandbox provider directly. Every invocation is
+# Cedar-gated at Run, and the full record — command, exit code, output
+# tails — persists on the row as the audit trail.
+#
+# Lifecycle: Created → Running → Succeeded | Failed
+
+[automaton]
+name = "Exec"
+states = ["Created", "Running", "Succeeded", "Failed"]
+initial = "Created"
+
+# Created waits for Run; Running is bounded by the computer_exec trigger
+# itself (the sandbox exec polls with a hard cap and reports back via
+# RunSucceeded or RunFailed).
+allow_indefinite_states = ["Created", "Running"]
+
+# -- State variables ----------------------------------------------------------
+
+[[state]]
+name = "computer_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "command"
+type = "string"
+initial = ""
+
+[[state]]
+name = "exit_code"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stdout_tail"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stderr_tail"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error"
+type = "string"
+initial = ""
+
+[[state]]
+name = "created_by"
+type = "string"
+initial = ""
+
+# -- Actions -------------------------------------------------------------------
+
+[[action]]
+name = "Run"
+kind = "input"
+from = ["Created"]
+to = "Running"
+params = ["computer_id", "command", "created_by"]
+hint = "Execute the command on the named computer's sandbox. The computer must be provisioned (Ready) with a recorded sandbox_url."
+effect = [{ type = "trigger", name = "computer_exec" }]
+
+[[action.triggers]]
+name = "computer_exec"
+kind = "wasm"
+module = "computer_exec"
+on_failure = "RunFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_token_secret = "{secret:modal_token_secret}"
+modal_bridge_url = "{secret:modal_bridge_url}"
+
+[[action]]
+name = "RunSucceeded"
+kind = "input"
+from = ["Running"]
+to = "Succeeded"
+params = ["exit_code", "stdout_tail", "stderr_tail"]
+hint = "Callback from computer_exec — the command finished; record exit code and truncated output."
+
+[[action]]
+name = "RunFailed"
+kind = "input"
+from = ["Running"]
+to = "Failed"
+params = ["error"]
+hint = "Callback from computer_exec — execution failed before producing an exit code."
+
+[[invariant]]
+name = "SucceededIsFinal"
+when = ["Succeeded"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

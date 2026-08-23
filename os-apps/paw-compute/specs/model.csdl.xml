@@ -81,8 +81,43 @@
         </Action>
       </EntityType>
 
+      <EntityType Name="Exec">
+        <Key>
+          <PropertyRef Name="Id" />
+        </Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" />
+        <Property Name="Status" Type="Edm.String" />
+        <Property Name="ComputerId" Type="Edm.String" />
+        <Property Name="Command" Type="Edm.String" />
+        <Property Name="ExitCode" Type="Edm.String" />
+        <Property Name="StdoutTail" Type="Edm.String" />
+        <Property Name="StderrTail" Type="Edm.String" />
+        <Property Name="Error" Type="Edm.String" />
+        <Property Name="CreatedBy" Type="Edm.String" />
+
+        <Action Name="Run" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Exec" />
+          <Parameter Name="computer_id" Type="Edm.String" Nullable="false" />
+          <Parameter Name="command" Type="Edm.String" Nullable="false" />
+          <Parameter Name="created_by" Type="Edm.String" />
+        </Action>
+
+        <Action Name="RunSucceeded" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Exec" />
+          <Parameter Name="exit_code" Type="Edm.String" Nullable="false" />
+          <Parameter Name="stdout_tail" Type="Edm.String" />
+          <Parameter Name="stderr_tail" Type="Edm.String" />
+        </Action>
+
+        <Action Name="RunFailed" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Exec" />
+          <Parameter Name="error" Type="Edm.String" Nullable="false" />
+        </Action>
+      </EntityType>
+
       <EntityContainer Name="PawComputeService">
         <EntitySet Name="Computers" EntityType="Paw.Compute.Computer" />
+        <EntitySet Name="Execs" EntityType="Paw.Compute.Exec" />
       </EntityContainer>
 
     </Schema>
