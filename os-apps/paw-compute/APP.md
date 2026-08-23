@@ -29,3 +29,18 @@ Security posture: Run and Exec entity operations are permitted for Agent princip
 ## Setup
 
 No dependencies. Create a Computer entity with `Configure`, then `Provision` to start the VM. The `sandbox_url` and `ssh_host` are recorded on `ProvisionComplete`. To run a command on a Ready computer, create an Exec and dispatch `Run`.
+
+## Browser access to the desktop (noVNC)
+
+Humans reach the same desktop the agents work on in a browser. Run
+`scripts/setup-novnc.sh` on the computer (through a governed Exec), expose
+the port once with `tl sbx port expose <name> 6080`, then open:
+
+    https://6080-<machine_id>.sandbox.tensorlake.ai/vnc.html
+
+TensorLake port exposure is unauthenticated by design; the desktop stays
+gated by TigerVNC's VncAuth password. Rotate the password out-of-band with
+`vncpasswd` (never through an audited command line), and remove the public
+page any time with `tl sbx port rm <name> 6080` — the `tl sbx tunnel` path
+keeps working. This mirrors TensorLake's own recommended pattern (their
+computer-use docs: bring your own noVNC bridge).
