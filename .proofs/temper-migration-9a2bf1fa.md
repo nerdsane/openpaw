@@ -9,6 +9,7 @@
 - Repository: `nerdsane/temperpaw` on GitHub
 - Branch: `codex/temper-migration-9a2bf1fa`
 - Red-test commit: `dd7104ba`
+- Green implementation commit: `843bc95a`
 - Pull request: https://github.com/nerdsane/temperpaw/pull/463
 
 ## What Was Done
