@@ -9,6 +9,6 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-temper-wasm-sdk = { git = "https://github.com/nikstern/temper.git", rev = "b64c9f9ddeec4a988bf75e09544eb3616dc3d00f" }
+temper-wasm-sdk = { git = "https://github.com/nikstern/temper.git", rev = "346fc85da3c4555fda5a62bdead24f81aa4d5fc0" }
 serde_json = "1"
 corridor-embed = { path = "../corridor_embed" }
