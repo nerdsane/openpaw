@@ -22,6 +22,13 @@ One governed shell command on a Computer's sandbox (ADR-0002).
 
 Security posture: Run and Exec entity operations are permitted for Agent principals only; the RunSucceeded/RunFailed callbacks are admin-only (WASM dispatch path). Provider credentials come from the trigger config overlay at runtime — harnesses never hold them. Every command is a Cedar-gated entity with a durable audit trail. Long-running/interactive commands are out of scope (v1).
 
+### LatencyDiag
+A learned, constrained diagnostic (`specs/latency_diag.ioa.toml`). One action, `RunScan`, takes no parameters and runs a canned, read-only Datadog p95 latency query on a pinned computer through the same `computer_exec` trigger — credentials stay on the computer and there is nothing to inject at dispatch time.
+
+- **States**: Idle -> Scanning -> Ready | Failed; `RunScan` re-runs from Idle, Ready, or Failed.
+- **Walk**: create a LatencyDiag, dispatch `RunScan()`. `computer_exec` runs the canned command on the computer named by the entity's `computer_id` and reports back — `RunSucceeded(exit_code, stdout_tail, stderr_tail)` or `RunFailed(error)`.
+- **Governance**: create/read/list/RunScan permitted for Agent principals; callbacks are system-dispatched (mirrors Exec). The command and target computer are fixed on the entity — the caller cannot supply either.
+
 ## WASM Modules
 
 - **computer_exec** — executes an Exec's command on the target Computer's sandbox (`wasm/computer_exec/`, built via `wasm/build.sh`).

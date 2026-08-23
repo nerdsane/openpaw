@@ -113,6 +113,44 @@ permit(
     resource is Exec
 );
 
+// LatencyDiag: a learned, constrained diagnostic that runs one canned
+// read-only command on a pinned computer through the same computer_exec
+// trigger. Same governance shape as Exec — agents may create/read/list and
+// fire RunScan; the callbacks are system-dispatched.
+permit(
+    principal is Agent,
+    action in [
+        Action::"create",
+        Action::"read",
+        Action::"list",
+        Action::"LatencyDiag.RunScan", Action::"RunScan"
+    ],
+    resource is LatencyDiag
+);
+
+// LatencyDiag callbacks (RunSucceeded, RunFailed) are dispatched by the
+// computer_exec WASM integration running as the system service.
+permit(
+    principal,
+    action in [
+        Action::"LatencyDiag.RunSucceeded", Action::"RunSucceeded",
+        Action::"LatencyDiag.RunFailed", Action::"RunFailed"
+    ],
+    resource is LatencyDiag
+) when {
+    principal.agent_type == "system"
+};
+
+permit(
+    principal is Admin,
+    action in [
+        Action::"LatencyDiag.RunScan", Action::"RunScan",
+        Action::"LatencyDiag.RunSucceeded", Action::"RunSucceeded",
+        Action::"LatencyDiag.RunFailed", Action::"RunFailed"
+    ],
+    resource is LatencyDiag
+);
+
 // Allow computer_exec to make HTTP calls (Computer row loopback read,
 // sandbox provider data plane).
 permit(

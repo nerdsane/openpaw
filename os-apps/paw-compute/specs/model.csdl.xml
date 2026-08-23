@@ -115,9 +115,44 @@
         </Action>
       </EntityType>
 
+      <!-- LatencyDiag — learned diagnostic tool. One constrained action
+           (RunScan, no parameters) runs a canned read-only Datadog p95
+           latency query on a pinned computer via the computer_exec trigger.
+           Same shape as Exec, minus the caller-supplied command. -->
+      <EntityType Name="LatencyDiag">
+        <Key>
+          <PropertyRef Name="Id" />
+        </Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" />
+        <Property Name="Status" Type="Edm.String" />
+        <Property Name="ComputerId" Type="Edm.String" />
+        <Property Name="Command" Type="Edm.String" />
+        <Property Name="ExitCode" Type="Edm.String" />
+        <Property Name="StdoutTail" Type="Edm.String" />
+        <Property Name="StderrTail" Type="Edm.String" />
+        <Property Name="Error" Type="Edm.String" />
+
+        <Action Name="RunScan" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.LatencyDiag" />
+        </Action>
+
+        <Action Name="RunSucceeded" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.LatencyDiag" />
+          <Parameter Name="exit_code" Type="Edm.String" Nullable="false" />
+          <Parameter Name="stdout_tail" Type="Edm.String" />
+          <Parameter Name="stderr_tail" Type="Edm.String" />
+        </Action>
+
+        <Action Name="RunFailed" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.LatencyDiag" />
+          <Parameter Name="error" Type="Edm.String" Nullable="false" />
+        </Action>
+      </EntityType>
+
       <EntityContainer Name="PawComputeService">
         <EntitySet Name="Computers" EntityType="Paw.Compute.Computer" />
         <EntitySet Name="Execs" EntityType="Paw.Compute.Exec" />
+        <EntitySet Name="LatencyDiags" EntityType="Paw.Compute.LatencyDiag" />
       </EntityContainer>
 
     </Schema>

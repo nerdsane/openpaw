@@ -1,0 +1,69 @@
+# LatencyDiag — learned diagnostic tool (usecase step 6).
+# One constrained action: run a canned, read-only Datadog p95 latency query
+# ON the computer (credentials never leave it). RunScan takes no parameters —
+# there is nothing to inject at dispatch time.
+
+[automaton]
+name = "LatencyDiag"
+states = ["Idle", "Scanning", "Ready", "Failed"]
+initial = "Idle"
+allow_indefinite_states = ["Idle", "Scanning"]
+
+[[state]]
+name = "computer_id"
+type = "string"
+initial = "dsf"
+
+[[state]]
+name = "command"
+type = "string"
+initial = "sh -c '. ~/.config/pup/dd.env 2>/dev/null; NOW=$(date +%s); curl -s \"https://api.datadoghq.com/api/v1/query?from=$((NOW-3600))&to=$NOW&query=p95:trace.fastapi.request%7Bservice:deep-sci-fi-backend,env:production%7D\" -H \"DD-API-KEY: $DD_API_KEY\" -H \"DD-APPLICATION-KEY: $DD_APP_KEY\" | head -c 2000'"
+
+[[state]]
+name = "exit_code"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stdout_tail"
+type = "string"
+initial = ""
+
+[[state]]
+name = "stderr_tail"
+type = "string"
+initial = ""
+
+[[action]]
+name = "RunScan"
+kind = "input"
+from = ["Idle", "Ready", "Failed"]
+to = "Scanning"
+hint = "Run the canned p95 latency diagnostic on the computer. No parameters."
+effect = [{ type = "trigger", name = "computer_exec" }]
+
+[[action.triggers]]
+name = "computer_exec"
+kind = "wasm"
+module = "computer_exec"
+on_failure = "RunFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+
+[[action]]
+name = "RunSucceeded"
+kind = "input"
+from = ["Scanning"]
+to = "Ready"
+params = ["exit_code", "stdout_tail", "stderr_tail"]
+hint = "Callback from computer_exec."
+
+[[action]]
+name = "RunFailed"
+kind = "input"
+from = ["Scanning"]
+to = "Failed"
+params = ["error"]
+hint = "Callback from computer_exec."
