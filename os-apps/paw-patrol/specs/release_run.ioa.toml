@@ -81,6 +81,20 @@ name = "merge_sha"
 type = "string"
 initial = ""
 
+# The PR head commit the release is bound to. If expected_head_sha is set
+# (from a reviewed commit), the merge refuses unless the PR's current head
+# matches it; the merge PUT also pins this sha so a push after proof cannot be
+# merged (commit-binding, ARN-394 re-review). head_sha records what was merged.
+[[state]]
+name = "expected_head_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "head_sha"
+type = "string"
+initial = ""
+
 [[state]]
 name = "observed_sha"
 type = "string"
@@ -121,7 +135,7 @@ name = "Request"
 kind = "input"
 from = ["Requested"]
 to = "Merging"
-params = ["work_cycle_id", "repo", "pr_number", "computer_id", "health_url", "max_checks"]
+params = ["work_cycle_id", "repo", "pr_number", "computer_id", "health_url", "max_checks", "expected_head_sha"]
 effect = [{ type = "trigger", name = "release_merge" }]
 hint = "Preflight (base==main) and merge the PR on the computer, then start watching. Fired declaratively by WorkCycle.Complete as the patrol-release-service principal."
 
@@ -156,8 +170,8 @@ name = "MergeSucceeded"
 kind = "input"
 from = ["Merging"]
 to = "Watching"
-params = ["merge_sha", "base_branch"]
-hint = "Callback from release_run_lifecycle — the PR merged; merge_sha is the commit the rollout must serve, base_branch is where a rollback would push."
+params = ["merge_sha", "base_branch", "head_sha"]
+hint = "Callback from release_run_lifecycle — the PR merged; merge_sha is the commit the rollout must serve, base_branch is where a rollback would push, head_sha is the PR head that was merged (audit)."
 
 # -- Watch -------------------------------------------------------------------
 

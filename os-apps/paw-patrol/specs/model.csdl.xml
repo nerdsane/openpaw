@@ -108,6 +108,7 @@
         <Property Name="ReleaseComputerId" Type="Edm.String"/>
         <Property Name="ReleaseHealthUrl" Type="Edm.String"/>
         <Property Name="ReleaseMaxChecks" Type="Edm.String"/>
+        <Property Name="ReleaseExpectedHeadSha" Type="Edm.String"/>
         <Property Name="ReleaseConfigured" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Patrol-owned implementation loop with worker, reviewer, evaluator, and proof gates."/>
@@ -166,6 +167,8 @@
         <Property Name="CheckCount" Type="Edm.Int32"/>
         <Property Name="DegradedStreak" Type="Edm.Int32"/>
         <Property Name="BaseBranch" Type="Edm.String"/>
+        <Property Name="ExpectedHeadSha" Type="Edm.String"/>
+        <Property Name="HeadSha" Type="Edm.String"/>
         <Property Name="RevertSha" Type="Edm.String"/>
         <Property Name="Reason" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>

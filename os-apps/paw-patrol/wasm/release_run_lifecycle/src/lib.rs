@@ -58,7 +58,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .map_err(|e| format!("release_run_lifecycle: computer {}: {e}", release.computer_id))?;
 
         let (action, params) = match ctx.trigger_action.as_str() {
-            "Request" => merge(&ctx, &handle, &release)?,
+            "Request" => merge(&ctx, &handle, &release, &temper_api_url, &fields)?,
             "Check" => check(&ctx, &handle, &release)?,
             "CheckUnhealthy" => rollback(&ctx, &handle, &release)?,
             other => return Err(format!("release_run_lifecycle: unsupported trigger {other}")),
@@ -84,6 +84,8 @@ struct ReleaseFields {
     merge_sha: String,
     check_count: u64,
     degraded_streak: u64,
+    /// Optional reviewed PR head to bind the merge to (empty = unbound).
+    expected_head_sha: String,
 }
 
 impl ReleaseFields {
@@ -103,6 +105,7 @@ impl ReleaseFields {
             merge_sha: param_or_field(ctx, fields, "merge_sha").unwrap_or_default(),
             check_count: counter_field(fields, "check_count"),
             degraded_streak: counter_field(fields, "degraded_streak"),
+            expected_head_sha: param_or_field(ctx, fields, "expected_head_sha").unwrap_or_default(),
         })
     }
 }
@@ -132,6 +135,8 @@ fn merge(
     ctx: &Context,
     handle: &SandboxHandle,
     release: &ReleaseFields,
+    temper_api_url: &str,
+    fields: &Value,
 ) -> Result<(&'static str, Value), String> {
     validate_repo(&release.repo)?;
     validate_number(&release.pr_number, "pr_number")?;
@@ -139,9 +144,18 @@ fn merge(
     // the release rather than leave a merged-but-unwatchable rollout.
     validate_url(&release.health_url)?;
 
-    // Preflight: read the PR's base branch and current merge state. Refuse to
-    // release anything not targeting `main` (rollback only knows `main`), and
-    // treat an already-merged PR as success (idempotent retry).
+    // ARN-397: per-repo serialization. Refuse to start a merge while another
+    // ReleaseRun for the same repo is already active — two concurrent releases
+    // on one repo interleave merges/reverts and corrupt each other's watch.
+    // (This is a read + our own Fail; no cross-entity transition dispatch.)
+    if let Some(other) = active_release_conflict(ctx, temper_api_url, fields, &release.repo)? {
+        return Err(format!(
+            "release_run_lifecycle: a release for {} is already in flight ({other}); refusing to run a second concurrently (ARN-397)",
+            release.repo
+        ));
+    }
+
+    // Preflight: read the PR's base branch, head commit, and merge state.
     let pr = read_pr(ctx, handle, &release.repo, &release.pr_number)?;
     if pr.base_ref != RELEASE_BASE_BRANCH {
         return Err(format!(
@@ -149,21 +163,29 @@ fn merge(
             release.repo, release.pr_number, pr.base_ref
         ));
     }
+    // Commit-binding: if bound to a reviewed head, refuse unless it still matches.
+    if !head_binding_ok(&release.expected_head_sha, &pr.head_sha) {
+        return Err(format!(
+            "release_run_lifecycle: PR {}#{} head is {:?}, expected reviewed head {:?} — refusing to merge an unreviewed commit",
+            release.repo, release.pr_number, pr.head_sha, release.expected_head_sha
+        ));
+    }
     if pr.merged {
         let sha = pr.merge_commit_sha.clone().ok_or_else(|| {
             format!("release_run_lifecycle: PR {}#{} reports merged but carries no sha", release.repo, release.pr_number)
         })?;
         ctx.log("info", &format!("release_run_lifecycle: {}#{} already merged as {sha}", release.repo, release.pr_number));
-        return Ok(("MergeSucceeded", json!({ "merge_sha": sha, "base_branch": pr.base_ref })));
+        return Ok(merge_succeeded(sha, pr.base_ref, pr.head_sha));
     }
 
-    // Do the merge.
-    let command = merge_command(&release.repo, &release.pr_number);
+    // Do the merge, pinning the head sha we just read: GitHub refuses (405/409)
+    // if the head moved since, closing the read→PUT TOCTOU (commit-binding).
+    let command = merge_command(&release.repo, &release.pr_number, &pr.head_sha);
     let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
     match parse_merge_sha(&result.stdout) {
         Ok(sha) => {
             ctx.log("info", &format!("release_run_lifecycle: merged {}#{} as {sha}", release.repo, release.pr_number));
-            Ok(("MergeSucceeded", json!({ "merge_sha": sha, "base_branch": pr.base_ref })))
+            Ok(merge_succeeded(sha, pr.base_ref, pr.head_sha))
         }
         Err(merge_err) => {
             // Ambiguous outcome: the PUT may have merged before the connection
@@ -179,7 +201,7 @@ fn merge(
                         ));
                     }
                     ctx.log("info", &format!("release_run_lifecycle: {}#{} merged (confirmed on reconcile) as {sha}", release.repo, release.pr_number));
-                    Ok(("MergeSucceeded", json!({ "merge_sha": sha, "base_branch": recheck.base_ref })))
+                    Ok(merge_succeeded(sha, recheck.base_ref, recheck.head_sha))
                 }
                 _ => Err(format!(
                     "release_run_lifecycle: merge of {}#{} did not complete: {merge_err} (exit {}, stderr: {})",
@@ -190,10 +212,28 @@ fn merge(
     }
 }
 
+/// Commit-binding predicate: an empty expected head is unbound (any head ok);
+/// a set expected head must equal the PR's current head, else the merge is
+/// refused (an unreviewed commit was pushed after the target was bound).
+fn head_binding_ok(expected: &str, actual: &str) -> bool {
+    expected.is_empty() || expected == actual
+}
+
+/// Build the MergeSucceeded callback (merge_sha to watch, base_branch for the
+/// rollback, head_sha for audit).
+fn merge_succeeded(merge_sha: String, base_branch: String, head_sha: String) -> (&'static str, Value) {
+    (
+        "MergeSucceeded",
+        json!({ "merge_sha": merge_sha, "base_branch": base_branch, "head_sha": head_sha }),
+    )
+}
+
 /// What we need to know about a PR before/after merging.
 #[derive(Debug, Clone, PartialEq)]
 struct PrInfo {
     base_ref: String,
+    /// The PR's current head commit sha (what a merge would land).
+    head_sha: String,
     merged: bool,
     merge_commit_sha: Option<String>,
 }
@@ -231,8 +271,15 @@ fn parse_pr(stdout: &str) -> Result<PrInfo, String> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| "PR response carried no base.ref".to_string())?;
+    let head_sha = body
+        .get("head")
+        .and_then(|h| h.get("sha"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     Ok(PrInfo {
         base_ref,
+        head_sha,
         merged: body.get("merged").and_then(Value::as_bool).unwrap_or(false),
         merge_commit_sha: body
             .get("merge_commit_sha")
@@ -261,14 +308,78 @@ fn pr_get_command(repo: &str, pr_number: &str) -> String {
 }
 
 /// Merge the PR through the GitHub API from the computer, using the token that
-/// matches github.com. Prints the API response so the merge sha can be read.
-fn merge_command(repo: &str, pr_number: &str) -> String {
+/// matches github.com. The `sha` field pins the expected PR head — GitHub
+/// refuses (405/409 "Head branch was modified") if the head moved since we read
+/// it, closing the read→PUT TOCTOU (commit-binding, ARN-394). `head_sha` is a
+/// validated 40-hex sha, safe to interpolate. Prints the API response so the
+/// merge sha can be read.
+fn merge_command(repo: &str, pr_number: &str, head_sha: &str) -> String {
     format!(
         "{TOKEN_PRELUDE}\
          curl -sS -m 60 -X PUT \"https://api.github.com/repos/{repo}/pulls/{pr_number}/merge\" \
          -H \"Authorization: token $TOK\" -H \"Accept: application/vnd.github+json\" \
-         -d '{{\"merge_method\":\"merge\"}}'"
+         -d '{{\"sha\":\"{head_sha}\",\"merge_method\":\"merge\"}}'"
     )
+}
+
+/// Non-terminal ReleaseRun states — a run in any of these is "in flight" for
+/// per-repo serialization (ARN-397).
+const ACTIVE_RELEASE_STATES: &[&str] = &["Requested", "Merging", "Watching", "Unhealthy"];
+
+/// Query other ReleaseRuns for `repo` and return the id of one that is still
+/// active (excluding self), if any. A loopback read; failure surfaces as an
+/// error so the check fails closed (we would rather refuse a release than run a
+/// second concurrently on an unverifiable state).
+///
+/// TOCTOU residual: two Requests can both pass this read before either commits
+/// its Merging state. A fully-atomic guard is a per-repo lane entity — tracked
+/// as the stronger form of ARN-397; this read-reject closes the common case.
+fn active_release_conflict(
+    ctx: &Context,
+    temper_api_url: &str,
+    fields: &Value,
+    repo: &str,
+) -> Result<Option<String>, String> {
+    let headers = odata_headers(ctx, &ctx.tenant, fields);
+    let path = format!(
+        "/tdata/ReleaseRuns?$filter=repo eq '{}'",
+        bounded_reads::odata_escape(repo)
+    );
+    let resp = bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
+        .map_err(|e| format!("release_run_lifecycle: could not check for concurrent releases of {repo}: {e}"))?;
+    let runs = parse_release_runs(&resp);
+    Ok(conflicting_active_release(&runs, &ctx.entity_id, repo).map(str::to_string))
+}
+
+/// Extract (id, repo, status) from an OData ReleaseRuns list response.
+fn parse_release_runs(resp: &Value) -> Vec<(String, String, String)> {
+    resp.get("value")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    let id = entity_field_str(e, &["id", "Id"])?.to_string();
+                    let repo = entity_field_str(e, &["repo", "Repo"]).unwrap_or("").to_string();
+                    let status = entity_field_str(e, &["Status", "status"]).unwrap_or("").to_string();
+                    Some((id, repo, status))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Pure: given other runs and this run's id+repo, return a conflicting active
+/// release id for the same repo (excluding self), if any.
+fn conflicting_active_release<'a>(
+    runs: &'a [(String, String, String)],
+    self_id: &str,
+    repo: &str,
+) -> Option<&'a str> {
+    runs.iter()
+        .find(|(id, r, status)| {
+            id != self_id && r == repo && ACTIVE_RELEASE_STATES.contains(&status.as_str())
+        })
+        .map(|(id, _, _)| id.as_str())
 }
 
 /// Read `sha` out of the GitHub merge response; a non-merge response
@@ -467,42 +578,42 @@ fn rollback(
     Ok(("RollbackPushed", json!({ "revert_sha": revert_sha })))
 }
 
-/// Revert the merge commit on the base branch and push, from an ISOLATED clone
-/// keyed by owner+repo. Hardening vs. the naive version:
-/// - dedicated dir `~/workspace/release-<owner>__<repo>` (no collision, never
-///   touches a shared checkout);
-/// - verifies `origin` matches the expected repo before mutating;
+/// Revert the merge commit on the base branch and push, from a FRESH, ambient-
+/// config-free checkout. Hardening (ARN-394 re-review P0-4 — the deterministic
+/// reused dir was code-execution-capable shared state):
+/// - `mktemp -d` per attempt (never reuses a checkout a prior sandbox user
+///   could have poisoned), removed on exit via `trap`;
+/// - `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null` neutralize any
+///   attacker-planted global/system git config (credential.helper, url
+///   rewrites, `core.hooksPath`, `gpg.program`); `-c core.hooksPath=/dev/null
+///   -c commit.gpgsign=false` disable repo hooks and signing on clone/revert;
+/// - because the ambient credential helper is now off, the token is supplied
+///   explicitly in the clone/push URL (`$TOK` is a runtime var, not a literal
+///   in the stored command);
 /// - `GIT_TERMINAL_PROMPT=0` and a `timeout` around every network git call;
 /// - a configured commit identity so `git revert` (which commits) never stalls;
-/// - idempotent: if a revert of this merge is already the tip, re-prints it
-///   instead of reverting again.
-/// Prints the resulting head sha on the last line.
+/// - idempotent at the TIP only: re-print HEAD if HEAD already reverts this
+///   merge, else revert and push.
+/// Prints the resulting head sha on the last line. `repo`/`merge_sha` are
+/// pre-validated (owner/name, 40-hex) so they are safe to interpolate.
 fn rollback_command(repo: &str, merge_sha: &str) -> String {
-    let dir = format!("~/workspace/release-{}", isolated_dir_token(repo));
-    let url = format!("https://github.com/{repo}.git");
     let b = RELEASE_BASE_BRANCH;
     format!(
-        "set -e; export GIT_TERMINAL_PROMPT=0; DIR={dir}; URL={url}; \
-         if [ -d \"$DIR/.git\" ]; then \
-           ORIGIN=$(git -C \"$DIR\" remote get-url origin 2>/dev/null || true); \
-           if [ \"$ORIGIN\" != \"$URL\" ]; then echo \"origin mismatch: $ORIGIN != $URL\" >&2; exit 3; fi; \
-         else rm -rf \"$DIR\"; timeout 120 git clone -q \"$URL\" \"$DIR\"; fi; \
+        "{TOKEN_PRELUDE}\
+         set -e; export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null; \
+         URL=\"https://x-access-token:$TOK@github.com/{repo}.git\"; \
+         DIR=$(mktemp -d); trap 'rm -rf \"$DIR\"' EXIT; \
+         timeout 120 git -c core.hooksPath=/dev/null clone -q --branch {b} \"$URL\" \"$DIR\"; \
          cd \"$DIR\"; \
+         git config core.hooksPath /dev/null; git config commit.gpgsign false; \
          git config user.name 'temperpaw-release'; git config user.email 'release@temperpaw.local'; \
-         timeout 60 git fetch -q origin {b}; git checkout -q {b}; git reset -q --hard origin/{b}; \
          if git log -1 --format=%B HEAD | grep -qF \"This reverts commit {merge_sha}\"; then \
            git rev-parse HEAD; \
          else \
-           git revert -m 1 --no-edit {merge_sha} >/dev/null; \
-           timeout 60 git push -q origin {b}; git rev-parse HEAD; \
+           git -c core.hooksPath=/dev/null revert -m 1 --no-edit {merge_sha} >/dev/null; \
+           timeout 60 git push -q \"$URL\" HEAD:{b}; git rev-parse HEAD; \
          fi"
     )
-}
-
-/// Filename-safe `owner__name` token for the isolated clone dir. Callers have
-/// already passed [`validate_repo`], so this only reshapes a known-good value.
-fn isolated_dir_token(repo: &str) -> String {
-    repo.replace('/', "__")
 }
 
 fn parse_revert_sha(stdout: &str) -> Option<String> {
@@ -702,12 +813,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_pr_reads_base_and_merge_state() {
-        let out = format!(r#"{{"base":{{"ref":"main"}},"merged":false,"merge_commit_sha":"{SHA}"}}"#);
+    fn parse_pr_reads_base_head_and_merge_state() {
+        let out = format!(
+            r#"{{"base":{{"ref":"main"}},"head":{{"sha":"{SHA}"}},"merged":false,"merge_commit_sha":"{SHA}"}}"#
+        );
         let pr = parse_pr(&out).unwrap();
         assert_eq!(pr.base_ref, "main");
+        assert_eq!(pr.head_sha, SHA);
         assert!(!pr.merged);
         assert_eq!(pr.merge_commit_sha.as_deref(), Some(SHA));
+    }
+
+    #[test]
+    fn head_binding_allows_unbound_and_matching_only() {
+        assert!(head_binding_ok("", "anything")); // unbound
+        assert!(head_binding_ok(SHA, SHA)); // matches
+        assert!(!head_binding_ok(SHA, "0000000")); // reviewed head moved
     }
 
     #[test]
@@ -724,12 +845,43 @@ mod tests {
     // -- merge ----------------------------------------------------------------
 
     #[test]
-    fn merge_command_targets_the_pr_with_the_matched_token() {
-        let cmd = merge_command("arni-labs/deep-sci-fi", "106");
+    fn merge_command_targets_the_pr_and_pins_the_head_sha() {
+        let cmd = merge_command("arni-labs/deep-sci-fi", "106", SHA);
         assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/106/merge"));
         assert!(cmd.contains("~/.git-credentials"));
         assert!(cmd.contains("\"merge_method\":\"merge\""));
         assert!(cmd.contains("-X PUT"));
+        // Pins the reviewed head so GitHub refuses if the head moved (TOCTOU).
+        assert!(cmd.contains(&format!("\"sha\":\"{SHA}\"")), "{cmd}");
+    }
+
+    #[test]
+    fn per_repo_reject_finds_a_concurrent_active_release() {
+        let runs = vec![
+            ("self".into(), "a/b".into(), "Merging".into()),
+            ("other-done".into(), "a/b".into(), "Healthy".into()), // terminal, ignore
+            ("other-active".into(), "a/b".into(), "Watching".into()), // conflict
+            ("elsewhere".into(), "c/d".into(), "Merging".into()),   // other repo
+        ];
+        assert_eq!(conflicting_active_release(&runs, "self", "a/b"), Some("other-active"));
+        // No conflict when the only same-repo runs are self or terminal.
+        let clean = vec![
+            ("self".into(), "a/b".into(), "Merging".into()),
+            ("done".into(), "a/b".into(), "RolledBack".into()),
+        ];
+        assert_eq!(conflicting_active_release(&clean, "self", "a/b"), None);
+    }
+
+    #[test]
+    fn parse_release_runs_reads_id_repo_status() {
+        let resp = json!({"value":[
+            {"id":"r1","fields":{"repo":"a/b"},"Status":"Watching"},
+            {"Id":"r2","repo":"a/b","status":"Failed"}
+        ]});
+        let runs = parse_release_runs(&resp);
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().any(|(i, r, s)| i == "r1" && r == "a/b" && s == "Watching"));
+        assert!(runs.iter().any(|(i, _, s)| i == "r2" && s == "Failed"));
     }
 
     #[test]
@@ -905,33 +1057,33 @@ mod tests {
     // -- rollback -------------------------------------------------------------
 
     #[test]
-    fn rollback_is_isolated_identity_bound_and_idempotent() {
+    fn rollback_is_freshly_isolated_and_idempotent() {
         let cmd = rollback_command("arni-labs/deep-sci-fi", SHA);
         assert!(cmd.contains("GIT_TERMINAL_PROMPT=0"));
-        // Isolated, owner-qualified clone dir (no collision with other repos).
-        assert!(cmd.contains("~/workspace/release-arni-labs__deep-sci-fi"));
-        // Verifies origin before mutating an existing checkout.
-        assert!(cmd.contains("remote get-url origin"));
-        assert!(cmd.contains("origin mismatch"));
+        // Fresh per-attempt checkout, cleaned up — no reuse of a poisonable dir.
+        assert!(cmd.contains("mktemp -d"), "{cmd}");
+        assert!(cmd.contains("trap 'rm -rf \"$DIR\"' EXIT"), "{cmd}");
+        assert!(!cmd.contains("~/workspace/release-"), "{cmd}");
+        // Ambient git config/hooks neutralized against a poisoned sandbox.
+        assert!(cmd.contains("GIT_CONFIG_GLOBAL=/dev/null"), "{cmd}");
+        assert!(cmd.contains("GIT_CONFIG_SYSTEM=/dev/null"), "{cmd}");
+        assert!(cmd.contains("core.hooksPath=/dev/null"), "{cmd}");
+        assert!(cmd.contains("commit.gpgsign false"), "{cmd}");
+        // Token supplied explicitly (ambient helper is off); $TOK is runtime.
+        assert!(cmd.contains("~/.git-credentials"), "{cmd}");
+        assert!(cmd.contains("https://x-access-token:$TOK@github.com/arni-labs/deep-sci-fi.git"), "{cmd}");
         // Configured identity so `git revert` can commit.
         assert!(cmd.contains("git config user.email"));
         // Bounded network calls.
-        assert!(cmd.contains("timeout 120 git clone"));
-        assert!(cmd.contains("timeout 60 git fetch"));
+        assert!(cmd.contains("timeout 120 git"));
         assert!(cmd.contains("timeout 60 git push"));
-        assert!(cmd.contains(&format!("git revert -m 1 --no-edit {SHA}")));
-        assert!(cmd.contains("git push -q origin main"));
+        assert!(cmd.contains(&format!("revert -m 1 --no-edit {SHA}")));
+        assert!(cmd.contains("HEAD:main"), "{cmd}");
         // Idempotency: skip ONLY if the revert of this merge is at the TIP
-        // (HEAD's message), not anywhere in history — a stale historical revert
-        // must not cause a needed rollback to be skipped (ARN-394 re-review).
+        // (HEAD's message), not anywhere in history (ARN-394 re-review).
         assert!(cmd.contains(&format!("This reverts commit {SHA}")));
         assert!(cmd.contains("git log -1 --format=%B HEAD"), "{cmd}");
         assert!(!cmd.contains("git log origin/main --grep"), "{cmd}");
-    }
-
-    #[test]
-    fn isolated_dir_token_joins_owner_and_repo() {
-        assert_eq!(isolated_dir_token("arni-labs/deep-sci-fi"), "arni-labs__deep-sci-fi");
     }
 
     #[test]

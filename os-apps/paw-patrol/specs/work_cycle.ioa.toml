@@ -163,6 +163,13 @@ name = "release_max_checks"
 type = "string"
 initial = "60"
 
+# Optional: bind the release to a specific reviewed PR head commit. When set,
+# the ReleaseRun merge refuses unless the PR's current head matches (ARN-394).
+[[state]]
+name = "release_expected_head_sha"
+type = "string"
+initial = ""
+
 [[state]]
 name = "release_configured"
 type = "bool"
@@ -422,6 +429,7 @@ pr_number = "release_pr_number"
 computer_id = "release_computer_id"
 health_url = "release_health_url"
 max_checks = "release_max_checks"
+expected_head_sha = "release_expected_head_sha"
 
 [action.triggers.resolve_target]
 type = "create"
@@ -430,9 +438,9 @@ type = "create"
 name = "ConfigureRelease"
 kind = "input"
 from = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Proving"]
-params = ["release_repo", "release_pr_number", "release_computer_id", "release_health_url", "release_max_checks"]
+params = ["release_repo", "release_pr_number", "release_computer_id", "release_health_url", "release_max_checks", "release_expected_head_sha"]
 effect = "set release_configured true"
-hint = "Name the PR, computer, and health URL that Complete will release through (ReleaseRun). Does not change the work state."
+hint = "Name the PR, computer, and health URL that Complete will release through (ReleaseRun). Optionally bind release_expected_head_sha to a reviewed commit. Does not change the work state."
 
 [[action]]
 name = "Fail"

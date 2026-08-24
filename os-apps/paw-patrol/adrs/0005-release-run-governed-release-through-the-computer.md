@@ -67,3 +67,31 @@ makes "the rollout landed" a checkable fact rather than a timer guess.
   (`WorkerRun.Configure`, `WorkCycle.StartWork`, …). That predates this rule
   and is flagged here for a separate refactor; `release_run_lifecycle` does
   not follow that pattern.
+
+## Hardening addendum (2026-08-24, post-review)
+
+Three changes from the adversarial re-review, beyond the first-round P0 fixes:
+
+- **Commit-binding.** The merge PUT pins the PR head sha it just read (`"sha"`),
+  so GitHub refuses if the head moved between read and PUT (read→PUT TOCTOU).
+  An optional `expected_head_sha` (set via `WorkCycle.ConfigureRelease` →
+  `release_expected_head_sha`, carried on `Request`) binds the release to a
+  specific reviewed commit; the merge refuses unless the PR head still matches.
+  The merged head is recorded (`head_sha`, on `MergeSucceeded`) for audit.
+- **Rollback isolation.** The revert runs in a fresh `mktemp -d` checkout per
+  attempt (never a reused, potentially-poisoned dir), with `GIT_CONFIG_GLOBAL`/
+  `GIT_CONFIG_SYSTEM` neutralized and `core.hooksPath=/dev/null`,
+  `commit.gpgsign=false` so a planted global config or repo hook cannot execute
+  under the release workflow. The token is supplied explicitly in the clone/push
+  URL (the ambient credential helper is off). Idempotency is tip-only (HEAD's
+  message), so a stale historical revert never skips a needed rollback.
+- **Per-repo serialization (ARN-397, reject).** Before merging, `merge()` reads
+  other ReleaseRuns for the same repo and refuses (→ Fail) if any is active
+  (Requested/Merging/Watching/Unhealthy). This is a read + the run's own Fail —
+  no cross-entity dispatch. Residual TOCTOU (two Requests racing the check
+  before either commits Merging) needs an atomic per-repo lane entity — the
+  stronger form of ARN-397, tracked separately.
+
+Known residual (kernel, ARN-396): `state_timeout`s are in-memory and arm only
+on dispatch, so a `Requested`/`Watching` run can still hang across a restart
+until durable timeout delivery lands.
