@@ -57,11 +57,13 @@ type = "string"
 initial = ""
 
 # Upper bound on health probes (one per Check, 30s apart) before the
-# rollout is declared Unhealthy. "20" = 10 minutes.
+# rollout is declared Unhealthy. "60" = 30 minutes — enough for a Railway
+# cold Docker build + release, which can queue several minutes before the
+# new commit even starts serving. Override per release via ConfigureRelease.
 [[state]]
 name = "max_checks"
 type = "string"
-initial = "20"
+initial = "60"
 
 [[state]]
 name = "merge_sha"

@@ -84,7 +84,7 @@ impl ReleaseFields {
             health_url: param_or_field(ctx, fields, "health_url").unwrap_or_default(),
             max_checks: param_or_field(ctx, fields, "max_checks")
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(20),
+                .unwrap_or(60),
             merge_sha: param_or_field(ctx, fields, "merge_sha").unwrap_or_default(),
             check_count: counter_field(fields, "check_count"),
         })

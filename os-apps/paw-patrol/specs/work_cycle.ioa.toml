@@ -161,7 +161,7 @@ initial = ""
 [[state]]
 name = "release_max_checks"
 type = "string"
-initial = "20"
+initial = "60"
 
 [[state]]
 name = "release_configured"
