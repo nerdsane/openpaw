@@ -103,6 +103,12 @@
         <Property Name="HumanCompletionApprovalRequired" Type="Edm.Boolean"/>
         <Property Name="HumanCompletionApproved" Type="Edm.Boolean"/>
         <Property Name="ApprovalSummary" Type="Edm.String"/>
+        <Property Name="ReleaseRepo" Type="Edm.String"/>
+        <Property Name="ReleasePrNumber" Type="Edm.String"/>
+        <Property Name="ReleaseComputerId" Type="Edm.String"/>
+        <Property Name="ReleaseHealthUrl" Type="Edm.String"/>
+        <Property Name="ReleaseMaxChecks" Type="Edm.String"/>
+        <Property Name="ReleaseConfigured" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Patrol-owned implementation loop with worker, reviewer, evaluator, and proof gates."/>
       </EntityType>
@@ -143,6 +149,26 @@
         <Property Name="ProofPacketId" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Independent reviewer pass over implementation, proof, tests, and live evidence."/>
+      </EntityType>
+
+      <EntityType Name="ReleaseRun">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="Repo" Type="Edm.String"/>
+        <Property Name="PrNumber" Type="Edm.String"/>
+        <Property Name="ComputerId" Type="Edm.String"/>
+        <Property Name="HealthUrl" Type="Edm.String"/>
+        <Property Name="MaxChecks" Type="Edm.String"/>
+        <Property Name="MergeSha" Type="Edm.String"/>
+        <Property Name="ObservedSha" Type="Edm.String"/>
+        <Property Name="CheckCount" Type="Edm.Int32"/>
+        <Property Name="RevertSha" Type="Edm.String"/>
+        <Property Name="Reason" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Governed release of one merged WorkCycle: merge the PR on the computer, watch the rollout until the deployed git sha matches, and git-revert through the computer if it never becomes healthy."/>
       </EntityType>
 
       <EntityType Name="EvaluationRun">
@@ -372,6 +398,7 @@
         <EntitySet Name="WorkCycles" EntityType="TemperPaw.Patrol.WorkCycle"/>
         <EntitySet Name="WorkerRuns" EntityType="TemperPaw.Patrol.WorkerRun"/>
         <EntitySet Name="ReviewRuns" EntityType="TemperPaw.Patrol.ReviewRun"/>
+        <EntitySet Name="ReleaseRuns" EntityType="TemperPaw.Patrol.ReleaseRun"/>
         <EntitySet Name="EvaluationRuns" EntityType="TemperPaw.Patrol.EvaluationRun"/>
         <EntitySet Name="ProofPackets" EntityType="TemperPaw.Patrol.ProofPacket"/>
         <EntitySet Name="RiskRules" EntityType="TemperPaw.Patrol.RiskRule"/>

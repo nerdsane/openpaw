@@ -419,3 +419,75 @@ permit(
     (resource has evaluator_id && principal.id == resource.evaluator_id)
   )
 };
+
+// ReleaseRun: the governed release of a completed WorkCycle through the
+// computer (merge → watch rollout → git-revert rollback). Any Agent may
+// create/read/list and fire Request; the callbacks are dispatched by the
+// release_run_lifecycle WASM running as the system service, and the kernel
+// timer fires Check.
+permit(
+  principal is Admin,
+  action,
+  resource is ReleaseRun
+);
+
+permit(
+  principal,
+  action in [Action::"read", Action::"list"],
+  resource is ReleaseRun
+);
+
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"ReleaseRun.Request", Action::"Request",
+    Action::"ReleaseRun.Fail", Action::"Fail"
+  ],
+  resource is ReleaseRun
+);
+
+permit(
+  principal,
+  action in [
+    Action::"ReleaseRun.Check", Action::"Check",
+    Action::"ReleaseRun.MergeSucceeded", Action::"MergeSucceeded",
+    Action::"ReleaseRun.CheckPending", Action::"CheckPending",
+    Action::"ReleaseRun.CheckHealthy", Action::"CheckHealthy",
+    Action::"ReleaseRun.CheckUnhealthy", Action::"CheckUnhealthy",
+    Action::"ReleaseRun.RollbackPushed", Action::"RollbackPushed",
+    Action::"ReleaseRun.Fail", Action::"Fail"
+  ],
+  resource is ReleaseRun
+) when {
+  principal.agent_type == "system"
+};
+
+// WorkCycle release configuration and the declarative Complete → ReleaseRun.Request trigger.
+permit(
+  principal,
+  action in [
+    Action::"WorkCycle.ConfigureRelease", Action::"ConfigureRelease"
+  ],
+  resource is WorkCycle
+) when {
+  principal is Agent || principal is Admin
+};
+
+// release_run_lifecycle needs HTTP (Computer row loopback, sandbox data
+// plane, health_url probe) and secrets (temper_api_url, sandbox key).
+permit(
+  principal is Agent,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  context.module == "release_run_lifecycle"
+};
+
+permit(
+  principal is Agent,
+  action == Action::"access_secret",
+  resource is Secret
+) when {
+  context.module == "release_run_lifecycle"
+};

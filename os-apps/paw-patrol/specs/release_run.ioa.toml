@@ -1,0 +1,224 @@
+# ReleaseRun — governed release of one completed WorkCycle, through the computer.
+#
+# Closes the gap where a PR was merged through the computer but nobody
+# watched the rollout and rollback was manual. Every step is a side effect
+# run by `release_run_lifecycle` on the named Computer's sandbox:
+#
+#   Request   -> merge the PR (gh/GitHub API on the computer), record merge_sha
+#   Watching  -> kernel state_timeout fires Check every 30s; one probe of
+#                health_url per Check until the served git_sha == merge_sha
+#   Unhealthy -> git revert the merge commit and push, so the same
+#                push-triggered deploy path rolls production back
+#
+# The WASM never dispatches actions on other entities and never loops: it
+# performs one side effect per trigger and reports through the named
+# callback action (set_success_result / on_failure). Orchestration lives
+# here in the automaton and in the kernel timer.
+#
+# Lifecycle: Requested → Merging → Watching → Healthy
+#                                           ↘ Unhealthy → RolledBack
+#                       any active state → Failed
+
+[automaton]
+name = "ReleaseRun"
+states = ["Requested", "Merging", "Watching", "Healthy", "Unhealthy", "RolledBack", "Failed"]
+initial = "Requested"
+
+# Requested waits for Request; Merging and Unhealthy (revert in flight) are
+# bounded by the trigger itself; Watching is bounded by max_checks via the
+# timer loop.
+allow_indefinite_states = ["Requested", "Merging", "Watching", "Unhealthy"]
+
+# -- State variables ----------------------------------------------------------
+
+[[state]]
+name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "repo"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_number"
+type = "string"
+initial = ""
+
+[[state]]
+name = "computer_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "health_url"
+type = "string"
+initial = ""
+
+# Upper bound on health probes (one per Check, 30s apart) before the
+# rollout is declared Unhealthy. "20" = 10 minutes.
+[[state]]
+name = "max_checks"
+type = "string"
+initial = "20"
+
+[[state]]
+name = "merge_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "observed_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "check_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "revert_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# -- Merge -------------------------------------------------------------------
+
+[[action]]
+name = "Request"
+kind = "input"
+from = ["Requested"]
+to = "Merging"
+params = ["work_cycle_id", "repo", "pr_number", "computer_id", "health_url", "max_checks"]
+effect = [{ type = "trigger", name = "release_merge" }]
+hint = "Merge the PR on the computer and start watching the rollout. Fired declaratively by WorkCycle.Complete."
+
+[[action.triggers]]
+name = "release_merge"
+kind = "wasm"
+module = "release_run_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+
+[[action]]
+name = "MergeSucceeded"
+kind = "input"
+from = ["Merging"]
+to = "Watching"
+params = ["merge_sha"]
+hint = "Callback from release_run_lifecycle — the PR merged; merge_sha is the commit the rollout must serve."
+
+# -- Watch -------------------------------------------------------------------
+
+# The kernel fires Check 30s after entering Watching and again 30s after
+# every CheckPending (reset_on) — an event-driven poll with no loop in code.
+[[state_timeout]]
+state = "Watching"
+after_seconds = 30
+on_timeout = "Check"
+reset_on = ["CheckPending"]
+
+[[action]]
+name = "Check"
+kind = "input"
+from = ["Watching"]
+to = "Watching"
+effect = [
+  { type = "increment", var = "check_count" },
+  { type = "trigger", name = "release_check" }
+]
+hint = "One probe of health_url on the computer. Reports CheckHealthy, CheckPending, or CheckUnhealthy."
+
+[[action.triggers]]
+name = "release_check"
+kind = "wasm"
+module = "release_run_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+
+[[action]]
+name = "CheckPending"
+kind = "input"
+from = ["Watching"]
+to = "Watching"
+params = ["observed_sha"]
+hint = "Callback — the service is up but still serving a different commit; wait for the next Check."
+
+[[action]]
+name = "CheckHealthy"
+kind = "input"
+from = ["Watching"]
+to = "Healthy"
+params = ["observed_sha"]
+hint = "Callback — health is OK and the served git_sha equals merge_sha. Terminal success."
+
+[[action]]
+name = "CheckUnhealthy"
+kind = "input"
+from = ["Watching"]
+to = "Unhealthy"
+params = ["reason", "observed_sha"]
+effect = [{ type = "trigger", name = "release_rollback" }]
+hint = "Callback — the rollout is degraded or max_checks elapsed without the new commit becoming healthy. Starts the rollback."
+
+# -- Rollback ----------------------------------------------------------------
+
+[[action.triggers]]
+name = "release_rollback"
+kind = "wasm"
+module = "release_run_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+
+[[action]]
+name = "RollbackPushed"
+kind = "input"
+from = ["Unhealthy"]
+to = "RolledBack"
+params = ["revert_sha"]
+hint = "Callback — the merge commit was reverted and pushed through the computer; the push-triggered deploy restores the previous build."
+
+# -- Failure -----------------------------------------------------------------
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Requested", "Merging", "Watching", "Unhealthy"]
+to = "Failed"
+params = ["error_message"]
+hint = "A step could not run (computer unavailable, merge rejected, revert conflict). Visible terminal failure."
+
+[[invariant]]
+name = "HealthyIsFinal"
+when = ["Healthy"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RolledBackIsFinal"
+when = ["RolledBack"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
