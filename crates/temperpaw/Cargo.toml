@@ -20,6 +20,8 @@ temper-jit = { git = "https://github.com/nerdsane/temper.git", rev = "a6e6289902
 temper-authz = { git = "https://github.com/nerdsane/temper.git", rev = "a6e6289902b4d43c83a46882814f36cd56f7e1aa" }
 temper-store-postgres = { git = "https://github.com/nerdsane/temper.git", rev = "a6e6289902b4d43c83a46882814f36cd56f7e1aa" }
 temper-store-turso = { git = "https://github.com/nerdsane/temper.git", rev = "a6e6289902b4d43c83a46882814f36cd56f7e1aa" }
+# CSDL parsing for the targeted platform-identity spec registration (see identity_bootstrap.rs)
+temper-spec = { git = "https://github.com/nerdsane/temper.git", rev = "a6e6289902b4d43c83a46882814f36cd56f7e1aa" }
 
 # Paw transport (local)
 paw-transport = { path = "../paw-transport" }

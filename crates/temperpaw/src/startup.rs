@@ -1093,6 +1093,15 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 tenant = %tenant,
                 "Skipping built-in default agent specs bootstrap; paw-agent OS app owns default agent specs"
             );
+            // paw-agent owns the agent lifecycle specs but NOT the platform
+            // IDENTITY specs (TrustedIssuer, PrincipalGeneration) that back
+            // kernel JWT verification (ARN-255). The skipped default bootstrap
+            // is the only place those load, so on this host they must be
+            // registered explicitly — otherwise `tdata/TrustedIssuer` returns
+            // EntitySetNotFound and `bootstrap_trusted_issuer_from_env` below is
+            // inert. Registered cascade-free so it does not reintroduce the OOM
+            // the skip exists to prevent (see identity_bootstrap.rs).
+            crate::identity_bootstrap::register_platform_identity_specs(&state, &tenant);
         }
         // Bootstrap the operator credential so the deployment's TEMPER_API_KEY
         // resolves to a real tenant AgentCredential on the credential-bound
@@ -1107,6 +1116,31 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                  authenticated requests will fail closed on the credential-bound edge"
             );
         }
+
+        // ARN-255: activate kernel JWT verification for this deployment by
+        // registering the trusted issuer from the environment. This dispatches
+        // RegisterIssuer on the TrustedIssuer entity, which requires that spec
+        // to be registered — guaranteed above (default agent-specs bootstrap in
+        // the taken branch, or the explicit identity-spec registration in the
+        // skip branch). No-op when the TEMPER_TRUSTED_ISSUER_* env vars are
+        // unset (dev/test). Runs on both branches so a deployment with the env
+        // set always registers its issuer, matching temper-cli's serve path.
+        if std::env::var("TEMPER_TRUSTED_ISSUER_URL")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .is_some()
+        {
+            tracing::info!(
+                tenant = %tenant,
+                "Registering trusted JWT issuer from TEMPER_TRUSTED_ISSUER_* environment (ARN-255)"
+            );
+        } else {
+            tracing::info!(
+                tenant = %tenant,
+                "No TEMPER_TRUSTED_ISSUER_URL set; skipping trusted-issuer registration (kernel JWT verification inactive for this deployment)"
+            );
+        }
+        temper_platform::bootstrap_trusted_issuer_from_env(&state, &tenant).await;
 
         tracing::info!("Bootstrapped startup platform specs for temper-system and {tenant}");
     }
