@@ -9,5 +9,5 @@ crate-type = ["rlib"]
 [workspace]
 
 [dependencies]
-temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "724eda61fdd272d90c39a92c47eca7b8f638126f" }
+temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "a6e6289902b4d43c83a46882814f36cd56f7e1aa" }
 serde_json = "1"
