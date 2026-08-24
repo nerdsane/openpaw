@@ -164,6 +164,8 @@
         <Property Name="MergeSha" Type="Edm.String"/>
         <Property Name="ObservedSha" Type="Edm.String"/>
         <Property Name="CheckCount" Type="Edm.Int32"/>
+        <Property Name="DegradedStreak" Type="Edm.Int32"/>
+        <Property Name="BaseBranch" Type="Edm.String"/>
         <Property Name="RevertSha" Type="Edm.String"/>
         <Property Name="Reason" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>

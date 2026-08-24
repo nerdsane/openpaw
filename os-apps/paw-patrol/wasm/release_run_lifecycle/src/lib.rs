@@ -330,7 +330,11 @@ fn check(
         Verdict::Healthy => ("CheckHealthy", json!({ "observed_sha": observed })),
         Verdict::Pending { degraded_streak } => (
             "CheckPending",
-            json!({ "observed_sha": observed, "degraded_streak": degraded_streak.to_string() }),
+            // Emit the streak as a JSON NUMBER: the spec's `set_counter_from_param`
+            // effect (kernel `SetCounterFromParam`) only accepts numbers and
+            // silently drops a string, which would pin the streak at 0 and make
+            // the 3-strike rollback never fire (ARN-394 re-review).
+            json!({ "observed_sha": observed, "degraded_streak": degraded_streak }),
         ),
         Verdict::Unhealthy(reason) => (
             "CheckUnhealthy",
@@ -343,7 +347,11 @@ fn check(
 /// on its own marker line so a body that is not JSON still yields a verdict.
 /// `health_url` is single-quoted AND validated by [`validate_url`] first.
 fn probe_command(health_url: &str) -> String {
-    format!("curl -sS -m 15 -w '\\n{HTTP_STATUS_MARKER} %{{http_code}}' '{health_url}'")
+    // `-g` (globoff): a `[` or `]` in the URL must be a literal, not a curl glob
+    // range — otherwise curl multi-fetches or exits 3 and every probe reads as
+    // status 0 (Pending), burning the whole budget before a real rollback
+    // (ARN-394 re-review).
+    format!("curl -g -sS -m 15 -w '\\n{HTTP_STATUS_MARKER} %{{http_code}}' '{health_url}'")
 }
 
 /// What one probe observed.
@@ -482,7 +490,7 @@ fn rollback_command(repo: &str, merge_sha: &str) -> String {
          cd \"$DIR\"; \
          git config user.name 'temperpaw-release'; git config user.email 'release@temperpaw.local'; \
          timeout 60 git fetch -q origin {b}; git checkout -q {b}; git reset -q --hard origin/{b}; \
-         if git log origin/{b} --grep=\"This reverts commit {merge_sha}\" --fixed-strings -1 --format=%H | grep -q .; then \
+         if git log -1 --format=%B HEAD | grep -qF \"This reverts commit {merge_sha}\"; then \
            git rev-parse HEAD; \
          else \
            git revert -m 1 --no-edit {merge_sha} >/dev/null; \
@@ -785,7 +793,9 @@ mod tests {
     #[test]
     fn probe_command_curls_health_and_appends_http_status() {
         let cmd = probe_command("https://deep-sci-fi-production.up.railway.app/health");
-        assert!(cmd.starts_with("curl -sS -m 15"));
+        assert!(cmd.starts_with("curl -g -sS -m 15"), "{cmd}");
+        // -g/globoff so a `[` in the URL is literal, not a curl glob range.
+        assert!(cmd.contains("curl -g "), "{cmd}");
         assert!(cmd.contains("__HTTP_STATUS %{http_code}"));
         assert!(cmd.ends_with("/health'"));
     }
@@ -911,8 +921,12 @@ mod tests {
         assert!(cmd.contains("timeout 60 git push"));
         assert!(cmd.contains(&format!("git revert -m 1 --no-edit {SHA}")));
         assert!(cmd.contains("git push -q origin main"));
-        // Idempotency: skip if a revert of this merge already exists.
+        // Idempotency: skip ONLY if the revert of this merge is at the TIP
+        // (HEAD's message), not anywhere in history — a stale historical revert
+        // must not cause a needed rollback to be skipped (ARN-394 re-review).
         assert!(cmd.contains(&format!("This reverts commit {SHA}")));
+        assert!(cmd.contains("git log -1 --format=%B HEAD"), "{cmd}");
+        assert!(!cmd.contains("git log origin/main --grep"), "{cmd}");
     }
 
     #[test]
