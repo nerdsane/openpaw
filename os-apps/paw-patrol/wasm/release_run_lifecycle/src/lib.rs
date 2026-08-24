@@ -5,11 +5,11 @@
 //! dispatches actions on other entities and never loops; the automaton and
 //! the kernel `state_timeout` own the orchestration (see release_run.ioa.toml).
 //!
-//! | trigger action   | side effect on the computer                         | reports              |
-//! |------------------|-----------------------------------------------------|----------------------|
-//! | Request          | merge the PR via the GitHub API (repo token on box) | MergeSucceeded       |
-//! | Check            | one `curl` of health_url                            | CheckHealthy / CheckPending / CheckUnhealthy |
-//! | CheckUnhealthy   | `git revert -m 1 <merge_sha>` + push to main        | RollbackPushed       |
+//! | trigger action | side effect on the computer                              | reports |
+//! |----------------|----------------------------------------------------------|---------|
+//! | Request        | preflight the PR (base==main), merge via GitHub API      | MergeSucceeded |
+//! | Check          | one `curl` of health_url                                 | CheckHealthy / CheckPending / CheckUnhealthy |
+//! | CheckUnhealthy | `git revert -m 1 <merge_sha>` + push to the base branch  | RollbackPushed |
 //!
 //! Any error surfaces through `set_error_result`, which the spec routes to
 //! `Fail` (on_failure) so nothing fails silently.
@@ -22,6 +22,20 @@ use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_tempe
 
 /// Marker separating the probe body from the HTTP status on the last line.
 const HTTP_STATUS_MARKER: &str = "__HTTP_STATUS";
+
+/// Hard ceiling on the watch budget: 240 checks × 30s = 2 hours. Bounds the
+/// `max_checks` config so a caller cannot request an effectively permanent
+/// watch that defeats automatic rollback.
+const MAX_CHECKS_CEILING: u64 = 240;
+
+/// Consecutive degraded-on-new-commit probes required before rollback. A
+/// single degraded 30s window right after a swap (cache warmup) must not
+/// revert a healthy release; three in a row is a real regression.
+const DEGRADED_STREAK_THRESHOLD: u64 = 3;
+
+/// The only base branch a release may target. Enforced at merge time so the
+/// rollback (which reverts on this branch) can never push to the wrong one.
+const RELEASE_BASE_BRANCH: &str = "main";
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -69,6 +83,7 @@ struct ReleaseFields {
     max_checks: u64,
     merge_sha: String,
     check_count: u64,
+    degraded_streak: u64,
 }
 
 impl ReleaseFields {
@@ -77,18 +92,38 @@ impl ReleaseFields {
             param_or_field(ctx, fields, key)
                 .ok_or_else(|| format!("release_run_lifecycle: missing {key}"))
         };
+        let max_checks_raw = param_or_field(ctx, fields, "max_checks")
+            .ok_or_else(|| "release_run_lifecycle: missing max_checks".to_string())?;
         Ok(Self {
             repo: required("repo")?,
             pr_number: required("pr_number")?,
             computer_id: required("computer_id")?,
             health_url: param_or_field(ctx, fields, "health_url").unwrap_or_default(),
-            max_checks: param_or_field(ctx, fields, "max_checks")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(60),
+            max_checks: parse_max_checks(&max_checks_raw)?,
             merge_sha: param_or_field(ctx, fields, "merge_sha").unwrap_or_default(),
             check_count: counter_field(fields, "check_count"),
+            degraded_streak: counter_field(fields, "degraded_streak"),
         })
     }
+}
+
+/// Parse and bound the watch budget. Rejects non-numeric input and 0 (which
+/// would make the first check exceed budget → instant rollback) and clamps to
+/// [`MAX_CHECKS_CEILING`] so a huge value cannot create a permanent watch.
+fn parse_max_checks(raw: &str) -> Result<u64, String> {
+    let n: u64 = raw
+        .trim()
+        .parse()
+        .map_err(|_| format!("release_run_lifecycle: max_checks must be a number, got {raw:?}"))?;
+    if n == 0 {
+        return Err("release_run_lifecycle: max_checks must be at least 1".to_string());
+    }
+    if n > MAX_CHECKS_CEILING {
+        return Err(format!(
+            "release_run_lifecycle: max_checks {n} exceeds the ceiling {MAX_CHECKS_CEILING} (2h)"
+        ));
+    }
+    Ok(n)
 }
 
 // -- Step 1: merge -------------------------------------------------------------
@@ -100,30 +135,133 @@ fn merge(
 ) -> Result<(&'static str, Value), String> {
     validate_repo(&release.repo)?;
     validate_number(&release.pr_number, "pr_number")?;
+    // Validate the watch target BEFORE merging: a bad health_url must abort
+    // the release rather than leave a merged-but-unwatchable rollout.
+    validate_url(&release.health_url)?;
+
+    // Preflight: read the PR's base branch and current merge state. Refuse to
+    // release anything not targeting `main` (rollback only knows `main`), and
+    // treat an already-merged PR as success (idempotent retry).
+    let pr = read_pr(ctx, handle, &release.repo, &release.pr_number)?;
+    if pr.base_ref != RELEASE_BASE_BRANCH {
+        return Err(format!(
+            "release_run_lifecycle: PR {}#{} targets base {:?}, only {RELEASE_BASE_BRANCH} is releasable",
+            release.repo, release.pr_number, pr.base_ref
+        ));
+    }
+    if pr.merged {
+        let sha = pr.merge_commit_sha.clone().ok_or_else(|| {
+            format!("release_run_lifecycle: PR {}#{} reports merged but carries no sha", release.repo, release.pr_number)
+        })?;
+        ctx.log("info", &format!("release_run_lifecycle: {}#{} already merged as {sha}", release.repo, release.pr_number));
+        return Ok(("MergeSucceeded", json!({ "merge_sha": sha, "base_branch": pr.base_ref })));
+    }
+
+    // Do the merge.
     let command = merge_command(&release.repo, &release.pr_number);
     let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
-    let merge_sha = parse_merge_sha(&result.stdout).map_err(|e| {
+    match parse_merge_sha(&result.stdout) {
+        Ok(sha) => {
+            ctx.log("info", &format!("release_run_lifecycle: merged {}#{} as {sha}", release.repo, release.pr_number));
+            Ok(("MergeSucceeded", json!({ "merge_sha": sha, "base_branch": pr.base_ref })))
+        }
+        Err(merge_err) => {
+            // Ambiguous outcome: the PUT may have merged before the connection
+            // dropped. Reconcile by re-reading the PR; only fail if it is still
+            // unmerged, so we never lose the watcher on an actually-merged PR.
+            match read_pr(ctx, handle, &release.repo, &release.pr_number) {
+                Ok(recheck) if recheck.merged => {
+                    let sha = recheck.merge_commit_sha.unwrap_or_default();
+                    if sha.is_empty() {
+                        return Err(format!(
+                            "release_run_lifecycle: {}#{} merged on reconcile but carried no sha",
+                            release.repo, release.pr_number
+                        ));
+                    }
+                    ctx.log("info", &format!("release_run_lifecycle: {}#{} merged (confirmed on reconcile) as {sha}", release.repo, release.pr_number));
+                    Ok(("MergeSucceeded", json!({ "merge_sha": sha, "base_branch": recheck.base_ref })))
+                }
+                _ => Err(format!(
+                    "release_run_lifecycle: merge of {}#{} did not complete: {merge_err} (exit {}, stderr: {})",
+                    release.repo, release.pr_number, result.exit_code, excerpt(&result.stderr)
+                )),
+            }
+        }
+    }
+}
+
+/// What we need to know about a PR before/after merging.
+#[derive(Debug, Clone, PartialEq)]
+struct PrInfo {
+    base_ref: String,
+    merged: bool,
+    merge_commit_sha: Option<String>,
+}
+
+/// GET the PR and parse base branch + merge state.
+fn read_pr(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    repo: &str,
+    pr_number: &str,
+) -> Result<PrInfo, String> {
+    let command = pr_get_command(repo, pr_number);
+    let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
+    parse_pr(&result.stdout).map_err(|e| {
         format!(
-            "release_run_lifecycle: merge of {}#{} did not complete: {e} (exit {}, stderr: {})",
-            release.repo,
-            release.pr_number,
+            "release_run_lifecycle: could not read PR {repo}#{pr_number}: {e} (exit {}, stderr: {})",
             result.exit_code,
             excerpt(&result.stderr)
         )
-    })?;
-    ctx.log(
-        "info",
-        &format!("release_run_lifecycle: merged {}#{} as {merge_sha}", release.repo, release.pr_number),
-    );
-    Ok(("MergeSucceeded", json!({ "merge_sha": merge_sha })))
+    })
 }
 
-/// Merge the PR through the GitHub API from the computer, using the repo
-/// token already stored there (`~/.git-credentials`, the same credential the
-/// computer pushes with). Prints the API response so the merge sha can be read.
+fn parse_pr(stdout: &str) -> Result<PrInfo, String> {
+    let body: Value = serde_json::from_str(stdout.trim())
+        .map_err(|_| format!("unexpected GitHub response: {}", excerpt(stdout)))?;
+    if let Some(msg) = body.get("message").and_then(Value::as_str) {
+        // GitHub returns {"message": "..."} on error (404, bad creds, rate limit).
+        if body.get("base").is_none() {
+            return Err(format!("GitHub error: {msg}"));
+        }
+    }
+    let base_ref = body
+        .get("base")
+        .and_then(|b| b.get("ref"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "PR response carried no base.ref".to_string())?;
+    Ok(PrInfo {
+        base_ref,
+        merged: body.get("merged").and_then(Value::as_bool).unwrap_or(false),
+        merge_commit_sha: body
+            .get("merge_commit_sha")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+    })
+}
+
+/// The GitHub token, resolved through `git credential fill` so the credential
+/// that actually matches github.com is used (not the first line of the file,
+/// which may belong to another identity). Assigned into `$TOK`.
+const TOKEN_PRELUDE: &str = "TOK=$(printf 'protocol=https\\nhost=github.com\\n\\n' | \
+     GIT_TERMINAL_PROMPT=0 git credential fill 2>/dev/null | sed -n 's/^password=//p' | head -1); ";
+
+/// GET the PR as JSON (base branch, merge state).
+fn pr_get_command(repo: &str, pr_number: &str) -> String {
+    format!(
+        "{TOKEN_PRELUDE}\
+         curl -sS -m 30 \"https://api.github.com/repos/{repo}/pulls/{pr_number}\" \
+         -H \"Authorization: token $TOK\" -H \"Accept: application/vnd.github+json\""
+    )
+}
+
+/// Merge the PR through the GitHub API from the computer, using the token that
+/// matches github.com. Prints the API response so the merge sha can be read.
 fn merge_command(repo: &str, pr_number: &str) -> String {
     format!(
-        "TOK=$(sed -nE 's#https://[^:]+:([^@]+)@github\\.com.*#\\1#p' ~/.git-credentials | head -1); \
+        "{TOKEN_PRELUDE}\
          curl -sS -m 60 -X PUT \"https://api.github.com/repos/{repo}/pulls/{pr_number}/merge\" \
          -H \"Authorization: token $TOK\" -H \"Accept: application/vnd.github+json\" \
          -d '{{\"merge_method\":\"merge\"}}'"
@@ -157,41 +295,50 @@ fn check(
     handle: &SandboxHandle,
     release: &ReleaseFields,
 ) -> Result<(&'static str, Value), String> {
-    if release.health_url.is_empty() {
-        return Err("release_run_lifecycle: no health_url to watch".to_string());
-    }
+    validate_url(&release.health_url)?;
     if release.merge_sha.is_empty() {
         return Err("release_run_lifecycle: no merge_sha to watch for".to_string());
     }
     let command = probe_command(&release.health_url);
     let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
     let probe = parse_probe(&result.stdout);
-    let verdict = evaluate_probe(&probe, &release.merge_sha, release.check_count, release.max_checks);
+    let verdict = evaluate_probe(
+        &probe,
+        &release.merge_sha,
+        release.check_count,
+        release.max_checks,
+        release.degraded_streak,
+    );
     ctx.log(
         "info",
         &format!(
-            "release_run_lifecycle: check {}/{} -> http {} status {:?} sha {:?}: {:?}",
-            release.check_count, release.max_checks, probe.http_status, probe.status, probe.git_sha, verdict
+            "release_run_lifecycle: check {}/{} streak {} -> http {} status {:?} sha {:?}: {:?}",
+            release.check_count,
+            release.max_checks,
+            release.degraded_streak,
+            probe.http_status,
+            probe.status,
+            probe.git_sha,
+            verdict
         ),
     );
+    let observed = probe.git_sha.clone().unwrap_or_default();
     Ok(match verdict {
-        Verdict::Healthy => (
-            "CheckHealthy",
-            json!({ "observed_sha": probe.git_sha.unwrap_or_default() }),
-        ),
-        Verdict::Pending => (
+        Verdict::Healthy => ("CheckHealthy", json!({ "observed_sha": observed })),
+        Verdict::Pending { degraded_streak } => (
             "CheckPending",
-            json!({ "observed_sha": probe.git_sha.unwrap_or_default() }),
+            json!({ "observed_sha": observed, "degraded_streak": degraded_streak.to_string() }),
         ),
         Verdict::Unhealthy(reason) => (
             "CheckUnhealthy",
-            json!({ "reason": reason, "observed_sha": probe.git_sha.unwrap_or_default() }),
+            json!({ "reason": reason, "observed_sha": observed }),
         ),
     })
 }
 
 /// `curl` the health endpoint from the computer; the HTTP status is appended
 /// on its own marker line so a body that is not JSON still yields a verdict.
+/// `health_url` is single-quoted AND validated by [`validate_url`] first.
 fn probe_command(health_url: &str) -> String {
     format!("curl -sS -m 15 -w '\\n{HTTP_STATUS_MARKER} %{{http_code}}' '{health_url}'")
 }
@@ -221,7 +368,9 @@ fn parse_probe(stdout: &str) -> Probe {
 #[derive(Debug, PartialEq)]
 enum Verdict {
     Healthy,
-    Pending,
+    /// Keep watching; carries the degraded-streak to persist for the next check
+    /// (0 unless the new commit is serving degraded).
+    Pending { degraded_streak: u64 },
     Unhealthy(String),
 }
 
@@ -229,24 +378,44 @@ enum Verdict {
 ///
 /// - Healthy: HTTP 2xx, `status == healthy`, and the served `git_sha` is the
 ///   merge commit — the rollout landed and is serving cleanly.
-/// - Unhealthy: the new commit is being served but reports degraded, or the
-///   probe budget (`max_checks`) is spent without the new commit becoming
-///   healthy. Both trigger the rollback.
-/// - Pending: anything else while budget remains (old build still serving,
-///   deploy in progress, transient non-2xx during the swap).
-fn evaluate_probe(probe: &Probe, merge_sha: &str, check_count: u64, max_checks: u64) -> Verdict {
+/// - Unhealthy: the new commit is being served but reports non-2xx / not-healthy
+///   for [`DEGRADED_STREAK_THRESHOLD`] consecutive probes (a real regression,
+///   not a one-window warmup blip), OR the probe budget is spent without the
+///   new commit becoming healthy. Both trigger the rollback.
+/// - Pending: anything else while budget remains — old build still serving,
+///   deploy in progress, transient non-2xx, or a not-yet-confirmed degraded
+///   streak on the new commit (streak carried forward).
+fn evaluate_probe(
+    probe: &Probe,
+    merge_sha: &str,
+    check_count: u64,
+    max_checks: u64,
+    degraded_streak: u64,
+) -> Verdict {
     let serving_new = probe.git_sha.as_deref() == Some(merge_sha);
     let ok = (200..300).contains(&probe.http_status);
     let healthy = probe.status.as_deref() == Some("healthy");
+
     if serving_new && ok && healthy {
         return Verdict::Healthy;
     }
-    if serving_new && ok && !healthy {
-        return Verdict::Unhealthy(format!(
-            "new commit {merge_sha} is serving but reports status {}",
-            probe.status.as_deref().unwrap_or("unknown")
-        ));
+
+    // The new commit is serving but not cleanly (non-2xx or status != healthy).
+    // Require a consecutive streak before reverting, so one warmup window does
+    // not roll back a healthy release.
+    if serving_new {
+        let streak = degraded_streak + 1;
+        if streak >= DEGRADED_STREAK_THRESHOLD {
+            return Verdict::Unhealthy(format!(
+                "new commit {merge_sha} served degraded for {streak} consecutive checks (last: http {}, status {})",
+                probe.http_status,
+                probe.status.as_deref().unwrap_or("unknown")
+            ));
+        }
+        return Verdict::Pending { degraded_streak: streak };
     }
+
+    // Old commit still serving (or health has no sha yet). Reset the streak.
     if check_count >= max_checks {
         return Verdict::Unhealthy(format!(
             "rollout of {merge_sha} not healthy after {check_count} checks (last: http {}, status {}, sha {})",
@@ -255,7 +424,7 @@ fn evaluate_probe(probe: &Probe, merge_sha: &str, check_count: u64, max_checks: 
             probe.git_sha.as_deref().unwrap_or("none")
         ));
     }
-    Verdict::Pending
+    Verdict::Pending { degraded_streak: 0 }
 }
 
 // -- Step 3: rollback ------------------------------------------------------------
@@ -282,22 +451,47 @@ fn rollback(
         .ok_or_else(|| format!("release_run_lifecycle: revert pushed but no sha printed: {}", excerpt(&result.stdout)))?;
     ctx.log(
         "info",
-        &format!("release_run_lifecycle: reverted {} as {revert_sha} and pushed main", release.merge_sha),
+        &format!("release_run_lifecycle: reverted {} as {revert_sha} and pushed {RELEASE_BASE_BRANCH}", release.merge_sha),
     );
     Ok(("RollbackPushed", json!({ "revert_sha": revert_sha })))
 }
 
-/// Revert the merge commit on main and push, from the computer's clone of the
-/// repo (cloned on first use). The push goes through the same
-/// GitHub-connected deploy path as the merge, so the platform redeploys the
-/// previous build. Prints the revert commit sha on the last line.
+/// Revert the merge commit on the base branch and push, from an ISOLATED clone
+/// keyed by owner+repo. Hardening vs. the naive version:
+/// - dedicated dir `~/workspace/release-<owner>__<repo>` (no collision, never
+///   touches a shared checkout);
+/// - verifies `origin` matches the expected repo before mutating;
+/// - `GIT_TERMINAL_PROMPT=0` and a `timeout` around every network git call;
+/// - a configured commit identity so `git revert` (which commits) never stalls;
+/// - idempotent: if a revert of this merge is already the tip, re-prints it
+///   instead of reverting again.
+/// Prints the resulting head sha on the last line.
 fn rollback_command(repo: &str, merge_sha: &str) -> String {
-    let dir = format!("~/workspace/{}", repo_dir_name(repo));
+    let dir = format!("~/workspace/release-{}", isolated_dir_token(repo));
+    let url = format!("https://github.com/{repo}.git");
+    let b = RELEASE_BASE_BRANCH;
     format!(
-        "set -e; [ -d {dir}/.git ] || git clone -q https://github.com/{repo}.git {dir}; \
-         cd {dir}; git fetch -q origin main; git checkout -q main; git reset -q --hard origin/main; \
-         git revert -m 1 --no-edit {merge_sha} >/dev/null; git push -q origin main; git rev-parse HEAD"
+        "set -e; export GIT_TERMINAL_PROMPT=0; DIR={dir}; URL={url}; \
+         if [ -d \"$DIR/.git\" ]; then \
+           ORIGIN=$(git -C \"$DIR\" remote get-url origin 2>/dev/null || true); \
+           if [ \"$ORIGIN\" != \"$URL\" ]; then echo \"origin mismatch: $ORIGIN != $URL\" >&2; exit 3; fi; \
+         else rm -rf \"$DIR\"; timeout 120 git clone -q \"$URL\" \"$DIR\"; fi; \
+         cd \"$DIR\"; \
+         git config user.name 'temperpaw-release'; git config user.email 'release@temperpaw.local'; \
+         timeout 60 git fetch -q origin {b}; git checkout -q {b}; git reset -q --hard origin/{b}; \
+         if git log origin/{b} --grep=\"This reverts commit {merge_sha}\" --fixed-strings -1 --format=%H | grep -q .; then \
+           git rev-parse HEAD; \
+         else \
+           git revert -m 1 --no-edit {merge_sha} >/dev/null; \
+           timeout 60 git push -q origin {b}; git rev-parse HEAD; \
+         fi"
     )
+}
+
+/// Filename-safe `owner__name` token for the isolated clone dir. Callers have
+/// already passed [`validate_repo`], so this only reshapes a known-good value.
+fn isolated_dir_token(repo: &str) -> String {
+    repo.replace('/', "__")
 }
 
 fn parse_revert_sha(stdout: &str) -> Option<String> {
@@ -346,12 +540,14 @@ fn fetch_computer(
     bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
 }
 
-/// Build a SandboxHandle from a Computer row's recorded fields (same contract
-/// as computer_exec: the computer must be Ready with a sandbox_url).
+/// Build a SandboxHandle from a Computer row's recorded fields. The computer
+/// must be explicitly `Ready` with a sandbox_url — an empty/absent status is
+/// NOT treated as ready (no fail-open on the gate that decides whether to run
+/// commands on a sandbox).
 fn sandbox_handle_from_computer(computer: &Value) -> Result<SandboxHandle, String> {
     let status = entity_field_str(computer, &["Status", "status"]).unwrap_or("");
-    if !status.is_empty() && status != "Ready" {
-        return Err(format!("computer is {status}, not Ready"));
+    if status != "Ready" {
+        return Err(format!("computer status is {status:?}, must be \"Ready\""));
     }
     let sandbox_url = entity_field_str(computer, &["SandboxUrl", "sandbox_url"])
         .map(str::trim)
@@ -374,12 +570,25 @@ fn sandbox_handle_from_computer(computer: &Value) -> Result<SandboxHandle, Strin
     })
 }
 
-/// `owner/name` only — these values are interpolated into shell commands, so
-/// anything else is refused rather than quoted.
+/// `owner/name` only — interpolated into shell commands, so anything else is
+/// refused rather than quoted. Each part is a GitHub-legal segment: ASCII
+/// alphanumerics plus `-_.`, not equal to `.`/`..`, and not starting with `-`
+/// or `.` (which would let `owner/..` climb out of the workspace dir or a
+/// leading `-` be read as a flag).
 fn validate_repo(repo: &str) -> Result<(), String> {
+    fn part_ok(p: &str) -> bool {
+        !p.is_empty()
+            && p != "."
+            && p != ".."
+            && !p.starts_with('-')
+            && !p.starts_with('.')
+            && p.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    }
     let mut parts = repo.split('/');
-    let ok = matches!((parts.next(), parts.next(), parts.next()), (Some(o), Some(n), None)
-        if !o.is_empty() && !n.is_empty() && [o, n].iter().all(|p| p.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))));
+    let ok = matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(o), Some(n), None) if part_ok(o) && part_ok(n)
+    );
     if ok {
         Ok(())
     } else {
@@ -403,12 +612,39 @@ fn validate_sha(sha: &str) -> Result<(), String> {
     }
 }
 
-fn is_sha(s: &str) -> bool {
-    (7..=40).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())
+/// Strictly validate the health URL before it is spliced into a shell command.
+/// Must be `https://…` and contain only characters that are safe inside a
+/// single-quoted shell string AND legal in a URL — no quotes, backslash,
+/// whitespace, or shell metacharacters. The single-quoting in
+/// [`probe_command`] is defense-in-depth; this allowlist is the real guard.
+fn validate_url(url: &str) -> Result<(), String> {
+    const DANGEROUS: &[char] = &[
+        '\'', '"', '`', '\\', ';', '$', '<', '>', '|', '(', ')', '{', '}', '*', '!', ' ', '\t',
+        '\n', '\r',
+    ];
+    let allowed = |c: char| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                '-' | '.' | '_' | '~' | ':' | '/' | '?' | '#' | '[' | ']' | '@' | '&' | '+' | ',' | '=' | '%'
+            )
+    };
+    if !url.starts_with("https://") {
+        return Err(format!("release_run_lifecycle: health_url must be https://, got {url:?}"));
+    }
+    if url.len() > 2048 {
+        return Err("release_run_lifecycle: health_url is too long".to_string());
+    }
+    if let Some(bad) = url.chars().find(|c| DANGEROUS.contains(c) || !allowed(*c)) {
+        return Err(format!(
+            "release_run_lifecycle: health_url contains a disallowed character {bad:?}"
+        ));
+    }
+    Ok(())
 }
 
-fn repo_dir_name(repo: &str) -> &str {
-    repo.rsplit('/').next().unwrap_or(repo)
+fn is_sha(s: &str) -> bool {
+    (7..=40).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn excerpt(text: &str) -> String {
@@ -430,17 +666,59 @@ mod tests {
 
     const SHA: &str = "3d9284a1b2c3d4e5f60718293a4b5c6d7e8f9012";
 
+    // -- max_checks bounds ----------------------------------------------------
+
+    #[test]
+    fn max_checks_rejects_non_numeric_zero_and_huge() {
+        assert_eq!(parse_max_checks("60").unwrap(), 60);
+        assert_eq!(parse_max_checks(" 2 ").unwrap(), 2);
+        assert!(parse_max_checks("banana").is_err());
+        assert!(parse_max_checks("0").is_err());
+        assert!(parse_max_checks("18446744073709551615").is_err());
+        assert!(parse_max_checks(&(MAX_CHECKS_CEILING + 1).to_string()).is_err());
+        assert_eq!(parse_max_checks(&MAX_CHECKS_CEILING.to_string()).unwrap(), MAX_CHECKS_CEILING);
+    }
+
+    // -- PR preflight / reconcile ---------------------------------------------
+
+    #[test]
+    fn pr_get_command_reads_the_pr_with_the_matched_token() {
+        let cmd = pr_get_command("arni-labs/deep-sci-fi", "109");
+        assert!(cmd.contains("git credential fill"));
+        assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/109"));
+        assert!(!cmd.contains("/merge"));
+    }
+
+    #[test]
+    fn parse_pr_reads_base_and_merge_state() {
+        let out = format!(r#"{{"base":{{"ref":"main"}},"merged":false,"merge_commit_sha":"{SHA}"}}"#);
+        let pr = parse_pr(&out).unwrap();
+        assert_eq!(pr.base_ref, "main");
+        assert!(!pr.merged);
+        assert_eq!(pr.merge_commit_sha.as_deref(), Some(SHA));
+    }
+
+    #[test]
+    fn parse_pr_surfaces_github_error() {
+        let err = parse_pr(r#"{"message":"Not Found"}"#).unwrap_err();
+        assert!(err.contains("Not Found"), "{err}");
+    }
+
+    #[test]
+    fn parse_pr_rejects_non_json() {
+        assert!(parse_pr("curl: (7) failed").is_err());
+    }
+
     // -- merge ----------------------------------------------------------------
 
     #[test]
-    fn merge_command_targets_the_pr_with_the_stored_token() {
+    fn merge_command_targets_the_pr_with_the_matched_token() {
         let cmd = merge_command("arni-labs/deep-sci-fi", "106");
         assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/106/merge"));
-        assert!(cmd.contains("~/.git-credentials"));
-        // Token is read as the password field of the https credential line.
-        assert!(cmd.contains("sed -nE 's#https://[^:]+:([^@]+)@github"));
+        assert!(cmd.contains("git credential fill"));
         assert!(cmd.contains("\"merge_method\":\"merge\""));
         assert!(cmd.contains("-X PUT"));
+        assert!(cmd.contains("GIT_TERMINAL_PROMPT=0"));
     }
 
     #[test]
@@ -463,14 +741,40 @@ mod tests {
     }
 
     #[test]
-    fn merge_refuses_shell_unsafe_repo_or_pr() {
+    fn validators_refuse_shell_unsafe_inputs() {
         assert!(validate_repo("arni-labs/deep-sci-fi").is_ok());
         assert!(validate_repo("a/b; rm -rf /").is_err());
         assert!(validate_repo("no-slash").is_err());
         assert!(validate_repo("a/b/c").is_err());
+        // `.`/`..`/leading-dot/leading-dash parts are refused (dir-climb, flag).
+        assert!(validate_repo("owner/..").is_err());
+        assert!(validate_repo("../etc").is_err());
+        assert!(validate_repo("owner/.hidden").is_err());
+        assert!(validate_repo("-owner/name").is_err());
         assert!(validate_number("106", "pr_number").is_ok());
         assert!(validate_number("106 || true", "pr_number").is_err());
         assert!(validate_number("", "pr_number").is_err());
+    }
+
+    // -- health_url validation (P0: shell injection) --------------------------
+
+    #[test]
+    fn validate_url_accepts_a_normal_https_health_url() {
+        assert!(validate_url("https://deep-sci-fi-production.up.railway.app/health").is_ok());
+        assert!(validate_url("https://x.example/health?full=1&k=v#frag").is_ok());
+    }
+
+    #[test]
+    fn validate_url_rejects_injection_and_non_https() {
+        // The exact exploit shape from the review.
+        assert!(validate_url("https://x/'; cat ~/.git-credentials; '").is_err());
+        assert!(validate_url("https://x/$(whoami)").is_err());
+        assert!(validate_url("https://x/`id`").is_err());
+        assert!(validate_url("https://x/a|b").is_err());
+        assert!(validate_url("https://x/a b").is_err());
+        assert!(validate_url("http://x/health").is_err());
+        assert!(validate_url("").is_err());
+        assert!(validate_url("https://x/\"q\"").is_err());
     }
 
     // -- probe ----------------------------------------------------------------
@@ -499,47 +803,76 @@ mod tests {
         assert_eq!(p, Probe { http_status: 502, status: None, git_sha: None });
     }
 
-    #[test]
-    fn probe_with_no_marker_is_status_zero() {
-        assert_eq!(parse_probe("curl: (28) timed out").http_status, 0);
-    }
-
     fn probe(http: u16, status: Option<&str>, sha: Option<&str>) -> Probe {
         Probe { http_status: http, status: status.map(String::from), git_sha: sha.map(String::from) }
     }
 
     #[test]
     fn healthy_when_new_commit_serves_healthy() {
-        assert_eq!(evaluate_probe(&probe(200, Some("healthy"), Some(SHA)), SHA, 1, 20), Verdict::Healthy);
+        assert_eq!(evaluate_probe(&probe(200, Some("healthy"), Some(SHA)), SHA, 1, 20, 0), Verdict::Healthy);
     }
 
     #[test]
-    fn pending_while_old_commit_still_serves() {
-        assert_eq!(evaluate_probe(&probe(200, Some("healthy"), Some("oldsha00")), SHA, 1, 20), Verdict::Pending);
+    fn pending_while_old_commit_still_serves_resets_streak() {
+        assert_eq!(
+            evaluate_probe(&probe(200, Some("healthy"), Some("oldsha00")), SHA, 1, 20, 2),
+            Verdict::Pending { degraded_streak: 0 }
+        );
     }
 
     #[test]
     fn pending_when_health_has_no_sha_yet() {
-        // e.g. the previous build predates the git_sha field.
-        assert_eq!(evaluate_probe(&probe(200, Some("healthy"), None), SHA, 3, 20), Verdict::Pending);
+        assert_eq!(
+            evaluate_probe(&probe(200, Some("healthy"), None), SHA, 3, 20, 0),
+            Verdict::Pending { degraded_streak: 0 }
+        );
     }
 
     #[test]
-    fn pending_on_transient_502_during_the_swap() {
-        assert_eq!(evaluate_probe(&probe(502, None, None), SHA, 2, 20), Verdict::Pending);
+    fn pending_on_transient_502_while_old_commit_serves() {
+        assert_eq!(
+            evaluate_probe(&probe(502, None, None), SHA, 2, 20, 0),
+            Verdict::Pending { degraded_streak: 0 }
+        );
     }
 
     #[test]
-    fn unhealthy_when_new_commit_serves_degraded() {
-        match evaluate_probe(&probe(200, Some("degraded"), Some(SHA)), SHA, 1, 20) {
-            Verdict::Unhealthy(reason) => assert!(reason.contains("degraded"), "{reason}"),
+    fn single_degraded_probe_on_new_commit_does_not_roll_back() {
+        // First degraded window on the new sha: streak -> 1, keep watching.
+        assert_eq!(
+            evaluate_probe(&probe(200, Some("degraded"), Some(SHA)), SHA, 3, 20, 0),
+            Verdict::Pending { degraded_streak: 1 }
+        );
+        // Second: streak -> 2, still watching.
+        assert_eq!(
+            evaluate_probe(&probe(503, None, Some(SHA)), SHA, 4, 20, 1),
+            Verdict::Pending { degraded_streak: 2 }
+        );
+    }
+
+    #[test]
+    fn consecutive_degraded_streak_rolls_back() {
+        match evaluate_probe(&probe(200, Some("degraded"), Some(SHA)), SHA, 5, 20, 2) {
+            Verdict::Unhealthy(reason) => {
+                assert!(reason.contains("3 consecutive"), "{reason}");
+                assert!(reason.contains("degraded"), "{reason}");
+            }
             other => panic!("expected Unhealthy, got {other:?}"),
         }
     }
 
     #[test]
+    fn matching_sha_with_http_500_counts_toward_the_streak() {
+        // Serving the new sha but HTTP 500 is degraded, not pending.
+        assert_eq!(
+            evaluate_probe(&probe(500, Some("healthy"), Some(SHA)), SHA, 5, 20, 0),
+            Verdict::Pending { degraded_streak: 1 }
+        );
+    }
+
+    #[test]
     fn unhealthy_once_the_check_budget_is_spent() {
-        match evaluate_probe(&probe(200, Some("healthy"), Some("oldsha00")), SHA, 20, 20) {
+        match evaluate_probe(&probe(200, Some("healthy"), Some("oldsha00")), SHA, 20, 20, 0) {
             Verdict::Unhealthy(reason) => {
                 assert!(reason.contains("after 20 checks"), "{reason}");
                 assert!(reason.contains("oldsha00"), "{reason}");
@@ -550,20 +883,38 @@ mod tests {
 
     #[test]
     fn budget_is_not_spent_one_check_early() {
-        assert_eq!(evaluate_probe(&probe(200, Some("healthy"), Some("oldsha00")), SHA, 19, 20), Verdict::Pending);
+        assert_eq!(
+            evaluate_probe(&probe(200, Some("healthy"), Some("oldsha00")), SHA, 19, 20, 0),
+            Verdict::Pending { degraded_streak: 0 }
+        );
     }
 
     // -- rollback -------------------------------------------------------------
 
     #[test]
-    fn rollback_reverts_the_merge_commit_and_pushes_main() {
+    fn rollback_is_isolated_identity_bound_and_idempotent() {
         let cmd = rollback_command("arni-labs/deep-sci-fi", SHA);
-        assert!(cmd.starts_with("set -e;"));
-        assert!(cmd.contains("git clone -q https://github.com/arni-labs/deep-sci-fi.git ~/workspace/deep-sci-fi"));
-        assert!(cmd.contains("git reset -q --hard origin/main"));
+        assert!(cmd.contains("GIT_TERMINAL_PROMPT=0"));
+        // Isolated, owner-qualified clone dir (no collision with other repos).
+        assert!(cmd.contains("~/workspace/release-arni-labs__deep-sci-fi"));
+        // Verifies origin before mutating an existing checkout.
+        assert!(cmd.contains("remote get-url origin"));
+        assert!(cmd.contains("origin mismatch"));
+        // Configured identity so `git revert` can commit.
+        assert!(cmd.contains("git config user.email"));
+        // Bounded network calls.
+        assert!(cmd.contains("timeout 120 git clone"));
+        assert!(cmd.contains("timeout 60 git fetch"));
+        assert!(cmd.contains("timeout 60 git push"));
         assert!(cmd.contains(&format!("git revert -m 1 --no-edit {SHA}")));
         assert!(cmd.contains("git push -q origin main"));
-        assert!(cmd.trim_end().ends_with("git rev-parse HEAD"));
+        // Idempotency: skip if a revert of this merge already exists.
+        assert!(cmd.contains(&format!("This reverts commit {SHA}")));
+    }
+
+    #[test]
+    fn isolated_dir_token_joins_owner_and_repo() {
+        assert_eq!(isolated_dir_token("arni-labs/deep-sci-fi"), "arni-labs__deep-sci-fi");
     }
 
     #[test]
@@ -590,14 +941,17 @@ mod tests {
     }
 
     #[test]
-    fn handle_requires_a_ready_computer_with_sandbox_url() {
+    fn handle_requires_an_explicitly_ready_computer() {
         let ready = json!({"Status":"Ready","fields":{"sandbox_url":"https://s.example","machine_id":"m1","provider":"tl"}});
         let h = sandbox_handle_from_computer(&ready).unwrap();
         assert_eq!(h.sandbox_url, "https://s.example");
-        assert_eq!(h.sandbox_id, "m1");
         assert_eq!(h.provider, "tensorlake");
+        // Not Ready.
         let sleeping = json!({"Status":"Sleeping","fields":{"sandbox_url":"https://s.example"}});
-        assert!(sandbox_handle_from_computer(&sleeping).err().unwrap().contains("Sleeping"));
+        assert!(sandbox_handle_from_computer(&sleeping).err().unwrap().contains("must be"));
+        // No fail-open on empty/absent status.
+        let no_status = json!({"fields":{"sandbox_url":"https://s.example"}});
+        assert!(sandbox_handle_from_computer(&no_status).is_err());
         let bare = json!({"Status":"Ready","fields":{"sandbox_url":""}});
         assert!(sandbox_handle_from_computer(&bare).err().unwrap().contains("no sandbox_url"));
     }

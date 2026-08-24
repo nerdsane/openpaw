@@ -399,9 +399,14 @@ temper_api_url = "{secret:temper_api_url}"
 # ADR-0005: a completed cycle with a configured release target creates its
 # ReleaseRun declaratively — merge, rollout watch, and rollback then run as
 # ReleaseRun transitions through the computer. No WASM dispatches this.
+#
+# `principal` elevates the create + Request to the patrol-release-service
+# system principal so the ReleaseRun surface can be locked to that service in
+# Cedar (ordinary agents cannot create a ReleaseRun or fire Request directly).
 [[action.triggers]]
 name = "work_cycle_completed_requests_release"
 kind = "entity"
+principal = "patrol-release-service"
 to_state = "Complete"
 target_entity = "ReleaseRun"
 target_action = "Request"

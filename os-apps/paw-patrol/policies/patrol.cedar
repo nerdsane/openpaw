@@ -421,10 +421,15 @@ permit(
 };
 
 // ReleaseRun: the governed release of a completed WorkCycle through the
-// computer (merge → watch rollout → git-revert rollback). Any Agent may
-// create/read/list and fire Request; the callbacks are dispatched by the
-// release_run_lifecycle WASM running as the system service, and the kernel
-// timer fires Check.
+// computer (merge → watch rollout → git-revert rollback).
+//
+// The release surface is NOT open to ordinary agents (a merge to main is a
+// production change gated by the WorkCycle's review/proof/approval loop). It
+// is created and driven by the `patrol-release-service` principal, which is
+// the elevation the declarative WorkCycle.Complete → ReleaseRun.Request
+// trigger runs under. Callbacks + the timer-fired Check are dispatched by the
+// release_run_lifecycle WASM / kernel timer as a service (patrol-release-service
+// or the system runtime). read/list stay open within the tenant.
 permit(
   principal is Admin,
   action,
@@ -437,16 +442,22 @@ permit(
   resource is ReleaseRun
 );
 
+// Create the run and fire Request — ONLY the release service (via the
+// Complete trigger's principal elevation). No ordinary-Agent grant.
 permit(
-  principal is Agent,
+  principal,
   action in [
     Action::"create",
-    Action::"ReleaseRun.Request", Action::"Request",
-    Action::"ReleaseRun.Fail", Action::"Fail"
+    Action::"ReleaseRun.Request", Action::"Request"
   ],
   resource is ReleaseRun
-);
+) when {
+  principal.agent_type == "patrol-release-service"
+};
 
+// Callbacks (dispatched by the WASM) + the timer-fired Check + Fail. These run
+// as a service principal — either the inherited release principal or the
+// system runtime that fires state_timeouts — never as an ordinary agent.
 permit(
   principal,
   action in [
@@ -460,10 +471,13 @@ permit(
   ],
   resource is ReleaseRun
 ) when {
-  principal.agent_type == "system"
+  principal.agent_type == "system" ||
+  principal.agent_type == "patrol-release-service"
 };
 
-// WorkCycle release configuration and the declarative Complete → ReleaseRun.Request trigger.
+// WorkCycle release configuration — restricted to the system/patrol surface,
+// a supervisor, or an admin (not any agent). Naming a production release
+// target is part of the governed loop, not an open agent action.
 permit(
   principal,
   action in [
@@ -471,13 +485,20 @@ permit(
   ],
   resource is WorkCycle
 ) when {
-  principal is Agent || principal is Admin
+  principal is Admin ||
+  (principal is Agent && (
+    principal.agent_type == "system" ||
+    principal.agent_type == "patrol-release-service" ||
+    principal.agent_type == "supervisor"
+  ))
 };
 
 // release_run_lifecycle needs HTTP (Computer row loopback, sandbox data
-// plane, health_url probe) and secrets (temper_api_url, sandbox key).
+// plane, health_url probe) and secrets (temper_api_url, sandbox key). Gated
+// purely on the module identity — the side-effect surface is fixed by the
+// WASM, and the module runs as a service principal (not necessarily `is Agent`).
 permit(
-  principal is Agent,
+  principal,
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
@@ -485,7 +506,7 @@ permit(
 };
 
 permit(
-  principal is Agent,
+  principal,
   action == Action::"access_secret",
   resource is Secret
 ) when {
