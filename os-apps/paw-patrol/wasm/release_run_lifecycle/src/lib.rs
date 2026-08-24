@@ -123,7 +123,7 @@ fn merge(
 /// computer pushes with). Prints the API response so the merge sha can be read.
 fn merge_command(repo: &str, pr_number: &str) -> String {
     format!(
-        "TOK=$(grep -oE '[^/:]+:[^@]+@github.com' ~/.git-credentials | head -1 | cut -d: -f2 | cut -d@ -f1); \
+        "TOK=$(sed -nE 's#https://[^:]+:([^@]+)@github\\.com.*#\\1#p' ~/.git-credentials | head -1); \
          curl -sS -m 60 -X PUT \"https://api.github.com/repos/{repo}/pulls/{pr_number}/merge\" \
          -H \"Authorization: token $TOK\" -H \"Accept: application/vnd.github+json\" \
          -d '{{\"merge_method\":\"merge\"}}'"
@@ -437,6 +437,8 @@ mod tests {
         let cmd = merge_command("arni-labs/deep-sci-fi", "106");
         assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/106/merge"));
         assert!(cmd.contains("~/.git-credentials"));
+        // Token is read as the password field of the https credential line.
+        assert!(cmd.contains("sed -nE 's#https://[^:]+:([^@]+)@github"));
         assert!(cmd.contains("\"merge_method\":\"merge\""));
         assert!(cmd.contains("-X PUT"));
     }
