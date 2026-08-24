@@ -711,11 +711,42 @@ fn bearer_headers_json(api_key: &str) -> Vec<(String, String)> {
     h
 }
 
-/// Generate a unique run ID for output-redirection files.
-fn unique_run_id() -> String {
+/// A capture id that is unique across concurrent exec invocations.
+///
+/// The temp files `/tmp/.paw-{out,err,rc}-<id>` must not collide between two
+/// execs running on the same sandbox at once. The old scheme used only a
+/// process-local `AtomicU32` starting at 0 — but every trigger dispatch is a
+/// fresh WASM instance, so the counter reset to 0 each time and every exec
+/// reused `/tmp/.paw-out-00000000`. Two concurrent execs then crossed each
+/// other's stdout (and raced the cleanup delete). Scope the id to the calling
+/// entity — unique per entity, so two different entities' execs never collide —
+/// and add the host clock plus a per-instance counter to separate repeated
+/// execs from the same entity/instance. (ARN-401)
+fn unique_run_id(ctx: &Context) -> String {
     use core::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
-    format!("{:08x}", COUNTER.fetch_add(1, Ordering::Relaxed))
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let now = Context::get_time_millis();
+    capture_run_id(&ctx.entity_id, now, seq)
+}
+
+/// Build the capture id from the entity id, host clock, and per-instance
+/// counter. Pure (testable). The entity id is sanitized to a filename-safe
+/// token so it cannot escape `/tmp/.paw-*` or break the redirection; an empty
+/// entity id falls back to `exec`.
+fn capture_run_id(entity_id: &str, now_millis: i64, seq: u32) -> String {
+    let entity: String = entity_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let entity = if entity.is_empty() { "exec" } else { &entity };
+    format!("{entity}-{now_millis:x}-{seq:08x}")
 }
 
 // ===========================================================================
@@ -822,7 +853,7 @@ fn tensorlake_exec(
     command: &str,
     _workdir: &str,
 ) -> Result<ExecResult, String> {
-    let run_id = unique_run_id();
+    let run_id = unique_run_id(ctx);
     let out_file = format!("/tmp/.paw-out-{run_id}");
     let err_file = format!("/tmp/.paw-err-{run_id}");
     let rc_file = format!("/tmp/.paw-rc-{run_id}");
@@ -1166,6 +1197,41 @@ fn shell_single_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_id_is_scoped_to_the_entity() {
+        // Two different entities executing concurrently (same clock, same
+        // per-instance seq of 0 because each is a fresh WASM instance) must not
+        // collide — this is the ARN-401 crossing bug.
+        let a = capture_run_id("rr-healthy-112", 1000, 0);
+        let b = capture_run_id("rr-rollback-113", 1000, 0);
+        assert_ne!(a, b);
+        assert!(a.starts_with("rr-healthy-112-"));
+        assert!(b.starts_with("rr-rollback-113-"));
+        // And the /tmp path that gets built from it differs.
+        assert_ne!(format!("/tmp/.paw-out-{a}"), format!("/tmp/.paw-out-{b}"));
+    }
+
+    #[test]
+    fn capture_id_separates_repeats_from_one_entity() {
+        // Same entity, later clock or higher counter → distinct id.
+        assert_ne!(capture_run_id("e", 1000, 0), capture_run_id("e", 1000, 1));
+        assert_ne!(capture_run_id("e", 1000, 0), capture_run_id("e", 2000, 0));
+    }
+
+    #[test]
+    fn capture_id_sanitizes_unsafe_entity_ids() {
+        // Path separators / spaces / quotes cannot escape /tmp/.paw-* or break
+        // the shell redirection.
+        let id = capture_run_id("../../etc/passwd '; rm -rf ~", 42, 7);
+        assert!(!id.contains('/'), "{id}");
+        assert!(!id.contains(' '), "{id}");
+        assert!(!id.contains('\''), "{id}");
+        assert!(!id.contains('.'), "{id}");
+        assert!(id.ends_with("-00000007"));
+        // Empty entity id falls back to a safe token.
+        assert!(capture_run_id("", 1, 0).starts_with("exec-"));
+    }
 
     #[test]
     fn test_normalize_sandbox_provider() {
