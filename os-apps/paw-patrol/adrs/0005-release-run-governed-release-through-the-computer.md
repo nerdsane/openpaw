@@ -78,19 +78,36 @@ Three changes from the adversarial re-review, beyond the first-round P0 fixes:
   `release_expected_head_sha`, carried on `Request`) binds the release to a
   specific reviewed commit; the merge refuses unless the PR head still matches.
   The merged head is recorded (`head_sha`, on `MergeSucceeded`) for audit.
+  The merge PUT pins only the head, not the base, so after merging `merge()`
+  re-reads the PR and refuses to emit `MergeSucceeded` unless it is now merged
+  into `main` at the bound head (base-branch TOCTOU: a maintainer could retarget
+  the PR's base between preflight and PUT; GitHub's merge API exposes no
+  expected-base). The same re-read reconciles an ambiguous PUT whose connection
+  dropped after the merge landed.
 - **Rollback isolation.** The revert runs in a fresh `mktemp -d` checkout per
   attempt (never a reused, potentially-poisoned dir), with `GIT_CONFIG_GLOBAL`/
   `GIT_CONFIG_SYSTEM` neutralized and `core.hooksPath=/dev/null`,
   `commit.gpgsign=false` so a planted global config or repo hook cannot execute
-  under the release workflow. The token is supplied explicitly in the clone/push
-  URL (the ambient credential helper is off). Idempotency is tip-only (HEAD's
-  message), so a stale historical revert never skips a needed rollback.
+  under the release workflow. The token is supplied per-invocation via an
+  `http.extraHeader` Authorization header (never written into the remote URL or
+  `.git/config`, so it cannot leak through a config left behind by a kill).
+  Idempotency is tip-only (HEAD's message), so a stale historical revert never
+  skips a needed rollback. The revert adapts to the merge shape — `-m 1` for a
+  true merge commit, plain `git revert` for a single-parent (squash/rebase)
+  merge reconciled from an out-of-band merge — so no merge shape is
+  un-rollbackable.
 - **Per-repo serialization (ARN-397, reject).** Before merging, `merge()` reads
-  other ReleaseRuns for the same repo and refuses (→ Fail) if any is active
-  (Requested/Merging/Watching/Unhealthy). This is a read + the run's own Fail —
-  no cross-entity dispatch. Residual TOCTOU (two Requests racing the check
-  before either commits Merging) needs an atomic per-repo lane entity — the
-  stronger form of ARN-397, tracked separately.
+  other ReleaseRuns and refuses (→ Fail) if any for the same repo is active
+  (Requested/Merging/Watching/Unhealthy). The query filters on active status
+  only and matches the repo case-insensitively in code: the kernel's OData `eq`
+  is case-sensitive, so pushing `repo eq …` server-side would drop an active
+  `Owner/Repo` row before a new `owner/repo` run could be caught (GitHub
+  owner/repo is case-insensitive — the same target). The active set is tiny
+  (≤1 per repo), so status-only is page-safe, and the read fails closed on
+  pagination or a malformed response. This is a read + the run's own Fail — no
+  cross-entity dispatch. Residual TOCTOU (two Requests racing the check before
+  either commits Merging) needs an atomic per-repo lane entity — the stronger
+  form of ARN-397, tracked separately.
 
 Known residual (kernel, ARN-396): `state_timeout`s are in-memory and arm only
 on dispatch, so a `Requested`/`Watching` run can still hang across a restart

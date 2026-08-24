@@ -175,54 +175,61 @@ fn merge(
         ));
     }
     if pr.merged {
-        let sha = pr.merge_commit_sha.clone().ok_or_else(|| {
-            format!("release_run_lifecycle: PR {}#{} reports merged but carries no sha", release.repo, release.pr_number)
-        })?;
-        ctx.log("info", &format!("release_run_lifecycle: {}#{} already merged as {sha}", release.repo, release.pr_number));
-        return Ok(merge_succeeded(sha, pr.base_ref, pr.head_sha));
+        // Already merged before we acted (idempotent replay or out-of-band).
+        // base (checked above) and head-binding are re-validated in the gate.
+        ctx.log("info", &format!("release_run_lifecycle: {}#{} already merged", release.repo, release.pr_number));
+        return confirm_merged_pr(&pr, release);
     }
 
     // Do the merge, pinning the head sha we just read: GitHub refuses (405/409)
     // if the head moved since, closing the read→PUT TOCTOU (commit-binding).
     let command = merge_command(&release.repo, &release.pr_number, &pr.head_sha);
     let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
-    match parse_merge_sha(&result.stdout) {
-        Ok(sha) => {
-            ctx.log("info", &format!("release_run_lifecycle: merged {}#{} as {sha}", release.repo, release.pr_number));
-            Ok(merge_succeeded(sha, pr.base_ref, pr.head_sha))
-        }
-        Err(merge_err) => {
-            // Ambiguous outcome: the PUT may have merged before the connection
-            // dropped. Reconcile by re-reading the PR; only fail if it is still
-            // unmerged, so we never lose the watcher on an actually-merged PR.
-            match read_pr(ctx, handle, &release.repo, &release.pr_number) {
-                Ok(recheck) if recheck.merged => {
-                    // Enforce commit-binding on the reconcile path too: an
-                    // out-of-band merge of an unreviewed head (that our pinned
-                    // PUT just refused) must NOT be blessed as a governed release.
-                    if !head_binding_ok(&release.expected_head_sha, &recheck.head_sha) {
-                        return Err(format!(
-                            "release_run_lifecycle: {}#{} was merged out-of-band at head {:?}, expected reviewed head {:?} — refusing to watch an unreviewed release",
-                            release.repo, release.pr_number, recheck.head_sha, release.expected_head_sha
-                        ));
-                    }
-                    let sha = recheck.merge_commit_sha.unwrap_or_default();
-                    if sha.is_empty() {
-                        return Err(format!(
-                            "release_run_lifecycle: {}#{} merged on reconcile but carried no sha",
-                            release.repo, release.pr_number
-                        ));
-                    }
-                    ctx.log("info", &format!("release_run_lifecycle: {}#{} merged (confirmed on reconcile) as {sha}", release.repo, release.pr_number));
-                    Ok(merge_succeeded(sha, recheck.base_ref, recheck.head_sha))
-                }
-                _ => Err(format!(
-                    "release_run_lifecycle: merge of {}#{} did not complete: {merge_err} (exit {}, stderr: {})",
-                    release.repo, release.pr_number, result.exit_code, excerpt(&result.stderr)
-                )),
-            }
-        }
+    let merge_diag = parse_merge_sha(&result.stdout).err();
+
+    // Authoritative post-merge confirm: re-read the PR and require it is NOW
+    // merged into `main` at the bound head with a valid merge sha. GitHub's merge
+    // PUT pins only the head, not the base — a maintainer can retarget the PR
+    // between our preflight read and the PUT, so the base MUST be re-validated
+    // after the merge (base-branch TOCTOU). This re-read also reconciles an
+    // ambiguous PUT (the merge landed but the connection dropped): we never lose
+    // the watcher on an actually-merged PR, and never bless a merge into a
+    // non-main base or an unreviewed head.
+    let final_pr = read_pr(ctx, handle, &release.repo, &release.pr_number)?;
+    if !final_pr.merged {
+        let diag = merge_diag.unwrap_or_else(|| "PR is still open after the merge attempt".to_string());
+        return Err(format!(
+            "release_run_lifecycle: merge of {}#{} did not complete: {diag} (exit {}, stderr: {})",
+            release.repo, release.pr_number, result.exit_code, excerpt(&result.stderr)
+        ));
     }
+    ctx.log("info", &format!("release_run_lifecycle: merged {}#{} (confirmed on re-read)", release.repo, release.pr_number));
+    confirm_merged_pr(&final_pr, release)
+}
+
+/// Gate a merged PR before emitting MergeSucceeded: it must be merged into
+/// `main` (base re-validated post-merge — the PUT pins only the head, so a
+/// retargeted base is caught here, not silently watched/reverted), at the
+/// reviewed head (commit-binding), with a valid 40-hex merge sha to watch and
+/// revert.
+fn confirm_merged_pr(pr: &PrInfo, release: &ReleaseFields) -> Result<(&'static str, Value), String> {
+    if pr.base_ref != RELEASE_BASE_BRANCH {
+        return Err(format!(
+            "release_run_lifecycle: PR {}#{} merged into base {:?}, only {RELEASE_BASE_BRANCH} is releasable (base retargeted after preflight)",
+            release.repo, release.pr_number, pr.base_ref
+        ));
+    }
+    if !head_binding_ok(&release.expected_head_sha, &pr.head_sha) {
+        return Err(format!(
+            "release_run_lifecycle: PR {}#{} merged at head {:?}, expected reviewed head {:?} — refusing to watch an unreviewed release",
+            release.repo, release.pr_number, pr.head_sha, release.expected_head_sha
+        ));
+    }
+    let sha = pr.merge_commit_sha.clone().ok_or_else(|| {
+        format!("release_run_lifecycle: PR {}#{} reports merged but carries no sha", release.repo, release.pr_number)
+    })?;
+    validate_sha(&sha)?;
+    Ok(merge_succeeded(sha, pr.base_ref.clone(), pr.head_sha.clone()))
 }
 
 /// Commit-binding predicate: an empty expected head is unbound (any head ok);
@@ -354,49 +361,57 @@ fn active_release_conflict(
     repo: &str,
 ) -> Result<Option<String>, String> {
     let headers = odata_headers(ctx, &ctx.tenant, fields);
-    // Push the active-status predicate INTO the filter so the DB returns only
-    // in-flight rows. A bare `repo eq …` returns ALL runs (incl. hundreds of
-    // terminal ones) and the kernel pages at 100 ordered by entity_id ASC
-    // (UUIDv7 = time-ordered) — the in-flight run would then fall onto page 2
-    // and the guard would silently fail OPEN (Fable F1).
-    let escaped = bounded_reads::odata_escape(repo);
+    // Filter on the active-status predicate ONLY, and match the repo
+    // case-insensitively in Rust (below). We deliberately do NOT push
+    // `repo eq …` into the OData filter: the kernel's `eq` is case-sensitive, so
+    // an active `Owner/Repo` row would be filtered out server-side before the
+    // case-insensitive compare could catch a new `owner/repo` run — GitHub
+    // owner/repo is case-insensitive, so that is the SAME target and the guard
+    // must not miss it. The active set across ALL repos is tiny (ARN-397 keeps
+    // ≤1 active per repo), so status-only is a small, page-safe query. A bare
+    // `repo eq …` also returned hundreds of terminal rows and paged the in-flight
+    // one onto page 2 (Fable F1) — status-only avoids that too.
     let status_clause = ACTIVE_RELEASE_STATES
         .iter()
         .map(|s| format!("status eq '{s}'"))
         .collect::<Vec<_>>()
         .join(" or ");
-    let path = format!("/tdata/ReleaseRuns?$filter=repo eq '{escaped}' and ({status_clause})");
+    let path = format!("/tdata/ReleaseRuns?$filter={status_clause}");
     let resp = bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
         .map_err(|e| format!("release_run_lifecycle: could not check for concurrent releases of {repo}: {e}"))?;
     // Fail CLOSED if the result is paginated: a truncated page could hide the
     // conflicting run, so refuse rather than risk running two releases at once.
     if resp.get("@odata.nextLink").is_some() {
         return Err(format!(
-            "release_run_lifecycle: too many active ReleaseRuns for {repo} to check safely (paginated); refusing to start (ARN-397)"
+            "release_run_lifecycle: too many active ReleaseRuns to check safely (paginated); refusing to start (ARN-397)"
         ));
     }
-    let runs = parse_release_runs(&resp);
+    let runs = parse_release_runs(&resp)?;
     Ok(conflicting_active_release(&runs, &ctx.entity_id, repo).map(str::to_string))
 }
 
-/// Extract (id, repo, status) from an OData ReleaseRuns list response.
-fn parse_release_runs(resp: &Value) -> Vec<(String, String, String)> {
-    resp.get("value")
+/// Extract (id, repo, status) from an OData ReleaseRuns list response. Fails
+/// CLOSED: a 200 with no `value` array, or any row missing an id, is an error
+/// (not an empty list) — otherwise a malformed/unexpected response would let a
+/// concurrent release through (Codex-1 R4 P2).
+fn parse_release_runs(resp: &Value) -> Result<Vec<(String, String, String)>, String> {
+    let arr = resp
+        .get("value")
         .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|e| {
-                    // Match bounded_reads::entity_id's key order — a row that
-                    // missed field-stamping must not be silently dropped (which
-                    // would fail OPEN on the conflict check).
-                    let id = entity_field_str(e, &["entity_id", "Id", "id"])?.to_string();
-                    let repo = entity_field_str(e, &["repo", "Repo"]).unwrap_or("").to_string();
-                    let status = entity_field_str(e, &["Status", "status"]).unwrap_or("").to_string();
-                    Some((id, repo, status))
-                })
-                .collect()
+        .ok_or_else(|| "release_run_lifecycle: ReleaseRuns response carried no `value` array".to_string())?;
+    arr.iter()
+        .map(|e| {
+            // Match bounded_reads::entity_id's key order — a row that missed
+            // field-stamping must fail the check, not be silently dropped (which
+            // would fail OPEN on the conflict guard).
+            let id = entity_field_str(e, &["entity_id", "Id", "id"])
+                .ok_or_else(|| "release_run_lifecycle: a ReleaseRun row carried no id (cannot verify concurrent releases)".to_string())?
+                .to_string();
+            let repo = entity_field_str(e, &["repo", "Repo"]).unwrap_or("").to_string();
+            let status = entity_field_str(e, &["Status", "status"]).unwrap_or("").to_string();
+            Ok((id, repo, status))
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Pure: given other runs and this run's id+repo, return a conflicting active
@@ -564,9 +579,12 @@ fn evaluate_probe(
     // not roll back a healthy release.
     if serving_new {
         let streak = degraded_streak + 1;
-        if streak >= DEGRADED_STREAK_THRESHOLD {
+        // Roll back on a confirmed degraded streak OR when the probe budget is
+        // spent — so max_checks is a true upper bound even on the degraded path
+        // (with a small max_checks the streak alone might never be reached).
+        if streak >= DEGRADED_STREAK_THRESHOLD || check_count >= max_checks {
             return Verdict::Unhealthy(format!(
-                "new commit {merge_sha} served degraded for {streak} consecutive checks (last: http {}, status {})",
+                "new commit {merge_sha} served degraded for {streak} consecutive checks by check {check_count}/{max_checks} (last: http {}, status {})",
                 probe.http_status,
                 probe.status.as_deref().unwrap_or("unknown")
             ));
@@ -625,8 +643,14 @@ fn rollback(
 ///   rewrites, `core.hooksPath`, `gpg.program`); `-c core.hooksPath=/dev/null
 ///   -c commit.gpgsign=false` disable repo hooks and signing on clone/revert;
 /// - because the ambient credential helper is now off, the token is supplied
-///   explicitly in the clone/push URL (`$TOK` is a runtime var, not a literal
-///   in the stored command);
+///   per-invocation via an `http.extraHeader` Authorization header (`$AUTH`, a
+///   runtime var, not a literal in the stored command) — it is NEVER written
+///   into the remote URL or `$DIR/.git/config`;
+/// - the revert adapts to the merge shape: `git revert -m 1` for a true merge
+///   commit (2 parents), plain `git revert` for a single-parent commit (a PR
+///   merged out-of-band via squash/rebase and reconciled) — `-m 1` on a
+///   single-parent commit errors, so a fixed `-m 1` could make such a rollback
+///   impossible (Codex-2 R4 P1);
 /// - `GIT_TERMINAL_PROMPT=0` and a `timeout` around every network git call;
 /// - a configured commit identity so `git revert` (which commits) never stalls;
 /// - idempotent at the TIP only: re-print HEAD if HEAD already reverts this
@@ -653,7 +677,9 @@ fn rollback_command(repo: &str, merge_sha: &str) -> String {
          if git log -1 --format=%B HEAD | grep -qF \"This reverts commit {merge_sha}\"; then \
            git rev-parse HEAD; \
          else \
-           git -c core.hooksPath=/dev/null revert -m 1 --no-edit {merge_sha} >/dev/null; \
+           NP=$(git rev-list --parents -n 1 {merge_sha} | wc -w); \
+           if [ \"$NP\" -ge 3 ]; then MF='-m 1'; else MF=''; fi; \
+           git -c core.hooksPath=/dev/null revert $MF --no-edit {merge_sha} >/dev/null; \
            timeout 60 git -c \"$HDR\" push -q \"$URL\" HEAD:{b}; git rev-parse HEAD; \
          fi"
     )
@@ -769,12 +795,20 @@ fn validate_number(value: &str, what: &str) -> Result<(), String> {
     }
 }
 
+/// Require a full 40-hex git sha. Used on every success arm (PR head, merge
+/// commit) and before interpolating a sha into a shell command — GitHub always
+/// returns 40-hex object shas, so a shorter/malformed value is a bad response we
+/// refuse rather than watch/revert an unusable identity.
 fn validate_sha(sha: &str) -> Result<(), String> {
-    if is_sha(sha) {
+    if is_full_sha(sha) {
         Ok(())
     } else {
-        Err(format!("release_run_lifecycle: merge_sha must be a git sha, got {sha:?}"))
+        Err(format!("release_run_lifecycle: expected a 40-hex git sha, got {sha:?}"))
     }
+}
+
+fn is_full_sha(s: &str) -> bool {
+    s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Strictly validate the health URL before it is spliced into a shell command.
@@ -934,10 +968,20 @@ mod tests {
             {"entity_id":"r1","status":"Watching","fields":{"repo":"a/b","Status":"Watching"}},
             {"entity_id":"r2","status":"Failed","fields":{"repo":"a/b"}}
         ]});
-        let runs = parse_release_runs(&resp);
+        let runs = parse_release_runs(&resp).unwrap();
         assert_eq!(runs.len(), 2);
         assert!(runs.iter().any(|(i, r, s)| i == "r1" && r == "a/b" && s == "Watching"));
         assert!(runs.iter().any(|(i, _, s)| i == "r2" && s == "Failed"));
+    }
+
+    #[test]
+    fn parse_release_runs_fails_closed_on_malformed_response() {
+        // A 200 with no `value` array must error (fail closed), not become an
+        // empty list that lets a concurrent release through (Codex-1 R4 P2).
+        assert!(parse_release_runs(&json!({"unexpected": true})).is_err());
+        // A row missing every id key must error too, not be silently dropped.
+        let no_id = json!({"value":[{"fields":{"repo":"a/b","Status":"Watching"}}]});
+        assert!(parse_release_runs(&no_id).is_err());
     }
 
     #[test]
@@ -1136,7 +1180,12 @@ mod tests {
         // Bounded network calls.
         assert!(cmd.contains("timeout 120 git"));
         assert!(cmd.contains("timeout 60 git -c \"$HDR\" push"), "{cmd}");
-        assert!(cmd.contains(&format!("revert -m 1 --no-edit {SHA}")));
+        // Parent-aware revert: `-m 1` only for a true merge commit (≥2 parents),
+        // plain revert for a single-parent (squash/rebase) merge — a fixed
+        // `-m 1` would make a reconciled squash-merge un-rollbackable (Codex-2 R4).
+        assert!(cmd.contains("git rev-list --parents -n 1"), "{cmd}");
+        assert!(cmd.contains("if [ \"$NP\" -ge 3 ]; then MF='-m 1'; else MF=''; fi"), "{cmd}");
+        assert!(cmd.contains(&format!("revert $MF --no-edit {SHA}")), "{cmd}");
         assert!(cmd.contains("HEAD:main"), "{cmd}");
         // Idempotency: skip ONLY if the revert of this merge is at the TIP
         // (HEAD's message), not anywhere in history (ARN-394 re-review).
@@ -1157,6 +1206,72 @@ mod tests {
         assert!(validate_sha(SHA).is_ok());
         assert!(validate_sha("main; rm -rf ~").is_err());
         assert!(validate_sha("").is_err());
+        // Strict 40-hex: a short (7-hex) sha is refused on the success arms — a
+        // real GitHub object sha is always 40 (Codex-1/Fable R4 P3).
+        assert!(validate_sha("3d9284a").is_err());
+    }
+
+    fn release_fixture(expected_head_sha: &str) -> ReleaseFields {
+        ReleaseFields {
+            repo: "a/b".into(),
+            pr_number: "1".into(),
+            computer_id: "c1".into(),
+            health_url: "https://h.example".into(),
+            max_checks: 60,
+            merge_sha: String::new(),
+            check_count: 0,
+            degraded_streak: 0,
+            expected_head_sha: expected_head_sha.into(),
+        }
+    }
+
+    fn pr_merged_into(base: &str, head: &str, merge_sha: &str) -> PrInfo {
+        PrInfo {
+            base_ref: base.into(),
+            head_sha: head.into(),
+            merged: true,
+            merge_commit_sha: Some(merge_sha.into()),
+        }
+    }
+
+    const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const MERGE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn confirm_merged_pr_refuses_a_retargeted_base() {
+        // base-branch TOCTOU: a PR retargeted off main after preflight and
+        // merged there must NOT be blessed / watched / reverted (all 3 R4).
+        let r = release_fixture("");
+        let pr = pr_merged_into("release/1.2", HEAD, MERGE);
+        let err = confirm_merged_pr(&pr, &r).unwrap_err();
+        assert!(err.contains("only main is releasable"), "{err}");
+    }
+
+    #[test]
+    fn confirm_merged_pr_enforces_head_binding_and_valid_sha() {
+        // Bound to a reviewed head that no longer matches → refused.
+        let bound = release_fixture(HEAD);
+        let moved = pr_merged_into("main", "cccccccccccccccccccccccccccccccccccccccc", MERGE);
+        assert!(confirm_merged_pr(&moved, &bound).unwrap_err().contains("unreviewed"));
+        // A short/malformed merge sha is refused (not watched).
+        let bad_sha = pr_merged_into("main", HEAD, "3d9284a");
+        assert!(confirm_merged_pr(&bad_sha, &release_fixture("")).is_err());
+        // Unbound + main + valid sha → MergeSucceeded carrying the merge sha.
+        let (action, payload) = confirm_merged_pr(&pr_merged_into("main", HEAD, MERGE), &release_fixture("")).unwrap();
+        assert_eq!(action, "MergeSucceeded");
+        assert_eq!(payload["merge_sha"], MERGE);
+        assert_eq!(payload["base_branch"], "main");
+    }
+
+    #[test]
+    fn degraded_new_commit_rolls_back_when_budget_is_spent() {
+        // serving the new commit degraded, streak below threshold, but the probe
+        // budget is spent → Unhealthy (max_checks is a true upper bound even on
+        // the degraded path, Codex-1 R4 P3).
+        match evaluate_probe(&probe(503, Some("degraded"), Some(SHA)), SHA, 20, 20, 0) {
+            Verdict::Unhealthy(_) => {}
+            v => panic!("expected Unhealthy at budget on degraded path, got {v:?}"),
+        }
     }
 
     // -- helpers --------------------------------------------------------------
