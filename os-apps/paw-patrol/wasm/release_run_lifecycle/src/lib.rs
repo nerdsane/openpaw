@@ -163,6 +163,10 @@ fn merge(
             release.repo, release.pr_number, pr.base_ref
         ));
     }
+    // head_sha is interpolated into the merge command and compared for binding;
+    // require a real 40-hex sha so a malformed GitHub response can neither inject
+    // nor produce an empty `"sha":""` PUT.
+    validate_sha(&pr.head_sha)?;
     // Commit-binding: if bound to a reviewed head, refuse unless it still matches.
     if !head_binding_ok(&release.expected_head_sha, &pr.head_sha) {
         return Err(format!(
@@ -193,6 +197,15 @@ fn merge(
             // unmerged, so we never lose the watcher on an actually-merged PR.
             match read_pr(ctx, handle, &release.repo, &release.pr_number) {
                 Ok(recheck) if recheck.merged => {
+                    // Enforce commit-binding on the reconcile path too: an
+                    // out-of-band merge of an unreviewed head (that our pinned
+                    // PUT just refused) must NOT be blessed as a governed release.
+                    if !head_binding_ok(&release.expected_head_sha, &recheck.head_sha) {
+                        return Err(format!(
+                            "release_run_lifecycle: {}#{} was merged out-of-band at head {:?}, expected reviewed head {:?} — refusing to watch an unreviewed release",
+                            release.repo, release.pr_number, recheck.head_sha, release.expected_head_sha
+                        ));
+                    }
                     let sha = recheck.merge_commit_sha.unwrap_or_default();
                     if sha.is_empty() {
                         return Err(format!(
@@ -341,12 +354,27 @@ fn active_release_conflict(
     repo: &str,
 ) -> Result<Option<String>, String> {
     let headers = odata_headers(ctx, &ctx.tenant, fields);
-    let path = format!(
-        "/tdata/ReleaseRuns?$filter=repo eq '{}'",
-        bounded_reads::odata_escape(repo)
-    );
+    // Push the active-status predicate INTO the filter so the DB returns only
+    // in-flight rows. A bare `repo eq …` returns ALL runs (incl. hundreds of
+    // terminal ones) and the kernel pages at 100 ordered by entity_id ASC
+    // (UUIDv7 = time-ordered) — the in-flight run would then fall onto page 2
+    // and the guard would silently fail OPEN (Fable F1).
+    let escaped = bounded_reads::odata_escape(repo);
+    let status_clause = ACTIVE_RELEASE_STATES
+        .iter()
+        .map(|s| format!("status eq '{s}'"))
+        .collect::<Vec<_>>()
+        .join(" or ");
+    let path = format!("/tdata/ReleaseRuns?$filter=repo eq '{escaped}' and ({status_clause})");
     let resp = bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
         .map_err(|e| format!("release_run_lifecycle: could not check for concurrent releases of {repo}: {e}"))?;
+    // Fail CLOSED if the result is paginated: a truncated page could hide the
+    // conflicting run, so refuse rather than risk running two releases at once.
+    if resp.get("@odata.nextLink").is_some() {
+        return Err(format!(
+            "release_run_lifecycle: too many active ReleaseRuns for {repo} to check safely (paginated); refusing to start (ARN-397)"
+        ));
+    }
     let runs = parse_release_runs(&resp);
     Ok(conflicting_active_release(&runs, &ctx.entity_id, repo).map(str::to_string))
 }
@@ -358,7 +386,10 @@ fn parse_release_runs(resp: &Value) -> Vec<(String, String, String)> {
         .map(|arr| {
             arr.iter()
                 .filter_map(|e| {
-                    let id = entity_field_str(e, &["id", "Id"])?.to_string();
+                    // Match bounded_reads::entity_id's key order — a row that
+                    // missed field-stamping must not be silently dropped (which
+                    // would fail OPEN on the conflict check).
+                    let id = entity_field_str(e, &["entity_id", "Id", "id"])?.to_string();
                     let repo = entity_field_str(e, &["repo", "Repo"]).unwrap_or("").to_string();
                     let status = entity_field_str(e, &["Status", "status"]).unwrap_or("").to_string();
                     Some((id, repo, status))
@@ -375,9 +406,15 @@ fn conflicting_active_release<'a>(
     self_id: &str,
     repo: &str,
 ) -> Option<&'a str> {
+    // GitHub owner/repo is case-insensitive, so "Owner/Repo" and "owner/repo"
+    // are the same target — compare case-insensitively so a casing mismatch
+    // cannot slip a second concurrent release past the guard.
+    let repo_lc = repo.to_ascii_lowercase();
     runs.iter()
         .find(|(id, r, status)| {
-            id != self_id && r == repo && ACTIVE_RELEASE_STATES.contains(&status.as_str())
+            id != self_id
+                && r.to_ascii_lowercase() == repo_lc
+                && ACTIVE_RELEASE_STATES.contains(&status.as_str())
         })
         .map(|(id, _, _)| id.as_str())
 }
@@ -598,12 +635,18 @@ fn rollback(
 /// pre-validated (owner/name, 40-hex) so they are safe to interpolate.
 fn rollback_command(repo: &str, merge_sha: &str) -> String {
     let b = RELEASE_BASE_BRANCH;
+    // Credential is passed per-command via an Authorization header ($AUTH, a
+    // runtime var) rather than baked into the remote URL — so the token is never
+    // written into $DIR/.git/config (which would survive a SIGKILL before the
+    // EXIT-trap cleanup). URL stays a clean https://github.com/<repo>.git.
     format!(
         "{TOKEN_PRELUDE}\
          set -e; export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null; \
-         URL=\"https://x-access-token:$TOK@github.com/{repo}.git\"; \
+         AUTH=$(printf 'x-access-token:%s' \"$TOK\" | base64 | tr -d '\\n'); \
+         HDR=\"http.extraHeader=Authorization: Basic $AUTH\"; \
+         URL=\"https://github.com/{repo}.git\"; \
          DIR=$(mktemp -d); trap 'rm -rf \"$DIR\"' EXIT; \
-         timeout 120 git -c core.hooksPath=/dev/null clone -q --branch {b} \"$URL\" \"$DIR\"; \
+         timeout 120 git -c core.hooksPath=/dev/null -c \"$HDR\" clone -q --branch {b} \"$URL\" \"$DIR\"; \
          cd \"$DIR\"; \
          git config core.hooksPath /dev/null; git config commit.gpgsign false; \
          git config user.name 'temperpaw-release'; git config user.email 'release@temperpaw.local'; \
@@ -611,7 +654,7 @@ fn rollback_command(repo: &str, merge_sha: &str) -> String {
            git rev-parse HEAD; \
          else \
            git -c core.hooksPath=/dev/null revert -m 1 --no-edit {merge_sha} >/dev/null; \
-           timeout 60 git push -q \"$URL\" HEAD:{b}; git rev-parse HEAD; \
+           timeout 60 git -c \"$HDR\" push -q \"$URL\" HEAD:{b}; git rev-parse HEAD; \
          fi"
     )
 }
@@ -873,10 +916,23 @@ mod tests {
     }
 
     #[test]
-    fn parse_release_runs_reads_id_repo_status() {
+    fn per_repo_reject_is_case_insensitive() {
+        // GitHub owner/repo is case-insensitive: a differently-cased active run
+        // for the same repo must still be caught.
+        let runs = vec![("other".into(), "Arni-Labs/Deep-Sci-Fi".into(), "Watching".into())];
+        assert_eq!(
+            conflicting_active_release(&runs, "self", "arni-labs/deep-sci-fi"),
+            Some("other")
+        );
+    }
+
+    #[test]
+    fn parse_release_runs_reads_kernel_row_shape() {
+        // The kernel returns {entity_id, status, fields{...}} rows; a row that
+        // missed field-stamping (only entity_id) must still parse, not be dropped.
         let resp = json!({"value":[
-            {"id":"r1","fields":{"repo":"a/b"},"Status":"Watching"},
-            {"Id":"r2","repo":"a/b","status":"Failed"}
+            {"entity_id":"r1","status":"Watching","fields":{"repo":"a/b","Status":"Watching"}},
+            {"entity_id":"r2","status":"Failed","fields":{"repo":"a/b"}}
         ]});
         let runs = parse_release_runs(&resp);
         assert_eq!(runs.len(), 2);
@@ -1069,14 +1125,17 @@ mod tests {
         assert!(cmd.contains("GIT_CONFIG_SYSTEM=/dev/null"), "{cmd}");
         assert!(cmd.contains("core.hooksPath=/dev/null"), "{cmd}");
         assert!(cmd.contains("commit.gpgsign false"), "{cmd}");
-        // Token supplied explicitly (ambient helper is off); $TOK is runtime.
+        // Token supplied via an Authorization header ($AUTH/$TOK runtime vars),
+        // NOT baked into the remote URL — so it never lands in $DIR/.git/config.
         assert!(cmd.contains("~/.git-credentials"), "{cmd}");
-        assert!(cmd.contains("https://x-access-token:$TOK@github.com/arni-labs/deep-sci-fi.git"), "{cmd}");
+        assert!(cmd.contains("http.extraHeader=Authorization: Basic $AUTH"), "{cmd}");
+        assert!(cmd.contains("URL=\"https://github.com/arni-labs/deep-sci-fi.git\""), "{cmd}");
+        assert!(!cmd.contains("x-access-token:$TOK@github.com"), "no token in URL: {cmd}");
         // Configured identity so `git revert` can commit.
         assert!(cmd.contains("git config user.email"));
         // Bounded network calls.
         assert!(cmd.contains("timeout 120 git"));
-        assert!(cmd.contains("timeout 60 git push"));
+        assert!(cmd.contains("timeout 60 git -c \"$HDR\" push"), "{cmd}");
         assert!(cmd.contains(&format!("revert -m 1 --no-edit {SHA}")));
         assert!(cmd.contains("HEAD:main"), "{cmd}");
         // Idempotency: skip ONLY if the revert of this merge is at the TIP

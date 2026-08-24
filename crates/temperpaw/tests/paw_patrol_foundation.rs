@@ -1995,8 +1995,13 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        19,
-        "paw-patrol should expose all Patrol entity specs"
+        20,
+        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun)"
+    );
+    assert!(
+        bundle.specs.iter().any(|(entity_type, _)| entity_type == "ReleaseRun"),
+        "paw-patrol bundle should include the ReleaseRun spec: {:?}",
+        bundle.specs.iter().map(|(t, _)| t).collect::<Vec<_>>()
     );
     assert!(
         bundle

@@ -42,8 +42,8 @@ Add `ReleaseRun` to paw-patrol and extend `WorkCycle`:
     `RollbackPushed(revert_sha)`. The push takes the same GitHub-connected
     deploy path as the merge, so the platform redeploys the previous build.
 - The watch loop is a kernel `state_timeout` on `Watching` (30s,
-  `reset_on = ["CheckPending"]`) that fires `Check`. There is no polling
-  loop in code.
+  `reset_on = ["Check", "CheckPending"]`) that fires `Check`. There is no
+  polling loop in code.
 
 The service under release reports the commit it is serving as `git_sha` on
 its health endpoint (deep-sci-fi: `RAILWAY_GIT_COMMIT_SHA`), which is what
