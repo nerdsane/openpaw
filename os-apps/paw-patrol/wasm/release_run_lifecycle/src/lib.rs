@@ -242,11 +242,14 @@ fn parse_pr(stdout: &str) -> Result<PrInfo, String> {
     })
 }
 
-/// The GitHub token, resolved through `git credential fill` so the credential
-/// that actually matches github.com is used (not the first line of the file,
-/// which may belong to another identity). Assigned into `$TOK`.
-const TOKEN_PRELUDE: &str = "TOK=$(printf 'protocol=https\\nhost=github.com\\n\\n' | \
-     GIT_TERMINAL_PROMPT=0 git credential fill 2>/dev/null | sed -n 's/^password=//p' | head -1); ";
+/// The GitHub token, read as the password field of the first `github.com`
+/// credential line in `~/.git-credentials`. The match is host-scoped to
+/// `github.com` (so it skips credential lines for other hosts), which is the
+/// reliable path on the sandbox — `git credential fill` depends on a
+/// configured `credential.helper` and hangs/returns empty when one is not set.
+/// Assigned into `$TOK`.
+const TOKEN_PRELUDE: &str =
+    "TOK=$(sed -nE 's#https://[^:]+:([^@]+)@github\\.com.*#\\1#p' ~/.git-credentials | head -1); ";
 
 /// GET the PR as JSON (base branch, merge state).
 fn pr_get_command(repo: &str, pr_number: &str) -> String {
@@ -684,7 +687,8 @@ mod tests {
     #[test]
     fn pr_get_command_reads_the_pr_with_the_matched_token() {
         let cmd = pr_get_command("arni-labs/deep-sci-fi", "109");
-        assert!(cmd.contains("git credential fill"));
+        assert!(cmd.contains("~/.git-credentials"));
+        assert!(cmd.contains("@github"));
         assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/109"));
         assert!(!cmd.contains("/merge"));
     }
@@ -715,10 +719,9 @@ mod tests {
     fn merge_command_targets_the_pr_with_the_matched_token() {
         let cmd = merge_command("arni-labs/deep-sci-fi", "106");
         assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/106/merge"));
-        assert!(cmd.contains("git credential fill"));
+        assert!(cmd.contains("~/.git-credentials"));
         assert!(cmd.contains("\"merge_method\":\"merge\""));
         assert!(cmd.contains("-X PUT"));
-        assert!(cmd.contains("GIT_TERMINAL_PROMPT=0"));
     }
 
     #[test]
