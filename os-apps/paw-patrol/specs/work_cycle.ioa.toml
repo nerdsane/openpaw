@@ -135,6 +135,46 @@ name = "approval_summary"
 type = "string"
 initial = ""
 
+# Release target — set by ConfigureRelease. When release_configured is true,
+# Complete declaratively creates a ReleaseRun that merges the PR, watches the
+# rollout, and rolls back through the computer (see release_run.ioa.toml).
+[[state]]
+name = "release_repo"
+type = "string"
+initial = ""
+
+[[state]]
+name = "release_pr_number"
+type = "string"
+initial = ""
+
+[[state]]
+name = "release_computer_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "release_health_url"
+type = "string"
+initial = ""
+
+[[state]]
+name = "release_max_checks"
+type = "string"
+initial = "60"
+
+# Optional: bind the release to a specific reviewed PR head commit. When set,
+# the ReleaseRun merge refuses unless the PR's current head matches (ARN-394).
+[[state]]
+name = "release_expected_head_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "release_configured"
+type = "bool"
+initial = "false"
+
 [[action]]
 name = "Configure"
 kind = "input"
@@ -362,6 +402,45 @@ module = "work_cycle_lifecycle"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+
+# ADR-0005: a completed cycle with a configured release target creates its
+# ReleaseRun declaratively — merge, rollout watch, and rollback then run as
+# ReleaseRun transitions through the computer. No WASM dispatches this.
+#
+# `principal` elevates the create + Request to the patrol-release-service
+# system principal so the ReleaseRun surface can be locked to that service in
+# Cedar (ordinary agents cannot create a ReleaseRun or fire Request directly).
+[[action.triggers]]
+name = "work_cycle_completed_requests_release"
+kind = "entity"
+principal = "patrol-release-service"
+to_state = "Complete"
+target_entity = "ReleaseRun"
+target_action = "Request"
+
+[action.triggers.guard]
+type = "bool_true"
+field = "release_configured"
+
+[action.triggers.params_from]
+work_cycle_id = "Id"
+repo = "release_repo"
+pr_number = "release_pr_number"
+computer_id = "release_computer_id"
+health_url = "release_health_url"
+max_checks = "release_max_checks"
+expected_head_sha = "release_expected_head_sha"
+
+[action.triggers.resolve_target]
+type = "create"
+
+[[action]]
+name = "ConfigureRelease"
+kind = "input"
+from = ["Planning", "Planned", "InProgress", "Testing", "Reviewing", "Proving"]
+params = ["release_repo", "release_pr_number", "release_computer_id", "release_health_url", "release_max_checks", "release_expected_head_sha"]
+effect = "set release_configured true"
+hint = "Name the PR, computer, and health URL that Complete will release through (ReleaseRun). Optionally bind release_expected_head_sha to a reviewed commit. Does not change the work state."
 
 [[action]]
 name = "Fail"

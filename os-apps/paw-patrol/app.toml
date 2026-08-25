@@ -2,7 +2,7 @@ name = "paw-patrol"
 description = "Patrol-controlled maintenance: signals, risk, local Codex worker runs, review, proofs, and recurring sweeps"
 version = "0.1.0"
 startup_install = "core"
-dependencies = ["paw-agent", "paw-ingest", "paw-pm"]
+dependencies = ["paw-agent", "paw-ingest", "paw-pm", "paw-compute"]
 
 [[wasm_modules]]
 name = "patrol_request_router"
@@ -78,6 +78,14 @@ import_class = "temper-host"
 
 [[wasm_modules]]
 name = "patrol_run_lifecycle"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "release_run_lifecycle"
 target = "wasm32-unknown-unknown"
 criticality = "app-required"
 startup_loading = "lazy"
