@@ -109,6 +109,54 @@ Three changes from the adversarial re-review, beyond the first-round P0 fixes:
   either commits Merging) needs an atomic per-repo lane entity — the stronger
   form of ARN-397, tracked separately.
 
+## Round-5 addendum (2026-08-24, post final review)
+
+Two further correctness fixes from the round-5 review, plus documented residuals.
+
+- **Merge confirmation binds to the pinned head and tolerates a lagging read.**
+  The post-merge re-read now (a) requires the merged head to equal the head we
+  pinned in the PUT — so if the PUT was refused (head moved) and a *different*
+  head was merged out-of-band, we refuse to watch a commit we did not merge,
+  closing the reconcile head-bypass even when `expected_head_sha` is unset; and
+  (b) is retried a few times, so a transient GET blip or GitHub read-after-write
+  lag no longer strands an actually-merged release as `Failed`.
+- **Rollback auto-runs only for a true merge commit.** `-m 1` reverts the whole
+  PR merge. A single-parent tip means the PR was merged out-of-band via
+  squash/rebase; a rebase tip is only the last of N commits and is
+  indistinguishable from a squash tip, so a plain revert could silently leave
+  earlier commits deployed while reporting success. We refuse (→ Fail) and
+  escalate to a human instead. Our own workflow always merges via
+  `merge_method=merge` (a 2-parent merge commit), so the normal release path is
+  always fully rollbackable; only out-of-band reconciled squash/rebase merges
+  escalate.
+
+### Documented residuals (tracked, not fixed here)
+
+- **Base-retarget has no compensation (detection only).** GitHub's merge API
+  pins the head but exposes no expected-base, so a maintainer retargeting the
+  PR's base in the window between our preflight read and the PUT can cause a
+  merge into a non-main branch. The confirm gate PREVENTS the dangerous outcome
+  (we never watch or revert a non-main merge onto `main`) — the run just Fails
+  visibly — but it cannot PREVENT the accidental merge itself or undo it.
+- **Repo identity is textual, not canonical.** The per-repo guard compares
+  owner/name case-insensitively; it does not resolve GitHub's numeric repo id,
+  so renaming a repo mid-release (old and new names both redirect to the same
+  repo) can let two runs proceed. Closing this needs the atomic per-repo lane
+  entity below.
+- **ARN-397 guard bounds at scale / cold start.** The kernel's projection
+  coverage check (which lets the guard see a committed-but-unprojected active
+  run) is bypassed when total ReleaseRuns exceed the scan candidate budget
+  (10× max_entities) or right after a cold restart (empty in-memory index);
+  terminal rows are never GC'd, so this is a slow-burn condition. Separately,
+  because the guard now filters on status only, >100 *active* rows tenant-wide
+  (e.g. runs stuck by the ARN-396 restart residual) fail every repo's releases
+  closed rather than just their own. A periodic sweep that Fails stuck runs, and
+  the per-repo lane entity, close both.
+
+The **atomic per-repo lane entity** is the stronger form of ARN-397 and the
+single fix for the TOCTOU race, canonical-repo-identity, and at-scale coverage
+gaps together; tracked separately.
+
 Known residual (kernel, ARN-396): `state_timeout`s are in-memory and arm only
 on dispatch, so a `Requested`/`Watching` run can still hang across a restart
 until durable timeout delivery lands.

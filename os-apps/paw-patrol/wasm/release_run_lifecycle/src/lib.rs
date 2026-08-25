@@ -176,9 +176,10 @@ fn merge(
     }
     if pr.merged {
         // Already merged before we acted (idempotent replay or out-of-band).
-        // base (checked above) and head-binding are re-validated in the gate.
+        // No head was pinned by us here, so bind only to the (optional) reviewed
+        // head; base is re-validated in the gate.
         ctx.log("info", &format!("release_run_lifecycle: {}#{} already merged", release.repo, release.pr_number));
-        return confirm_merged_pr(&pr, release);
+        return confirm_merged_pr(&pr, release, None);
     }
 
     // Do the merge, pinning the head sha we just read: GitHub refuses (405/409)
@@ -188,14 +189,14 @@ fn merge(
     let merge_diag = parse_merge_sha(&result.stdout).err();
 
     // Authoritative post-merge confirm: re-read the PR and require it is NOW
-    // merged into `main` at the bound head with a valid merge sha. GitHub's merge
-    // PUT pins only the head, not the base — a maintainer can retarget the PR
-    // between our preflight read and the PUT, so the base MUST be re-validated
-    // after the merge (base-branch TOCTOU). This re-read also reconciles an
-    // ambiguous PUT (the merge landed but the connection dropped): we never lose
-    // the watcher on an actually-merged PR, and never bless a merge into a
-    // non-main base or an unreviewed head.
-    let final_pr = read_pr(ctx, handle, &release.repo, &release.pr_number)?;
+    // merged into `main` at the head we pinned, with a valid merge sha. GitHub's
+    // merge PUT pins only the head, not the base — a maintainer can retarget the
+    // PR between our preflight read and the PUT, so the base MUST be re-validated
+    // after the merge (base-branch TOCTOU). The re-read is retried a few times so
+    // a transient GET blip or GitHub read-after-write lag does not strand an
+    // actually-merged release as Failed (Fable R5 P3-2); it also reconciles an
+    // ambiguous PUT whose connection dropped after the merge landed.
+    let final_pr = read_pr_confirm(ctx, handle, &release.repo, &release.pr_number, CONFIRM_READ_ATTEMPTS)?;
     if !final_pr.merged {
         let diag = merge_diag.unwrap_or_else(|| "PR is still open after the merge attempt".to_string());
         return Err(format!(
@@ -204,20 +205,65 @@ fn merge(
         ));
     }
     ctx.log("info", &format!("release_run_lifecycle: merged {}#{} (confirmed on re-read)", release.repo, release.pr_number));
-    confirm_merged_pr(&final_pr, release)
+    // Bind to the exact head we pinned in the PUT: if the PUT was refused (head
+    // moved) and someone merged a DIFFERENT head out-of-band, the merged head
+    // won't match and we refuse to watch an unintended commit (reconcile
+    // head-bypass, Codex-2 R5).
+    confirm_merged_pr(&final_pr, release, Some(&pr.head_sha))
+}
+
+/// Number of times the post-merge confirmation re-read is attempted before we
+/// give up and Fail. Each attempt is a fresh idempotent GET, so this absorbs a
+/// transient GET failure or GitHub read-after-write lag without stranding a
+/// merged release.
+const CONFIRM_READ_ATTEMPTS: u32 = 3;
+
+/// Re-read the PR for post-merge confirmation, retrying up to `attempts` times.
+/// Returns as soon as a read reports `merged` (the state we expect after a
+/// successful PUT); otherwise returns the last read (unmerged) or the last error
+/// so the caller Fails on a genuinely-unmerged PR.
+fn read_pr_confirm(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    repo: &str,
+    pr_number: &str,
+    attempts: u32,
+) -> Result<PrInfo, String> {
+    let mut last: Result<PrInfo, String> =
+        Err("release_run_lifecycle: no confirmation read attempted".to_string());
+    for _ in 0..attempts.max(1) {
+        match read_pr(ctx, handle, repo, pr_number) {
+            Ok(pr) if pr.merged => return Ok(pr),
+            other => last = other,
+        }
+    }
+    last
 }
 
 /// Gate a merged PR before emitting MergeSucceeded: it must be merged into
 /// `main` (base re-validated post-merge — the PUT pins only the head, so a
-/// retargeted base is caught here, not silently watched/reverted), at the
-/// reviewed head (commit-binding), with a valid 40-hex merge sha to watch and
-/// revert.
-fn confirm_merged_pr(pr: &PrInfo, release: &ReleaseFields) -> Result<(&'static str, Value), String> {
+/// retargeted base is caught here, not silently watched/reverted), at the head
+/// we pinned in the PUT (`pinned_head`, when we did the merge) AND at the
+/// reviewed head (optional commit-binding), with a valid 40-hex merge sha to
+/// watch and revert.
+fn confirm_merged_pr(
+    pr: &PrInfo,
+    release: &ReleaseFields,
+    pinned_head: Option<&str>,
+) -> Result<(&'static str, Value), String> {
     if pr.base_ref != RELEASE_BASE_BRANCH {
         return Err(format!(
             "release_run_lifecycle: PR {}#{} merged into base {:?}, only {RELEASE_BASE_BRANCH} is releasable (base retargeted after preflight)",
             release.repo, release.pr_number, pr.base_ref
         ));
+    }
+    if let Some(pinned) = pinned_head {
+        if pr.head_sha != pinned {
+            return Err(format!(
+                "release_run_lifecycle: PR {}#{} merged at head {:?}, but we pinned {:?} in the merge — refusing to watch a commit we did not merge (out-of-band merge of a moved head)",
+                release.repo, release.pr_number, pr.head_sha, pinned
+            ));
+        }
     }
     if !head_binding_ok(&release.expected_head_sha, &pr.head_sha) {
         return Err(format!(
@@ -646,11 +692,15 @@ fn rollback(
 ///   per-invocation via an `http.extraHeader` Authorization header (`$AUTH`, a
 ///   runtime var, not a literal in the stored command) — it is NEVER written
 ///   into the remote URL or `$DIR/.git/config`;
-/// - the revert adapts to the merge shape: `git revert -m 1` for a true merge
-///   commit (2 parents), plain `git revert` for a single-parent commit (a PR
-///   merged out-of-band via squash/rebase and reconciled) — `-m 1` on a
-///   single-parent commit errors, so a fixed `-m 1` could make such a rollback
-///   impossible (Codex-2 R4 P1);
+/// - the revert only auto-runs for a TRUE merge commit (>=2 parents → `-m 1`,
+///   which reverts the whole PR merge). A single-parent tip means the PR was
+///   merged out-of-band via squash/rebase: a squash tip is one commit but a
+///   rebase tip is only the LAST of N, and the two are indistinguishable from
+///   the tip alone — a plain revert of a rebase tip would silently leave the
+///   earlier commits deployed while reporting success (Fable R5 P2). We refuse
+///   (exit 3 → Fail) and escalate to a human rather than push a partial revert.
+///   Our own workflow always merges via `merge_method=merge` (a 2-parent merge
+///   commit), so the normal release path is always fully rollbackable;
 /// - `GIT_TERMINAL_PROMPT=0` and a `timeout` around every network git call;
 /// - a configured commit identity so `git revert` (which commits) never stalls;
 /// - idempotent at the TIP only: re-print HEAD if HEAD already reverts this
@@ -678,9 +728,13 @@ fn rollback_command(repo: &str, merge_sha: &str) -> String {
            git rev-parse HEAD; \
          else \
            NP=$(git rev-list --parents -n 1 {merge_sha} | wc -w); \
-           if [ \"$NP\" -ge 3 ]; then MF='-m 1'; else MF=''; fi; \
-           git -c core.hooksPath=/dev/null revert $MF --no-edit {merge_sha} >/dev/null; \
-           timeout 60 git -c \"$HDR\" push -q \"$URL\" HEAD:{b}; git rev-parse HEAD; \
+           if [ \"$NP\" -ge 3 ]; then \
+             git -c core.hooksPath=/dev/null revert -m 1 --no-edit {merge_sha} >/dev/null; \
+             timeout 60 git -c \"$HDR\" push -q \"$URL\" HEAD:{b}; git rev-parse HEAD; \
+           else \
+             echo 'release_run_lifecycle: {merge_sha} is not a merge commit (out-of-band squash/rebase merge) — a partial revert could leave part of the release deployed; refusing to auto-roll-back, escalate to a human' >&2; \
+             exit 3; \
+           fi; \
          fi"
     )
 }
@@ -690,7 +744,7 @@ fn parse_revert_sha(stdout: &str) -> Option<String> {
         .lines()
         .rev()
         .map(str::trim)
-        .find(|l| is_sha(l))
+        .find(|l| is_full_sha(l))
         .map(str::to_string)
 }
 
@@ -840,10 +894,6 @@ fn validate_url(url: &str) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn is_sha(s: &str) -> bool {
-    (7..=40).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn excerpt(text: &str) -> String {
@@ -1180,12 +1230,15 @@ mod tests {
         // Bounded network calls.
         assert!(cmd.contains("timeout 120 git"));
         assert!(cmd.contains("timeout 60 git -c \"$HDR\" push"), "{cmd}");
-        // Parent-aware revert: `-m 1` only for a true merge commit (≥2 parents),
-        // plain revert for a single-parent (squash/rebase) merge — a fixed
-        // `-m 1` would make a reconciled squash-merge un-rollbackable (Codex-2 R4).
+        // Auto-revert ONLY a true merge commit (≥2 parents → `-m 1`, reverts the
+        // whole PR merge). A single-parent tip (out-of-band squash/rebase) is
+        // refused (exit 3 → Fail → escalate), never partially reverted while
+        // reporting success (Fable R5 P2).
         assert!(cmd.contains("git rev-list --parents -n 1"), "{cmd}");
-        assert!(cmd.contains("if [ \"$NP\" -ge 3 ]; then MF='-m 1'; else MF=''; fi"), "{cmd}");
-        assert!(cmd.contains(&format!("revert $MF --no-edit {SHA}")), "{cmd}");
+        assert!(cmd.contains("if [ \"$NP\" -ge 3 ]; then"), "{cmd}");
+        assert!(cmd.contains(&format!("revert -m 1 --no-edit {SHA}")), "{cmd}");
+        assert!(cmd.contains("exit 3"), "{cmd}");
+        assert!(!cmd.contains("revert $MF"), "no blind plain revert of a single-parent tip: {cmd}");
         assert!(cmd.contains("HEAD:main"), "{cmd}");
         // Idempotency: skip ONLY if the revert of this merge is at the TIP
         // (HEAD's message), not anywhere in history (ARN-394 re-review).
@@ -1243,7 +1296,7 @@ mod tests {
         // merged there must NOT be blessed / watched / reverted (all 3 R4).
         let r = release_fixture("");
         let pr = pr_merged_into("release/1.2", HEAD, MERGE);
-        let err = confirm_merged_pr(&pr, &r).unwrap_err();
+        let err = confirm_merged_pr(&pr, &r, None).unwrap_err();
         assert!(err.contains("only main is releasable"), "{err}");
     }
 
@@ -1252,15 +1305,29 @@ mod tests {
         // Bound to a reviewed head that no longer matches → refused.
         let bound = release_fixture(HEAD);
         let moved = pr_merged_into("main", "cccccccccccccccccccccccccccccccccccccccc", MERGE);
-        assert!(confirm_merged_pr(&moved, &bound).unwrap_err().contains("unreviewed"));
+        assert!(confirm_merged_pr(&moved, &bound, None).unwrap_err().contains("unreviewed"));
         // A short/malformed merge sha is refused (not watched).
         let bad_sha = pr_merged_into("main", HEAD, "3d9284a");
-        assert!(confirm_merged_pr(&bad_sha, &release_fixture("")).is_err());
+        assert!(confirm_merged_pr(&bad_sha, &release_fixture(""), None).is_err());
         // Unbound + main + valid sha → MergeSucceeded carrying the merge sha.
-        let (action, payload) = confirm_merged_pr(&pr_merged_into("main", HEAD, MERGE), &release_fixture("")).unwrap();
+        let (action, payload) = confirm_merged_pr(&pr_merged_into("main", HEAD, MERGE), &release_fixture(""), None).unwrap();
         assert_eq!(action, "MergeSucceeded");
         assert_eq!(payload["merge_sha"], MERGE);
         assert_eq!(payload["base_branch"], "main");
+    }
+
+    #[test]
+    fn confirm_merged_pr_binds_to_the_pinned_head() {
+        // Post-PUT path: if the PUT was refused (head moved) and a DIFFERENT head
+        // was merged out-of-band, the merged head won't match the head we pinned
+        // → refuse, even when unbound by expected_head_sha (Codex-2 R5).
+        let r = release_fixture(""); // unbound
+        let other = pr_merged_into("main", "dddddddddddddddddddddddddddddddddddddddd", MERGE);
+        let err = confirm_merged_pr(&other, &r, Some(HEAD)).unwrap_err();
+        assert!(err.contains("we pinned") && err.contains("did not merge"), "{err}");
+        // Merged at exactly the pinned head → allowed.
+        let matched = pr_merged_into("main", HEAD, MERGE);
+        assert_eq!(confirm_merged_pr(&matched, &r, Some(HEAD)).unwrap().0, "MergeSucceeded");
     }
 
     #[test]
