@@ -6,7 +6,6 @@
 mod auth;
 mod config;
 mod discord_app;
-mod identity_bootstrap;
 mod setup;
 mod setup_api;
 mod setup_llm;
