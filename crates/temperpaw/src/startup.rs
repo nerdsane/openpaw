@@ -1093,19 +1093,88 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
                 tenant = %tenant,
                 "Skipping built-in default agent specs bootstrap; paw-agent OS app owns default agent specs"
             );
+            // paw-agent owns the agent lifecycle specs but NOT the platform
+            // IDENTITY specs (TrustedIssuer, PrincipalGeneration) that back
+            // kernel JWT verification (ARN-255). The skipped default bootstrap
+            // is the only place those load, so on this host they must be
+            // registered explicitly — otherwise `tdata/TrustedIssuer` returns
+            // EntitySetNotFound and `bootstrap_trusted_issuer_from_env` below is
+            // inert. The kernel's narrow `bootstrap_identity_specs` API registers
+            // exactly those two, cascade-free (so it does not reintroduce the OOM
+            // the skip exists to prevent) and merged (so paw-agent's specs are
+            // preserved). A failure here means JWT verification would be inert, so
+            // it fails readiness rather than booting silently broken.
+            temper_platform::bootstrap_identity_specs(&state, &tenant)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to register platform identity specs for tenant '{tenant}': {e}"
+                    )
+                })?;
         }
         // Bootstrap the operator credential so the deployment's TEMPER_API_KEY
         // resolves to a real tenant AgentCredential on the credential-bound
         // auth edge (ADR-0157). Without this the kernel edge has no credential
         // to resolve and every authenticated request fails closed with 401.
         if let Some(ref api_key) = config.temper_api_key {
-            temper_platform::bootstrap_operator_credential(&state, api_key, &tenant).await;
+            // ARN-255 cold-boot ordering: on a virgin store paw-agent has not yet
+            // registered AgentType / AgentCredential, so the credential bootstrap
+            // would dispatch against missing tables and (previously) silently
+            // swallow the error — a 401 until the second boot. Register those two
+            // specs first (cascade-free, merged, idempotent) so the dispatch below
+            // resolves on the very first boot regardless of branch.
+            temper_platform::bootstrap_operator_credential_specs(&state, &tenant)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to register AgentType/AgentCredential specs for tenant '{tenant}': {e}"
+                    )
+                })?;
+            // Propagate the credential bootstrap error instead of discarding it:
+            // a failure here means authenticated requests fail closed with 401,
+            // so fail readiness loudly rather than boot silently broken.
+            temper_platform::bootstrap_operator_credential(&state, api_key, &tenant)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to bootstrap operator credential for tenant '{tenant}': {e}"
+                    )
+                })?;
             tracing::info!(tenant = %tenant, "Bootstrapped operator credential for TEMPER_API_KEY");
         } else {
             tracing::warn!(
                 "No TEMPER_API_KEY resolved; operator credential not bootstrapped — \
                  authenticated requests will fail closed on the credential-bound edge"
             );
+        }
+
+        // ARN-255: activate kernel JWT verification for this deployment by
+        // registering the trusted issuer from the environment. This dispatches
+        // RegisterIssuer on the TrustedIssuer entity, which requires that spec
+        // to be registered — guaranteed above (default agent-specs bootstrap in
+        // the taken branch, or the explicit identity-spec registration in the
+        // skip branch). The kernel API classifies the TEMPER_TRUSTED_ISSUER_*
+        // env authoritatively: none set is a safe no-op; a partial config or a
+        // registration failure is an error we fail readiness on — never a
+        // "registering…" log followed by a silent no-op.
+        match temper_platform::bootstrap_trusted_issuer_from_env(&state, &tenant).await {
+            Ok(temper_platform::IssuerBootstrapOutcome::Registered) => {
+                tracing::info!(
+                    tenant = %tenant,
+                    "Registered trusted JWT issuer from TEMPER_TRUSTED_ISSUER_* environment (ARN-255)"
+                );
+            }
+            Ok(temper_platform::IssuerBootstrapOutcome::Skipped) => {
+                tracing::info!(
+                    tenant = %tenant,
+                    "No TEMPER_TRUSTED_ISSUER_* env set; kernel JWT verification inactive for this deployment"
+                );
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Trusted issuer bootstrap failed for tenant '{tenant}': {e}"
+                ));
+            }
         }
 
         tracing::info!("Bootstrapped startup platform specs for temper-system and {tenant}");
