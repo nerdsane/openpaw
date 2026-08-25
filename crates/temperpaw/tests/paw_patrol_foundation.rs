@@ -1999,7 +1999,10 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun)"
     );
     assert!(
-        bundle.specs.iter().any(|(entity_type, _)| entity_type == "ReleaseRun"),
+        bundle
+            .specs
+            .iter()
+            .any(|(entity_type, _)| entity_type == "ReleaseRun"),
         "paw-patrol bundle should include the ReleaseRun spec: {:?}",
         bundle.specs.iter().map(|(t, _)| t).collect::<Vec<_>>()
     );
