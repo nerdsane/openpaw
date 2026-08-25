@@ -893,7 +893,67 @@ fn validate_url(url: &str) -> Result<(), String> {
             "release_run_lifecycle: health_url contains a disallowed character {bad:?}"
         ));
     }
+    // SSRF guard: the probe is curled from the credentialed computer sandbox, so
+    // the host must be an external service — never loopback, a private range, or
+    // the cloud metadata endpoint (Greptile R6 P1). Syntax validation alone lets
+    // an internal URL through; this pins the host to a public FQDN.
+    validate_url_host(url)?;
     Ok(())
+}
+
+/// Reject a health_url whose host is loopback, a private/link-local range, the
+/// 169.254 metadata range, or a bare (non-FQDN) internal name — the probe runs
+/// from a sandbox with repo credentials, so it must only reach public endpoints.
+fn validate_url_host(url: &str) -> Result<(), String> {
+    let rest = &url["https://".len()..];
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    // Drop any userinfo (user@host); take the host, stripping the port. IPv6
+    // literals are bracketed ([::1]:443) — take what's inside the brackets.
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let (host, is_ipv6) = if let Some(after) = host_port.strip_prefix('[') {
+        (after.split(']').next().unwrap_or(""), true)
+    } else {
+        (host_port.split(':').next().unwrap_or(""), false)
+    };
+    let host = host.to_ascii_lowercase();
+    if host.is_empty() {
+        return Err("release_run_lifecycle: health_url has no host".to_string());
+    }
+    let private = if is_ipv6 {
+        host == "::1"            // loopback
+            || host.starts_with("fe80:")   // link-local
+            || host.starts_with("fc")      // unique-local
+            || host.starts_with("fd")
+    } else {
+        host == "localhost"
+            || host.ends_with(".localhost")
+            || host.starts_with("127.")    // loopback
+            || host.starts_with("10.")     // private
+            || host.starts_with("192.168.")
+            || host.starts_with("169.254.") // link-local + cloud metadata
+            || host.starts_with("0.")
+            || is_172_private(&host)
+            // A public health endpoint is always an FQDN or IP; a bare
+            // single-label name (e.g. "internal") resolves only inside the
+            // sandbox's network, so refuse it.
+            || !host.contains('.')
+    };
+    if private {
+        return Err(format!(
+            "release_run_lifecycle: health_url host {host:?} is not a public endpoint (loopback/private/link-local/internal)"
+        ));
+    }
+    Ok(())
+}
+
+/// 172.16.0.0 – 172.31.255.255 (RFC1918).
+fn is_172_private(host: &str) -> bool {
+    host.strip_prefix("172.")
+        .and_then(|r| r.split('.').next())
+        .and_then(|o| o.parse::<u8>().ok())
+        .map(|n| (16..=31).contains(&n))
+        .unwrap_or(false)
 }
 
 fn excerpt(text: &str) -> String {
@@ -1088,6 +1148,26 @@ mod tests {
         assert!(validate_url("http://x/health").is_err());
         assert!(validate_url("").is_err());
         assert!(validate_url("https://x/\"q\"").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_internal_and_private_hosts() {
+        // SSRF guard: the probe runs from a credentialed sandbox, so internal
+        // targets are refused (Greptile R6 P1).
+        assert!(validate_url("https://localhost/health").is_err());
+        assert!(validate_url("https://127.0.0.1/health").is_err());
+        assert!(validate_url("https://169.254.169.254/latest/meta-data").is_err()); // cloud metadata
+        assert!(validate_url("https://10.0.0.5/health").is_err());
+        assert!(validate_url("https://192.168.1.10/health").is_err());
+        assert!(validate_url("https://172.16.0.9/health").is_err());
+        assert!(validate_url("https://172.31.255.1/health").is_err());
+        assert!(validate_url("https://[::1]/health").is_err());
+        assert!(validate_url("https://internal/health").is_err()); // bare single-label name
+        // A real public health endpoint still passes, incl. userinfo/port forms.
+        assert!(validate_url("https://deep-sci-fi-production.up.railway.app/health").is_ok());
+        assert!(validate_url("https://x.example:8443/health").is_ok());
+        // 172.32+ is public, not RFC1918.
+        assert!(validate_url("https://172.32.0.1/health").is_ok());
     }
 
     // -- probe ----------------------------------------------------------------

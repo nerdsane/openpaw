@@ -157,6 +157,30 @@ The **atomic per-repo lane entity** is the stronger form of ARN-397 and the
 single fix for the TOCTOU race, canonical-repo-identity, and at-scale coverage
 gaps together; tracked separately.
 
+## Round-6 addendum (2026-08-25, PR review)
+
+- **Health-probe SSRF guard (fixed).** `validate_url` restricted the health URL's
+  syntax but not its host; because the probe is `curl`ed from the credentialed
+  computer sandbox, a configured loopback/private/link-local/metadata URL could
+  reach internal services. `validate_url_host` now pins the host to a public
+  endpoint — refusing `localhost`, `127.`/`10.`/`192.168.`/`172.16–31.`/`0.`,
+  the `169.254.` link-local+metadata range, IPv6 loopback/ULA/link-local, and
+  bare single-label names.
+- **ConfigureRelease target binding (residual).** The `ConfigureRelease` permit
+  authorizes the *caller* (Admin/system/patrol-release-service/supervisor) but
+  does not yet bind the release *target* (repo/PR/computer) to the WorkCycle's
+  own produced work artifact — a trusted supervisor could name an unrelated
+  target. Caller-authorization is the governed control today; target-provenance
+  binding needs the WorkCycle to model its output artifact and is tracked as a
+  follow-up (it applies to the whole WorkCycle→ReleaseRun completion path, not
+  just this permit).
+- Two Greptile findings were verified false positives against the merged code:
+  the health-URL "shell injection" (the `validate_url` allowlist rejects
+  `'`/`` ` ``/`$`/`;`/`|`/space and is called on both the merge and check paths,
+  with a dedicated exploit test) and "any Agent can create/Request a ReleaseRun"
+  (create/Request is gated `when principal.agent_type == "patrol-release-service"`;
+  only read/list are tenant-open).
+
 Known residual (kernel, ARN-396): `state_timeout`s are in-memory and arm only
 on dispatch, so a `Requested`/`Watching` run can still hang across a restart
 until durable timeout delivery lands.
