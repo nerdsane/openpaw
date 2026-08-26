@@ -9,7 +9,7 @@ TemperPaw is the agent OS built on [Temper](https://github.com/nerdsane/temper),
 - `make setup` - toolchain, WASM targets, dashboard deps, seeds `.env` from `.env.example`
 - `make dev` - run the server (`cargo run -p temperpaw`); binds `PORT` (default 3467); health at `/healthz`
 - `make build` / `make wasm` / `make check` / `make dashboard` / `make deploy` / `make deploy-observability`
-- Verification: `.claude/skills/verify-temperpaw/` - the proof skill and feature map
+- Verification: `.claude/skills/verify-temperpaw/` - the verification skill and feature map
 - `.env` is shared local state, seeded from `.env.example`. Never commit it, never rewrite credentials in it. Local storage defaults to Turso/libsql (no external DB); production is Postgres.
 
 ## Entity-first (the core rule)
@@ -46,7 +46,6 @@ When your work is done or failed, YOU dispatch the workflow action (`AlertCycle.
 ## Verification specifics (extends the global Definition of Done)
 
 - Check state transitions via OData - the state machine moved through the expected states.
-- Evidence goes in `.proofs/` (use `TEMPLATE.md`).
 - TDD applies to WASM integrations, triggers, Cedar policies, and entity specs alike.
 - After merge: publish to Genesis and verify the installed pinned ref (`owner/app@hash`) live on Railway. Genesis is the source of truth for apps; on divergence Genesis wins.
 
@@ -59,7 +58,7 @@ When your work is done or failed, YOU dispatch the workflow action (`AlertCycle.
 
 ## ADRs
 
-App-scoped in `os-apps/<app>/adrs/`; platform-wide in `docs/adrs/`. A material architecture change gets its ADR before the work counts as complete.
+Architecture Decision Records: app-scoped in `os-apps/<app>/adrs/`; platform-wide in `docs/adrs/`. A material architecture change gets its ADR before the work counts as complete.
 
 ## Brand
 
