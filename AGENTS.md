@@ -9,7 +9,7 @@ TemperPaw is the agent OS built on [Temper](https://github.com/nerdsane/temper),
 - `make setup` - toolchain, WASM targets, dashboard deps, seeds `.env` from `.env.example`
 - `make dev` - run the server (`cargo run -p temperpaw`); binds `PORT` (default 3467); health at `/healthz`
 - `make build` / `make wasm` / `make check` / `make dashboard` / `make deploy` / `make deploy-observability`
-- Verification: `.claude/skills/verify-temperpaw/` - the verification skill and feature map
+- Verification: `.agents/skills/verify-temperpaw/` - the verification skill and feature map
 - `.env` is shared local state, seeded from `.env.example`. Never commit it, never rewrite credentials in it. Local storage defaults to Turso/libsql (no external DB); production is Postgres.
 
 ## Entity-first (the core rule)
