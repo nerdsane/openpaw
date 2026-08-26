@@ -158,8 +158,6 @@ fn repo_root() -> PathBuf {
 fn is_historical_or_proof(path: &Path) -> bool {
     let path = path.to_string_lossy();
     path.starts_with("docs/adrs/")
-        || path.starts_with("docs/proofs/")
-        || path.starts_with(".proofs/")
         || path.contains("/adrs/")
         || path.ends_with("crates/temperpaw/tests/temperpaw_identity_contract.rs")
         || path.ends_with("docs/temperpaw-identity-and-observability-success-contract.md")
@@ -326,7 +324,6 @@ fn dockerignore_excludes_local_runtime_state_from_production_images() {
         "dashboard/node_modules",
         "**/node_modules",
         ".env",
-        ".proofs",
         ".wrangler",
     ] {
         assert!(

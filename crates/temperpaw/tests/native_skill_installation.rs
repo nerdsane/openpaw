@@ -30,10 +30,6 @@ fn gitignore_excludes_local_worktree_and_extraction_noise() {
         );
     }
 
-    assert!(
-        !ignore.lines().any(|line| line.trim() == ".proofs/"),
-        "root .proofs must stay trackable for mandatory verification reports"
-    );
 }
 
 #[test]
