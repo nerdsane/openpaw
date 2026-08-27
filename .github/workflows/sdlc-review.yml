@@ -19,7 +19,7 @@ concurrency:
   group: sdlc-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 permissions:
-  contents: read
+  contents: write        # the routing step enables auto-merge
   pull-requests: write
   checks: write
 jobs:
@@ -30,6 +30,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Convergence breaker (rabbit-hole detection)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # A panel->fix->re-review loop that passes 3 rounds on one PR is a
+          # rabbit-hole signal: over-complexity or a contested design. The fix at
+          # that point is deletion or an owner decision, not another round - so
+          # the gate STOPS and says so, instead of burning a fourth panel. The
+          # owner re-arms it by adding the 'converge-ack' label after deciding.
+          if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
+            echo "converge-ack present - owner has decided, continuing"; exit 0; fi
+          ROUNDS=$(gh run list --workflow sdlc-review --branch "$PR_BRANCH"                      --status completed --json conclusion                      -q '[.[] | select(.conclusion == "failure")] | length' || echo 0)
+          if [ "${ROUNDS:-0}" -ge 3 ]; then
+            gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
+            gh pr comment "$PR_NUM" --body "**Convergence stalled** - $ROUNDS failed review rounds on this PR. This is a rabbit-hole signal: likely over-complexity or a contested design, and the fix is deletion or an owner decision, not another round. Owner: decide (simplify, rule on the contested points, or split the PR), then add the \`converge-ack\` label to re-arm the review gate." 2>/dev/null || true
+            echo "::error::convergence stalled after $ROUNDS rounds - owner decision required (add converge-ack to re-arm)"
+            exit 1
+          fi
+          echo "review rounds so far: ${ROUNDS:-0}"
       - name: Install the TensorLake CLI (to reach the computer)
         run: |
           # the runner is ephemeral and the panel tools call the binary by its
@@ -268,6 +289,27 @@ jobs:
             .review/review.json
             .review/effort-report.html
           if-no-files-found: ignore
+      - name: Route on the panel's risk judgment
+        # Runs only when the gate above PASSED. The design, whole: the reviewers
+        # judged risk in the record (the panel already keeps the most conservative
+        # across reviewers); low means auto-merge, anything else means a human
+        # presses merge. No other logic. One guard: a PR that changes workflow
+        # files routes to a human, because its own checks cannot be trusted to be
+        # the base gates.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          RISK=$(python3 -c "import json; r=json.load(open('.review/review.json')); print(r.get('risk','high'))")
+          if git diff --name-only "origin/${{ github.event.pull_request.base.ref }}...HEAD" | grep -q '^\.github/workflows/'; then
+            gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
+            echo "workflow files changed - a human presses merge"; exit 0; fi
+          if [ "$RISK" = "low" ]; then
+            gh pr merge "$PR_NUM" --squash --auto && echo "auto-merge enabled: panel risk low, gates green"
+          else
+            gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
+            echo "panel risk $RISK - a human presses merge"
+          fi
       - name: Fold into the effort report + comment
         if: always()
         uses: actions/github-script@v7
