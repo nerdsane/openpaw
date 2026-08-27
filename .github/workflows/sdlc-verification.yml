@@ -40,10 +40,27 @@ jobs:
           # config has nothing to drive - it passes without proof.
           CODE=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"                  | grep -vE '^(\.github/|docs/|\.agents/|\.claude/|\.cursor/|README|.*\.md$)' || true)
           if [ -z "$CODE" ]; then echo "needs=false" >> "$GITHUB_OUTPUT"; echo "No app code changed - proof not required."; else echo "needs=true" >> "$GITHUB_OUTPUT"; fi
-      - name: Require proof.json
+      - name: Get the proof record from the PR (not committed)
         if: steps.scope.outputs.needs == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          [ -f .proof/proof.json ] || { echo "::error::no .proof/proof.json - the proof gate requires it (run the verify skill)"; exit 1; }
+          mkdir -p .proof
+          python3 - <<'PY'
+          import json, re, subprocess, sys
+          n="${{ github.event.pull_request.number }}"
+          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
+                              capture_output=True,text=True).stdout
+          rec=None
+          for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", body, re.S):
+              try: rec=json.loads(m.group(1))
+              except Exception: pass
+          if not rec:
+              print("::error::no proof record on the PR - run the verify skill and post it (bash stack/proof/post-proof-record.sh)")
+              sys.exit(1)
+          json.dump(rec, open(".proof/proof.json","w"))
+          print("proof record loaded from the PR")
+          PY
       - name: Validate proof (the gate)
         if: steps.scope.outputs.needs == 'true'
         run: |

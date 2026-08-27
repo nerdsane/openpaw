@@ -35,19 +35,34 @@ jobs:
         run: |
           git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
             echo "::error::cannot reach arni-labs/stack for the review toolkit"; exit 1; }
-      - name: Tier 1 - local subscription record present AND valid for this head?
+      - name: Tier 1 - a valid local review record posted to the PR?
         id: tier1
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          # only trust a committed record if it is for THIS head and not self-authored;
-          # otherwise treat as absent and run the cloud panel (no self-review bypass).
-          if [ -f .review/review.json ] && python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD" --author "$PR_AUTHOR" >/dev/null 2>&1; then
-            echo "present=true" >> "$GITHUB_OUTPUT"; echo "Valid local review record for this head; skipping the cloud panel."
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"; echo "No valid local record. The cloud panel will run."
-          fi
+          # The local panel (interrogate) posts its record as a PR comment carrying
+          # a hidden marker: <!-- sdlc-review-record\n{json}\n-->. Nothing is committed.
+          # We extract it, and trust it only if it is for THIS head and non-author.
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          n="${{ github.event.pull_request.number }}"
+          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",
+                               ".comments[].body"],capture_output=True,text=True).stdout
+          rec=None
+          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
+              try: rec=json.loads(m.group(1))
+              except Exception: pass
+          ok=False
+          if rec:
+              open(".review-local.json","w").write(json.dumps(rec))
+              ok = subprocess.run(["python3","/tmp/stack/review/validate.py",".review-local.json",
+                                   "--require-commit",os.environ["PR_HEAD"],
+                                   "--author",os.environ["PR_AUTHOR"]]).returncode==0
+          open(os.environ["GITHUB_OUTPUT"],"a").write(f"present={'true' if ok else 'false'}\n")
+          print("valid local record on PR; skipping cloud panel" if ok else "no valid local record; cloud panel will run")
+          PY
       - name: Tier 2 - cloud fallback panel (only if no local record)
         if: steps.tier1.outputs.present == 'false'
         env:
