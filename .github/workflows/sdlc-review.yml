@@ -55,6 +55,12 @@ jobs:
           REVIEW_SANDBOX_ID: ${{ secrets.REVIEW_SANDBOX_ID }}
           TL_API_KEY: ${{ secrets.TL_API_KEY }}
           TENSORLAKE_API_KEY: ${{ secrets.TL_API_KEY }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_REPO: ${{ github.event.repository.name }}
+          PR_URL: ${{ github.event.repository.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -62,13 +68,8 @@ jobs:
         run: |
           mkdir -p .review
           python3 /tmp/stack/review/run-cloud-panel.py \
-            --base "${{ github.event.pull_request.base.sha }}" \
-            --head "${{ github.event.pull_request.head.sha }}" \
-            --repo "${{ github.event.repository.name }}" \
-            --repo-url "${{ github.event.repository.html_url }}" \
-            --effort "${{ github.event.pull_request.title }}" \
-            --intent "${{ github.event.pull_request.body }}" \
-            --out .review/review.json
+            --base "$PR_BASE" --head "$PR_HEAD" --repo "$PR_REPO" --repo-url "$PR_URL" \
+            --effort "$PR_TITLE" --intent "$PR_BODY" --out .review/review.json
       - name: Merge Greptile (GitHub App) or record it skipped
         if: always()
         env: { GH_TOKEN: "${{ github.token }}" }
