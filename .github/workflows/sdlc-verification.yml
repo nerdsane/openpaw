@@ -32,6 +32,9 @@ jobs:
           python3 -m pip install --quiet jsonschema || true
       - name: Does this change need proof?
         id: scope
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # proof is for behavior changes. A PR touching only docs/workflows/agent
           # config has nothing to drive - it passes without proof.
@@ -54,7 +57,7 @@ jobs:
       - name: Deploy report to access-controlled Vercel
         id: vercel
         # only when there is a report
-        if: ${{ env.VERCEL_TOKEN != '' }}
+        if: ${{ secrets.VERCEL_TOKEN != '' }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

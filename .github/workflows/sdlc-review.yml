@@ -35,15 +35,18 @@ jobs:
         run: |
           git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
             echo "::error::cannot reach arni-labs/stack for the review toolkit"; exit 1; }
-      - name: Tier 1 - local subscription record present?
+      - name: Tier 1 - local subscription record present AND valid for this head?
         id: tier1
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          if [ -f .review/review.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "A local subscription review record is present; skipping the cloud panel."
+          # only trust a committed record if it is for THIS head and not self-authored;
+          # otherwise treat as absent and run the cloud panel (no self-review bypass).
+          if [ -f .review/review.json ] && python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD" --author "$PR_AUTHOR" >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"; echo "Valid local review record for this head; skipping the cloud panel."
           else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No local review record. The cloud fallback panel will run."
+            echo "present=false" >> "$GITHUB_OUTPUT"; echo "No valid local record. The cloud panel will run."
           fi
       - name: Tier 2 - cloud fallback panel (only if no local record)
         if: steps.tier1.outputs.present == 'false'
