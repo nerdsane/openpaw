@@ -59,10 +59,14 @@ jobs:
               except Exception: pass
           ok=False
           if rec:
+              os.makedirs(".review",exist_ok=True)
               open(".review-local.json","w").write(json.dumps(rec))
               ok = subprocess.run(["python3","/tmp/stack/review/validate.py",".review-local.json",
                                    "--require-commit",os.environ["PR_HEAD"],
                                    "--author",os.environ["PR_AUTHOR"]]).returncode==0
+              if ok:
+                  # the gate and the report read .review/review.json on BOTH tiers
+                  open(".review/review.json","w").write(json.dumps(rec))
           open(os.environ["GITHUB_OUTPUT"],"a").write(f"present={'true' if ok else 'false'}\n")
           print("valid local record on PR; skipping cloud panel" if ok else "no valid local record; cloud panel will run")
           PY
@@ -93,27 +97,47 @@ jobs:
             --effort "$PR_TITLE" --intent "$PR_BODY" --out .review/review.json
       - name: Merge Greptile (GitHub App) or record it skipped
         if: always()
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
         run: |
           python3 - <<'PY'
           import json, os, subprocess
           p=".review/review.json"
           if not os.path.isfile(p):
               raise SystemExit(0)
-          r=json.load(open(p))
+          r=json.load(open(p)); n=os.environ["PR_NUM"]
           # did greptile leave a review on this PR?
-          pr=os.environ.get("GITHUB_REF_NAME","")
-          out=subprocess.run(["gh","pr","view","${{ github.event.pull_request.number }}",
-                              "--json","reviews","-q",".reviews[].author.login"],
+          out=subprocess.run(["gh","pr","view",n,"--json","reviews","-q",".reviews[].author.login"],
                              capture_output=True,text=True).stdout.lower()
           if "greptile" in out:
               r.setdefault("reviewers_ran",[])
               if "greptile" not in r["reviewers_ran"]: r["reviewers_ran"].append("greptile")
+              # copy greptile's inline findings INTO the record so the report and
+              # the synthesis see them - detection without the findings is useless
+              rc=subprocess.run(["gh","api",
+                                 f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/comments",
+                                 "--paginate","-q",
+                                 '.[] | select(.user.login|test("greptile";"i")) | {path,line,body}'],
+                                capture_output=True,text=True).stdout
+              existing={ (f.get("file"),f.get("line"),f.get("reviewer")) for f in r.get("findings",[]) }
+              added=0
+              for line in rc.splitlines():
+                  try: c=json.loads(line)
+                  except Exception: continue
+                  key=(c.get("path"),c.get("line"),"greptile")
+                  if key in existing: continue
+                  r.setdefault("findings",[]).append({
+                      "reviewer":"greptile","file":c.get("path"),"line":c.get("line"),
+                      "severity":"informational","resolved":False,
+                      "finding":(c.get("body") or "")[:2000]})
+                  added+=1
+              print(f"greptile: ran, {added} inline findings merged")
           else:
               r.setdefault("reviewers_skipped",[]).append(
                   {"reviewer":"greptile","reason":"Greptile GitHub App has not reviewed this PR (install it, or it is still running)"})
+              print("greptile: skipped-with-reason")
           json.dump(r,open(p,"w"),indent=2)
-          print("greptile:", "ran" if "greptile" in out else "skipped-with-reason")
           PY
 
       - name: Validate the review record (the gate)
@@ -135,7 +159,11 @@ jobs:
               `Panel: ${(r.reviewers_ran||[]).join(', ')}` +
               (r.reviewers_skipped?.length ? ` (skipped: ${r.reviewers_skipped.map(s=>s.reviewer).join(', ')})` : '') +
               `\nOpen act-on findings: **${openActons}** · synthesis by: ${r.synthesis_by} · tier: ${r.produced_by?.tier}\n` +
-              `\nFull effort report (proof + review) linked from the verification comment.`;
+              `\nFull effort report (proof + review) linked from the verification comment.\n` +
+              // the machine record rides in the comment so the auto-merge router can
+              // validate it (commit + author) and read the panel's risk - the cloud
+              // tier otherwise never leaves a record marker on the PR
+              `<!-- sdlc-review-record\n${JSON.stringify(r)}\n-->`;
             const {data: comments} = await github.rest.issues.listComments({...context.repo, issue_number: context.issue.number});
             const mine = comments.find(c => c.body.includes('<!-- sdlc-review -->'));
             if (mine) await github.rest.issues.updateComment({...context.repo, comment_id: mine.id, body});

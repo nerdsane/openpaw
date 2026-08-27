@@ -18,8 +18,11 @@ jobs:
         run: git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
                echo "::error::cannot reach arni-labs/stack"; exit 1; }
       - name: Require the design chain
+        env:
+          # attacker-controlled values reach the shell only via env, never inline
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 /tmp/stack/gates/check-effort-artifacts.py \
-            --branch "${{ github.event.pull_request.head.ref }}" \
-            --base "${{ github.event.pull_request.base.sha }}" \
-            --head "${{ github.event.pull_request.head.sha }}"
+            --branch "$PR_BRANCH" --base "$PR_BASE" --head "$PR_HEAD"

@@ -27,38 +27,92 @@ jobs:
       - name: Decide and route
         env:
           GH_TOKEN: ${{ github.token }}
+          # the PR this event belongs to - never "the first open PR in the repo"
+          EVENT_PR: ${{ github.event.pull_request.number || github.event.check_suite.pull_requests[0].number }}
         run: |
-          PR=$(gh pr list --state open --json number,headRefOid,headRefName,labels -q '.[0]') || exit 0
-          [ -z "$PR" ] && { echo "no open PR"; exit 0; }
-          NUM=$(echo "$PR" | python3 -c "import json,sys;print(json.load(sys.stdin)['number'])")
-          HEAD=$(echo "$PR" | python3 -c "import json,sys;print(json.load(sys.stdin)['headRefOid'])")
-          # a repo may pin autonomy stricter via .github/autonomy.yaml; else the global
+          set -euo pipefail
+          NUM="$EVENT_PR"
+          [ -z "$NUM" ] && { echo "no PR on this event"; exit 0; }
+          HEAD=$(gh pr view "$NUM" --json headRefOid -q .headRefOid)
+          AUTHOR=$(gh pr view "$NUM" --json author -q .author.login)
+          STATE=$(gh pr view "$NUM" --json state -q .state)
+          [ "$STATE" = "OPEN" ] || { echo "PR #$NUM is $STATE - nothing to route"; exit 0; }
+
+          # a repo may pin autonomy STRICTER via .github/autonomy.yaml; else the global.
+          # The only honored override direction is stricter: auto_merge.enabled=false.
           CONF=.github/autonomy.yaml; [ -f "$CONF" ] || CONF=/tmp/stack/autonomy.yaml
+          python3 -m pip install --quiet pyyaml 2>/dev/null || true
+          AUTO_ENABLED=$(python3 - "$CONF" <<'PY'
+          import sys
+          try:
+              import yaml
+              conf = yaml.safe_load(open(sys.argv[1])) or {}
+              am = (conf.get("tiers") or {}).get("auto_merge") or {}
+              print("false" if am.get("enabled") is False else "true")
+          except Exception:
+              # unreadable config -> strictest interpretation
+              print("false")
+          PY
+          )
+          echo "autonomy config: $CONF (auto_merge enabled: $AUTO_ENABLED)"
+
           # human veto label always wins
           if gh pr view "$NUM" --json labels -q '.labels[].name' | grep -qx human-hold; then
             echo "human-hold label present - leaving for human"; exit 0; fi
-          # all required gate checks green?
-          ROLLUP=$(gh pr view "$NUM" --json statusCheckRollup -q '[.statusCheckRollup[] | select(.name|test("sdlc-|Greptile")) | .conclusion] | @json')
-          if echo "$ROLLUP" | grep -qiE "failure|cancelled|null|pending"; then
-            echo "gates not all green yet ($ROLLUP) - not routing"; exit 0; fi
-          # risk comes from the REVIEW PANEL's judgment (in the review record on the PR),
-          # not a filename heuristic. No record or no clear low -> human (conservative).
-          RISK=$(python3 - "$NUM" <<'PY'
-          import json, re, subprocess, sys
-          body=subprocess.run(["gh","pr","view",sys.argv[1],"--json","comments","-q",".comments[].body"],
-                              capture_output=True,text=True).stdout
-          risk="high"
-          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
-              try: risk=json.loads(m.group(1)).get("risk","high")
-              except Exception: pass
-          print(risk if risk in ("low","medium","high") else "high")
+
+          # ALL required gate checks must EXIST and have SUCCEEDED on the current
+          # head. An empty or errored rollup is not green - it routes to human.
+          gh pr view "$NUM" --json statusCheckRollup -q '.statusCheckRollup' > /tmp/rollup.json
+          GATES_OK=$(python3 - <<'PY'
+          import json, sys
+          required = {"planning", "decision-log", "proof", "review"}
+          rollup = json.load(open("/tmp/rollup.json")) or []
+          state = {}
+          for c in rollup:
+              name = c.get("name") or c.get("context") or ""
+              concl = (c.get("conclusion") or c.get("state") or "").upper()
+              if name in required:
+                  state[name] = concl
+          missing = required - set(state)
+          bad = {n: c for n, c in state.items() if c != "SUCCESS"}
+          if missing or bad:
+              print(f"false missing={sorted(missing)} bad={bad}")
+          else:
+              print("true")
           PY
           )
-          echo "panel risk: $RISK"
-          if [ "$RISK" = "low" ]; then
+          if [ "${GATES_OK%% *}" != "true" ]; then
+            echo "gates not all green on head ($GATES_OK) - not routing"; exit 0; fi
+
+          # risk comes from the REVIEW PANEL's judgment, and ONLY from a record
+          # that validates against THIS head and a non-author synthesis - the same
+          # bar the review gate applies. An unvalidated or missing record is high.
+          RISK=$(python3 - "$NUM" "$HEAD" "$AUTHOR" <<'PY'
+          import json, re, subprocess, sys
+          num, head, author = sys.argv[1:4]
+          body = subprocess.run(["gh","pr","view",num,"--json","comments","-q",".comments[].body"],
+                                capture_output=True, text=True).stdout
+          risk = "high"
+          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
+              try:
+                  rec = json.loads(m.group(1))
+              except Exception:
+                  continue
+              open("/tmp/automerge-record.json","w").write(json.dumps(rec))
+              ok = subprocess.run(["python3","/tmp/stack/review/validate.py","/tmp/automerge-record.json",
+                                   "--require-commit", head, "--author", author],
+                                  capture_output=True).returncode == 0
+              if ok:
+                  r = rec.get("risk","high")
+                  risk = r if r in ("low","medium","high") else "high"
+          print(risk)
+          PY
+          )
+          echo "panel risk (validated record only): $RISK"
+          if [ "$RISK" = "low" ] && [ "$AUTO_ENABLED" = "true" ]; then
             gh pr merge "$NUM" --squash --auto && \
-              gh pr comment "$NUM" --body "Auto-merged: all gates green, blast-radius low (per autonomy.yaml). Proof + review are on this PR."
+              gh pr comment "$NUM" --body "Auto-merged: all required gates green on this head, panel risk low (per autonomy.yaml). Proof + review are on this PR."
           else
             gh pr edit "$NUM" --add-label human-review 2>/dev/null || true
-            gh pr comment "$NUM" --body "Elevated to human review: change-risk **$RISK** (critical path or large change, per autonomy.yaml). Gates are green; a human presses merge."
+            gh pr comment "$NUM" --body "Elevated to human review: panel risk **$RISK**$([ "$AUTO_ENABLED" = "true" ] || echo ' (auto-merge disabled for this repo)'). Gates are green; a human presses merge."
           fi
