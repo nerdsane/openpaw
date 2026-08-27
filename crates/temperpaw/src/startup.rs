@@ -220,7 +220,17 @@ async fn genesis_bootstrap_app_runtime_ready(
 ) -> bool {
     let outcome =
         recover_installed_app_runtime_state(state, platform_store, tenant, app_name).await;
-    genesis_bootstrap_runtime_recovery_allows_skip(&outcome)
+    let ready = genesis_bootstrap_runtime_recovery_allows_skip(&outcome);
+    if !ready {
+        // Diagnostic: record why the existing install was judged not runtime-ready, so the
+        // subsequent "Installing pinned Genesis bootstrap ref" decision is explainable.
+        tracing::info!(
+            app = %app_name,
+            outcome = ?outcome,
+            "Genesis bootstrap app is not runtime-ready; the env-pinned ref will be (re)installed"
+        );
+    }
+    ready
 }
 
 #[cfg(test)]
@@ -510,15 +520,29 @@ async fn bootstrap_configured_genesis_apps(
 
                 match classify_bootstrap_action(record.as_ref(), runtime_ready) {
                     BootstrapAction::KeepInstalled => {
-                        tracing::info!(
-                            app = %app_name,
-                            pinned_ref = %app_ref,
-                            installed_ref = record
-                                .as_ref()
-                                .map(|r| r.app_ref.as_str())
-                                .unwrap_or_default(),
-                            "Keeping runtime-ready Genesis bootstrap app (env pin is a floor, not a ceiling)"
-                        );
+                        let installed_ref = record
+                            .as_ref()
+                            .map(|r| r.app_ref.as_str())
+                            .unwrap_or_default();
+                        if installed_ref != app_ref {
+                            // The env pin is a floor: a healthy install at a different hash is kept
+                            // and the pin is NOT force-applied. Surface this so an operator who
+                            // bumped the pin expecting an upgrade can see why it did not take —
+                            // explicit install is the upgrade path.
+                            tracing::warn!(
+                                app = %app_name,
+                                pinned_ref = %app_ref,
+                                installed_ref = %installed_ref,
+                                "Keeping runtime-ready Genesis install at a different hash than the env pin; the pin bump did NOT upgrade it (env pin is a floor, not a ceiling — use an explicit install to change the running version)"
+                            );
+                        } else {
+                            tracing::info!(
+                                app = %app_name,
+                                pinned_ref = %app_ref,
+                                installed_ref = %installed_ref,
+                                "Keeping runtime-ready Genesis bootstrap app (matches env pin)"
+                            );
+                        }
                         continue;
                     }
                     BootstrapAction::InstallPinned => match record.as_ref() {
@@ -539,12 +563,18 @@ async fn bootstrap_configured_genesis_apps(
                 }
             }
             Err(error) => {
+                // An indeterminate read must NOT trigger a (re)install: a transient store outage
+                // during redeploy would otherwise overwrite a healthy newer Genesis version with
+                // the stale env pin — the exact downgrade this change exists to prevent. Skip and
+                // let the next boot reconcile once the store is readable. A genuinely fresh install
+                // reads Ok(None), not Err, so this does not strand first installs.
                 tracing::warn!(
                     app = %app_name,
                     app_ref = %app_ref,
                     error = %error,
-                    "Could not read installed app metadata before Genesis bootstrap; installing"
+                    "Could not read installed app metadata before Genesis bootstrap; skipping to avoid downgrading a possibly-healthy install (will retry next boot)"
                 );
+                continue;
             }
         }
 
