@@ -21,6 +21,10 @@ permissions:
 jobs:
   proof:
     runs-on: ubuntu-latest
+    # The `secrets` context is NOT allowed in step-level `if:`; hoist the presence
+    # test into job-level env (which may read secrets) and gate the step on env.
+    env:
+      HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch the proof toolkit from stack
@@ -73,8 +77,8 @@ jobs:
           cat .proof/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Deploy report to access-controlled Vercel
         id: vercel
-        # only when there is a report
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        # only when there is a report (scope needs proof) and Vercel is configured
+        if: ${{ steps.scope.outputs.needs == 'true' && env.HAS_VERCEL == 'true' }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
