@@ -35,6 +35,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+          TENSORLAKE_API_KEY: ${{ secrets.TL_API_KEY }}
         run: |
           # A panel->fix->re-review loop that passes 3 rounds on one PR is a
           # rabbit-hole signal: over-complexity or a contested design. The fix at
@@ -46,8 +48,25 @@ jobs:
           ROUNDS=$(gh run list --workflow sdlc-review --branch "$PR_BRANCH"                      --status completed --json conclusion                      -q '[.[] | select(.conclusion == "failure")] | length' || echo 0)
           if [ "${ROUNDS:-0}" -ge 3 ]; then
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
-            gh pr comment "$PR_NUM" --body "**Convergence stalled** - $ROUNDS failed review rounds on this PR. This is a rabbit-hole signal: likely over-complexity or a contested design, and the fix is deletion or an owner decision, not another round. Owner: decide (simplify, rule on the contested points, or split the PR), then add the \`converge-ack\` label to re-arm the review gate." 2>/dev/null || true
-            echo "::error::convergence stalled after $ROUNDS rounds - owner decision required (add converge-ack to re-arm)"
+            # neither arguing party can diagnose the stall (the implementer
+            # defends, the panel generates the findings): a FRESH arbiter reads
+            # the whole history and writes a decision brief for the human -
+            # threads classified, options, one recommendation. The human decides
+            # from the brief, records the ruling as standing decisions, and
+            # re-arms with converge-ack. Falls back to a mechanical findings
+            # grouping if no model is reachable - the human always gets structure.
+            git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack-arb 2>/dev/null || true
+            gh pr view "$PR_NUM" --json body -q .body > /tmp/pr-intent.txt || true
+            python3 /tmp/stack-arb/review/run-arbiter.py --pr "$PR_NUM" --branch "$PR_BRANCH"               --intent-file /tmp/pr-intent.txt --out /tmp/brief.md 2>/dev/null || true
+            {
+              echo "**Convergence stalled** - $ROUNDS failed review rounds. The loop stops here: the fix is deletion or an owner decision, not another round."
+              echo
+              cat /tmp/brief.md 2>/dev/null || echo "(arbiter unavailable - see the round logs)"
+              echo
+              echo "Owner: decide, record the ruling in the PR's standing decisions, then add the \`converge-ack\` label to re-arm the review gate."
+            } > /tmp/breaker-comment.md
+            gh pr comment "$PR_NUM" --body-file /tmp/breaker-comment.md 2>/dev/null || true
+            echo "::error::convergence stalled after $ROUNDS rounds - decision brief posted; owner decision required (converge-ack re-arms)"
             exit 1
           fi
           echo "review rounds so far: ${ROUNDS:-0}"
