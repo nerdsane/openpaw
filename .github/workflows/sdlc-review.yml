@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Install the TensorLake CLI (to reach the computer)
+        run: |
+          curl -fsSL https://tensorlake.ai/install | sh >/dev/null 2>&1 || true
+          echo "$HOME/.tensorlake/bin" >> "$GITHUB_PATH"
       - name: Fetch the review toolkit from stack
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
@@ -50,6 +54,7 @@ jobs:
           # as GitHub Apps independently and their findings merge in.
           REVIEW_SANDBOX_ID: ${{ secrets.REVIEW_SANDBOX_ID }}
           TL_API_KEY: ${{ secrets.TL_API_KEY }}
+          TENSORLAKE_API_KEY: ${{ secrets.TL_API_KEY }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
