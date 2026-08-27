@@ -37,6 +37,7 @@ jobs:
           PR_NUM: ${{ github.event.pull_request.number }}
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
           TENSORLAKE_API_KEY: ${{ secrets.TL_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           # A panel->fix->re-review loop that passes 3 rounds on one PR is a
           # rabbit-hole signal: over-complexity or a contested design. The fix at
@@ -59,14 +60,35 @@ jobs:
             gh pr view "$PR_NUM" --json body -q .body > /tmp/pr-intent.txt || true
             python3 /tmp/stack-arb/review/run-arbiter.py --pr "$PR_NUM" --branch "$PR_BRANCH"               --intent-file /tmp/pr-intent.txt --out /tmp/brief.md 2>/dev/null || true
             {
-              echo "**Convergence stalled** - $ROUNDS failed review rounds. The loop stops here: the fix is deletion or an owner decision, not another round."
+              echo "**Convergence stalled** - $ROUNDS failed review rounds. The loop stops here: the fix is an owner decision, not another round."
               echo
               cat /tmp/brief.md 2>/dev/null || echo "(arbiter unavailable - see the round logs)"
               echo
-              echo "Owner: decide, record the ruling in the PR's standing decisions, then add the \`converge-ack\` label to re-arm the review gate."
+              echo "---"
+              echo "**To respond**: comment on this PR starting with \`DECISION:\` followed by your ruling, whenever you get to it. The pipeline picks it up from there - it records the ruling in the standing decisions and re-arms the review gate. No agent required."
             } > /tmp/breaker-comment.md
             gh pr comment "$PR_NUM" --body-file /tmp/breaker-comment.md 2>/dev/null || true
-            echo "::error::convergence stalled after $ROUNDS rounds - decision brief posted; owner decision required (converge-ack re-arms)"
+            # tell the human where they are needed - short, actionable, in Slack
+            if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+              VERDICT=$(head -c 400 /tmp/brief.md 2>/dev/null | grep -A2 -i "verdict" | tail -2 | tr '\n' ' ' | head -c 280)
+              PR_URL="https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUM}"
+              python3 - "$PR_URL" "$ROUNDS" "$VERDICT" <<'PYEOF' || true
+          import json, sys, os, urllib.request
+          url, rounds, verdict = sys.argv[1], sys.argv[2], sys.argv[3]
+          msg = (f":vertical_traffic_light: *Review loop stalled* after {rounds} rounds on {url}\n"
+                 f"Arbiter's take: {verdict or 'see the brief on the PR'}\n"
+                 f"*What to do*: read the decision brief (top comment on the PR), then reply there "
+                 f"with a comment starting `DECISION: <your ruling>`. The pipeline handles the rest.")
+          req = urllib.request.Request(os.environ["SLACK_WEBHOOK_URL"],
+                                       data=json.dumps({"text": msg}).encode(),
+                                       headers={"Content-Type": "application/json"})
+          urllib.request.urlopen(req, timeout=10)
+          print("slack notified")
+          PYEOF
+            else
+              echo "SLACK_WEBHOOK_URL not set - no Slack notification (the brief is on the PR)"
+            fi
+            echo "::error::convergence stalled after $ROUNDS rounds - decision brief posted; owner responds with a DECISION: comment on the PR"
             exit 1
           fi
           echo "review rounds so far: ${ROUNDS:-0}"
