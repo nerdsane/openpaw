@@ -1,0 +1,53 @@
+# Auto-merge router: the tier logic from autonomy.yaml, applied. Runs after the
+# gate checks settle. Auto-merges a low-risk PR whose gates are all green;
+# elevates anything else to human. Every PR keeps its proof + review either way.
+# Vendor as .github/workflows/sdlc-automerge.yml.
+name: sdlc-automerge
+on:
+  # run when checks complete, so we see the gate conclusions
+  check_suite:
+    types: [completed]
+  pull_request:
+    types: [labeled]     # allow a human 'human-hold' label to veto
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    if: github.event.check_suite.pull_requests[0] != null || github.event.pull_request != null
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Fetch autonomy config from stack
+        env:
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+        run: git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || exit 1
+      - name: Decide and route
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=$(gh pr list --state open --json number,headRefOid,headRefName,labels -q '.[0]') || exit 0
+          [ -z "$PR" ] && { echo "no open PR"; exit 0; }
+          NUM=$(echo "$PR" | python3 -c "import json,sys;print(json.load(sys.stdin)['number'])")
+          HEAD=$(echo "$PR" | python3 -c "import json,sys;print(json.load(sys.stdin)['headRefOid'])")
+          # a repo may pin autonomy stricter via .github/autonomy.yaml; else the global
+          CONF=.github/autonomy.yaml; [ -f "$CONF" ] || CONF=/tmp/stack/autonomy.yaml
+          # human veto label always wins
+          if gh pr view "$NUM" --json labels -q '.labels[].name' | grep -qx human-hold; then
+            echo "human-hold label present - leaving for human"; exit 0; fi
+          # all required gate checks green?
+          ROLLUP=$(gh pr view "$NUM" --json statusCheckRollup -q '[.statusCheckRollup[] | select(.name|test("sdlc-|Greptile")) | .conclusion] | @json')
+          if echo "$ROLLUP" | grep -qiE "failure|cancelled|null|pending"; then
+            echo "gates not all green yet ($ROLLUP) - not routing"; exit 0; fi
+          BASE=$(gh pr view "$NUM" --json baseRefOid -q .baseRefOid)
+          RISK=$(python3 /tmp/stack/gates/change-risk.py --base "$BASE" --head "$HEAD" --autonomy "$CONF")
+          echo "change-risk: $RISK"
+          if [ "$RISK" = "low" ]; then
+            gh pr merge "$NUM" --squash --auto && \
+              gh pr comment "$NUM" --body "Auto-merged: all gates green, blast-radius low (per autonomy.yaml). Proof + review are on this PR."
+          else
+            gh pr edit "$NUM" --add-label human-review 2>/dev/null || true
+            gh pr comment "$NUM" --body "Elevated to human review: change-risk **$RISK** (critical path or large change, per autonomy.yaml). Gates are green; a human presses merge."
+          fi

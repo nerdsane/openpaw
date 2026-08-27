@@ -1,0 +1,25 @@
+# The planning gate: an effort must carry intent/spec/plan/decisions.
+# Vendor as .github/workflows/sdlc-planning.yml.
+name: sdlc-planning
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  planning:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Fetch the gate from stack
+        env:
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+        run: git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
+               echo "::error::cannot reach arni-labs/stack"; exit 1; }
+      - name: Require the design chain
+        run: |
+          python3 /tmp/stack/gates/check-effort-artifacts.py \
+            --branch "${{ github.event.pull_request.head.ref }}" \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}"
