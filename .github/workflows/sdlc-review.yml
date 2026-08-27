@@ -1,0 +1,113 @@
+# The review gate: no merge without a review record (SDLC loop: the "review" stage).
+# Vendor into a repo as .github/workflows/sdlc-review.yml.
+#
+# COST-TIERED. The gate requires a review record to exist; how it is produced
+# is tiered so the expensive cloud path only fires when a local subscription
+# review did not run:
+#   1. If .review/review.json exists (produced locally on subscription by the
+#      interrogate skill), validate it. Done. Nothing cloud fires.
+#   2. If it is absent (a cloud/background agent did the work, no laptop/
+#      subscription), the cloud fallback runs the panel and writes the record,
+#      then validates. The fallback is the expensive path - conditional, rare.
+#
+# The validated record feeds the combined effort report (proof + review).
+name: sdlc-review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Fetch the review toolkit from stack
+        run: |
+          git clone --depth 1 https://github.com/arni-labs/stack /tmp/stack || {
+            echo "::error::cannot reach arni-labs/stack for the review toolkit"; exit 1; }
+      - name: Tier 1 - local subscription record present?
+        id: tier1
+        run: |
+          if [ -f .review/review.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "A local subscription review record is present; skipping the cloud panel."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No local review record. The cloud fallback panel will run."
+          fi
+      - name: Tier 2 - cloud fallback panel (only if no local record)
+        if: steps.tier1.outputs.present == 'false'
+        env:
+          # The cloud panel prefers the sandbox running interrogate on subscription
+          # CLIs (Rita confirmed the sandbox can run them). If the sandbox is not
+          # configured, it falls to paid vendor actions/APIs. Greptile/Bugbot run
+          # as GitHub Apps independently and their findings merge in.
+          REVIEW_SANDBOX_ID: ${{ secrets.REVIEW_SANDBOX_ID }}
+          TL_API_KEY: ${{ secrets.TL_API_KEY }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          mkdir -p .review
+          python3 /tmp/stack/review/run-cloud-panel.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --repo "${{ github.event.repository.name }}" \
+            --repo-url "${{ github.event.repository.html_url }}" \
+            --effort "${{ github.event.pull_request.title }}" \
+            --intent "${{ github.event.pull_request.body }}" \
+            --out .review/review.json
+      - name: Merge Greptile (GitHub App) or record it skipped
+        if: always()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          p=".review/review.json"
+          if not os.path.isfile(p):
+              raise SystemExit(0)
+          r=json.load(open(p))
+          # did greptile leave a review on this PR?
+          pr=os.environ.get("GITHUB_REF_NAME","")
+          out=subprocess.run(["gh","pr","view","${{ github.event.pull_request.number }}",
+                              "--json","reviews","-q",".reviews[].author.login"],
+                             capture_output=True,text=True).stdout.lower()
+          if "greptile" in out:
+              r.setdefault("reviewers_ran",[])
+              if "greptile" not in r["reviewers_ran"]: r["reviewers_ran"].append("greptile")
+          else:
+              r.setdefault("reviewers_skipped",[]).append(
+                  {"reviewer":"greptile","reason":"Greptile GitHub App has not reviewed this PR (install it, or it is still running)"})
+          json.dump(r,open(p,"w"),indent=2)
+          print("greptile:", "ran" if "greptile" in out else "skipped-with-reason")
+          PY
+
+      - name: Validate the review record (the gate)
+        run: |
+          # panel is read from stack/review/panel.json (single source of truth)
+          python3 /tmp/stack/review/validate.py .review/review.json
+      - name: Fold into the effort report + comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('.review/review.json')) return;
+            const r = JSON.parse(fs.readFileSync('.review/review.json','utf8'));
+            const openActons = (r.findings||[]).filter(f => f.severity==='act-on' && !f.resolved).length;
+            const verdict = openActons ? 'FAIL' : 'PASS';
+            const body = "<!-- sdlc-review -->\n" +
+              `### Review — ${r.effort}: **${verdict}**\n` +
+              `Panel: ${(r.reviewers_ran||[]).join(', ')}` +
+              (r.reviewers_skipped?.length ? ` (skipped: ${r.reviewers_skipped.map(s=>s.reviewer).join(', ')})` : '') +
+              `\nOpen act-on findings: **${openActons}** · synthesis by: ${r.synthesis_by} · tier: ${r.produced_by?.tier}\n` +
+              `\nFull effort report (proof + review) linked from the verification comment.`;
+            const {data: comments} = await github.rest.issues.listComments({...context.repo, issue_number: context.issue.number});
+            const mine = comments.find(c => c.body.includes('<!-- sdlc-review -->'));
+            if (mine) await github.rest.issues.updateComment({...context.repo, comment_id: mine.id, body});
+            else await github.rest.issues.createComment({...context.repo, issue_number: context.issue.number, body});
