@@ -38,25 +38,49 @@ jobs:
         run: |
           git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
             echo "::error::cannot reach arni-labs/stack for the review toolkit"; exit 1; }
+      - name: Derive the authoring harness
+        id: author
+        env:
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          # synthesis_by names a HARNESS (claude/codex/grok/cursor), not a GitHub
+          # login - all work flows through one GitHub account, so comparing against
+          # the login is vacuous. The branch naming convention (<agent>/<task>)
+          # carries the authoring harness; unknown prefixes stay "unknown" and the
+          # non-author check then only rejects a literal "unknown" synthesis.
+          case "${PR_BRANCH%%/*}" in
+            claude|codex|grok|cursor) echo "harness=${PR_BRANCH%%/*}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "harness=unknown" >> "$GITHUB_OUTPUT" ;;
+          esac
       - name: Tier 1 - a valid local review record posted to the PR?
         id: tier1
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR: ${{ steps.author.outputs.harness }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          GH_REPO_FULL: ${{ github.repository }}
         run: |
           # The local panel (interrogate) posts its record as a PR comment carrying
           # a hidden marker: <!-- sdlc-review-record\n{json}\n-->. Nothing is committed.
-          # We extract it, and trust it only if it is for THIS head and non-author.
+          # We extract it, and trust it only if the COMMENT came from a repo
+          # owner/member/collaborator (a drive-by commenter cannot supply a review)
+          # and the record validates for THIS head with a non-author synthesis.
           python3 - <<'PY'
           import json, os, re, subprocess
-          n="${{ github.event.pull_request.number }}"
-          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",
-                               ".comments[].body"],capture_output=True,text=True).stdout
+          n=os.environ["PR_NUM"]; repo=os.environ["GH_REPO_FULL"]
+          out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
+                              "-q",'.[] | {assoc: .author_association, body: .body}'],
+                             capture_output=True,text=True).stdout
           rec=None
-          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
-              try: rec=json.loads(m.group(1))
-              except Exception: pass
+          for line in out.splitlines():
+              try: c=json.loads(line)
+              except Exception: continue
+              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
+                  continue   # untrusted commenter - their marker does not count
+              for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", c.get("body",""), re.S):
+                  try: rec=json.loads(m.group(1))
+                  except Exception: pass
           ok=False
           if rec:
               os.makedirs(".review",exist_ok=True)
@@ -120,17 +144,21 @@ jobs:
                                  "--paginate","-q",
                                  '.[] | select(.user.login|test("greptile";"i")) | {path,line,body}'],
                                 capture_output=True,text=True).stdout
-              existing={ (f.get("file"),f.get("line"),f.get("reviewer")) for f in r.get("findings",[]) }
+              # schema fields: by / file_line / claim / severity / resolved.
+              # Greptile enters as "consider" (in-schema, advisory): the app is an
+              # extra pair of eyes, and the panel's synthesis judges its findings -
+              # only panel act-ons block. Out-of-schema fields would make the
+              # record fail schema validation and vanish from the report.
+              existing={ (f.get("file_line"),f.get("by")) for f in r.get("findings",[]) }
               added=0
               for line in rc.splitlines():
                   try: c=json.loads(line)
                   except Exception: continue
-                  key=(c.get("path"),c.get("line"),"greptile")
-                  if key in existing: continue
+                  file_line=f"{c.get('path','?')}:{c.get('line') or '?'}"
+                  if (file_line,"greptile") in existing: continue
                   r.setdefault("findings",[]).append({
-                      "reviewer":"greptile","file":c.get("path"),"line":c.get("line"),
-                      "severity":"informational","resolved":False,
-                      "finding":(c.get("body") or "")[:2000]})
+                      "by":"greptile","file_line":file_line,"severity":"consider",
+                      "resolved":False,"claim":(c.get("body") or "")[:2000]})
                   added+=1
               print(f"greptile: ran, {added} inline findings merged")
           else:
@@ -141,9 +169,52 @@ jobs:
           PY
 
       - name: Validate the review record (the gate)
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          # panel is read from stack/review/panel.json (single source of truth)
-          python3 /tmp/stack/review/validate.py .review/review.json
+          # panel is read from stack/review/panel.json (single source of truth).
+          # BOTH tiers are held to the same bar here: the record must be for this
+          # head and synthesized by a non-author harness - tier 2 gets no free pass.
+          python3 /tmp/stack/review/validate.py .review/review.json \
+            --require-commit "$PR_HEAD" --author "${{ steps.author.outputs.harness }}"
+      - name: Rebuild the combined effort report (proof + review)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # the verification gate renders the proof half before any review exists;
+          # once the review record is here, the combined report is rebuilt so the
+          # effort report always ends up carrying BOTH halves
+          [ -f .review/review.json ] || exit 0
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          n=os.environ["PR_NUM"]
+          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
+                              capture_output=True,text=True).stdout
+          rec=None
+          for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", body, re.S):
+              try: rec=json.loads(m.group(1))
+              except Exception: pass
+          if rec:
+              os.makedirs(".proof",exist_ok=True)
+              json.dump(rec, open(".proof/proof.json","w"))
+              print("proof record found - rendering combined report")
+          else:
+              print("no proof record (docs-only PR or proof pending) - review-only report")
+          PY
+          if [ -f .proof/proof.json ]; then
+            python3 /tmp/stack/proof/render.py .proof/proof.json --review .review/review.json \
+              --out .review/effort-report.html > /dev/null 2>&1 || true
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: effort-report
+          path: |
+            .review/review.json
+            .review/effort-report.html
+          if-no-files-found: ignore
       - name: Fold into the effort report + comment
         if: always()
         uses: actions/github-script@v7

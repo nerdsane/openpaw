@@ -12,6 +12,11 @@
 #   validates and posts the summary; the report falls back to the CI artifact.
 name: sdlc-verification
 on:
+  # A PR comment does NOT re-trigger pull_request workflows, so a proof record
+  # posted after this gate ran red would leave the check stale. Two re-trigger
+  # paths exist: post-proof-record.sh ends by re-running the latest completed
+  # sdlc-verification run for the head (the normal path), and adding any label
+  # fires the `labeled` type as a manual fallback.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
 permissions:
@@ -80,7 +85,9 @@ jobs:
         if: steps.scope.outputs.needs == 'true'
         run: |
           FDIR=$(ls -d .agents/skills/verify-*/features 2>/dev/null | head -1)
-          python3 /tmp/stack/proof/validate.py .proof/proof.json ${FDIR:+--features-dir "$FDIR"}
+          # evidence must be URLs: CI has no local evidence files (never committed),
+          # so a record citing local paths is unverifiable here
+          python3 /tmp/stack/proof/validate.py .proof/proof.json --require-url-evidence ${FDIR:+--features-dir "$FDIR"}
       - name: Render report + summary
         if: steps.scope.outputs.needs == 'true'
         run: |
