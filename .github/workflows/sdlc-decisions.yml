@@ -14,7 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch the gate from stack
-        run: git clone --depth 1 https://github.com/arni-labs/stack /tmp/stack || {
+        env:
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+        run: git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
                echo "::error::cannot reach arni-labs/stack for the gate"; exit 1; }
       - name: Write PR body to a file
         env:

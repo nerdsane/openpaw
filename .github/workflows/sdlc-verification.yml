@@ -24,8 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch the proof toolkit from stack
+        env:
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
         run: |
-          git clone --depth 1 https://github.com/arni-labs/stack /tmp/stack || {
+          git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
             echo "::error::cannot reach arni-labs/stack for the proof toolkit"; exit 1; }
           python3 -m pip install --quiet jsonschema || true
       - name: Does this change need proof?
