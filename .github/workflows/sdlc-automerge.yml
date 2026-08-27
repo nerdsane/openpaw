@@ -27,6 +27,7 @@ jobs:
       - name: Decide and route
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}   # router has no checkout: every gh command needs the repo
           GH_REPO_FULL: ${{ github.repository }}
           # the PR this event belongs to - never "the first open PR in the repo".
           # workflow_run carries the head sha; labeled carries the PR directly.
@@ -54,14 +55,26 @@ jobs:
 
           # human veto label always wins
           if gh pr view "$NUM" --json labels -q '.labels[].name' | grep -qx human-hold; then
-            echo "human-hold label present - leaving for human"; exit 0; fi
+            # the veto also cancels an auto-merge that an earlier run already enabled
+            gh pr merge "$NUM" --disable-auto 2>/dev/null || true
+            echo "human-hold label present - auto-merge disabled, leaving for human"; exit 0; fi
 
           # autonomy config: the GLOBAL config from the stack is authoritative; a
           # repo override is read from the BASE branch (never the PR head, which
           # the author controls) and can only make it stricter.
           python3 -m pip install --quiet pyyaml 2>/dev/null || true
+          # absent override (404) is fine; a FAILED fetch is not knowable and fails closed
+          RC=0
           gh api "repos/${GH_REPO_FULL}/contents/.github/autonomy.yaml?ref=${BASE}" \
-            -q .content 2>/dev/null | base64 -d > /tmp/repo-autonomy.yaml || true
+            -q .content > /tmp/override.b64 2>/tmp/override.err || RC=$?
+          if [ "$RC" -eq 0 ]; then
+            base64 -d < /tmp/override.b64 > /tmp/repo-autonomy.yaml
+          elif grep -q "Not Found" /tmp/override.err; then
+            : > /tmp/repo-autonomy.yaml   # no override defined - global applies
+          else
+            echo "could not read the base-branch autonomy override - routing to human"; \
+            gh pr edit "$NUM" --add-label human-review 2>/dev/null || true; exit 0
+          fi
           AUTO_ENABLED=$(python3 - <<'PY'
           import os
           try:
@@ -85,7 +98,10 @@ jobs:
           echo "auto_merge enabled (global AND base-branch override): $AUTO_ENABLED"
 
           # critical paths from the config elevate to human regardless of risk
-          gh pr diff "$NUM" --name-only > /tmp/pr-files.txt || true
+          if ! gh pr diff "$NUM" --name-only > /tmp/pr-files.txt; then
+            echo "could not read the PR diff - cannot clear critical paths, routing to human"
+            gh pr edit "$NUM" --add-label human-review 2>/dev/null || true; exit 0
+          fi
           CRITICAL=$(python3 - <<'PY'
           import re
           try:
@@ -135,9 +151,19 @@ jobs:
           RISK=$(python3 - "$NUM" "$HEAD" "$AUTHOR" <<'PY'
           import json, re, subprocess, sys
           num, head, author = sys.argv[1:4]
-          body = subprocess.run(["gh","pr","view",num,"--json","comments","-q",".comments[].body"],
-                                capture_output=True, text=True).stdout
+          import os
+          repo = os.environ["GH_REPO_FULL"]
+          out = subprocess.run(["gh","api",f"repos/{repo}/issues/{num}/comments","--paginate",
+                                "-q",'.[] | {assoc: .author_association, body: .body}'],
+                               capture_output=True, text=True).stdout
           risk = "high"
+          trusted_bodies = []
+          for line in out.splitlines():
+              try: c = json.loads(line)
+              except Exception: continue
+              if c.get("assoc") in ("OWNER","MEMBER","COLLABORATOR"):
+                  trusted_bodies.append(c.get("body",""))
+          body = "\n".join(trusted_bodies)   # only trusted commenters can supply the record
           for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
               try:
                   rec = json.loads(m.group(1))

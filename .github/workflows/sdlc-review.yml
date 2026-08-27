@@ -25,13 +25,18 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    env:
+      HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: Install the TensorLake CLI (to reach the computer)
         run: |
+          # the runner is ephemeral and the panel tools call the binary by its
+          # absolute path (~/.tensorlake/bin/tl) - nothing is prepended to PATH,
+          # so the installer's directory never shadows later commands
           curl -fsSL https://tensorlake.ai/install | sh >/dev/null 2>&1 || true
-          echo "$HOME/.tensorlake/bin" >> "$GITHUB_PATH"
+          "$HOME/.tensorlake/bin/tl" version 2>/dev/null || echo "tl unavailable - cloud tier will fall through"
       - name: Fetch the review toolkit from stack
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
@@ -207,6 +212,19 @@ jobs:
             python3 /tmp/stack/proof/render.py .proof/proof.json --review .review/review.json \
               --out .review/effort-report.html > /dev/null 2>&1 || true
           fi
+      - name: Deploy the combined report (replaces the proof-only page)
+        id: combined
+        if: ${{ always() && env.HAS_VERCEL == 'true' }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          [ -f .review/effort-report.html ] || exit 0
+          npm i -g vercel@latest >/dev/null 2>&1
+          mkdir -p /tmp/report && cp .review/effort-report.html /tmp/report/index.html
+          URL=$(vercel deploy /tmp/report --yes --token "$VERCEL_TOKEN" 2>/dev/null | tail -1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -230,7 +248,9 @@ jobs:
               `Panel: ${(r.reviewers_ran||[]).join(', ')}` +
               (r.reviewers_skipped?.length ? ` (skipped: ${r.reviewers_skipped.map(s=>s.reviewer).join(', ')})` : '') +
               `\nOpen act-on findings: **${openActons}** · synthesis by: ${r.synthesis_by} · tier: ${r.produced_by?.tier}\n` +
-              `\nFull effort report (proof + review) linked from the verification comment.\n` +
+              ('${{ steps.combined.outputs.url }}'
+                ? `\n**[Open the combined effort report (team-only)](${{ steps.combined.outputs.url }})**\n`
+                : `\nCombined effort report: the \`effort-report\` artifact on this run.\n`) +
               // the machine record rides in the comment so the auto-merge router can
               // validate it (commit + author) and read the panel's risk - the cloud
               // tier otherwise never leaves a record marker on the PR
