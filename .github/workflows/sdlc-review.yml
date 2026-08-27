@@ -165,6 +165,17 @@ jobs:
               # record fail schema validation and vanish from the report.
               existing={ (f.get("file_line"),f.get("by")) for f in r.get("findings",[]) }
               added=0
+              # review BODIES too - Greptile often writes findings in the summary
+              rb=subprocess.run(["gh","api",
+                                 f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/reviews",
+                                 "--paginate","-q",
+                                 '.[] | select(.user.login|test("greptile";"i")) | select(.commit_id=="'+head+'") | .body'],
+                                capture_output=True,text=True).stdout.strip()
+              if rb and ("summary-body","greptile") not in existing:
+                  r.setdefault("findings",[]).append({
+                      "by":"greptile","file_line":"summary-body","severity":"consider",
+                      "resolved":False,"claim":rb[:4000]})
+                  added+=1
               for line in rc.splitlines():
                   try: c=json.loads(line)
                   except Exception: continue

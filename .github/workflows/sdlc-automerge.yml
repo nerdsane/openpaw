@@ -108,6 +108,18 @@ jobs:
             echo "could not read the PR diff - cannot clear critical paths, routing to human"
             gh pr edit "$NUM" --add-label human-review 2>/dev/null || true; exit 0
           fi
+          # WORKFLOW-TAMPER GUARD. A PR can rewrite a vendored gate workflow into
+          # a green no-op that keeps the required check's name - name-based branch
+          # protection cannot tell. THIS workflow runs the BASE branch's code
+          # (workflow_run always executes the default-branch file), so it is the
+          # one gate a PR cannot no-op: any change to .github/workflows/** means
+          # no auto-merge - a human merges with the workflow diff in front of them.
+          if grep -q '^\.github/workflows/' /tmp/pr-files.txt; then
+            gh pr merge "$NUM" --disable-auto 2>/dev/null || true
+            gh pr edit "$NUM" --add-label human-review 2>/dev/null || true
+            gh pr comment "$NUM" --body "Elevated to human review: this PR modifies workflow files, so its own checks cannot be trusted to be the base-branch gates. A human merges with the workflow diff in view."
+            exit 0
+          fi
           CRITICAL=$(python3 - <<'PY'
           import re
           raw = []
@@ -186,9 +198,13 @@ jobs:
           for line in out.splitlines():
               try: c = json.loads(line)
               except Exception: continue
-              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
+              login = c.get("login","").lower()
+              # github-actions[bot] comments can only be posted by this repo's own
+              # workflows (the cloud review tier posts its record through it), so
+              # it is trusted despite carrying no membership association
+              if login != "github-actions[bot]" and c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
                   continue
-              if c.get("login","").lower() == pr_author:
+              if login == pr_author:
                   continue
               for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", c.get("body",""), re.S):
                   try: rec = json.loads(m.group(1))
