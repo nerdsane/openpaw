@@ -41,9 +41,20 @@ jobs:
           ROLLUP=$(gh pr view "$NUM" --json statusCheckRollup -q '[.statusCheckRollup[] | select(.name|test("sdlc-|Greptile")) | .conclusion] | @json')
           if echo "$ROLLUP" | grep -qiE "failure|cancelled|null|pending"; then
             echo "gates not all green yet ($ROLLUP) - not routing"; exit 0; fi
-          BASE=$(gh pr view "$NUM" --json baseRefOid -q .baseRefOid)
-          RISK=$(python3 /tmp/stack/gates/change-risk.py --base "$BASE" --head "$HEAD" --autonomy "$CONF")
-          echo "change-risk: $RISK"
+          # risk comes from the REVIEW PANEL's judgment (in the review record on the PR),
+          # not a filename heuristic. No record or no clear low -> human (conservative).
+          RISK=$(python3 - "$NUM" <<'PY'
+          import json, re, subprocess, sys
+          body=subprocess.run(["gh","pr","view",sys.argv[1],"--json","comments","-q",".comments[].body"],
+                              capture_output=True,text=True).stdout
+          risk="high"
+          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
+              try: risk=json.loads(m.group(1)).get("risk","high")
+              except Exception: pass
+          print(risk if risk in ("low","medium","high") else "high")
+          PY
+          )
+          echo "panel risk: $RISK"
           if [ "$RISK" = "low" ]; then
             gh pr merge "$NUM" --squash --auto && \
               gh pr comment "$NUM" --body "Auto-merged: all gates green, blast-radius low (per autonomy.yaml). Proof + review are on this PR."
