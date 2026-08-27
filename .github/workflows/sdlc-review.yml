@@ -15,6 +15,9 @@ name: sdlc-review
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
+concurrency:
+  group: sdlc-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: write
