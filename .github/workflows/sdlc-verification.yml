@@ -5,6 +5,11 @@
 # to an access-controlled Vercel preview, and posts one PR comment (updated in
 # place) with the inline summary + the private report link.
 #
+# TWO-ACCOUNT PROTOCOL: records are only accepted from a trusted NON-AUTHOR
+# GitHub account. Agents author PRs as rita-aga; proof and review records are
+# posted with the second account (gh auth switch -u nerdsane) - repo owner,
+# never the PR author. One account alone cannot both author and attest.
+#
 # Required repo/org secrets (Rita provisions once in Vercel + GitHub):
 #   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID  (a dedicated "proof-reports"
 #   Vercel project with Deployment Protection / Vercel Authentication ON, so

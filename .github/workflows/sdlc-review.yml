@@ -133,17 +133,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 - <<'PY'
           import json, os, subprocess
           p=".review/review.json"
           if not os.path.isfile(p):
               raise SystemExit(0)
-          r=json.load(open(p)); n=os.environ["PR_NUM"]
-          # did greptile leave a review on this PR?
-          out=subprocess.run(["gh","pr","view",n,"--json","reviews","-q",".reviews[].author.login"],
-                             capture_output=True,text=True).stdout.lower()
-          if "greptile" in out:
+          r=json.load(open(p)); n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
+          # did greptile review THIS head? A review of an older commit is stale -
+          # the code it judged is not the code being merged.
+          out=subprocess.run(["gh","api",
+                              f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/reviews",
+                              "--paginate","-q",
+                              '.[] | select(.user.login|test("greptile";"i")) | .commit_id'],
+                             capture_output=True,text=True).stdout
+          if head in out:
               r.setdefault("reviewers_ran",[])
               if "greptile" not in r["reviewers_ran"]: r["reviewers_ran"].append("greptile")
               # copy greptile's inline findings INTO the record so the report and
@@ -151,7 +156,7 @@ jobs:
               rc=subprocess.run(["gh","api",
                                  f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/comments",
                                  "--paginate","-q",
-                                 '.[] | select(.user.login|test("greptile";"i")) | {path,line,body}'],
+                                 '.[] | select(.user.login|test("greptile";"i")) | {path,line,body,commit_id}'],
                                 capture_output=True,text=True).stdout
               # schema fields: by / file_line / claim / severity / resolved.
               # Greptile enters as "consider" (in-schema, advisory): the app is an
@@ -163,6 +168,8 @@ jobs:
               for line in rc.splitlines():
                   try: c=json.loads(line)
                   except Exception: continue
+                  if c.get("commit_id") != head:
+                      continue   # stale inline comment from an older head
                   file_line=f"{c.get('path','?')}:{c.get('line') or '?'}"
                   if (file_line,"greptile") in existing: continue
                   r.setdefault("findings",[]).append({
@@ -191,6 +198,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_GH_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           # the verification gate renders the proof half before any review exists;
           # once the review record is here, the combined report is rebuilt so the
@@ -198,23 +207,34 @@ jobs:
           [ -f .review/review.json ] || exit 0
           python3 - <<'PY'
           import json, os, re, subprocess
-          n=os.environ["PR_NUM"]
-          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
-                              capture_output=True,text=True).stdout
+          n=os.environ["PR_NUM"]; repo=os.environ.get("GITHUB_REPOSITORY","")
+          head=os.environ.get("PR_HEAD",""); pr_author=os.environ.get("PR_GH_AUTHOR","").lower()
+          out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
+                              "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
+                             capture_output=True,text=True).stdout
           rec=None
-          for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", body, re.S):
-              try: rec=json.loads(m.group(1))
-              except Exception: pass
+          for line in out.splitlines():
+              try: c=json.loads(line)
+              except Exception: continue
+              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"): continue
+              if c.get("login","").lower()==pr_author: continue
+              for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", c.get("body",""), re.S):
+                  try: cand=json.loads(m.group(1))
+                  except Exception: continue
+                  if cand.get("commit")==head: rec=cand   # same bar as the proof gate
           if rec:
               os.makedirs(".proof",exist_ok=True)
               json.dump(rec, open(".proof/proof.json","w"))
               print("proof record found - rendering combined report")
           else:
-              print("no proof record (docs-only PR or proof pending) - review-only report")
+              print("no trusted proof record for this head - review-only report")
           PY
           if [ -f .proof/proof.json ]; then
-            python3 /tmp/stack/proof/render.py .proof/proof.json --review .review/review.json \
-              --out .review/effort-report.html > /dev/null 2>&1 || true
+            if ! python3 /tmp/stack/proof/render.py .proof/proof.json --review .review/review.json \
+                 --out .review/effort-report.html > /dev/null; then
+              echo "::warning::combined report renderer failed - no effort-report artifact this run"
+              rm -f .review/effort-report.html
+            fi
           fi
       - name: Deploy the combined report (replaces the proof-only page)
         id: combined

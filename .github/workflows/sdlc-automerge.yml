@@ -33,6 +33,7 @@ jobs:
           # workflow_run carries the head sha; labeled carries the PR directly.
           EVENT_PR: ${{ github.event.pull_request.number }}
           EVENT_HEAD: ${{ github.event.workflow_run.head_sha }}
+          PR_GH_AUTHOR_LABELED: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
           NUM="${EVENT_PR:-}"
@@ -52,9 +53,14 @@ jobs:
             claude|codex|grok|cursor) AUTHOR="${BRANCH%%/*}" ;;
             *) AUTHOR="unknown" ;;
           esac
+          PR_GH_AUTHOR=$(gh pr view "$NUM" --json author -q .author.login)
+          export PR_GH_AUTHOR
 
-          # human veto label always wins
-          if gh pr view "$NUM" --json labels -q '.labels[].name' | grep -qx human-hold; then
+          # human veto label always wins; an unreadable label list fails CLOSED
+          # (a gh error must never read as "no veto")
+          if ! LABELS=$(gh pr view "$NUM" --json labels -q '.labels[].name'); then
+            echo "could not read labels - cannot rule out a human veto, not routing"; exit 0; fi
+          if grep -qx human-hold <<<"$LABELS"; then
             # the veto also cancels an auto-merge that an earlier run already enabled
             gh pr merge "$NUM" --disable-auto 2>/dev/null || true
             echo "human-hold label present - auto-merge disabled, leaving for human"; exit 0; fi
@@ -119,13 +125,16 @@ jobs:
           # entries are keyword groups like "security / cedar policies": split on
           # '/' AND whitespace so "cedar policies" matches cedar- or policy-paths,
           # not only the literal two-word substring
-          words = [w.strip().lower()
+          words = {w.strip().lower()
                    for entry in raw
                    for part in str(entry).split("/")
                    for w in part.split()
-                   if w.strip()]
+                   if w.strip()}
+          # match singular and plural forms both ways ("policies" must catch
+          # policy.cedar; "migration" must catch migrations/)
+          stems = {w[:-1] if w.endswith("s") else w for w in words} | words
           files = open("/tmp/pr-files.txt").read().lower().splitlines()
-          hits = sorted({w for w in words for f in files if w in f})
+          hits = sorted({w for w in stems for f in files if len(w) > 3 and w in f})
           print(",".join(hits) if hits else "none")
           PY
           )
@@ -165,30 +174,34 @@ jobs:
           num, head, author = sys.argv[1:4]
           import os
           repo = os.environ["GH_REPO_FULL"]
+          pr_author = os.environ.get("PR_GH_AUTHOR","").lower()
           out = subprocess.run(["gh","api",f"repos/{repo}/issues/{num}/comments","--paginate",
-                                "-q",'.[] | {assoc: .author_association, body: .body}'],
+                                "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
                                capture_output=True, text=True).stdout
-          risk = "high"
-          trusted_bodies = []
+          # same trust bar as the review gate: trusted association AND a
+          # non-author account. Risk is the MOST CONSERVATIVE across every valid
+          # record, so a later forged "low" cannot replace the accepted judgment.
+          RANK = {"low": 0, "medium": 1, "high": 2}
+          risks = []
           for line in out.splitlines():
               try: c = json.loads(line)
               except Exception: continue
-              if c.get("assoc") in ("OWNER","MEMBER","COLLABORATOR"):
-                  trusted_bodies.append(c.get("body",""))
-          body = "\n".join(trusted_bodies)   # only trusted commenters can supply the record
-          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
-              try:
-                  rec = json.loads(m.group(1))
-              except Exception:
+              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
                   continue
-              open("/tmp/automerge-record.json","w").write(json.dumps(rec))
-              ok = subprocess.run(["python3","/tmp/stack/review/validate.py","/tmp/automerge-record.json",
-                                   "--require-commit", head, "--author", author],
-                                  capture_output=True).returncode == 0
-              if ok:
+              if c.get("login","").lower() == pr_author:
+                  continue
+              for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", c.get("body",""), re.S):
+                  try: rec = json.loads(m.group(1))
+                  except Exception: continue
+                  open("/tmp/automerge-record.json","w").write(json.dumps(rec))
+                  ok = subprocess.run(["python3","/tmp/stack/review/validate.py","/tmp/automerge-record.json",
+                                       "--require-commit", head, "--author", author],
+                                      capture_output=True).returncode == 0
+                  if not ok: continue
                   opens = [f for f in rec.get("findings",[]) if f.get("severity")=="act-on" and not f.get("resolved")]
                   r = rec.get("risk","high") if not opens else "high"
-                  risk = r if r in ("low","medium","high") else "high"
+                  risks.append(r if r in RANK else "high")
+          risk = max(risks, key=lambda r: RANK[r]) if risks else "high"
           print(risk)
           PY
           )
@@ -205,6 +218,10 @@ jobs:
             gh pr merge "$NUM" --squash --auto && \
               gh pr comment "$NUM" --body "Auto-merged: all required gates green on this head, panel risk low, no critical paths (per autonomy.yaml). Proof + review are on this PR."
           else
+            # a previous routing run may have enabled auto-merge on an older
+            # head; GitHub keeps it armed across pushes, so revoke it whenever
+            # the current judgment is not auto-merge
+            gh pr merge "$NUM" --disable-auto 2>/dev/null || true
             gh pr edit "$NUM" --add-label human-review 2>/dev/null || true
             gh pr comment "$NUM" --body "Elevated to human review: panel risk **$RISK**$([ "$AUTO_ENABLED" = "true" ] || echo ' (auto-merge disabled for this repo)'). Gates are green; a human presses merge."
           fi
