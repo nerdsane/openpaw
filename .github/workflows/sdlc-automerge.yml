@@ -104,14 +104,26 @@ jobs:
           fi
           CRITICAL=$(python3 - <<'PY'
           import re
+          raw = []
           try:
               import yaml
-              conf = yaml.safe_load(open("/tmp/stack/autonomy.yaml")) or {}
-              raw = conf.get("critical_paths") or []
+              for path in ("/tmp/stack/autonomy.yaml", "/tmp/repo-autonomy.yaml"):
+                  try:
+                      conf = yaml.safe_load(open(path)) or {}
+                  except FileNotFoundError:
+                      continue
+                  # the repo override ADDS critical paths (stricter-only), never removes
+                  raw += conf.get("critical_paths") or []
           except Exception:
               raw = []
-          # config entries are keyword groups like "security / cedar policies"
-          words = [w.strip().lower() for entry in raw for w in str(entry).split("/") if w.strip()]
+          # entries are keyword groups like "security / cedar policies": split on
+          # '/' AND whitespace so "cedar policies" matches cedar- or policy-paths,
+          # not only the literal two-word substring
+          words = [w.strip().lower()
+                   for entry in raw
+                   for part in str(entry).split("/")
+                   for w in part.split()
+                   if w.strip()]
           files = open("/tmp/pr-files.txt").read().lower().splitlines()
           hits = sorted({w for w in words for f in files if w in f})
           print(",".join(hits) if hits else "none")
@@ -182,6 +194,14 @@ jobs:
           )
           echo "panel risk (validated record only): $RISK"
           if [ "$RISK" = "low" ] && [ "$AUTO_ENABLED" = "true" ]; then
+            # close the race: the head must still be the sha every check above
+            # validated, and the human veto must not have appeared meanwhile
+            NOW_HEAD=$(gh pr view "$NUM" --json headRefOid -q .headRefOid)
+            if [ "$NOW_HEAD" != "$HEAD" ]; then
+              echo "head moved (${HEAD:0:8} -> ${NOW_HEAD:0:8}) since validation - not merging"; exit 0; fi
+            if gh pr view "$NUM" --json labels -q '.labels[].name' | grep -qx human-hold; then
+              gh pr merge "$NUM" --disable-auto 2>/dev/null || true
+              echo "human-hold appeared during routing - not merging"; exit 0; fi
             gh pr merge "$NUM" --squash --auto && \
               gh pr comment "$NUM" --body "Auto-merged: all required gates green on this head, panel risk low, no critical paths (per autonomy.yaml). Proof + review are on this PR."
           else
