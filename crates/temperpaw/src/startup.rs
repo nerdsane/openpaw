@@ -20,9 +20,10 @@ use temper_platform::genesis_install::{
     GenesisRegistryInstallRequest, install_genesis_app_from_registry,
     restore_genesis_registry_cache_roots,
 };
+use temper_platform::genesis_install_verify::verify_install_runtime_ready;
 use temper_platform::os_apps::{
-    InstallResult, OsAppReconcileResult, get_os_app, list_startup_os_apps, reconcile_os_app,
-    resolve_os_app_install_order,
+    InstallResult, OsAppReconcileResult, get_os_app, list_startup_os_apps, os_app_bundle_digest,
+    reconcile_os_app, resolve_os_app_install_order,
 };
 use temper_platform::recovery::{
     InstalledAppRuntimeRecoveryOutcome, InstalledAppsRuntimeRecoverySummary,
@@ -161,15 +162,6 @@ fn installed_app_runtime_recovery_result(
     }
 }
 
-fn genesis_bootstrap_runtime_recovery_allows_skip(
-    outcome: &InstalledAppRuntimeRecoveryOutcome,
-) -> bool {
-    matches!(
-        outcome,
-        InstalledAppRuntimeRecoveryOutcome::Ready | InstalledAppRuntimeRecoveryOutcome::Healed
-    )
-}
-
 /// What to do with a configured Genesis bootstrap app at startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BootstrapAction {
@@ -215,24 +207,46 @@ fn classify_bootstrap_action(
     }
 }
 
-/// Async readiness probe for an installed Genesis bootstrap app, hash-agnostic: it recovers the
-/// installed app's runtime state and reports whether it is `Ready` or `Healed`.
+/// Async readiness probe for an installed Genesis bootstrap app.
+///
+/// Hash-agnostic w.r.t. the env pin (any installed version is a keep candidate), but
+/// version-SPECIFIC w.r.t. what is actually installed, and it honors the same readiness contract
+/// as the install path:
+/// 1. The process-global catalog must resolve the INSTALLED record's bundle (digest match). The
+///    readiness/compile checks below probe by app name against the catalog, so if the catalog holds
+///    a different version (e.g. the Genesis cache restore did not land), that version's readiness
+///    says nothing about the installed one — reinstall the pin instead of keeping blindly.
+/// 2. The app must reach runtime-ready AND every app-required WASM module must compile, via the
+///    kernel's shared `verify_install_runtime_ready`. A registered-but-uncompilable module is thus
+///    healed by reinstalling the pin rather than kept (the "failed to compile lazy-loaded WASM
+///    module" class), matching the RFC readiness contract.
 async fn genesis_bootstrap_app_runtime_ready(
     state: &PlatformState,
     platform_store: &dyn PlatformStore,
     tenant: &str,
     app_name: &str,
+    expected_bundle_digest: &str,
 ) -> bool {
-    let outcome =
-        recover_installed_app_runtime_state(state, platform_store, tenant, app_name).await;
-    let ready = genesis_bootstrap_runtime_recovery_allows_skip(&outcome);
+    if !expected_bundle_digest.is_empty() {
+        match os_app_bundle_digest(app_name) {
+            Some(catalog) if catalog.bundle_digest == expected_bundle_digest => {}
+            other => {
+                tracing::info!(
+                    app = %app_name,
+                    expected = %expected_bundle_digest,
+                    catalog = ?other.map(|digest| digest.bundle_digest),
+                    "Genesis bootstrap app: catalog bundle does not match the installed digest; the env-pinned ref will be (re)installed"
+                );
+                return false;
+            }
+        }
+    }
+
+    let ready = verify_install_runtime_ready(state, platform_store, tenant, app_name).await;
     if !ready {
-        // Diagnostic: record why the existing install was judged not runtime-ready, so the
-        // subsequent "Installing pinned Genesis bootstrap ref" decision is explainable.
         tracing::info!(
             app = %app_name,
-            outcome = ?outcome,
-            "Genesis bootstrap app is not runtime-ready; the env-pinned ref will be (re)installed"
+            "Genesis bootstrap app is not runtime-ready (readiness or required-wasm compile failed); the env-pinned ref will be (re)installed"
         );
     }
     ready
@@ -517,8 +531,18 @@ async fn bootstrap_configured_genesis_apps(
                     .as_ref()
                     .is_some_and(is_keep_eligible_genesis_install);
                 let runtime_ready = if eligible_genesis_install {
-                    genesis_bootstrap_app_runtime_ready(state, platform_store, tenant, &app_name)
-                        .await
+                    let expected_digest = record
+                        .as_ref()
+                        .map(|r| r.bundle_digest.as_str())
+                        .unwrap_or_default();
+                    genesis_bootstrap_app_runtime_ready(
+                        state,
+                        platform_store,
+                        tenant,
+                        &app_name,
+                        expected_digest,
+                    )
+                    .await
                 } else {
                     false
                 };
@@ -4134,9 +4158,9 @@ mod tests {
         WASM_MODULE_LOAD_FAILURES_METRIC, actor_passivation_check_interval_secs,
         app_required_wasm_failure, bootstrap_soul, classify_bootstrap_action,
         default_agent_specs_bootstrap_needed, genesis_bootstrap_app_names,
-        genesis_bootstrap_runtime_recovery_allows_skip, genesis_bootstrap_timeout,
-        genesis_cache_restore_timeout, installed_app_runtime_recovery_result,
-        load_or_create_temper_api_key, local_wasm_startup_policy, orphaned_session_recovery_limit,
+        genesis_bootstrap_timeout, genesis_cache_restore_timeout,
+        installed_app_runtime_recovery_result, load_or_create_temper_api_key,
+        local_wasm_startup_policy, orphaned_session_recovery_limit,
         paw_soul_content_is_personalized, repair_default_agent_tools_enabled,
         resolve_startup_secret, runtime_indexes_required_before_reconcile, runtime_recovery_plan,
         runtime_router_with_startup_gates, soul_lookup_filters, spawn_runtime_server,
@@ -4385,25 +4409,6 @@ mod tests {
         unsafe {
             std::env::remove_var("TEMPERPAW_GENESIS_BOOTSTRAP_TIMEOUT_SECS");
         }
-    }
-
-    #[test]
-    fn genesis_bootstrap_skip_requires_runtime_ready_or_healed() {
-        assert!(genesis_bootstrap_runtime_recovery_allows_skip(
-            &InstalledAppRuntimeRecoveryOutcome::Ready
-        ));
-        assert!(genesis_bootstrap_runtime_recovery_allows_skip(
-            &InstalledAppRuntimeRecoveryOutcome::Healed
-        ));
-        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
-            &InstalledAppRuntimeRecoveryOutcome::NeedsReconcile
-        ));
-        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
-            &InstalledAppRuntimeRecoveryOutcome::MissingBundle
-        ));
-        assert!(!genesis_bootstrap_runtime_recovery_allows_skip(
-            &InstalledAppRuntimeRecoveryOutcome::StoreError
-        ));
     }
 
     #[test]
