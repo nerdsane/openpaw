@@ -23,7 +23,8 @@ on:
   # sdlc-verification run for the head (the normal path), and adding any label
   # fires the `labeled` type as a manual fallback.
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    # `edited` included: a base-branch retarget changes the diff being proven
+    types: [opened, synchronize, reopened, labeled, edited]
 permissions:
   contents: read
   pull-requests: write

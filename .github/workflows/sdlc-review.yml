@@ -139,6 +139,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_AUTHOR: ${{ steps.author.outputs.harness }}
           PR_NUM: ${{ github.event.pull_request.number }}
           GH_REPO_FULL: ${{ github.repository }}
@@ -173,6 +174,7 @@ jobs:
               open(".review-local.json","w").write(json.dumps(rec))
               ok = subprocess.run(["python3","/tmp/stack/review/validate.py",".review-local.json",
                                    "--require-commit",os.environ["PR_HEAD"],
+                                   "--require-base",os.environ["PR_BASE"],
                                    "--author",os.environ["PR_AUTHOR"]]).returncode==0
               if ok:
                   # the gate and the report read .review/review.json on BOTH tiers
@@ -330,6 +332,7 @@ jobs:
       - name: Validate the review record (the gate)
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
@@ -347,7 +350,7 @@ jobs:
           # BOTH tiers are held to the same bar here: the record must be for this
           # head and synthesized by a non-author harness - tier 2 gets no free pass.
           python3 /tmp/stack/review/validate.py .review/review.json \
-            --require-commit "$PR_HEAD" --author "${{ steps.author.outputs.harness }}"
+            --require-commit "$PR_HEAD" --require-base "$PR_BASE" --author "${{ steps.author.outputs.harness }}"
       - name: Rebuild the combined effort report (proof + review)
         if: always()
         env:

@@ -23,7 +23,7 @@ jobs:
     if: >-
       github.event.issue.pull_request != null &&
       (startsWith(github.event.comment.body, 'DECISION:') || startsWith(github.event.comment.body, 'RESOLVE:')) &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      github.event.comment.author_association == 'OWNER'
     runs-on: ubuntu-latest
     steps:
       - name: Record the ruling and re-arm the gate
