@@ -143,14 +143,14 @@ jobs:
           for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
               try: rec=json.loads(m.group(1))
               except Exception: pass
-          ok=False
-          if rec:
+          # structural acceptance only: the record exists and is for THIS head.
+          # Whether it PASSES (act-ons resolved, panel complete) is decided once,
+          # by the gate validate step, AFTER adjudications are applied - so an
+          # owner RESOLVE can rescue a local record.
+          ok = bool(rec) and rec.get("commit")==os.environ["PR_HEAD"] and "findings" in rec and "reviewers_ran" in rec
+          if ok:
               os.makedirs(".review",exist_ok=True)
-              open(".review-local.json","w").write(json.dumps(rec))
-              ok = subprocess.run(["python3","/tmp/stack/review/validate.py",".review-local.json",
-                                   "--require-commit",os.environ["PR_HEAD"]]).returncode==0
-              if ok:
-                  open(".review/review.json","w").write(json.dumps(rec))
+              open(".review/review.json","w").write(json.dumps(rec))
           open(os.environ["GITHUB_OUTPUT"],"a").write(f"present={'true' if ok else 'false'}\n")
           print("valid local record on PR; skipping cloud panel" if ok else "no valid local record; cloud panel will run")
           PY
@@ -364,12 +364,16 @@ jobs:
             # only meaningful when auto-merge is armed; then the disable MUST
             # succeed - a swallowed error would leave a stale auto-merge live
             # behind a green job
-            if [ "$(gh pr view "$PR_NUM" --json autoMergeRequest -q '.autoMergeRequest != null')" = "true" ]; then
+            AM=$(gh pr view "$PR_NUM" --json autoMergeRequest -q '.autoMergeRequest != null') \
+              || { echo "::error::cannot read auto-merge state - failing closed"; exit 1; }
+            if [ "$AM" = "true" ]; then
               gh pr merge "$PR_NUM" --disable-auto || { echo "::error::failed to revoke armed auto-merge"; exit 1; }
               echo "stale auto-merge revoked"
             fi
           }
-          if git diff --name-only "origin/${PR_BASE_REF}...HEAD" | grep -q '^\.github/workflows/'; then
+          CHANGED=$(git diff --name-only "origin/${PR_BASE_REF}...HEAD") \
+            || { echo "::error::cannot diff against base - failing closed"; exit 1; }
+          if grep -q '^\.github/workflows/' <<<"$CHANGED"; then
             revoke_automerge
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             echo "workflow files changed - a human presses merge"; exit 0; fi
