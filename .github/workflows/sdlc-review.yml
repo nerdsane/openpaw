@@ -1,186 +1,68 @@
-# The review gate: no merge without a review record (SDLC loop: the "review" stage).
-# Vendor into a repo as .github/workflows/sdlc-review.yml.
+# The review gate: no merge without a valid review record for this head.
+# Vendor as .github/workflows/sdlc-review.yml.
 #
-# COST-TIERED. The gate requires a review record to exist; how it is produced
-# is tiered so the expensive cloud path only fires when a local subscription
-# review did not run:
-#   1. If .review/review.json exists (produced locally on subscription by the
-#      interrogate skill), validate it. Done. Nothing cloud fires.
-#   2. If it is absent (a cloud/background agent did the work, no laptop/
-#      subscription), the cloud fallback runs the panel and writes the record,
-#      then validates. The fallback is the expensive path - conditional, rare.
+# THE GATE VALIDATES; IT NEVER SPAWNS. The implementer agent owns the review the
+# way it owns the effort: it runs the panel (interrogate locally, or
+# stack/review/run-cloud-panel.py on a computer copy), aggregates, and posts the
+# record to the PR (stack/review/post-review-record.sh). This gate checks that a
+# record exists for the head being merged, applies any owner RESOLVE
+# adjudications, validates it (panel complete, act-ons resolved), and routes:
+# panel risk low -> auto-merge; anything else -> a human presses merge, reading
+# the report. One guard: workflow-changing PRs always go to a human.
 #
-# The validated record feeds the combined effort report (proof + review).
+# A red gate with "no record" is an instruction to the owner, not a failure of
+# the pipeline: run the panel, post the record. Rabbit-hole detection and the
+# arbiter are the owner agent's tools (arni-mode babysit playbook), not CI steps.
 name: sdlc-review
 on:
   pull_request:
-    # `edited` included: reviewers receive the PR body as intent, so a body
-    # edit (e.g. new standing decisions) must re-run the panel against it
     types: [opened, synchronize, reopened, labeled, edited]
 concurrency:
   group: sdlc-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 permissions:
-  contents: write        # the routing step enables auto-merge
+  contents: write        # routing enables auto-merge
   pull-requests: write
-  checks: write
 jobs:
   review:
     runs-on: ubuntu-latest
-    env:
-      HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: Install the TensorLake CLI (to reach the computer)
-        run: |
-          # the runner is ephemeral and the panel tools call the binary by its
-          # absolute path (~/.tensorlake/bin/tl) - nothing is prepended to PATH,
-          # so the installer's directory never shadows later commands
-          curl -fsSL https://tensorlake.ai/install | sh >/dev/null 2>&1 || true
-          "$HOME/.tensorlake/bin/tl" version 2>/dev/null || echo "tl unavailable - cloud tier will fall through"
-      - name: Convergence breaker (rabbit-hole detection)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
-          TENSORLAKE_API_KEY: ${{ secrets.TL_API_KEY }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: |
-          # A panel->fix->re-review loop that passes 3 rounds on one PR is a
-          # rabbit-hole signal: over-complexity or a contested design. The fix at
-          # that point is deletion or an owner decision, not another round - so
-          # the gate STOPS and says so, instead of burning a fourth panel. The
-          # owner re-arms it by adding the 'converge-ack' label after deciding.
-          if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
-            # the ack authorizes ONE completed round. It is consumed at VALIDATE
-            # time (a panel actually ran), not here: consuming at start races
-            # with cancel-in-progress - a superseding run (e.g. a body edit)
-            # would burn the ack on a run that reviewed nothing.
-            echo "converge-ack present - owner has decided, continuing"; exit 0; fi
-          # count only rounds that failed at the VALIDATE step (real findings);
-          # an infra failure (box unreachable, clone error) is not a review round
-          # rounds = failed-validate runs since the last converge-ack label
-          # event (the label timeline IS the reset record - no marker comments)
-          RESET_TS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/events" --paginate \
-                       -q '[.[] | select(.event == "labeled" and .label.name == "converge-ack")][-1].created_at' 2>/dev/null || true)
-          [ -z "$RESET_TS" ] || [ "$RESET_TS" = "null" ] && RESET_TS="1970-01-01T00:00:00Z"
-          ROUNDS=0
-          for RID in $(gh run list --workflow sdlc-review --branch "$PR_BRANCH" --status completed --limit 15 --json databaseId,conclusion,createdAt -q ".[] | select(.conclusion == \"failure\" and .createdAt > \"$RESET_TS\") | .databaseId"); do
-            FAILED_VALIDATE=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/jobs" -q '[.jobs[].steps[] | select(.name | startswith("Validate the review record")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo 0)
-            [ "${FAILED_VALIDATE:-0}" != "0" ] && ROUNDS=$((ROUNDS+1))
-          done
-          if [ "${ROUNDS:-0}" -ge 3 ]; then
-            gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
-            # neither arguing party can diagnose the stall (the implementer
-            # defends, the panel generates the findings): a FRESH arbiter reads
-            # the whole history and writes a decision brief for the human -
-            # threads classified, options, one recommendation. The human decides
-            # from the brief, records the ruling as standing decisions, and
-            # re-arms with converge-ack. Falls back to a mechanical findings
-            # grouping if no model is reachable - the human always gets structure.
-            if [ -z "${STACK_TOKEN:-}" ]; then
-            echo "::error::STACK_TOKEN unavailable - fork PRs cannot run the gates (GitHub withholds secrets from forks); a maintainer re-pushes the branch in-repo to run them"; exit 1; fi
-          git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack-arb 2>/dev/null || true
-            gh pr view "$PR_NUM" --json body -q .body > /tmp/pr-intent.txt || true
-            python3 /tmp/stack-arb/review/run-arbiter.py --pr "$PR_NUM" --branch "$PR_BRANCH"               --intent-file /tmp/pr-intent.txt --out /tmp/brief.md 2>/dev/null || true
-            {
-              echo "**Convergence stalled** - $ROUNDS failed review rounds. The loop stops here: the fix is an owner decision, not another round."
-              echo
-              cat /tmp/brief.md 2>/dev/null || echo "(arbiter unavailable - see the round logs)"
-              echo
-              echo "---"
-              echo "**To respond**: comment on this PR starting with \`DECISION:\` followed by your ruling, whenever you get to it. The pipeline picks it up from there - it records the ruling in the standing decisions and re-arms the review gate. No agent required."
-            } > /tmp/breaker-comment.md
-            gh pr comment "$PR_NUM" --body-file /tmp/breaker-comment.md 2>/dev/null || true
-            # tell the human where they are needed - short, actionable, in Slack
-            if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
-              VERDICT=$(head -c 400 /tmp/brief.md 2>/dev/null | grep -A2 -i "verdict" | tail -2 | tr '\n' ' ' | head -c 280)
-              PR_URL="https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUM}"
-              python3 - "$PR_URL" "$ROUNDS" "$VERDICT" <<'PYEOF' || true
-          import json, sys, os, urllib.request
-          url, rounds, verdict = sys.argv[1], sys.argv[2], sys.argv[3]
-          msg = (f":vertical_traffic_light: *Review loop stalled* after {rounds} rounds on {url}\n"
-                 f"Arbiter's take: {verdict or 'see the brief on the PR'}\n"
-                 f"*What to do*: read the decision brief (top comment on the PR), then reply there "
-                 f"with a comment starting `DECISION: <your ruling>`. The pipeline handles the rest.")
-          req = urllib.request.Request(os.environ["SLACK_WEBHOOK_URL"],
-                                       data=json.dumps({"text": msg}).encode(),
-                                       headers={"Content-Type": "application/json"})
-          urllib.request.urlopen(req, timeout=10)
-          print("slack notified")
-          PYEOF
-            else
-              echo "SLACK_WEBHOOK_URL not set - no Slack notification (the brief is on the PR)"
-            fi
-            echo "::error::convergence stalled after $ROUNDS rounds - decision brief posted; owner responds with a DECISION: comment on the PR"
-            exit 1
-          fi
-          echo "review rounds so far: ${ROUNDS:-0}"
       - name: Fetch the review toolkit from stack
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
         run: |
+          if [ -z "${STACK_TOKEN:-}" ]; then
+            echo "::error::STACK_TOKEN unavailable - fork PRs cannot run the gates; a maintainer re-pushes the branch in-repo"; exit 1; fi
           git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
-            echo "::error::cannot reach arni-labs/stack for the review toolkit"; exit 1; }
-      - name: Tier 1 - a valid local review record posted to the PR?
-        id: tier1
+            echo "::error::cannot reach arni-labs/stack"; exit 1; }
+      - name: Find the record for this head
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
-          # The local panel posts its record as a PR comment carrying a hidden
-          # marker. Trust model: our own agents in our own repos - the record
-          # must validate and be for THIS head; nothing more.
           python3 - <<'PY'
-          import json, os, re, subprocess
-          n=os.environ["PR_NUM"]
+          import json, os, re, subprocess, sys
+          n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
           body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
                               capture_output=True,text=True).stdout
           rec=None
           for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
-              try: rec=json.loads(m.group(1))
-              except Exception: pass
-          # structural acceptance only: the record exists and is for THIS head.
-          # Whether it PASSES (act-ons resolved, panel complete) is decided once,
-          # by the gate validate step, AFTER adjudications are applied - so an
-          # owner RESOLVE can rescue a local record.
-          ok = bool(rec) and rec.get("commit")==os.environ["PR_HEAD"] and "findings" in rec and "reviewers_ran" in rec
-          if ok:
-              os.makedirs(".review",exist_ok=True)
-              open(".review/review.json","w").write(json.dumps(rec))
-          open(os.environ["GITHUB_OUTPUT"],"a").write(f"present={'true' if ok else 'false'}\n")
-          print("valid local record on PR; skipping cloud panel" if ok else "no valid local record; cloud panel will run")
+              try: cand=json.loads(m.group(1))
+              except Exception: continue
+              if cand.get("commit")==head: rec=cand
+          if not rec:
+              print(f"::error::no review record for head {head[:10]}. Owner: run the panel "
+                    "(interrogate, or stack/review/run-cloud-panel.py on a computer copy) and post it "
+                    "(stack/review/post-review-record.sh). This gate validates records; it does not produce them.")
+              sys.exit(1)
+          os.makedirs(".review",exist_ok=True)
+          json.dump(rec, open(".review/review.json","w"))
+          print("record found for the current head")
           PY
-      - name: Tier 2 - cloud fallback panel (only if no local record)
-        if: steps.tier1.outputs.present == 'false'
-        env:
-          # The cloud panel prefers the sandbox running interrogate on subscription
-          # CLIs (Rita confirmed the sandbox can run them). If the sandbox is not
-          # configured, it falls to paid vendor actions/APIs. Greptile/Bugbot run
-          # as GitHub Apps independently and their findings merge in.
-          REVIEW_SANDBOX_ID: ${{ secrets.REVIEW_SANDBOX_ID }}
-          TL_API_KEY: ${{ secrets.TL_API_KEY }}
-          TENSORLAKE_API_KEY: ${{ secrets.TL_API_KEY }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_REPO: ${{ github.event.repository.name }}
-          PR_URL: ${{ github.event.repository.html_url }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-        run: |
-          mkdir -p .review
-          python3 /tmp/stack/review/run-cloud-panel.py \
-            --base "$PR_BASE" --head "$PR_HEAD" --repo "$PR_REPO" --repo-url "$PR_URL" \
-            --effort "$PR_TITLE" --intent "$PR_BODY" --out .review/review.json
-      - name: Merge Greptile (GitHub App) or record it skipped
-        if: always()
+      - name: Merge Greptile findings into the record
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
@@ -188,73 +70,23 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, subprocess
-          p=".review/review.json"
-          if not os.path.isfile(p):
-              raise SystemExit(0)
-          r=json.load(open(p)); n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
-          # did greptile review THIS head? A review of an older commit is stale -
-          # the code it judged is not the code being merged.
-          out=subprocess.run(["gh","api",
-                              f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/reviews",
-                              "--paginate","-q",
-                              '.[] | select(.user.login|test("greptile";"i")) | .commit_id'],
+          r=json.load(open(".review/review.json")); n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
+          out=subprocess.run(["gh","api",f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/reviews",
+                              "--paginate","-q",'.[] | select(.user.login|test("greptile";"i")) | .commit_id'],
                              capture_output=True,text=True).stdout
           if head in out:
               r.setdefault("reviewers_ran",[])
               if "greptile" not in r["reviewers_ran"]: r["reviewers_ran"].append("greptile")
-              # copy greptile's inline findings INTO the record so the report and
-              # the synthesis see them - detection without the findings is useless
-              rc=subprocess.run(["gh","api",
-                                 f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/comments",
-                                 "--paginate","-q",
-                                 '.[] | select(.user.login|test("greptile";"i")) | {path,line,body,commit_id}'],
-                                capture_output=True,text=True).stdout
-              # schema fields: by / file_line / claim / severity / resolved.
-              # Greptile enters as "consider" (in-schema, advisory): the app is an
-              # extra pair of eyes, and the panel's synthesis judges its findings -
-              # only panel act-ons block. Out-of-schema fields would make the
-              # record fail schema validation and vanish from the report.
-              existing={ (f.get("file_line"),f.get("by")) for f in r.get("findings",[]) }
-              added=0
-              # review BODIES too - Greptile often writes findings in the summary
-              rb=subprocess.run(["gh","api",
-                                 f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/pulls/{n}/reviews",
-                                 "--paginate","-q",
-                                 '.[] | select(.user.login|test("greptile";"i")) | select(.commit_id=="'+head+'") | .body'],
-                                capture_output=True,text=True).stdout.strip()
-              if rb and ("summary-body","greptile") not in existing:
-                  r.setdefault("findings",[]).append({
-                      "by":"greptile","file_line":"summary-body","severity":"consider",
-                      "resolved":False,"claim":rb[:4000]})
-                  added+=1
-              for line in rc.splitlines():
-                  try: c=json.loads(line)
-                  except Exception: continue
-                  if c.get("commit_id") != head:
-                      continue   # stale inline comment from an older head
-                  file_line=f"{c.get('path','?')}:{c.get('line') or '?'}"
-                  if (file_line,"greptile") in existing: continue
-                  r.setdefault("findings",[]).append({
-                      "by":"greptile","file_line":file_line,"severity":"consider",
-                      "resolved":False,"claim":(c.get("body") or "")[:2000]})
-                  added+=1
-              print(f"greptile: ran, {added} inline findings merged")
           else:
               r.setdefault("reviewers_skipped",[]).append(
-                  {"reviewer":"greptile","reason":"Greptile GitHub App has not reviewed this PR (install it, or it is still running)"})
-              print("greptile: skipped-with-reason")
-          json.dump(r,open(p,"w"),indent=2)
+                  {"reviewer":"greptile","reason":"no Greptile review of this head yet"})
+          json.dump(r,open(".review/review.json","w"),indent=2)
           PY
-
       - name: Apply owner adjudications (RESOLVE comments)
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
-          # A comment line `RESOLVE: <file:line> <reason>` marks matching findings
-          # resolved, with the adjudication recorded as the resolution. The
-          # audit trail is the comment itself.
-          [ -f .review/review.json ] || exit 0
           python3 - <<'PY'
           import json, os, re, subprocess
           n=os.environ["PR_NUM"]
@@ -271,120 +103,30 @@ jobs:
                       f["resolved"]=True; f["resolution"]=f"owner adjudication: {resolutions[fl]}"; hit+=1
               json.dump(r,open(".review/review.json","w"),indent=2)
               print(f"adjudications applied: {hit}")
-          else:
-              print("no adjudication comments")
           PY
-      - name: Validate the review record (the gate)
+      - name: Validate the record (the gate)
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-        run: |
-          # consume the converge-ack here: a panel round genuinely ran
-          if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
-            gh pr edit "$PR_NUM" --remove-label converge-ack 2>/dev/null || true
-            echo "converge-ack consumed (authorized round completed)"
-          fi
-          python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
-      - name: Rebuild the combined effort report (proof + review)
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_GH_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          # the verification gate renders the proof half before any review exists;
-          # once the review record is here, the combined report is rebuilt so the
-          # effort report always ends up carrying BOTH halves
-          [ -f .review/review.json ] || exit 0
-          python3 - <<'PY'
-          import json, os, re, subprocess
-          n=os.environ["PR_NUM"]; head=os.environ.get("PR_HEAD","")
-          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
-                              capture_output=True,text=True).stdout
-          rec=None
-          for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", body, re.S):
-              try: cand=json.loads(m.group(1))
-              except Exception: continue
-              if cand.get("commit")==head: rec=cand
-          if rec:
-              os.makedirs(".proof",exist_ok=True)
-              json.dump(rec, open(".proof/proof.json","w"))
-              print("proof record found - rendering combined report")
-          else:
-              print("no trusted proof record for this head - review-only report")
-          PY
-          if [ -f .proof/proof.json ]; then
-            if ! python3 /tmp/stack/proof/render.py .proof/proof.json --review .review/review.json \
-                 --out .review/effort-report.html > /dev/null; then
-              echo "::warning::combined report renderer failed - no effort-report artifact this run"
-              rm -f .review/effort-report.html
-            fi
-          fi
-      - name: Deploy the combined report (replaces the proof-only page)
-        id: combined
-        if: ${{ always() && env.HAS_VERCEL == 'true' }}
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          [ -f .review/effort-report.html ] || exit 0
-          npm i -g vercel@latest >/dev/null 2>&1
-          mkdir -p /tmp/report && cp .review/effort-report.html /tmp/report/index.html
-          URL=$(vercel deploy /tmp/report --yes --token "$VERCEL_TOKEN" 2>/dev/null | tail -1)
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: effort-report
-          path: |
-            .review/review.json
-            .review/effort-report.html
-          if-no-files-found: ignore
+        run: python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
       - name: Route on the panel's risk judgment
-        # Runs only when the gate above PASSED. The design, whole: the reviewers
-        # judged risk in the record (the panel already keeps the most conservative
-        # across reviewers); low means auto-merge, anything else means a human
-        # presses merge. No other logic. One guard: a PR that changes workflow
-        # files routes to a human, because its own checks cannot be trusted to be
-        # the base gates.
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          RISK=$(python3 -c "import json; r=json.load(open('.review/review.json')); print(r.get('risk','high'))")
-          # an earlier low-risk run may have armed auto-merge; any non-low outcome
-          # on the current head must revoke it, or GitHub merges a head this
-          # review assigned to a human
-          revoke_automerge() {
-            # only meaningful when auto-merge is armed; then the disable MUST
-            # succeed - a swallowed error would leave a stale auto-merge live
-            # behind a green job
-            AM=$(gh pr view "$PR_NUM" --json autoMergeRequest -q '.autoMergeRequest != null') \
-              || { echo "::error::cannot read auto-merge state - failing closed"; exit 1; }
-            if [ "$AM" = "true" ]; then
-              gh pr merge "$PR_NUM" --disable-auto || { echo "::error::failed to revoke armed auto-merge"; exit 1; }
-              echo "stale auto-merge revoked"
-            fi
-          }
+          RISK=$(python3 -c "import json; print(json.load(open('.review/review.json')).get('risk','high'))")
           CHANGED=$(git diff --name-only "origin/${PR_BASE_REF}...HEAD") \
             || { echo "::error::cannot diff against base - failing closed"; exit 1; }
           if grep -q '^\.github/workflows/' <<<"$CHANGED"; then
-            revoke_automerge
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             echo "workflow files changed - a human presses merge"; exit 0; fi
           if [ "$RISK" = "low" ]; then
-            gh pr merge "$PR_NUM" --squash --auto && echo "auto-merge enabled: panel risk low, gates green"
+            gh pr merge "$PR_NUM" --squash --auto && echo "auto-merge enabled: panel risk low"
           else
-            revoke_automerge
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             echo "panel risk $RISK - a human presses merge"
           fi
-      - name: Fold into the effort report + comment
+      - name: Fold the verdict into a PR comment
         if: always()
         uses: actions/github-script@v7
         with:
@@ -392,20 +134,12 @@ jobs:
             const fs = require('fs');
             if (!fs.existsSync('.review/review.json')) return;
             const r = JSON.parse(fs.readFileSync('.review/review.json','utf8'));
-            const openActons = (r.findings||[]).filter(f => f.severity==='act-on' && !f.resolved).length;
-            const verdict = openActons ? 'FAIL' : 'PASS';
+            const open = (r.findings||[]).filter(f => f.severity==='act-on' && !f.resolved).length;
             const body = "<!-- sdlc-review -->\n" +
-              `### Review — ${r.effort}: **${verdict}**\n` +
+              `### Review — ${r.effort}: **${open ? 'FAIL' : 'PASS'}**\n` +
               `Panel: ${(r.reviewers_ran||[]).join(', ')}` +
               (r.reviewers_skipped?.length ? ` (skipped: ${r.reviewers_skipped.map(s=>s.reviewer).join(', ')})` : '') +
-              `\nOpen act-on findings: **${openActons}** · synthesis by: ${r.synthesis_by} · tier: ${r.produced_by?.tier}\n` +
-              ('${{ steps.combined.outputs.url }}'
-                ? `\n**[Open the combined effort report (team-only)](${{ steps.combined.outputs.url }})**\n`
-                : `\nCombined effort report: the \`effort-report\` artifact on this run.\n`) +
-              // the machine record rides in the comment so the auto-merge router can
-              // validate it (commit + author) and read the panel's risk - the cloud
-              // tier otherwise never leaves a record marker on the PR
-              `<!-- sdlc-review-record\n${JSON.stringify(r)}\n-->`;
+              `\nOpen act-on findings: **${open}** · risk: ${r.risk||'?'}\n`;
             const {data: comments} = await github.rest.issues.listComments({...context.repo, issue_number: context.issue.number});
             const mine = comments.find(c => c.body.includes('<!-- sdlc-review -->'));
             if (mine) await github.rest.issues.updateComment({...context.repo, comment_id: mine.id, body});
