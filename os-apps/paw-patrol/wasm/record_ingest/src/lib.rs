@@ -238,7 +238,13 @@ fn validate_review(r: &Value) -> Result<(), String> {
     }
     for (i, f) in array_field(r, "findings")?.iter().enumerate() {
         object(f).map_err(|e| format!("findings[{i}] {e}"))?;
-        str_field(f, "severity").map_err(|e| format!("findings[{i}].{e}"))?;
+        let severity = str_field(f, "severity").map_err(|e| format!("findings[{i}].{e}"))?;
+        // Enum-checked so open_act_on_count can trust `severity == "act-on"`.
+        if !matches!(severity, "act-on" | "consider" | "nit") {
+            return Err(format!(
+                "findings[{i}].severity '{severity}' is not act-on/consider/nit"
+            ));
+        }
         str_field(f, "file_line").map_err(|e| format!("findings[{i}].{e}"))?;
         bool_field(f, "resolved").map_err(|e| format!("findings[{i}].{e}"))?;
     }
@@ -303,7 +309,12 @@ fn validate_proof(r: &Value) -> Result<(), String> {
                 }
             }
         }
-        verification_by_key.insert(key.to_string(), verification.to_string());
+        if verification_by_key
+            .insert(key.to_string(), verification.to_string())
+            .is_some()
+        {
+            return Err(format!("features[{i}].key '{key}' is a duplicate"));
+        }
     }
 
     let tests = object_field(r, "tests")?;
@@ -645,6 +656,15 @@ mod tests {
                 .unwrap_err()
                 .contains("risk 'spicy' is not one of")
         );
+
+        let mut r = good_review();
+        r["findings"] =
+            json!([{ "severity": "blocker", "file_line": "a.rs:1", "resolved": false }]);
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("findings[0].severity 'blocker' is not act-on/consider/nit")
+        );
     }
 
     // --- strict proof extraction + rules: one rejection per class ---
@@ -775,6 +795,17 @@ mod tests {
             validate_proof(&r)
                 .unwrap_err()
                 .contains("ui judgment 'works' is false")
+        );
+
+        let mut r = good_proof();
+        r["features"] = json!([
+            { "key": "x", "verification": "rerun", "verdict": "pass" },
+            { "key": "x", "verification": "rerun", "verdict": "pass" }
+        ]);
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("'x' is a duplicate")
         );
     }
 

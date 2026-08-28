@@ -287,3 +287,41 @@ overwrites in place, last write wins); Superseded is terminal (a record retired
 by a NEWER record for a LATER head, which lives on its own run/packet; this one
 is kept for history, no outgoing transitions).
 **Where:** comments in `specs/review_run.ioa.toml`, `specs/proof_packet.ioa.toml`.
+
+---
+
+## Round 4 - terminal micro-batch (ARN-430)
+
+Owner ruling: full proof-schema parity in WASM is out of scope - strict typed
+extraction of the fields the write actions map IS the contract. The other three
+findings are one-line fixes, applied here.
+
+**Decision:** Enum-check `findings[].severity` in {act-on, consider, nit} during
+extraction (out-of-enum -> parse_ok=false naming the field).
+**Came up because:** `open_act_on_count` trusts `severity == "act-on"`; an
+unchecked severity could silently mis-count.
+**Where:** `wasm/record_ingest/src/lib.rs` (`validate_review`), with a rejection
+test.
+
+**Decision:** Drop the dead `Recorded` re-ingest from-state from IngestRecord /
+IngestProof; a run/packet ingests once from its initial state.
+**Came up because:** the S0 shadow creates a FRESH run/packet per record (this
+effort's own design), so a Recorded -> Recorded re-ingest is a path nothing
+takes - dead surface, not a feature.
+**Options:** keep it and document (rejected - documenting a dead path); remove it
+(chosen). **Chose removal** so the reachable states are exactly Requested ->
+Recorded (-> Superseded). A corrected record is a new run; the prior run is
+retired with Supersede (last-created wins). The spec comments and spec.md now say
+this. **Where:** `specs/review_run.ioa.toml`, `specs/proof_packet.ioa.toml`,
+`docs/efforts/ARN-430/spec.md`.
+
+**Decision:** Reject duplicate `features[].key` in a proof record.
+**Came up because:** duplicate keys would let one feature's verdict/verification
+mask another under the by-key lookup.
+**Where:** `wasm/record_ingest/src/lib.rs` (`validate_proof`), with a rejection
+test.
+
+**Decision (consider):** Document that ShadowVerdict `agree` is COMPUTED by the
+S1 comparison sweep from the two verdicts; the entity cannot verify the equality
+itself until the kernel has param-aware guards (gap already filed).
+**Where:** `specs/shadow_verdict.ioa.toml`.

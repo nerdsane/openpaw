@@ -58,7 +58,7 @@ unchanged. Added:
   effect fires the `record_ingest` trigger. The module returns the `IngestRecord`
   callback + fields when the comment holds a valid review record; otherwise an
   empty action (no dispatch), so the run stays in Requested.
-- `IngestRecord`: `from [Requested, Recorded] -> Recorded`, params
+- `IngestRecord`: `from [Requested] -> Recorded` (once per run - S0 creates a fresh run per record), params
   `commit, reviewers_ran, findings, risk, open_act_on_count`. Effect:
   `set_bool record_present true`. Dispatched by the kernel from the module's
   callback.
@@ -83,7 +83,7 @@ Existing states/actions (`Drafting/Ready/Rejected`) unchanged. Added:
 - `Ingest`: `from [Drafting] -> Drafting` (self-loop), params `comment_body`,
   fires `record_ingest`; the module returns the `IngestProof` callback + fields
   when the comment holds a valid proof record, else an empty action (no dispatch).
-- `IngestProof`: `from [Drafting, Recorded] -> Recorded`, params
+- `IngestProof`: `from [Drafting] -> Recorded` (once per packet - S0 creates a fresh packet per record), params
   `commit, changed_surface, blast_radius, features, tests, independent_verifier`.
   Effect: `set_bool record_present true`. Dispatched by the kernel from the
   module's callback.

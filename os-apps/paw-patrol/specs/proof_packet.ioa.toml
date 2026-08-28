@@ -146,30 +146,29 @@ name = "proof_record_ingest"
 kind = "wasm"
 module = "record_ingest"
 
-# IngestProof writes the decoded proof.json record (returned by record_ingest)
-# onto the packet and moves it to Recorded. Only dispatched when the module
-# validated the record against the proof rules, so a Recorded packet always
-# carries a real, passing proof. record_present marks the write for the
-# invariant. The Recorded -> Recorded self-transition is a re-ingest: a
-# corrected proof for the SAME head overwrites in place (last write wins).
+# IngestProof fires once per packet: the S0 shadow creates a FRESH packet for
+# each record, so a packet ingests from Drafting and never re-ingests. Only
+# dispatched when the module validated the record against the proof rules, so a
+# Recorded packet always carries a real, passing proof. A corrected proof is a
+# NEW packet; the old one is retired with SupersedeProof - last-created wins.
 [[action]]
 name = "IngestProof"
 kind = "input"
-from = ["Drafting", "Recorded"]
+from = ["Drafting"]
 to = "Recorded"
 params = ["commit", "changed_surface", "blast_radius", "features", "tests", "independent_verifier"]
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]
 hint = "Write the decoded proof.json record (commit, changed surface, blast radius, features, tests, independent verifier) and mark it Recorded."
 
-# Superseded is terminal: it retires a proof replaced by a newer proof for a
-# LATER head; the superseding proof lives on its own packet, this one is kept
-# for history (no outgoing transitions from Superseded).
+# Superseded is terminal: it retires THIS packet once a newer packet has recorded
+# the proof for a later head; the superseding proof lives on its own packet, this
+# one is kept for history (no outgoing transitions from Superseded).
 [[action]]
 name = "SupersedeProof"
 kind = "input"
 from = ["Recorded"]
 to = "Superseded"
-hint = "Supersede this proof record when a newer proof for a later head replaces it."
+hint = "Supersede this packet when a newer proof for a later head has been recorded on its own packet."
 
 [[invariant]]
 name = "ProofRecorded"
