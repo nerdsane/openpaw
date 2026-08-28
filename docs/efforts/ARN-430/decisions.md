@@ -107,3 +107,122 @@ committed `.wasm` matches the host ABI it will load under. Given up: a single
 uniform SDK rev across the app until the others are bumped - noted as a follow-up,
 not blocking, since the ABI is compatible.
 **Where:** `wasm/record_ingest/Cargo.toml`.
+
+---
+
+## Round 2 - panel round 1 fixes (ARN-430)
+
+**Decision:** Merge `origin/main` into the branch to clear two "CI act-ons".
+**Came up because:** the branch predated the merge of #479 (the CI fast/full
+lane split), so the PR diff appeared to revert `ci.yml`. Two panel act-ons were
+this stale-branch artifact, not real changes.
+**Options:** rewrite ci.yml to re-add the fast lane (rejected - it would be
+duplicating a merge, and the effort must not touch ci.yml); merge origin/main
+(chosen).
+**Chose the merge because:** after it, `git diff origin/main..HEAD --
+.github/workflows/ci.yml` is empty - the PR touches no CI file, which is the
+correct end state. Given up: nothing.
+**Where:** merge commit on `claude/arn-430-stage3-s0`.
+
+**Decision:** Wire the ingest with an `Ingest` self-loop action on ReviewRun
+(from Requested) and ProofPacket (from Drafting) that fires `record_ingest`;
+the module returns a dynamic callback action + the decoded fields, and the
+kernel dispatches `IngestRecord` / `IngestProof` to write them.
+**Came up because:** panel act-on - no entity transition invoked record_ingest
+or mapped its output onto entity fields; the module was unreferenced.
+**Options:** static `on_success = "IngestRecord"` on the trigger (rejected - a
+single static action cannot route review vs proof, cannot reject a
+cross-fed/invalid record without an error, and on_success fires on ANY module
+success regardless of parse_ok); the dynamic callback action (chosen).
+**Chose the dynamic callback because:** the kernel's rule is "prefer static
+on_success, else the module's returned callback_action; a bare `callback`
+dispatches nothing". So the module returns `IngestRecord` / `IngestProof` only
+when the record is valid AND its kind matches the entity it was fired on
+(checked via `ctx.entity_type`), and the inert `callback` otherwise. A comment
+with no record, a malformed record, or a record fed to the wrong entity writes
+nothing and raises no error - no spurious failures on the Discord channel. This
+is the sanctioned "module returns a callback, the kernel applies it" pattern
+(same as `workspace_provisioner` -> `WorkspaceReady`); sequencing stays in the
+state machine, the module makes no OData call and creates nothing. Given up: a
+purely declarative on_success wire.
+**Where:** `specs/review_run.ioa.toml` (`Ingest` + trigger), `specs/proof_packet.ioa.toml`
+(`Ingest` + trigger), `wasm/record_ingest/src/lib.rs` (`ingest_action`, `run`).
+
+**Decision:** Implement `record_ingest` with the manual `#[unsafe(no_mangle)]
+run` pattern, not the `temper_module!` macro.
+**Came up because:** the dynamic callback action above needs the module to set a
+custom callback action (`IngestRecord`/`IngestProof`); the macro hardcodes the
+action to `"callback"`.
+**Options:** the macro (rejected - cannot set the callback action, so it can
+only work with a static on_success, which the routing rules out); the manual
+pattern (chosen), which the other paw-patrol modules already use.
+**Chose the manual pattern because:** it lets the module return the right write
+action per entity+kind. The parsing stays in pure, unit-tested functions
+(`parse_record`, `record_shape_ok`, `write_params`, `open_act_on_count`); only
+the thin `run` wrapper is host-only. Given up: the macro's brevity. (This
+reverses the round-1 decision to use the macro.)
+**Where:** `wasm/record_ingest/src/lib.rs`.
+
+**Decision:** Align the proof `parse_ok` checks with `stack/proof/validate.py`,
+not just "non-empty changed_surface + no failing feature".
+**Came up because:** panel act-on - `parse_ok` was true for proofs the stack
+validator would reject.
+**Options:** keep the loose checks (rejected); mirror the validator's
+record-intrinsic rules (chosen).
+**Chose the validator's rules because:** the entity should only Record a proof
+the gate would accept. `proof_shape_ok` now enforces: non-empty
+`changed_surface`; every changed + blast_radius feature present in `features[]`
+with `verification == "rerun"`; `independent_verifier.agrees` and its `reran`
+covers changed + blast; no `verdict == "fail"`; a `verified-unreachable`
+feature carries a reason; every UI feature has screenshots and no failed
+judgment; `tests.result == "pass"`. The features-dir and URL-evidence rules are
+CI-only (need external context) and stay out of the module. Each rule has a
+rejection test. Given up: nothing - the two real proof fixtures (PR 477, 480)
+still pass. **Where:** `wasm/record_ingest/src/lib.rs` (`proof_shape_ok`).
+
+**Decision:** The module emits the flat top-level fields the ingest transitions
+need, including a derived `open_act_on_count`.
+**Came up because:** panel act-on - the parser did not emit the fields the write
+actions consume.
+**Options:** map fields in the spec (not possible - specs cannot transform);
+emit them from the module (chosen).
+**Chose module emission because:** `write_params` returns exactly the
+`IngestRecord` / `IngestProof` param names, arrays/objects serialized to JSON
+strings to match the entities' string fields, and derives `open_act_on_count`
+as the number of `severity == "act-on"` findings that are not `resolved`. Tested
+against the real PR-477 (1 open act-on) and PR-480 (0) records plus a synthetic
+mix. Given up: nothing. **Where:** `wasm/record_ingest/src/lib.rs`
+(`write_params`, `open_act_on_count`).
+
+**Decision:** Make ShadowVerdict `agree` a real boolean, set through
+`MarkAgree` / `MarkDisagree` self-loops (set_bool), not a string param.
+**Came up because:** panel act-on + nit - the contract (and spec.md) says
+boolean; it was declared string.
+**Options:** keep string (rejected - wrong type); pass a bool param (rejected -
+booleans are not populated from action params in this kernel; only `set_bool`
+writes the boolean store); the set_bool flag pattern (chosen).
+**Chose the flag pattern because:** it is how every other spec sets a boolean
+(distinct actions with a `set_bool` effect), so `agree` is a true `Edm.Boolean`
+that guards/OData see correctly. `Record` writes the string fields; `MarkAgree`
+/ `MarkDisagree` set the flag. Given up: recording agreement in one action.
+ShadowVerdict is written by nothing in S0 (its writer is S1), so this only
+fixes the shape. **Where:** `specs/shadow_verdict.ioa.toml`, `Agree` ->
+`Edm.Boolean` in `specs/model.csdl.xml`.
+
+**Decision (the panel "consider"):** Ingest only from Requested (ReviewRun) /
+Drafting (ProofPacket), not from the terminal review/proof states.
+**Came up because:** the reviewer noted records arrive after runs reach terminal
+outcome states, so ingest might need to fire from those too.
+**Options:** allow Ingest from every state incl. terminals via a transient
+"Ingesting" state (rejected - a multi-`from` self-loop is impossible, so it
+needs a transient state plus an origin-restoring failure path, which is real
+machinery); ingest from the initial state only (chosen).
+**Chose initial-state-only because:** the S0 shadow mirror creates a FRESH
+ReviewRun/ProofPacket per record (the shadow is a separate authority from the
+operational review workflow - "exactly one authority per gate"), so the
+record-carrying run starts at its initial state and ingests there. Reusing the
+operational run that already went through review is not the S0 flow. Ingest is
+a clean self-loop on the initial state; a comment with no record leaves it
+there. Given up: ingesting onto an already-terminal operational run - not needed
+in S0, and revisited if the flow ever reuses those runs.
+**Where:** `specs/review_run.ioa.toml`, `specs/proof_packet.ioa.toml`.

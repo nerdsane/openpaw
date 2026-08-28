@@ -438,7 +438,7 @@
         <Property Name="Gate" Type="Edm.String"/>
         <Property Name="TemperVerdict" Type="Edm.String"/>
         <Property Name="CiVerdict" Type="Edm.String"/>
-        <Property Name="Agree" Type="Edm.String"/>
+        <Property Name="Agree" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Temporary S1 comparison row: one gate's Temper verdict against its CI verdict and whether they agree. Retired at S3."/>
       </EntityType>

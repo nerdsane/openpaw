@@ -170,14 +170,35 @@ module = "review_gate_lifecycle"
 temper_api_url = "{secret:temper_api_url}"
 
 # --- Stage 3 S0 record lifecycle (ARN-430) ---
-# IngestRecord writes the decoded review record (from record_ingest) onto the
-# run and moves it to Recorded. Only reached when the module parsed a valid
-# record (parse_ok), so a Recorded run carries a checked 40-char commit and a
-# non-empty reviewer set. record_present marks the write for the invariant.
+# Ingest fires record_ingest on a raw GitHub comment body. The module parses
+# the review record and returns a callback: on a valid review record it asks
+# the kernel to dispatch IngestRecord with the decoded fields as params; on a
+# comment with no/invalid review record it returns the inert "callback" action,
+# which the kernel does not dispatch (the run stays in Requested). The module
+# never writes - the state machine does, through IngestRecord.
+[[action]]
+name = "Ingest"
+kind = "input"
+from = ["Requested"]
+to = "Requested"
+params = ["comment_body"]
+effect = [{ type = "trigger", name = "review_record_ingest" }]
+hint = "Parse a GitHub comment body for this run's review record; record_ingest returns IngestRecord + fields when the record is valid."
+
+[[action.triggers]]
+name = "review_record_ingest"
+kind = "wasm"
+module = "record_ingest"
+
+# IngestRecord writes the decoded review record (returned by record_ingest) onto
+# the run and moves it to Recorded. Only dispatched when the module parsed a
+# valid record (checked 40-char commit, non-empty reviewer set), so a Recorded
+# run always carries a real record. record_present marks the write for the
+# invariant.
 [[action]]
 name = "IngestRecord"
 kind = "input"
-from = ["Requested", "Reviewing", "Recorded"]
+from = ["Requested", "Recorded"]
 to = "Recorded"
 params = ["commit", "reviewers_ran", "findings", "risk", "open_act_on_count"]
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]

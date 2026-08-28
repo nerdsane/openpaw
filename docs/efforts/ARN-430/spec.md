@@ -11,30 +11,35 @@ One module and five entity changes, all in `os-apps/paw-patrol`.
 
 ### record_ingest (new WASM module, temporary - retired at S3)
 
-Pure function of one input.
+Fired by `ReviewRun.Ingest` / `ProofPacket.Ingest` on a comment body. The parsing
+is a pure function; the `run` wrapper turns it into a callback the kernel applies.
 
 - INPUT: `comment_body` - a raw GitHub issue/PR comment body string (from
-  `ctx.trigger_params`).
-- OUTPUT (the returned callback Value):
-  - `kind`: `"review" | "proof" | "none"`
-  - `record`: the decoded record as JSON (object; `{}` when none/malformed)
-  - `parse_ok`: bool
-  - `commit`: the record's commit sha (empty string when none/malformed)
+  `ctx.trigger_params`); plus `ctx.entity_type` (the entity it was fired on).
+- OUTPUT (the returned callback): a callback *action* and its *params*.
+  - On a valid record whose kind matches the entity: action `IngestRecord`
+    (ReviewRun) / `IngestProof` (ProofPacket), with params = the decoded fields
+    flattened (arrays/objects serialized to JSON strings to match the string
+    fields), plus a derived `open_act_on_count` for review.
+  - Otherwise: the inert `callback` action, which the kernel does not dispatch.
 
-Behavior:
+Behavior of the pure parser (`parse_record`):
 
 1. Scan for a marker `<!-- sdlc-review-record-b64\n<base64>\n-->` first, then
-   `<!-- sdlc-proof-record-b64\n<base64>\n-->`.
-2. If a marker is found, `kind` is `review` / `proof` from the marker tag.
-   Base64-decode the payload, parse it as JSON, and read `commit`.
-3. `parse_ok` is true only when: a marker was found, the payload base64-decodes,
-   the result is a JSON object, and `commit` is a 40-character lowercase-hex sha.
-   Otherwise `parse_ok` is false.
-4. No marker at all -> `kind = "none"`, `parse_ok = false`, `commit = ""`,
-   `record = {}`.
+   `<!-- sdlc-proof-record-b64\n<base64>\n-->`; `kind` is `review`/`proof`/`none`.
+2. Base64-decode the payload, parse JSON, read `commit`.
+3. `parse_ok` is true only when: a marker was found, the payload decodes to a
+   JSON object, `commit` is a 40-character lowercase-hex sha, AND the record-shape
+   checks hold (review: non-empty `reviewers_ran`; proof: the stack proof rules,
+   see ProofRun below).
 
-The module never creates entities and never dispatches transitions. It parses and
-returns; the state machine's `IngestRecord` transition writes the fields.
+The kernel's callback rule ("prefer static `on_success`, else the module's
+returned action; a bare `callback` dispatches nothing") is why the wiring uses a
+dynamic action and no `on_success`: the module returns the write action ONLY when
+`parse_ok` AND the kind matches `ctx.entity_type`, so a comment with no record, a
+malformed record, or a record fed to the wrong entity writes nothing and raises
+no error. The module creates no entities and makes no OData calls; the state
+machine writes, through `IngestRecord` / `IngestProof`.
 
 ### ReviewRun (was review_run) - additive record lifecycle
 
@@ -46,9 +51,14 @@ unchanged. Added:
 - Fields (all `string` except the bool): `commit`, `reviewers_ran` (JSON array),
   `findings` (JSON array of `{severity, by, file_line, claim, failure_scenario,
   resolved}`), `risk`, `open_act_on_count`, `record_present` (bool).
-- `IngestRecord`: `from [Requested, Reviewing, Recorded] -> Recorded`, params
+- `Ingest`: `from [Requested] -> Requested` (self-loop), params `comment_body`,
+  effect fires the `record_ingest` trigger. The module returns the `IngestRecord`
+  callback + fields when the comment holds a valid review record; otherwise the
+  inert callback (the run stays in Requested).
+- `IngestRecord`: `from [Requested, Recorded] -> Recorded`, params
   `commit, reviewers_ran, findings, risk, open_act_on_count`. Effect:
-  `set_bool record_present true`.
+  `set_bool record_present true`. Dispatched by the kernel from the module's
+  callback.
 - `Supersede`: `from [Recorded] -> Superseded`, when a newer record for a later
   head replaces this one.
 - Invariant `RecordedHasRecord`: `when [Recorded, Superseded] assert
@@ -67,18 +77,25 @@ Existing states/actions (`Drafting/Ready/Rejected`) unchanged. Added:
   array), `blast_radius` (JSON array), `features` (JSON array of the proof.json
   feature objects), `tests` (the proof.json tests object), `independent_verifier`
   (the proof.json object), `record_present` (bool).
-- `IngestProof`: `from [Drafting, Ready, Recorded] -> Recorded`, params
+- `Ingest`: `from [Drafting] -> Drafting` (self-loop), params `comment_body`,
+  fires `record_ingest`; the module returns the `IngestProof` callback + fields
+  when the comment holds a valid proof record, else the inert callback.
+- `IngestProof`: `from [Drafting, Recorded] -> Recorded`, params
   `commit, changed_surface, blast_radius, features, tests, independent_verifier`.
-  Effect: `set_bool record_present true`.
+  Effect: `set_bool record_present true`. Dispatched by the kernel from the
+  module's callback.
 - `SupersedeProof`: `from [Recorded] -> Superseded`.
 - Invariant `ProofRecorded`: `when [Recorded, Superseded] assert record_present`.
 
-The proof-shape checks - a 40-char commit sha, a non-empty `changed_surface`,
-and no feature with `verdict=="fail"` - are enforced in `record_ingest`'s
-`parse_ok`, not as transition guards: the guard grammar cannot inspect
-per-element array verdicts or read the action's params. A proof that fails any
-check returns `parse_ok=false`, so `IngestProof` is never dispatched and it never
-becomes Recorded.
+The proof-shape checks are enforced in `record_ingest`'s `parse_ok` (not as
+transition guards - the grammar cannot inspect per-element array verdicts or read
+action params), and they mirror the record-intrinsic rules of
+`stack/proof/validate.py`: non-empty `changed_surface`; every changed + blast
+feature present in `features[]` with `verification=="rerun"`;
+`independent_verifier` agrees and re-ran changed + blast; no `verdict=="fail"`; a
+`verified-unreachable` feature has a reason; every UI feature has screenshots and
+no failed judgment; `tests.result=="pass"`. A proof that fails any check returns
+`parse_ok=false`, so `IngestProof` is never dispatched.
 
 ### Adjudication (new)
 
@@ -96,9 +113,10 @@ prompt). Actions: `Adopt` (`Active -> Active`, param `text`), `Retire`
 ### ShadowVerdict (new, temporary - retired at S3)
 
 `Recorded` (single indefinite state, initial). Fields: `effort_ref`, `pr`,
-`gate`, `temper_verdict`, `ci_verdict`, `agree` (bool). Action `Record`:
-`from [Recorded] -> Recorded`, params `effort_ref, pr, gate, temper_verdict,
-ci_verdict, agree`.
+`gate`, `temper_verdict`, `ci_verdict` (strings), `agree` (bool, `Edm.Boolean`).
+`Record` (`from [Recorded] -> Recorded`, params `effort_ref, pr, gate,
+temper_verdict, ci_verdict`) writes the strings; `MarkAgree` / `MarkDisagree`
+(self-loops, `set_bool`) set `agree` - booleans are set by effects, not params.
 
 ## Model / CSDL
 

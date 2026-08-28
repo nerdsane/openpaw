@@ -35,15 +35,34 @@ name = "ci_verdict"
 type = "string"
 initial = ""
 
+# agree is a real boolean (Edm.Boolean in the CSDL). Booleans are set through
+# the set_bool effect, so agreement is recorded with the MarkAgree / MarkDisagree
+# self-loops (the flag pattern used across the specs), not passed as a param.
 [[state]]
 name = "agree"
-type = "string"
-initial = ""
+type = "bool"
+initial = "false"
 
 [[action]]
 name = "Record"
 kind = "input"
 from = ["Recorded"]
 to = "Recorded"
-params = ["effort_ref", "pr", "gate", "temper_verdict", "ci_verdict", "agree"]
-hint = "Record one gate's Temper verdict against its CI verdict and whether they agree."
+params = ["effort_ref", "pr", "gate", "temper_verdict", "ci_verdict"]
+hint = "Record one gate's Temper verdict against its CI verdict."
+
+[[action]]
+name = "MarkAgree"
+kind = "input"
+from = ["Recorded"]
+to = "Recorded"
+effect = [{ type = "set_bool", var = "agree", value = "true" }]
+hint = "Mark that the Temper and CI verdicts for this gate agree."
+
+[[action]]
+name = "MarkDisagree"
+kind = "input"
+from = ["Recorded"]
+to = "Recorded"
+effect = [{ type = "set_bool", var = "agree", value = "false" }]
+hint = "Mark that the Temper and CI verdicts for this gate disagree."

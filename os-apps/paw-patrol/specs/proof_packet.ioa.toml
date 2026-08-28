@@ -126,10 +126,35 @@ params = ["residual_risks"]
 hint = "Reject proof that is incomplete or misleading."
 
 # --- Stage 3 S0 record lifecycle (ARN-430) ---
+# Ingest fires record_ingest on a raw GitHub comment body. The module parses the
+# proof record and returns a callback: on a valid proof record (the stack proof
+# rules hold) it asks the kernel to dispatch IngestProof with the decoded fields;
+# on a comment with no/invalid proof record it returns the inert "callback"
+# action, which the kernel does not dispatch (the packet stays in Drafting). The
+# module never writes - the state machine does, through IngestProof.
+[[action]]
+name = "Ingest"
+kind = "input"
+from = ["Drafting"]
+to = "Drafting"
+params = ["comment_body"]
+effect = [{ type = "trigger", name = "proof_record_ingest" }]
+hint = "Parse a GitHub comment body for this packet's proof record; record_ingest returns IngestProof + fields when the record is valid."
+
+[[action.triggers]]
+name = "proof_record_ingest"
+kind = "wasm"
+module = "record_ingest"
+
+# IngestProof writes the decoded proof.json record (returned by record_ingest)
+# onto the packet and moves it to Recorded. Only dispatched when the module
+# validated the record against the proof rules, so a Recorded packet always
+# carries a real, passing proof. record_present marks the write for the
+# invariant.
 [[action]]
 name = "IngestProof"
 kind = "input"
-from = ["Drafting", "Ready", "Recorded"]
+from = ["Drafting", "Recorded"]
 to = "Recorded"
 params = ["commit", "changed_surface", "blast_radius", "features", "tests", "independent_verifier"]
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]
