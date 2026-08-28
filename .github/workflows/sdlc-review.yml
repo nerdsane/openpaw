@@ -32,6 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Install the TensorLake CLI (to reach the computer)
+        run: |
+          # the runner is ephemeral and the panel tools call the binary by its
+          # absolute path (~/.tensorlake/bin/tl) - nothing is prepended to PATH,
+          # so the installer's directory never shadows later commands
+          curl -fsSL https://tensorlake.ai/install | sh >/dev/null 2>&1 || true
+          "$HOME/.tensorlake/bin/tl" version 2>/dev/null || echo "tl unavailable - cloud tier will fall through"
       - name: Convergence breaker (rabbit-hole detection)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,13 +110,6 @@ jobs:
             exit 1
           fi
           echo "review rounds so far: ${ROUNDS:-0}"
-      - name: Install the TensorLake CLI (to reach the computer)
-        run: |
-          # the runner is ephemeral and the panel tools call the binary by its
-          # absolute path (~/.tensorlake/bin/tl) - nothing is prepended to PATH,
-          # so the installer's directory never shadows later commands
-          curl -fsSL https://tensorlake.ai/install | sh >/dev/null 2>&1 || true
-          "$HOME/.tensorlake/bin/tl" version 2>/dev/null || echo "tl unavailable - cloud tier will fall through"
       - name: Fetch the review toolkit from stack
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
