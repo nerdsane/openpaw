@@ -29,7 +29,6 @@ fn gitignore_excludes_local_worktree_and_extraction_noise() {
             ".gitignore should exclude local/generated noise pattern {pattern}"
         );
     }
-
 }
 
 #[test]

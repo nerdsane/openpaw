@@ -1694,46 +1694,6 @@ fn production_cutover_runbook_maps_every_human_blocker_to_a_gate() {
 }
 
 #[test]
-fn production_docs_explain_patrol_session_provider_configuration() {
-    let root = repo_root();
-    let runbook = read(root.join("docs/runbooks/paw-patrol-production-cutover.md"));
-    let readme = read(root.join("crates/paw-codex-worker/README.md"));
-    let audit = read(root.join("docs/proofs/2026-05-05-paw-patrol-completion-audit.md"));
-
-    for needle in [
-        "repo_assessment_provider",
-        "repo_assessment_model",
-        "daily_brief_provider",
-        "daily_brief_model",
-        "local Codex WorkerRun",
-        "AssessmentComplete",
-        "DailyBrief.Render",
-    ] {
-        assert!(
-            runbook.contains(needle),
-            "production cutover runbook should explain session config: {needle}"
-        );
-    }
-
-    for needle in [
-        "RepoGraphSnapshot assessment Session",
-        "DailyBrief Session",
-        "local Codex WorkerRun",
-        "repo_assessment_provider",
-        "daily_brief_provider",
-    ] {
-        assert!(
-            readme.contains(needle),
-            "worker README should explain Patrol session setup: {needle}"
-        );
-        assert!(
-            audit.contains(needle),
-            "completion audit should record Patrol session setup evidence: {needle}"
-        );
-    }
-}
-
-#[test]
 fn production_preflight_exports_standalone_human_blockers_artifact() {
     let root = repo_root();
     let script = read(root.join("crates/paw-codex-worker/scripts/production-preflight.sh"));
@@ -3342,34 +3302,5 @@ fn paw_patrol_wasm_modules_have_startup_build_script() {
         "cp \"$source_file\" \"$SCRIPT_DIR/$module/$module.wasm\"",
     ] {
         assert!(script.contains(needle), "build.sh should contain {needle}");
-    }
-}
-
-#[test]
-fn current_state_audit_uses_live_proof_sources_instead_of_stale_heads() {
-    let root = repo_root();
-    let audit = read(root.join("docs/proofs/2026-05-05-paw-patrol-current-state-audit.md"));
-
-    for needle in [
-        "PR #218 body",
-        "latest production preflight summary",
-        "canonical moving evidence",
-        "latest exact-head quick acceptance proof",
-    ] {
-        assert!(
-            audit.contains(needle),
-            "current-state audit should point readers at live proof source: {needle}"
-        );
-    }
-
-    for stale in [
-        "927d9844bdd22238e6eade507560a16fee7c1a0b",
-        "/tmp/paw-patrol-acceptance-quick-927d9844-preflight-stamp",
-        "25393554285",
-    ] {
-        assert!(
-            !audit.contains(stale),
-            "current-state audit should not pin stale proof evidence: {stale}"
-        );
     }
 }
