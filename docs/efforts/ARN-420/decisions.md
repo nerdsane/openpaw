@@ -42,3 +42,9 @@ MCP/Temper-driven, not a CI shell script.
 closes the concrete no-rollback gap today; bundling the larger os-app runner would
 delay it. Gave up closing the whole deploy stage in one PR.
 **Where:** this effort; os-app runner tracked as ARN-420 part 2.
+
+**Decision:** Cut Datadog alert-gating from the bash deploy driver (owner ruling A, 2026-08-28, after the convergence breaker at round 3).
+**Came up because:** two consecutive panel rounds found real holes in the gating (tag filter covered 5 of 79 monitors; no pre-deploy baseline, so one standing alert blocks all deploys) while the rest of the pipeline reviewed clean.
+**Options:** harden the bash (tag re-provisioning, baseline comparison - rejected); cut the feature.
+**Chose the cut because:** monitoring-informed gating belongs to stage 3's Deployment entity, where the AlertWatch guard has real coverage; hardening bash that stage 3 deletes is spend without a keep. Given up: automated monitor gating until the Deployment entity lands - deploys still verify identity and roll back on failed verification.
+**Where:** stack deploy driver 58b4be9; this workflow's DD plumbing removed.

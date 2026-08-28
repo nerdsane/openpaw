@@ -96,15 +96,13 @@ jobs:
       RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID || vars.RAILWAY_ENVIRONMENT_ID }}
       RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID || vars.RAILWAY_SERVICE_ID }}
       TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
-      DD_API_KEY: ${{ secrets.DD_API_KEY }}
-      DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
       BASE_URL: ${{ secrets.TEMPERPAW_BASE_URL || vars.TEMPERPAW_BASE_URL }}
       STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
     steps:
       - name: Validate secrets
         run: |
           set -euo pipefail
-          for v in RAILWAY_TOKEN RAILWAY_PROJECT_ID RAILWAY_ENVIRONMENT_ID RAILWAY_SERVICE_ID BASE_URL STACK_TOKEN TEMPER_API_KEY DD_API_KEY DD_APP_KEY; do
+          for v in RAILWAY_TOKEN RAILWAY_PROJECT_ID RAILWAY_ENVIRONMENT_ID RAILWAY_SERVICE_ID BASE_URL STACK_TOKEN TEMPER_API_KEY; do
             if [ -z "${!v:-}" ]; then echo "missing required secret/var: $v" >&2; exit 65; fi
           done
 
@@ -139,9 +137,6 @@ jobs:
       - name: Deploy, verify, rollback on failure
         if: env.SKIP_DEPLOY != '1'
         env:
-          DD_API_KEY: ${{ secrets.DD_API_KEY }}
-          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
-          DD_SITE: ${{ secrets.DD_SITE }}
           NEW_IMAGE_TAG: ${{ steps.r.outputs.image_tag }}
           EXPECTED_SHA: ${{ steps.r.outputs.expected_sha }}
           POLL_ATTEMPTS: "60"
