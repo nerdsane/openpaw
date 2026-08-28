@@ -46,13 +46,22 @@ jobs:
           python3 - <<'PY'
           import json, os, re, subprocess, sys
           n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
-          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
-                              capture_output=True,text=True).stdout
+          import os as _os
+          body=subprocess.run(["gh","api",f"repos/{_os.environ.get('GITHUB_REPOSITORY','')}/issues/{n}/comments",
+                              "--paginate","-q",".[].body"],capture_output=True,text=True).stdout
+          import base64
           rec=None
-          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
-              try: cand=json.loads(m.group(1))
-              except Exception: continue
+          def _consider(txt, b64):
+              global rec
+              try:
+                  cand=json.loads(base64.b64decode(txt).decode() if b64 else txt)
+              except Exception:
+                  return
               if cand.get("commit")==head: rec=cand
+          for m in re.finditer(r"<!--\s*sdlc-review-record-b64\s*([A-Za-z0-9+/=\s]+?)\s*-->", body):
+              _consider(m.group(1).strip(), True)
+          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
+              _consider(m.group(1), False)
           if not rec:
               print(f"::error::no review record for head {head[:10]}. Owner: run the panel "
                     "(interrogate, or stack/review/run-cloud-panel.py on a computer copy) and post it "
@@ -90,8 +99,9 @@ jobs:
           python3 - <<'PY'
           import json, os, re, subprocess
           n=os.environ["PR_NUM"]
-          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
-                              capture_output=True,text=True).stdout
+          import os as _os
+          body=subprocess.run(["gh","api",f"repos/{_os.environ.get('GITHUB_REPOSITORY','')}/issues/{n}/comments",
+                              "--paginate","-q",".[].body"],capture_output=True,text=True).stdout
           resolutions={}
           for m in re.finditer(r"^RESOLVE:\s*(\S+)\s+(.+)$", body, re.M):
               resolutions[m.group(1)]=m.group(2).strip()
@@ -105,6 +115,7 @@ jobs:
               print(f"adjudications applied: {hit}")
           PY
       - name: Validate the record (the gate)
+        id: validate
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
@@ -118,11 +129,14 @@ jobs:
           CHANGED=$(git diff --name-only "origin/${PR_BASE_REF}...HEAD") \
             || { echo "::error::cannot diff against base - failing closed"; exit 1; }
           if grep -q '^\.github/workflows/' <<<"$CHANGED"; then
+            gh pr merge "$PR_NUM" --disable-auto 2>/dev/null || true
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             echo "workflow files changed - a human presses merge"; exit 0; fi
           if [ "$RISK" = "low" ]; then
             gh pr merge "$PR_NUM" --squash --auto && echo "auto-merge enabled: panel risk low"
           else
+            # an earlier low-risk run may have armed auto-merge; revoke it
+            gh pr merge "$PR_NUM" --disable-auto 2>/dev/null || true
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             echo "panel risk $RISK - a human presses merge"
           fi
@@ -135,8 +149,9 @@ jobs:
             if (!fs.existsSync('.review/review.json')) return;
             const r = JSON.parse(fs.readFileSync('.review/review.json','utf8'));
             const open = (r.findings||[]).filter(f => f.severity==='act-on' && !f.resolved).length;
+            const validated = '${{ steps.validate.outcome }}' === 'success';
             const body = "<!-- sdlc-review -->\n" +
-              `### Review — ${r.effort}: **${open ? 'FAIL' : 'PASS'}**\n` +
+              `### Review — ${r.effort}: **${(validated && !open) ? 'PASS' : 'FAIL'}**\n` +
               `Panel: ${(r.reviewers_ran||[]).join(', ')}` +
               (r.reviewers_skipped?.length ? ` (skipped: ${r.reviewers_skipped.map(s=>s.reviewer).join(', ')})` : '') +
               `\nOpen act-on findings: **${open}** · risk: ${r.risk||'?'}\n`;
