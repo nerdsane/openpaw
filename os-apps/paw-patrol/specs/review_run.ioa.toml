@@ -1,9 +1,9 @@
 [automaton]
 name = "ReviewRun"
-states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed"]
+states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed", "Recorded", "Superseded"]
 initial = "Requested"
 
-allow_indefinite_states = ["ChangesRequested", "Approved", "Escalated", "Failed"]
+allow_indefinite_states = ["ChangesRequested", "Approved", "Escalated", "Failed", "Recorded", "Superseded"]
 
 [[state]]
 name = "work_cycle_id"
@@ -39,6 +39,44 @@ initial = ""
 name = "proof_packet_id"
 type = "string"
 initial = ""
+
+# --- Stage 3 S0 record fields (ARN-430): the decoded review record ---
+# The record's shape validation (a 40-char commit sha, a non-empty reviewer
+# set, well-formed findings) is enforced at the ingest boundary in the
+# record_ingest module (parse_ok), NOT as transition guards: the guard grammar
+# has no string-length/regex predicate, and guards evaluate against pre-state
+# without the incoming action's params, so a guard cannot inspect the record
+# being written. record_present (set by IngestRecord) is the durable guarantee
+# the invariant asserts. See docs/efforts/ARN-430/decisions.md.
+[[state]]
+name = "commit"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewers_ran"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "findings"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "risk"
+type = "string"
+initial = ""
+
+[[state]]
+name = "open_act_on_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "record_present"
+type = "bool"
+initial = "false"
 
 [[action]]
 name = "Request"
@@ -130,6 +168,32 @@ module = "review_gate_lifecycle"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+
+# --- Stage 3 S0 record lifecycle (ARN-430) ---
+# IngestRecord writes the decoded review record (from record_ingest) onto the
+# run and moves it to Recorded. Only reached when the module parsed a valid
+# record (parse_ok), so a Recorded run carries a checked 40-char commit and a
+# non-empty reviewer set. record_present marks the write for the invariant.
+[[action]]
+name = "IngestRecord"
+kind = "input"
+from = ["Requested", "Reviewing", "Recorded"]
+to = "Recorded"
+params = ["commit", "reviewers_ran", "findings", "risk", "open_act_on_count"]
+effect = [{ type = "set_bool", var = "record_present", value = "true" }]
+hint = "Write the decoded review record (commit, reviewers, findings, risk, open act-on count) and mark it Recorded."
+
+[[action]]
+name = "Supersede"
+kind = "input"
+from = ["Recorded"]
+to = "Superseded"
+hint = "Supersede this record when a newer review record for a later head replaces it."
+
+[[invariant]]
+name = "RecordedHasRecord"
+when = ["Recorded", "Superseded"]
+assert = "record_present"
 
 [[state_timeout]]
 state = "Requested"

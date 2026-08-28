@@ -21,7 +21,10 @@ permit(
   resource is SecurityFinding ||
   resource is ObservabilityFinding ||
   resource is DailyBrief ||
-  resource is PatrolSchedule
+  resource is PatrolSchedule ||
+  resource is Adjudication ||
+  resource is StandingDecision ||
+  resource is ShadowVerdict
 };
 
 permit(
@@ -47,7 +50,10 @@ permit(
   resource is SecurityFinding ||
   resource is ObservabilityFinding ||
   resource is DailyBrief ||
-  resource is PatrolSchedule
+  resource is PatrolSchedule ||
+  resource is Adjudication ||
+  resource is StandingDecision ||
+  resource is ShadowVerdict
 };
 
 permit(

@@ -1,0 +1,49 @@
+# ShadowVerdict (ARN-430, stage 3 S0) - TEMPORARY, retired at S3.
+# The S1 comparison row: for one gate on one effort, what Temper's state
+# machine concluded vs what CI concluded, and whether they agree. Written by
+# nothing in S0 (its writer is S1); the shape lands now so S1 has it. Retired
+# together with record_ingest once every gate reads Temper directly (S3).
+[automaton]
+name = "ShadowVerdict"
+states = ["Recorded"]
+initial = "Recorded"
+
+allow_indefinite_states = ["Recorded"]
+
+[[state]]
+name = "effort_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr"
+type = "string"
+initial = ""
+
+[[state]]
+name = "gate"
+type = "string"
+initial = ""
+
+[[state]]
+name = "temper_verdict"
+type = "string"
+initial = ""
+
+[[state]]
+name = "ci_verdict"
+type = "string"
+initial = ""
+
+[[state]]
+name = "agree"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Record"
+kind = "input"
+from = ["Recorded"]
+to = "Recorded"
+params = ["effort_ref", "pr", "gate", "temper_verdict", "ci_verdict", "agree"]
+hint = "Record one gate's Temper verdict against its CI verdict and whether they agree."
