@@ -14,7 +14,9 @@
 name: sdlc-review
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    # `edited` included: reviewers receive the PR body as intent, so a body
+    # edit (e.g. new standing decisions) must re-run the panel against it
+    types: [opened, synchronize, reopened, labeled, edited]
 concurrency:
   group: sdlc-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -46,7 +48,13 @@ jobs:
           # owner re-arms it by adding the 'converge-ack' label after deciding.
           if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
             echo "converge-ack present - owner has decided, continuing"; exit 0; fi
-          ROUNDS=$(gh run list --workflow sdlc-review --branch "$PR_BRANCH"                      --status completed --json conclusion                      -q '[.[] | select(.conclusion == "failure")] | length' || echo 0)
+          # count only rounds that failed at the VALIDATE step (real findings);
+          # an infra failure (box unreachable, clone error) is not a review round
+          ROUNDS=0
+          for RID in $(gh run list --workflow sdlc-review --branch "$PR_BRANCH" --status completed --limit 15 --json databaseId,conclusion -q '.[] | select(.conclusion == "failure") | .databaseId'); do
+            FAILED_VALIDATE=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/jobs" -q '[.jobs[].steps[] | select(.name | startswith("Validate the review record")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo 0)
+            [ "${FAILED_VALIDATE:-0}" != "0" ] && ROUNDS=$((ROUNDS+1))
+          done
           if [ "${ROUNDS:-0}" -ge 3 ]; then
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             # neither arguing party can diagnose the stall (the implementer
@@ -257,6 +265,49 @@ jobs:
           json.dump(r,open(p,"w"),indent=2)
           PY
 
+      - name: Apply owner adjudications (RESOLVE comments)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          GH_REPO_FULL: ${{ github.repository }}
+          PR_GH_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # The owner's equivalent of dismissing a review: a trusted NON-AUTHOR
+          # comment line `RESOLVE: <file:line> <reason>` marks the matching
+          # finding resolved, the adjudication recorded as its resolution.
+          # Auditable (the comment stays), scoped (one finding per line) - how a
+          # judged re-litigation stops holding the gate red after the ruling.
+          [ -f .review/review.json ] || exit 0
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          n=os.environ["PR_NUM"]; repo=os.environ["GH_REPO_FULL"]
+          author=os.environ.get("PR_GH_AUTHOR","").lower()
+          out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
+                              "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
+                             capture_output=True,text=True).stdout
+          resolutions={}
+          for line in out.splitlines():
+              try: c=json.loads(line)
+              except Exception: continue
+              login=c.get("login","").lower()
+              if login != "github-actions[bot]" and c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
+                  continue
+              if login == author: continue
+              for m in re.finditer(r"^RESOLVE:\s*(\S+)\s+(.+)$", c.get("body",""), re.M):
+                  resolutions[m.group(1)] = m.group(2).strip()
+          if resolutions:
+              r=json.load(open(".review/review.json")); hit=0
+              for f in r.get("findings",[]):
+                  fl=f.get("file_line","")
+                  if fl in resolutions and not f.get("resolved"):
+                      f["resolved"]=True
+                      f["resolution"]=f"owner adjudication: {resolutions[fl]}"
+                      hit+=1
+              json.dump(r,open(".review/review.json","w"),indent=2)
+              print(f"owner adjudications applied: {hit}")
+          else:
+              print("no adjudication comments")
+          PY
       - name: Validate the review record (the gate)
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}

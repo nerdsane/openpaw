@@ -14,6 +14,9 @@ on:
     types: [created]
 permissions:
   pull-requests: write
+  actions: write        # re-run the review gate directly: GITHUB_TOKEN-created
+                        # label events are suppressed by GitHub, so the labeled
+                        # trigger alone would never fire
 jobs:
   intake:
     # only PR comments, only from the repo's own people, only DECISION: comments
@@ -53,4 +56,12 @@ jobs:
           gh label create converge-ack -d "owner decided after convergence stall - re-arms the review gate" -c "0e8a16" 2>/dev/null || true
           gh pr edit "$PR_NUM" --add-label converge-ack
           gh pr comment "$PR_NUM" --body "Ruling recorded in the standing decisions; review gate re-armed. The next panel round reads it as intent."
-          echo "ruling recorded, converge-ack applied - the labeled event re-runs the review gate"
+          # GitHub suppresses events created with GITHUB_TOKEN, so the label add
+          # above cannot fire the labeled trigger - re-run the gate directly.
+          HEAD=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
+          RUN=$(gh run list --workflow sdlc-review --json databaseId,headSha,status                   -q "[.[] | select(.headSha == \"$HEAD\" and .status == \"completed\")][0].databaseId" || true)
+          if [ -n "${RUN:-}" ] && [ "$RUN" != "null" ]; then
+            gh run rerun "$RUN" && echo "review gate re-run ($RUN) with the ruling in the intent"
+          else
+            echo "no completed review run for this head - the gate runs on the next push"
+          fi
