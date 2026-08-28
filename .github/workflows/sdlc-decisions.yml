@@ -16,8 +16,11 @@ jobs:
       - name: Fetch the gate from stack
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
-        run: git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
-               echo "::error::cannot reach arni-labs/stack for the gate"; exit 1; }
+        run: |
+          if [ -z "${STACK_TOKEN:-}" ]; then
+            echo "::error::STACK_TOKEN unavailable - fork PRs cannot run the gates (GitHub withholds secrets from forks); a maintainer re-pushes the branch in-repo to run them"; exit 1; fi
+          git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
+            echo "::error::cannot reach arni-labs/stack for the gate"; exit 1; }
       - name: Write PR body to a file
         env:
           BODY: ${{ github.event.pull_request.body }}

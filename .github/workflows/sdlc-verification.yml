@@ -34,7 +34,7 @@ jobs:
     # The `secrets` context is NOT allowed in step-level `if:`; hoist the presence
     # test into job-level env (which may read secrets) and gate the step on env.
     env:
-      HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
+      HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # scope needs real history; a depth-1 diff fails
@@ -42,6 +42,8 @@ jobs:
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
         run: |
+          if [ -z "${STACK_TOKEN:-}" ]; then
+            echo "::error::STACK_TOKEN unavailable - fork PRs cannot run the gates (GitHub withholds secrets from forks); a maintainer re-pushes the branch in-repo to run them"; exit 1; fi
           git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
             echo "::error::cannot reach arni-labs/stack for the proof toolkit"; exit 1; }
           python3 -m pip install --quiet jsonschema || true
