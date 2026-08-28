@@ -150,7 +150,8 @@ module = "record_ingest"
 # onto the packet and moves it to Recorded. Only dispatched when the module
 # validated the record against the proof rules, so a Recorded packet always
 # carries a real, passing proof. record_present marks the write for the
-# invariant.
+# invariant. The Recorded -> Recorded self-transition is a re-ingest: a
+# corrected proof for the SAME head overwrites in place (last write wins).
 [[action]]
 name = "IngestProof"
 kind = "input"
@@ -160,6 +161,9 @@ params = ["commit", "changed_surface", "blast_radius", "features", "tests", "ind
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]
 hint = "Write the decoded proof.json record (commit, changed surface, blast radius, features, tests, independent verifier) and mark it Recorded."
 
+# Superseded is terminal: it retires a proof replaced by a newer proof for a
+# LATER head; the superseding proof lives on its own packet, this one is kept
+# for history (no outgoing transitions from Superseded).
 [[action]]
 name = "SupersedeProof"
 kind = "input"

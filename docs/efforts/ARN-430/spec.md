@@ -21,7 +21,9 @@ is a pure function; the `run` wrapper turns it into a callback the kernel applie
     (ReviewRun) / `IngestProof` (ProofPacket), with params = the decoded fields
     flattened (arrays/objects serialized to JSON strings to match the string
     fields), plus a derived `open_act_on_count` for review.
-  - Otherwise: the inert `callback` action, which the kernel does not dispatch.
+  - Otherwise: an EMPTY action, which the kernel does not dispatch (a bare
+    `"callback"` would NOT be inert on a plain trigger - it would try to dispatch
+    a non-existent action - so the no-op is the empty string).
 
 Behavior of the pure parser (`parse_record`):
 
@@ -33,12 +35,13 @@ Behavior of the pure parser (`parse_record`):
    checks hold (review: non-empty `reviewers_ran`; proof: the stack proof rules,
    see ProofRun below).
 
-The kernel's callback rule ("prefer static `on_success`, else the module's
-returned action; a bare `callback` dispatches nothing") is why the wiring uses a
+The kernel builds `callback_action` from the result's `action` (defaulting to
+empty) and only dispatches when it is non-empty, and it prefers a static
+`on_success` over the module's returned action. The wiring therefore uses a
 dynamic action and no `on_success`: the module returns the write action ONLY when
-`parse_ok` AND the kind matches `ctx.entity_type`, so a comment with no record, a
-malformed record, or a record fed to the wrong entity writes nothing and raises
-no error. The module creates no entities and makes no OData calls; the state
+`parse_ok` AND the kind matches `ctx.entity_type`, and an EMPTY action otherwise,
+so a comment with no record, a malformed record, or a record fed to the wrong
+entity writes nothing and raises no error. The module creates no entities and makes no OData calls; the state
 machine writes, through `IngestRecord` / `IngestProof`.
 
 ### ReviewRun (was review_run) - additive record lifecycle
@@ -53,8 +56,8 @@ unchanged. Added:
   resolved}`), `risk`, `open_act_on_count`, `record_present` (bool).
 - `Ingest`: `from [Requested] -> Requested` (self-loop), params `comment_body`,
   effect fires the `record_ingest` trigger. The module returns the `IngestRecord`
-  callback + fields when the comment holds a valid review record; otherwise the
-  inert callback (the run stays in Requested).
+  callback + fields when the comment holds a valid review record; otherwise an
+  empty action (no dispatch), so the run stays in Requested.
 - `IngestRecord`: `from [Requested, Recorded] -> Recorded`, params
   `commit, reviewers_ran, findings, risk, open_act_on_count`. Effect:
   `set_bool record_present true`. Dispatched by the kernel from the module's
@@ -79,7 +82,7 @@ Existing states/actions (`Drafting/Ready/Rejected`) unchanged. Added:
   (the proof.json object), `record_present` (bool).
 - `Ingest`: `from [Drafting] -> Drafting` (self-loop), params `comment_body`,
   fires `record_ingest`; the module returns the `IngestProof` callback + fields
-  when the comment holds a valid proof record, else the inert callback.
+  when the comment holds a valid proof record, else an empty action (no dispatch).
 - `IngestProof`: `from [Drafting, Recorded] -> Recorded`, params
   `commit, changed_surface, blast_radius, features, tests, independent_verifier`.
   Effect: `set_bool record_present true`. Dispatched by the kernel from the
@@ -114,9 +117,10 @@ prompt). Actions: `Adopt` (`Active -> Active`, param `text`), `Retire`
 
 `Recorded` (single indefinite state, initial). Fields: `effort_ref`, `pr`,
 `gate`, `temper_verdict`, `ci_verdict` (strings), `agree` (bool, `Edm.Boolean`).
-`Record` (`from [Recorded] -> Recorded`, params `effort_ref, pr, gate,
-temper_verdict, ci_verdict`) writes the strings; `MarkAgree` / `MarkDisagree`
-(self-loops, `set_bool`) set `agree` - booleans are set by effects, not params.
+`Record` (params `effort_ref, pr, gate`) writes the identity; `MarkAgree` /
+`MarkDisagree` (params `temper_verdict, ci_verdict`, `set_bool agree`) each write
+the two verdicts AND the flag in one action, so `agree` can never diverge from
+the verdicts it summarizes - booleans are set by effects, not params.
 
 ## Model / CSDL
 
@@ -133,8 +137,11 @@ gate a merge.
 
 ## Test plan (red-green)
 
-A Rust test that feeds `record_ingest`'s parser the real base64 comment bodies
-from merged PRs 475, 477, 480 and asserts the decoded fields (kind, commit,
-reviewers_ran / changed_surface, parse_ok) match the comments; plus a
-malformed-record case (marker present, payload not valid base64/JSON) asserting
-`parse_ok == false`, and a no-marker case asserting `kind == "none"`.
+Rust tests that feed `record_ingest`'s parser the real base64 comment bodies from
+merged PRs 477 and 480 (475 carried no `-b64` markers) and assert the decoded
+fields (kind, commit, reviewers_ran / changed_surface, parse_ok) match the
+comments; a malformed-record case (marker present, payload not valid base64)
+asserting `parse_ok == false`; a no-marker case asserting `kind == "none"`; the
+no-op routing (empty action) for no-record / malformed / wrong-entity; the
+derived `open_act_on_count`; and a strict-extraction rejection test per class
+(missing field, wrong JSON type, bad enum) asserting the reason names the field.

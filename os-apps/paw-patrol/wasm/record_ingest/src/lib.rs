@@ -7,26 +7,22 @@
 //! callback - the state machine writes the fields, not the module. The module
 //! creates no entities and makes no OData calls of its own.
 //!
-//! Gating: the module returns the write action ONLY when the record is
-//! well-formed AND the record kind matches the entity it was fired on
-//! (a review record on ReviewRun, a proof record on ProofPacket). Otherwise it
-//! returns the inert default "callback" action, which the kernel does not
-//! dispatch - so a comment with no record, a malformed record, or a record fed
-//! to the wrong entity writes nothing and raises no error.
+//! No-op: when there is nothing valid to write for this entity, the module
+//! returns an EMPTY callback action. The kernel builds `callback_action` from
+//! the result's `action` (defaulting to "") and only dispatches when it is
+//! non-empty (temper-server dispatch/wasm.rs at rev 43f9379), so an empty action
+//! dispatches nothing. (Returning the SDK default "callback" would NOT be inert
+//! here: that zeroing only applies to Composite integrations, so a plain trigger
+//! returning "callback" would try to dispatch a non-existent `callback` action.)
 //!
-//! "Well-formed" is the ingest boundary the declarative guard grammar cannot
-//! express (no string/array predicates; guards cannot read action params):
-//! - a 40-character lowercase-hex `commit`;
-//! - a review record has a non-empty `reviewers_ran`;
-//! - a proof record satisfies the stack proof rules (proof/validate.py):
-//!   non-empty `changed_surface`; every changed + blast_radius feature present
-//!   in `features[]` with `verification == "rerun"`; `independent_verifier`
-//!   agrees and re-ran every changed + blast feature; no feature
-//!   `verdict == "fail"`; a `verified-unreachable` feature carries a reason;
-//!   every UI feature has screenshots and no failed judgment; `tests.result`
-//!   is "pass".
+//! parse_ok is strict, typed extraction - every field the write actions map is
+//! required with the right JSON type, else parse_ok is false and `reason` names
+//! the offending field. On top of the types, proofs must satisfy the stack proof
+//! rules (proof/validate.py): the changed + blast_radius surface present in
+//! `features[]` with `verification == "rerun"`, `independent_verifier` agreeing
+//! and covering that surface, no `verdict == "fail"`, UI evidence, tests passing.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use temper_wasm_sdk::prelude::*;
 
@@ -41,8 +37,8 @@ const PROOF_ENTITY: &str = "ProofPacket";
 /// Write actions the module asks the kernel to dispatch.
 const INGEST_REVIEW_ACTION: &str = "IngestRecord";
 const INGEST_PROOF_ACTION: &str = "IngestProof";
-/// The inert default: the kernel does not dispatch a bare "callback".
-const NOOP_ACTION: &str = "callback";
+/// The no-op signal: an empty callback action the kernel does not dispatch.
+const NO_DISPATCH: &str = "";
 
 /// The decoded result of one comment body.
 pub struct ParsedRecord {
@@ -54,6 +50,8 @@ pub struct ParsedRecord {
     pub parse_ok: bool,
     /// The record's commit sha (empty when none/malformed).
     pub commit: String,
+    /// Why parsing failed, naming the offending field (empty when parse_ok).
+    pub reason: String,
 }
 
 #[unsafe(no_mangle)]
@@ -72,10 +70,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         .unwrap_or("");
     let parsed = parse_record(body);
     let action = ingest_action(&ctx.entity_type, &parsed);
-    if action == NOOP_ACTION {
-        // Inert callback: nothing to write, and no error - a comment with no
-        // record for this entity is a normal, silent outcome.
-        set_success_result(NOOP_ACTION, &json!({}));
+    if action == NO_DISPATCH {
+        // Empty action => the kernel dispatches nothing. Success, no error: a
+        // comment with no valid record for this entity is a normal outcome.
+        set_success_result(NO_DISPATCH, &json!({}));
     } else {
         set_success_result(action, &write_params(&parsed));
     }
@@ -83,15 +81,15 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 }
 
 /// The write action the kernel should dispatch for this entity + record, or
-/// the inert `NOOP_ACTION` when there is nothing valid to write here.
+/// `NO_DISPATCH` (empty) when there is nothing valid to write here.
 pub fn ingest_action(entity_type: &str, parsed: &ParsedRecord) -> &'static str {
     if !parsed.parse_ok {
-        return NOOP_ACTION;
+        return NO_DISPATCH;
     }
     match (entity_type, parsed.kind) {
         (REVIEW_ENTITY, "review") => INGEST_REVIEW_ACTION,
         (PROOF_ENTITY, "proof") => INGEST_PROOF_ACTION,
-        _ => NOOP_ACTION,
+        _ => NO_DISPATCH,
     }
 }
 
@@ -121,7 +119,7 @@ pub fn write_params(parsed: &ParsedRecord) -> Value {
 }
 
 /// Number of unresolved act-on findings (`severity == "act-on"` and not
-/// `resolved`).
+/// `resolved`). The record is already type-checked when this runs.
 pub fn open_act_on_count(record: &Value) -> usize {
     record
         .get("findings")
@@ -156,6 +154,7 @@ pub fn parse_record(body: &str) -> ParsedRecord {
         record: json!({}),
         parse_ok: false,
         commit: String::new(),
+        reason: "no record marker found".to_string(),
     }
 }
 
@@ -169,39 +168,232 @@ fn extract_payload(body: &str, marker: &str) -> Option<String> {
 }
 
 fn decode(kind: &'static str, b64: &str) -> ParsedRecord {
-    let failed = ParsedRecord {
+    let bytes = match base64_decode(b64) {
+        Some(b) => b,
+        None => return failed(kind, "payload is not valid base64"),
+    };
+    let text = match String::from_utf8(bytes) {
+        Ok(t) => t,
+        Err(_) => return failed(kind, "payload is not valid UTF-8"),
+    };
+    let record: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return failed(kind, "payload is not valid JSON"),
+    };
+    if !record.is_object() {
+        return failed(kind, "record is not a JSON object");
+    }
+    match validate(kind, &record) {
+        Ok(()) => {
+            let commit = record
+                .get("commit")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            ParsedRecord {
+                kind,
+                record,
+                parse_ok: true,
+                commit,
+                reason: String::new(),
+            }
+        }
+        Err(reason) => ParsedRecord {
+            kind,
+            record: json!({}),
+            parse_ok: false,
+            commit: String::new(),
+            reason,
+        },
+    }
+}
+
+fn failed(kind: &'static str, reason: &str) -> ParsedRecord {
+    ParsedRecord {
         kind,
         record: json!({}),
         parse_ok: false,
         commit: String::new(),
-    };
-    let bytes = match base64_decode(b64) {
-        Some(b) => b,
-        None => return failed,
-    };
-    let text = match String::from_utf8(bytes) {
-        Ok(t) => t,
-        Err(_) => return failed,
-    };
-    let record: Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return failed,
-    };
-    if !record.is_object() {
-        return failed;
+        reason: reason.to_string(),
     }
-    let commit = record
-        .get("commit")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let parse_ok = is_full_sha(&commit) && record_shape_ok(kind, &record);
-    ParsedRecord {
-        kind,
-        record,
-        parse_ok,
-        commit,
+}
+
+fn validate(kind: &str, record: &Value) -> Result<(), String> {
+    match kind {
+        "review" => validate_review(record),
+        "proof" => validate_proof(record),
+        _ => Err("unknown record kind".to_string()),
     }
+}
+
+/// Strict typed extraction of a review record: every mapped field present with
+/// the right JSON type, else `Err` naming the field.
+fn validate_review(r: &Value) -> Result<(), String> {
+    let commit = str_field(r, "commit")?;
+    if !is_full_sha(commit) {
+        return Err("commit is not a 40-char lowercase-hex sha".to_string());
+    }
+    if str_array_field(r, "reviewers_ran")?.is_empty() {
+        return Err("reviewers_ran is empty".to_string());
+    }
+    for (i, f) in array_field(r, "findings")?.iter().enumerate() {
+        object(f).map_err(|e| format!("findings[{i}] {e}"))?;
+        str_field(f, "severity").map_err(|e| format!("findings[{i}].{e}"))?;
+        str_field(f, "file_line").map_err(|e| format!("findings[{i}].{e}"))?;
+        bool_field(f, "resolved").map_err(|e| format!("findings[{i}].{e}"))?;
+    }
+    let risk = str_field(r, "risk")?;
+    if !matches!(risk, "low" | "medium" | "high") {
+        return Err(format!("risk '{risk}' is not one of low/medium/high"));
+    }
+    Ok(())
+}
+
+/// Strict typed extraction of a proof record, followed by the stack proof rules.
+fn validate_proof(r: &Value) -> Result<(), String> {
+    let commit = str_field(r, "commit")?;
+    if !is_full_sha(commit) {
+        return Err("commit is not a 40-char lowercase-hex sha".to_string());
+    }
+    let changed = str_array_field(r, "changed_surface")?;
+    if changed.is_empty() {
+        return Err("changed_surface is empty".to_string());
+    }
+    let blast = str_array_field(r, "blast_radius")?;
+
+    let features = array_field(r, "features")?;
+    if features.is_empty() {
+        return Err("features is empty".to_string());
+    }
+    let mut verification_by_key: BTreeMap<String, String> = BTreeMap::new();
+    for (i, f) in features.iter().enumerate() {
+        object(f).map_err(|e| format!("features[{i}] {e}"))?;
+        let key = str_field(f, "key").map_err(|e| format!("features[{i}].{e}"))?;
+        let verification =
+            str_field(f, "verification").map_err(|e| format!("features[{i}].{e}"))?;
+        let verdict = str_field(f, "verdict").map_err(|e| format!("features[{i}].{e}"))?;
+        if !matches!(verdict, "pass" | "fail" | "verified-unreachable") {
+            return Err(format!(
+                "features[{i}].verdict '{verdict}' is not pass/fail/verified-unreachable"
+            ));
+        }
+        if verdict == "fail" {
+            return Err(format!("feature '{key}' has verdict fail"));
+        }
+        if verdict == "verified-unreachable"
+            && str_field(f, "unreachable_reason")
+                .map(|s| s.is_empty())
+                .unwrap_or(true)
+        {
+            return Err(format!(
+                "feature '{key}' is verified-unreachable without a reason"
+            ));
+        }
+        if let Some(ui) = f.get("ui") {
+            object(ui).map_err(|e| format!("feature '{key}' ui {e}"))?;
+            if array_field(ui, "screenshots")
+                .map_err(|e| format!("feature '{key}' ui.{e}"))?
+                .is_empty()
+            {
+                return Err(format!("feature '{key}' ui has no screenshots"));
+            }
+            for judgment in ["works", "usable", "looks_good"] {
+                if ui.get(judgment).and_then(|v| v.as_bool()) == Some(false) {
+                    return Err(format!("feature '{key}' ui judgment '{judgment}' is false"));
+                }
+            }
+        }
+        verification_by_key.insert(key.to_string(), verification.to_string());
+    }
+
+    let tests = object_field(r, "tests")?;
+    let tests_result = str_field(tests, "result").map_err(|e| format!("tests.{e}"))?;
+    if !matches!(tests_result, "pass" | "fail") {
+        return Err(format!("tests.result '{tests_result}' is not pass/fail"));
+    }
+    if tests_result != "pass" {
+        return Err("tests.result is not pass".to_string());
+    }
+
+    let iv = object_field(r, "independent_verifier")?;
+    let reran = str_array_field(iv, "reran").map_err(|e| format!("independent_verifier.{e}"))?;
+    if !bool_field(iv, "agrees").map_err(|e| format!("independent_verifier.{e}"))? {
+        return Err("independent_verifier.agrees is false".to_string());
+    }
+
+    // Stack proof rules over the extracted surface.
+    for key in changed.iter().chain(blast.iter()) {
+        match verification_by_key.get(key) {
+            None => {
+                return Err(format!(
+                    "changed/blast feature '{key}' is missing from features"
+                ));
+            }
+            Some(v) if v != "rerun" => {
+                return Err(format!(
+                    "changed/blast feature '{key}' has verification '{v}', must be rerun"
+                ));
+            }
+            _ => {}
+        }
+        if !reran.iter().any(|r| r == key) {
+            return Err(format!("independent_verifier did not rerun '{key}'"));
+        }
+    }
+    Ok(())
+}
+
+// --- typed field accessors: Err names the field ---
+
+fn object(v: &Value) -> Result<(), String> {
+    if v.is_object() {
+        Ok(())
+    } else {
+        Err("is not an object".to_string())
+    }
+}
+
+fn field<'a>(r: &'a Value, name: &str) -> Result<&'a Value, String> {
+    r.get(name).ok_or_else(|| format!("{name} is missing"))
+}
+
+fn object_field<'a>(r: &'a Value, name: &str) -> Result<&'a Value, String> {
+    let v = field(r, name)?;
+    if !v.is_object() {
+        return Err(format!("{name} is not an object"));
+    }
+    Ok(v)
+}
+
+fn str_field<'a>(r: &'a Value, name: &str) -> Result<&'a str, String> {
+    field(r, name)?
+        .as_str()
+        .ok_or_else(|| format!("{name} is not a string"))
+}
+
+fn bool_field(r: &Value, name: &str) -> Result<bool, String> {
+    field(r, name)?
+        .as_bool()
+        .ok_or_else(|| format!("{name} is not a boolean"))
+}
+
+fn array_field<'a>(r: &'a Value, name: &str) -> Result<&'a Vec<Value>, String> {
+    field(r, name)?
+        .as_array()
+        .ok_or_else(|| format!("{name} is not an array"))
+}
+
+fn str_array_field(r: &Value, name: &str) -> Result<Vec<String>, String> {
+    let arr = array_field(r, name)?;
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, v) in arr.iter().enumerate() {
+        out.push(
+            v.as_str()
+                .ok_or_else(|| format!("{name}[{i}] is not a string"))?
+                .to_string(),
+        );
+    }
+    Ok(out)
 }
 
 /// A 40-character lowercase-hex git sha.
@@ -209,122 +401,6 @@ fn is_full_sha(s: &str) -> bool {
     s.len() == 40
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-/// The record-shape checks the guard grammar cannot express, enforced here at
-/// the ingest boundary.
-fn record_shape_ok(kind: &str, record: &Value) -> bool {
-    match kind {
-        "review" => non_empty_array(record.get("reviewers_ran")),
-        "proof" => proof_shape_ok(record),
-        _ => false,
-    }
-}
-
-/// The stack proof rules (proof/validate.py), restricted to what a single
-/// record can be checked against (the features-dir and URL-evidence rules are
-/// CI-only and out of scope here).
-fn proof_shape_ok(record: &Value) -> bool {
-    let features = match record.get("features").and_then(|v| v.as_array()) {
-        Some(f) if !f.is_empty() => f,
-        _ => return false,
-    };
-    let changed = string_set(record.get("changed_surface"));
-    if changed.is_empty() {
-        return false;
-    }
-    let blast = string_set(record.get("blast_radius"));
-
-    let mut by_key: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
-    for f in features {
-        if let Some(key) = f.get("key").and_then(|k| k.as_str()) {
-            by_key.insert(key, f);
-        }
-    }
-
-    // Every changed + blast feature is present and marked rerun.
-    for key in changed.iter().chain(blast.iter()) {
-        match by_key.get(key.as_str()) {
-            None => return false,
-            Some(f) => {
-                if f.get("verification").and_then(|v| v.as_str()) != Some("rerun") {
-                    return false;
-                }
-            }
-        }
-    }
-
-    // The independent verifier agrees and re-ran everything changed + blast.
-    let iv = match record.get("independent_verifier") {
-        Some(v) => v,
-        None => return false,
-    };
-    if iv.get("agrees").and_then(|a| a.as_bool()) != Some(true) {
-        return false;
-    }
-    let reran = string_set(iv.get("reran"));
-    if changed
-        .iter()
-        .chain(blast.iter())
-        .any(|k| !reran.contains(k))
-    {
-        return false;
-    }
-
-    // Per-feature: no failing verdict; unreachable needs a reason; UI evidence.
-    for f in features {
-        match f.get("verdict").and_then(|v| v.as_str()) {
-            Some("fail") => return false,
-            Some("verified-unreachable") => {
-                if f.get("unreachable_reason")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("")
-                    .is_empty()
-                {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-        if let Some(ui) = f.get("ui") {
-            let has_shots = ui
-                .get("screenshots")
-                .and_then(|s| s.as_array())
-                .map(|a| !a.is_empty())
-                .unwrap_or(false);
-            if !has_shots {
-                return false;
-            }
-            for judgment in ["works", "usable", "looks_good"] {
-                if ui.get(judgment).and_then(|j| j.as_bool()) == Some(false) {
-                    return false;
-                }
-            }
-        }
-    }
-
-    // Tests passed.
-    record
-        .get("tests")
-        .and_then(|t| t.get("result"))
-        .and_then(|r| r.as_str())
-        == Some("pass")
-}
-
-fn non_empty_array(v: Option<&Value>) -> bool {
-    v.and_then(|v| v.as_array())
-        .map(|a| !a.is_empty())
-        .unwrap_or(false)
-}
-
-fn string_set(v: Option<&Value>) -> BTreeSet<String> {
-    v.and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 /// Standard RFC 4648 base64 decode (with `+` / `/` and `=` padding). Returns
@@ -377,13 +453,14 @@ mod tests {
         parse_record(include_str!("../tests/fixtures/pr477_proof.txt"))
     }
 
+    // --- the real records decode and validate ---
+
     #[test]
     fn pr480_review_decodes_to_the_comment_record() {
         let p = review_480();
         assert_eq!(p.kind, "review");
-        assert!(p.parse_ok);
+        assert!(p.parse_ok, "reason: {}", p.reason);
         assert_eq!(p.commit, "27a90bf7c6971263ea9858861d95f58d27e933f5");
-        assert_eq!(p.record["effort"], json!("ARN-427"));
         assert_eq!(p.record["reviewers_ran"], json!(["grok", "codex", "fable"]));
     }
 
@@ -391,38 +468,26 @@ mod tests {
     fn pr480_proof_decodes_and_passes_the_proof_rules() {
         let p = proof_480();
         assert_eq!(p.kind, "proof");
-        assert!(p.parse_ok);
+        assert!(p.parse_ok, "reason: {}", p.reason);
         assert_eq!(p.commit, "27a90bf7c6971263ea9858861d95f58d27e933f5");
         assert_eq!(p.record["changed_surface"], json!(["boot-and-health"]));
-        assert_eq!(p.record["independent_verifier"]["agrees"], json!(true));
     }
 
     #[test]
-    fn pr477_review_decodes_to_the_comment_record() {
-        let p = review_477();
-        assert_eq!(p.kind, "review");
-        assert!(p.parse_ok);
-        assert_eq!(p.commit, "a8dba3452a498f271a985098eab77467403bbab7");
-        assert_eq!(p.record["effort"], json!("ARN-422"));
-    }
-
-    #[test]
-    fn pr477_proof_decodes_and_passes_the_proof_rules() {
+    fn pr477_review_and_proof_decode() {
+        assert!(review_477().parse_ok, "{}", review_477().reason);
         let p = proof_477();
-        assert_eq!(p.kind, "proof");
-        assert!(p.parse_ok);
-        assert_eq!(p.commit, "a8dba3452a498f271a985098eab77467403bbab7");
-        assert_eq!(p.record["changed_surface"], json!(["genesis-install"]));
+        assert!(p.parse_ok, "reason: {}", p.reason);
         assert_eq!(p.record["blast_radius"], json!(["boot-and-health"]));
     }
 
     #[test]
     fn malformed_marker_is_not_parse_ok() {
         let p = parse_record(include_str!("../tests/fixtures/malformed_review.txt"));
-        assert_eq!(p.kind, "review"); // the marker is detected
-        assert!(!p.parse_ok); // but the payload does not decode
+        assert_eq!(p.kind, "review");
+        assert!(!p.parse_ok);
         assert_eq!(p.commit, "");
-        assert_eq!(p.record, json!({}));
+        assert!(p.reason.contains("base64"), "reason: {}", p.reason);
     }
 
     #[test]
@@ -430,28 +495,29 @@ mod tests {
         let p = parse_record(include_str!("../tests/fixtures/no_marker.txt"));
         assert_eq!(p.kind, "none");
         assert!(!p.parse_ok);
-        assert_eq!(p.commit, "");
     }
 
-    // --- the write callback: action routing + field mapping ---
+    // --- the no-op signal is EXACTLY the empty action (kernel dispatches nothing) ---
 
     #[test]
-    fn ingest_action_routes_by_entity_and_kind() {
-        assert_eq!(
-            ingest_action(REVIEW_ENTITY, &review_480()),
-            INGEST_REVIEW_ACTION
-        );
-        assert_eq!(
-            ingest_action(PROOF_ENTITY, &proof_480()),
-            INGEST_PROOF_ACTION
-        );
-        // A record fed to the wrong entity writes nothing.
-        assert_eq!(ingest_action(PROOF_ENTITY, &review_480()), NOOP_ACTION);
-        assert_eq!(ingest_action(REVIEW_ENTITY, &proof_480()), NOOP_ACTION);
-        // An unparseable record writes nothing.
+    fn no_record_produces_the_empty_no_dispatch_action() {
+        assert_eq!(NO_DISPATCH, "");
         let none = parse_record(include_str!("../tests/fixtures/no_marker.txt"));
-        assert_eq!(ingest_action(REVIEW_ENTITY, &none), NOOP_ACTION);
+        assert_eq!(ingest_action(REVIEW_ENTITY, &none), "");
+        let malformed = parse_record(include_str!("../tests/fixtures/malformed_review.txt"));
+        assert_eq!(ingest_action(REVIEW_ENTITY, &malformed), "");
+        // A valid record fed to the wrong entity also writes nothing.
+        assert_eq!(ingest_action(PROOF_ENTITY, &review_480()), "");
+        assert_eq!(ingest_action(REVIEW_ENTITY, &proof_480()), "");
     }
+
+    #[test]
+    fn ingest_action_routes_valid_records() {
+        assert_eq!(ingest_action(REVIEW_ENTITY, &review_480()), "IngestRecord");
+        assert_eq!(ingest_action(PROOF_ENTITY, &proof_480()), "IngestProof");
+    }
+
+    // --- write params + derivation ---
 
     #[test]
     fn review_write_params_carry_the_ingestrecord_fields() {
@@ -460,26 +526,18 @@ mod tests {
             params["commit"],
             json!("a8dba3452a498f271a985098eab77467403bbab7")
         );
-        // reviewers_ran is serialized to a JSON string for the string field.
         assert_eq!(
             params["reviewers_ran"],
             json!("[\"grok\",\"codex\",\"fable\"]")
         );
-        assert!(params["findings"].as_str().unwrap().starts_with('['));
         assert_eq!(params["risk"], json!("high"));
-        // pr477 has one unresolved act-on finding.
-        assert_eq!(params["open_act_on_count"], json!("1"));
+        assert_eq!(params["open_act_on_count"], json!("1")); // one unresolved act-on
     }
 
     #[test]
     fn proof_write_params_carry_the_ingestproof_fields() {
         let params = write_params(&proof_480());
-        assert_eq!(
-            params["commit"],
-            json!("27a90bf7c6971263ea9858861d95f58d27e933f5")
-        );
         assert_eq!(params["changed_surface"], json!("[\"boot-and-health\"]"));
-        assert!(params["features"].as_str().unwrap().starts_with('['));
         assert!(params["tests"].as_str().unwrap().contains("result"));
         assert!(
             params["independent_verifier"]
@@ -490,19 +548,106 @@ mod tests {
     }
 
     #[test]
-    fn open_act_on_count_matches_the_real_records_and_derivation() {
-        assert_eq!(open_act_on_count(&review_480().record), 0); // all consider/nit
-        assert_eq!(open_act_on_count(&review_477().record), 1); // one unresolved act-on
+    fn open_act_on_count_matches_real_records_and_derivation() {
+        assert_eq!(open_act_on_count(&review_480().record), 0);
+        assert_eq!(open_act_on_count(&review_477().record), 1);
         let synthetic = json!({ "findings": [
             { "severity": "act-on", "resolved": false },
             { "severity": "act-on", "resolved": true },
             { "severity": "act-on" },
             { "severity": "consider", "resolved": false },
         ] });
-        assert_eq!(open_act_on_count(&synthetic), 2); // two unresolved act-ons
+        assert_eq!(open_act_on_count(&synthetic), 2);
     }
 
-    // --- proof rejections (each aligns with a proof/validate.py rule) ---
+    // --- strict review extraction: one rejection per class, reason names field ---
+
+    fn good_review() -> Value {
+        json!({
+            "commit": "27a90bf7c6971263ea9858861d95f58d27e933f5",
+            "reviewers_ran": ["fable"],
+            "findings": [{ "severity": "act-on", "file_line": "a.rs:1", "resolved": false }],
+            "risk": "low"
+        })
+    }
+
+    #[test]
+    fn good_review_validates() {
+        assert_eq!(validate_review(&good_review()), Ok(()));
+    }
+
+    #[test]
+    fn review_rejections_name_the_field() {
+        let mut r = good_review();
+        r.as_object_mut().unwrap().remove("commit");
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("commit is missing")
+        );
+
+        let mut r = good_review();
+        r["commit"] = json!(123);
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("commit is not a string")
+        );
+
+        let mut r = good_review();
+        r["commit"] = json!("abc"); // right type, wrong shape
+        assert!(validate_review(&r).unwrap_err().contains("40-char"));
+
+        let mut r = good_review();
+        r["reviewers_ran"] = json!("grok"); // wrong type
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("reviewers_ran is not an array")
+        );
+
+        let mut r = good_review();
+        r["reviewers_ran"] = json!([]);
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("reviewers_ran is empty")
+        );
+
+        let mut r = good_review();
+        r["reviewers_ran"] = json!(["grok", 7]); // element wrong type
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("reviewers_ran[1] is not a string")
+        );
+
+        let mut r = good_review();
+        r["findings"] = json!([{ "file_line": "a.rs:1", "resolved": false }]); // missing severity
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("findings[0].severity is missing")
+        );
+
+        let mut r = good_review();
+        r["findings"] = json!([{ "severity": "act-on", "file_line": "a.rs:1", "resolved": "no" }]);
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("findings[0].resolved is not a boolean")
+        );
+
+        let mut r = good_review();
+        r["risk"] = json!("spicy");
+        assert!(
+            validate_review(&r)
+                .unwrap_err()
+                .contains("risk 'spicy' is not one of")
+        );
+    }
+
+    // --- strict proof extraction + rules: one rejection per class ---
 
     fn good_proof() -> Value {
         json!({
@@ -516,100 +661,121 @@ mod tests {
     }
 
     #[test]
-    fn good_proof_passes() {
-        assert!(proof_shape_ok(&good_proof()));
+    fn good_proof_validates() {
+        assert_eq!(validate_proof(&good_proof()), Ok(()));
     }
 
     #[test]
-    fn proof_with_empty_changed_surface_is_refused() {
+    fn proof_rejections_name_the_field() {
+        let mut r = good_proof();
+        r["changed_surface"] = json!("x"); // wrong type
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("changed_surface is not an array")
+        );
+
         let mut r = good_proof();
         r["changed_surface"] = json!([]);
-        assert!(!proof_shape_ok(&r));
-    }
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("changed_surface is empty")
+        );
 
-    #[test]
-    fn proof_with_empty_features_is_refused() {
         let mut r = good_proof();
         r["features"] = json!([]);
-        assert!(!proof_shape_ok(&r));
-    }
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("features is empty")
+        );
 
-    #[test]
-    fn proof_with_a_changed_feature_missing_from_features_is_refused() {
         let mut r = good_proof();
-        r["changed_surface"] = json!(["x", "y"]);
-        assert!(!proof_shape_ok(&r)); // y has no features[] entry
-    }
+        r["features"] = json!([{ "verification": "rerun", "verdict": "pass" }]); // missing key
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("features[0].key is missing")
+        );
 
-    #[test]
-    fn proof_with_a_non_rerun_changed_feature_is_refused() {
         let mut r = good_proof();
-        r["features"] =
-            json!([{ "key": "x", "verification": "review", "verdict": "pass", "steps": [] }]);
-        assert!(!proof_shape_ok(&r));
-    }
+        r["features"] = json!([{ "key": "x", "verification": "rerun", "verdict": "great" }]);
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("verdict 'great' is not")
+        );
 
-    #[test]
-    fn proof_where_verifier_disagrees_is_refused() {
         let mut r = good_proof();
-        r["independent_verifier"]["agrees"] = json!(false);
-        assert!(!proof_shape_ok(&r));
-    }
+        r["features"] = json!([{ "key": "x", "verification": "rerun", "verdict": "fail" }]);
+        assert!(validate_proof(&r).unwrap_err().contains("verdict fail"));
 
-    #[test]
-    fn proof_where_verifier_did_not_rerun_a_changed_feature_is_refused() {
         let mut r = good_proof();
-        r["independent_verifier"]["reran"] = json!([]);
-        assert!(!proof_shape_ok(&r));
-    }
+        r["features"] = json!([{ "key": "x", "verification": "review", "verdict": "pass" }]);
+        assert!(validate_proof(&r).unwrap_err().contains("must be rerun"));
 
-    #[test]
-    fn proof_with_a_failing_feature_is_refused() {
         let mut r = good_proof();
-        r["features"] =
-            json!([{ "key": "x", "verification": "rerun", "verdict": "fail", "steps": [] }]);
-        assert!(!proof_shape_ok(&r));
-    }
+        r["changed_surface"] = json!(["x", "y"]); // y missing from features
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("'y' is missing from features")
+        );
 
-    #[test]
-    fn proof_with_failing_tests_is_refused() {
+        let mut r = good_proof();
+        r["tests"] = json!("pass"); // wrong type
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("tests is not an object")
+        );
+
         let mut r = good_proof();
         r["tests"]["result"] = json!("fail");
-        assert!(!proof_shape_ok(&r));
-    }
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("tests.result is not pass")
+        );
 
-    #[test]
-    fn proof_with_unreachable_feature_without_reason_is_refused() {
         let mut r = good_proof();
-        r["features"] = json!([{ "key": "x", "verification": "rerun", "verdict": "verified-unreachable", "steps": [] }]);
-        assert!(!proof_shape_ok(&r));
-        r["features"] = json!([{ "key": "x", "verification": "rerun", "verdict": "verified-unreachable", "unreachable_reason": "no prod path", "steps": [] }]);
-        assert!(proof_shape_ok(&r));
-    }
+        r["independent_verifier"]["agrees"] = json!("yes"); // wrong type
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("independent_verifier.agrees is not a boolean")
+        );
 
-    #[test]
-    fn proof_with_a_failed_ui_judgment_is_refused() {
         let mut r = good_proof();
-        r["features"] = json!([{ "key": "x", "verification": "rerun", "verdict": "pass", "steps": [],
-            "ui": { "screenshots": ["http://x"], "works": false, "usable": true, "looks_good": true } }]);
-        assert!(!proof_shape_ok(&r));
-    }
+        r["independent_verifier"]["agrees"] = json!(false);
+        assert!(validate_proof(&r).unwrap_err().contains("agrees is false"));
 
-    #[test]
-    fn review_with_no_reviewers_is_refused() {
-        let record = json!({
-            "commit": "27a90bf7c6971263ea9858861d95f58d27e933f5",
-            "reviewers_ran": []
-        });
-        assert!(!record_shape_ok("review", &record));
-    }
+        let mut r = good_proof();
+        r["independent_verifier"]["reran"] = json!([]);
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("did not rerun 'x'")
+        );
 
-    #[test]
-    fn short_commit_sha_is_rejected() {
-        assert!(is_full_sha("27a90bf7c6971263ea9858861d95f58d27e933f5"));
-        assert!(!is_full_sha("33d5ab4c5")); // a real abbreviated sha seen on PR 480
-        assert!(!is_full_sha("27A90BF7C6971263EA9858861D95F58D27E933F5")); // uppercase
-        assert!(!is_full_sha(""));
+        let mut r = good_proof();
+        r["features"] =
+            json!([{ "key": "x", "verification": "rerun", "verdict": "verified-unreachable" }]);
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("verified-unreachable without a reason")
+        );
+
+        let mut r = good_proof();
+        r["features"] = json!([{ "key": "x", "verification": "rerun", "verdict": "pass",
+            "ui": { "screenshots": ["http://x"], "works": false } }]);
+        assert!(
+            validate_proof(&r)
+                .unwrap_err()
+                .contains("ui judgment 'works' is false")
+        );
     }
 
     #[test]

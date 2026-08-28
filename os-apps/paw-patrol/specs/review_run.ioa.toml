@@ -195,6 +195,9 @@ module = "record_ingest"
 # valid record (checked 40-char commit, non-empty reviewer set), so a Recorded
 # run always carries a real record. record_present marks the write for the
 # invariant.
+# The Recorded -> Recorded self-transition is a re-ingest: a corrected record
+# for the SAME head overwrites the fields in place (last write wins), which is
+# why record_present stays set and the invariant still holds.
 [[action]]
 name = "IngestRecord"
 kind = "input"
@@ -204,6 +207,9 @@ params = ["commit", "reviewers_ran", "findings", "risk", "open_act_on_count"]
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]
 hint = "Write the decoded review record (commit, reviewers, findings, risk, open act-on count) and mark it Recorded."
 
+# Superseded is terminal: it marks a record retired by a NEWER record for a
+# LATER head. The superseding record lives on its own run; this one is kept for
+# history, not overwritten (hence Superseded has no outgoing transitions).
 [[action]]
 name = "Supersede"
 kind = "input"

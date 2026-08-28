@@ -226,3 +226,64 @@ a clean self-loop on the initial state; a comment with no record leaves it
 there. Given up: ingesting onto an already-terminal operational run - not needed
 in S0, and revisited if the flow ever reuses those runs.
 **Where:** `specs/review_run.ioa.toml`, `specs/proof_packet.ioa.toml`.
+
+---
+
+## Round 3 - panel round 2 fixes (ARN-430, terminal batch)
+
+**Decision:** The no-record path returns an EMPTY callback action, not `"callback"`.
+**Came up because:** a reviewer (codex) found the "inert callback" was not inert:
+for a non-Composite integration the kernel does dispatch the returned action.
+**Verified against the kernel (rev 43f9379):** `engine/telemetry.rs` builds
+`callback_action` as `result.get("action").as_str().unwrap_or("")`, and
+`dispatch/wasm.rs` only dispatches `if !callback_action.is_empty()`. The
+"callback" -> "" zeroing at wasm.rs:1291 is guarded by `composite_result_consumed`,
+which is false for a plain trigger - so returning `"callback"` WOULD try to
+dispatch a non-existent `callback` action (an error). An empty action is the
+sanctioned no-op.
+**Options:** return `"callback"` (rejected - dispatches and errors); return an
+error so `on_failure` fires (rejected - a no-record comment is normal, not a
+failure to surface on the Discord channel); return an empty action (chosen).
+**Chose the empty action because:** it dispatches nothing, stays success, raises
+no error. `NO_DISPATCH = ""`; a test asserts the no-record, malformed, and
+wrong-entity cases all yield exactly `""`. Given up: nothing.
+**Where:** `wasm/record_ingest/src/lib.rs` (`run`, `ingest_action`, `NO_DISPATCH`).
+
+**Decision:** parse_ok is strict, typed extraction with a field-naming reason,
+not a loose value check.
+**Came up because:** panel act-ons - the checks skipped the schema-level typing
+the stack validator's jsonschema pass does (a field could be the wrong JSON type
+and still pass).
+**Options:** port the whole JSON schema (rejected - heavy, and validate.py runs
+jsonschema separately); make extraction strict (chosen).
+**Chose strict extraction because:** every field the write actions map is now
+required with the right JSON type, else `parse_ok=false` and `reason` names the
+offending field. Review: `commit` (string, 40-hex), `reviewers_ran` (non-empty
+array of strings), `findings[]` (objects with string `severity`/`file_line`, bool
+`resolved`), `risk` in {low, medium, high}. Proof: `commit`; `changed_surface`
+(non-empty array of strings), `blast_radius` (array of strings); `features[]`
+(objects with string `key`/`verification`/`verdict`, `verdict` in
+{pass, fail, verified-unreachable}); `tests` object with `result` in {pass, fail};
+`independent_verifier` object with `reran` (array of strings) and bool `agrees` -
+then the stack proof rules over that surface. The `verdict` enum check subsumes
+fable's verified-unreachable point (an out-of-enum verdict fails extraction).
+There is a rejection test per class (missing key, wrong type, bad enum). Given
+up: nothing - both real records (PR 477, 480) still validate.
+**Where:** `wasm/record_ingest/src/lib.rs` (`validate_review`, `validate_proof`,
+the typed `*_field` accessors).
+
+**Decision (consider):** ShadowVerdict `MarkAgree` / `MarkDisagree` write the two
+verdicts AND the boolean in one action each; `Record` writes only the identity.
+**Came up because:** a reviewer noted the verdict pair and the agree flag could
+diverge if set by separate actions.
+**Chose one-action-each because:** the grammar allows params (the two verdict
+strings) and a `set_bool` effect on the same action, so the comparison and its
+summary flag are written atomically and cannot drift. Given up: nothing.
+**Where:** `specs/shadow_verdict.ioa.toml`.
+
+**Decision (consider):** State the re-ingest and Superseded semantics in the
+specs. Recorded -> Recorded is a re-ingest (a corrected record for the SAME head
+overwrites in place, last write wins); Superseded is terminal (a record retired
+by a NEWER record for a LATER head, which lives on its own run/packet; this one
+is kept for history, no outgoing transitions).
+**Where:** comments in `specs/review_run.ioa.toml`, `specs/proof_packet.ioa.toml`.
