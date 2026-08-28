@@ -61,8 +61,9 @@ jobs:
             echo "converge-ack present - owner has decided, continuing"; exit 0; fi
           # count only rounds that failed at the VALIDATE step (real findings);
           # an infra failure (box unreachable, clone error) is not a review round
+          RESET_TS=$(gh pr view "$PR_NUM" --json comments -q '.comments[].body'                        | grep -oE '<!-- sdlc-breaker-reset [0-9TZ:.-]+ -->' | tail -1                        | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' || echo "1970-01-01T00:00:00Z")
           ROUNDS=0
-          for RID in $(gh run list --workflow sdlc-review --branch "$PR_BRANCH" --status completed --limit 15 --json databaseId,conclusion -q '.[] | select(.conclusion == "failure") | .databaseId'); do
+          for RID in $(gh run list --workflow sdlc-review --branch "$PR_BRANCH" --status completed --limit 15 --json databaseId,conclusion,createdAt -q ".[] | select(.conclusion == \"failure\" and .createdAt > \"$RESET_TS\") | .databaseId"); do
             FAILED_VALIDATE=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/jobs" -q '[.jobs[].steps[] | select(.name | startswith("Validate the review record")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo 0)
             [ "${FAILED_VALIDATE:-0}" != "0" ] && ROUNDS=$((ROUNDS+1))
           done
@@ -296,23 +297,28 @@ jobs:
               try: c=json.loads(line)
               except Exception: continue
               login=c.get("login","").lower()
-              # bots are NEVER trusted for adjudication: bot comments echo
-              # attacker-controlled PR metadata (e.g. the title) verbatim
-              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"): continue
+              # OWNER only: this is owner adjudication, and bots are never
+              # trusted (bot comments echo attacker-controlled PR metadata)
+              if c.get("assoc") != "OWNER": continue
               if login == author or login.endswith("[bot]"): continue
               # format: RESOLVE: <head7> <file:line> <reason> - the head prefix
               # pins the ruling to THIS code, so an old ruling cannot resolve a
               # new finding that later appears at the same file:line
-              for m in re.finditer(r"^RESOLVE:\s*([0-9a-f]{7,40})\s+(\S+)\s+(.+)$", c.get("body",""), re.M):
+              for m in re.finditer(r"^RESOLVE:\s*([0-9a-f]{7,40})\s+(?:by=(\S+)\s+)?(\S+)\s+(.+)$", c.get("body",""), re.M):
                   if head.startswith(m.group(1)):
-                      resolutions[m.group(2)] = m.group(3).strip()
+                      resolutions[(m.group(3), m.group(2))] = m.group(4).strip()
           if resolutions:
               r=json.load(open(".review/review.json")); hit=0
-              for f in r.get("findings",[]):
-                  fl=f.get("file_line","")
-                  if fl in resolutions and not f.get("resolved"):
+              for (fl, by), reason in resolutions.items():
+                  matches=[f for f in r.get("findings",[])
+                           if f.get("file_line")==fl and not f.get("resolved")
+                           and (by is None or f.get("by")==by)]
+                  if len(matches)>1 and by is None:
+                      print(f"ambiguous RESOLVE at {fl}: {len(matches)} findings - add by=<reviewer>")
+                      continue   # one ruling resolves ONE finding, never a location
+                  for f in matches[:1]:
                       f["resolved"]=True
-                      f["resolution"]=f"owner adjudication: {resolutions[fl]}"
+                      f["resolution"]=f"owner adjudication: {reason}"
                       hit+=1
               json.dump(r,open(".review/review.json","w"),indent=2)
               print(f"owner adjudications applied: {hit}")
@@ -330,7 +336,10 @@ jobs:
           # breaker re-arms for any future stall
           if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
             gh pr edit "$PR_NUM" --remove-label converge-ack 2>/dev/null || true
-            echo "converge-ack consumed (authorized round completed)"
+            # the ruling closes the saga: reset the breaker's round count, so
+            # only failures AFTER this point count toward the next stall
+            gh pr comment "$PR_NUM" --body "<!-- sdlc-breaker-reset $(date -u +%Y-%m-%dT%H:%M:%SZ) -->" 2>/dev/null || true
+            echo "converge-ack consumed (authorized round completed; breaker count reset)"
           fi
           # panel is read from stack/review/panel.json (single source of truth).
           # BOTH tiers are held to the same bar here: the record must be for this
