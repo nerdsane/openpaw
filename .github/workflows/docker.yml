@@ -120,7 +120,7 @@ jobs:
           fi
 
       - name: Clone stack (deploy driver)
-        if: env.SKIP_DEPLOY != '1' 
+        if: env.SKIP_DEPLOY != '1'
         run: |
           set -euo pipefail
           git clone --depth 1 \
