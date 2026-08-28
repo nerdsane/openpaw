@@ -509,7 +509,7 @@ async fn bootstrap_configured_genesis_apps(
                             next_ref = %app_ref,
                             source_kind = %record.source_kind,
                             status = %record.status,
-                            "Installing pinned Genesis bootstrap ref (no runtime-ready Genesis install to keep)"
+                            "Installing pinned Genesis bootstrap ref (no keep-eligible Genesis install record)"
                         ),
                         None => tracing::info!(
                             app = %app_name,
@@ -1956,12 +1956,12 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
     };
 
     // Genesis bootstrap install/reconcile — runs AFTER Phase 6a on purpose. The env-pinned ref is
-    // a floor, not a ceiling, so the keep-or-reinstall decision reads the installed app's runtime
-    // readiness (Cedar policies active + persisted WASM registered). Those are restored by Phase 6a
-    // (recover_cedar_policies + load_wasm_modules) above; running bootstrap before it would see a
-    // healthy install at a newer hash as not-yet-ready and wrongly downgrade it to the env pin —
-    // the exact redeploy-downgrade this change exists to prevent. Bootstrap IS an install, so it
-    // belongs after the persisted-state recovery, alongside the other install/reconcile phases.
+    // a floor, not a ceiling. The keep-or-reinstall decision is RECORD-ONLY (decision log D9):
+    // it reads the durable InstalledAppRecord and never probes runtime readiness — at boot the
+    // runtime is still being restored concurrently, so a probe can misread a healthy newer
+    // install and wrongly downgrade it to the env pin, the exact redeploy-downgrade this change
+    // exists to prevent. Bootstrap still belongs after Phase 6a because bootstrap IS an install
+    // and sits with the other install/reconcile phases, after persisted-state recovery.
     let genesis_bootstrap_timeout = genesis_bootstrap_timeout();
     let genesis_bootstrap_installs = match tokio::time::timeout(
         genesis_bootstrap_timeout,
