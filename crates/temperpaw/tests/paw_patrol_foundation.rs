@@ -1630,10 +1630,7 @@ fn production_observe_only_script_turns_cutover_gate_into_a_guarded_proof() {
         );
     }
 
-    for needle in [
-        "bash -n crates/paw-codex-worker/scripts/production-observe-only.sh",
-        "bash -n crates/paw-codex-worker/scripts/production-observe-only-smoke.sh",
-    ] {
+    for needle in ["for f in crates/paw-codex-worker/scripts/*.sh; do bash -n \"$f\"; done"] {
         assert!(ci.contains(needle), "CI should syntax-check {needle}");
     }
 
@@ -1798,7 +1795,7 @@ fn paw_patrol_acceptance_harness_collects_quick_and_live_proofs() {
     }
 
     assert!(
-        ci.contains("bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh"),
+        ci.contains("for f in crates/paw-codex-worker/scripts/*.sh; do bash -n \"$f\"; done"),
         "CI should syntax-check the acceptance harness"
     );
 }
@@ -1812,16 +1809,7 @@ fn ci_covers_paw_patrol_worker_and_wasm_gates() {
         "workflow_dispatch:",
         "cargo clippy --locked -p temperpaw -p paw-codex-worker --all-targets -- -D warnings",
         "cargo check --locked -p temperpaw -p paw-codex-worker",
-        "bash -n crates/paw-codex-worker/scripts/deterministic-smoke.sh",
-        "bash -n crates/paw-codex-worker/scripts/datadog-patrol-smoke.sh",
-        "bash -n crates/paw-codex-worker/scripts/repo-sweep-brief-smoke.sh",
-        "bash -n crates/paw-codex-worker/scripts/webhook-intake-smoke.sh",
-        "bash -n crates/paw-codex-worker/scripts/production-readiness.sh",
-        "bash -n crates/paw-codex-worker/scripts/production-preflight.sh",
-        "bash -n crates/paw-codex-worker/scripts/production-preflight-github-smoke.sh",
-        "bash -n crates/paw-codex-worker/scripts/production-readiness-smoke.sh",
-        "bash -n crates/paw-codex-worker/scripts/mac-mini-production-bootstrap.sh",
-        "bash -n crates/paw-codex-worker/scripts/paw-patrol-acceptance.sh",
+        "for f in crates/paw-codex-worker/scripts/*.sh; do bash -n \"$f\"; done",
         "os-apps/paw-ingest/wasm/build.sh",
         "os-apps/paw-patrol/wasm/build.sh",
         "cargo test --locked -p paw-codex-worker --quiet",
