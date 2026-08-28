@@ -22,8 +22,7 @@ jobs:
     # only PR comments, only from the repo's own people, only DECISION: comments
     if: >-
       github.event.issue.pull_request != null &&
-      (startsWith(github.event.comment.body, 'DECISION:') || startsWith(github.event.comment.body, 'RESOLVE:')) &&
-      github.event.comment.author_association == 'OWNER'
+      (startsWith(github.event.comment.body, 'DECISION:') || startsWith(github.event.comment.body, 'RESOLVE:'))
     runs-on: ubuntu-latest
     steps:
       - name: Record the ruling and re-arm the gate

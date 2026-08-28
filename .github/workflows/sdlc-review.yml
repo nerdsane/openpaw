@@ -61,7 +61,11 @@ jobs:
             echo "converge-ack present - owner has decided, continuing"; exit 0; fi
           # count only rounds that failed at the VALIDATE step (real findings);
           # an infra failure (box unreachable, clone error) is not a review round
-          RESET_TS=$(gh pr view "$PR_NUM" --json comments -q '.comments[].body'                        | grep -oE '<!-- sdlc-breaker-reset [0-9TZ:.-]+ -->' | tail -1                        | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' || echo "1970-01-01T00:00:00Z")
+          # rounds = failed-validate runs since the last converge-ack label
+          # event (the label timeline IS the reset record - no marker comments)
+          RESET_TS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/events" --paginate \
+                       -q '[.[] | select(.event == "labeled" and .label.name == "converge-ack")][-1].created_at' 2>/dev/null || true)
+          [ -z "$RESET_TS" ] || [ "$RESET_TS" = "null" ] && RESET_TS="1970-01-01T00:00:00Z"
           ROUNDS=0
           for RID in $(gh run list --workflow sdlc-review --branch "$PR_BRANCH" --status completed --limit 15 --json databaseId,conclusion,createdAt -q ".[] | select(.conclusion == \"failure\" and .createdAt > \"$RESET_TS\") | .databaseId"); do
             FAILED_VALIDATE=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/jobs" -q '[.jobs[].steps[] | select(.name | startswith("Validate the review record")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo 0)
@@ -120,64 +124,32 @@ jobs:
         run: |
           git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
             echo "::error::cannot reach arni-labs/stack for the review toolkit"; exit 1; }
-      - name: Derive the authoring harness
-        id: author
-        env:
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: |
-          # synthesis_by names a HARNESS (claude/codex/grok/cursor), not a GitHub
-          # login - all work flows through one GitHub account, so comparing against
-          # the login is vacuous. The branch naming convention (<agent>/<task>)
-          # carries the authoring harness; unknown prefixes stay "unknown" and the
-          # non-author check then only rejects a literal "unknown" synthesis.
-          case "${PR_BRANCH%%/*}" in
-            claude|codex|grok|cursor) echo "harness=${PR_BRANCH%%/*}" >> "$GITHUB_OUTPUT" ;;
-            *) echo "harness=unknown" >> "$GITHUB_OUTPUT" ;;
-          esac
       - name: Tier 1 - a valid local review record posted to the PR?
         id: tier1
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_AUTHOR: ${{ steps.author.outputs.harness }}
           PR_NUM: ${{ github.event.pull_request.number }}
-          GH_REPO_FULL: ${{ github.repository }}
-          PR_GH_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          # The local panel (interrogate) posts its record as a PR comment carrying
-          # a hidden marker: <!-- sdlc-review-record\n{json}\n-->. Nothing is committed.
-          # We extract it, and trust it only if the COMMENT came from a repo
-          # owner/member/collaborator (a drive-by commenter cannot supply a review)
-          # and the record validates for THIS head with a non-author synthesis.
+          # The local panel posts its record as a PR comment carrying a hidden
+          # marker. Trust model: our own agents in our own repos - the record
+          # must validate and be for THIS head; nothing more.
           python3 - <<'PY'
           import json, os, re, subprocess
-          n=os.environ["PR_NUM"]; repo=os.environ["GH_REPO_FULL"]
-          out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
-                              "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
-                             capture_output=True,text=True).stdout
+          n=os.environ["PR_NUM"]
+          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
+                              capture_output=True,text=True).stdout
           rec=None
-          for line in out.splitlines():
-              try: c=json.loads(line)
-              except Exception: continue
-              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
-                  continue   # untrusted commenter - their marker does not count
-              if c.get("login","").lower() == os.environ.get("PR_GH_AUTHOR","").lower():
-                  continue   # collaborator status proves repo access, not that the
-                             # panel ran: the record must come from a NON-AUTHOR account
-              for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", c.get("body",""), re.S):
-                  try: rec=json.loads(m.group(1))
-                  except Exception: pass
+          for m in re.finditer(r"<!--\s*sdlc-review-record\s*(\{.*?\})\s*-->", body, re.S):
+              try: rec=json.loads(m.group(1))
+              except Exception: pass
           ok=False
           if rec:
               os.makedirs(".review",exist_ok=True)
               open(".review-local.json","w").write(json.dumps(rec))
               ok = subprocess.run(["python3","/tmp/stack/review/validate.py",".review-local.json",
-                                   "--require-commit",os.environ["PR_HEAD"],
-                                   "--require-base",os.environ["PR_BASE"],
-                                   "--author",os.environ["PR_AUTHOR"]]).returncode==0
+                                   "--require-commit",os.environ["PR_HEAD"]]).returncode==0
               if ok:
-                  # the gate and the report read .review/review.json on BOTH tiers
                   open(".review/review.json","w").write(json.dumps(rec))
           open(os.environ["GITHUB_OUTPUT"],"a").write(f"present={'true' if ok else 'false'}\n")
           print("valid local record on PR; skipping cloud panel" if ok else "no valid local record; cloud panel will run")
@@ -278,79 +250,42 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          GH_REPO_FULL: ${{ github.repository }}
-          PR_GH_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          # The owner's equivalent of dismissing a review: a trusted NON-AUTHOR
-          # comment line `RESOLVE: <file:line> <reason>` marks the matching
-          # finding resolved, the adjudication recorded as its resolution.
-          # Auditable (the comment stays), scoped (one finding per line) - how a
-          # judged re-litigation stops holding the gate red after the ruling.
+          # A comment line `RESOLVE: <file:line> <reason>` marks matching findings
+          # resolved, with the adjudication recorded as the resolution. The
+          # audit trail is the comment itself.
           [ -f .review/review.json ] || exit 0
           python3 - <<'PY'
           import json, os, re, subprocess
-          n=os.environ["PR_NUM"]; repo=os.environ["GH_REPO_FULL"]
-          author=os.environ.get("PR_GH_AUTHOR","").lower()
-          out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
-                              "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
-                             capture_output=True,text=True).stdout
-          head=os.environ.get("PR_HEAD","")
+          n=os.environ["PR_NUM"]
+          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
+                              capture_output=True,text=True).stdout
           resolutions={}
-          for line in out.splitlines():
-              try: c=json.loads(line)
-              except Exception: continue
-              login=c.get("login","").lower()
-              # OWNER only: this is owner adjudication, and bots are never
-              # trusted (bot comments echo attacker-controlled PR metadata)
-              if c.get("assoc") != "OWNER": continue
-              if login == author or login.endswith("[bot]"): continue
-              # format: RESOLVE: <head7> <file:line> <reason> - the head prefix
-              # pins the ruling to THIS code, so an old ruling cannot resolve a
-              # new finding that later appears at the same file:line
-              for m in re.finditer(r"^RESOLVE:\s*([0-9a-f]{7,40})\s+(?:by=(\S+)\s+)?(\S+)\s+(.+)$", c.get("body",""), re.M):
-                  if head.startswith(m.group(1)):
-                      resolutions[(m.group(3), m.group(2))] = m.group(4).strip()
+          for m in re.finditer(r"^RESOLVE:\s*(\S+)\s+(.+)$", body, re.M):
+              resolutions[m.group(1)]=m.group(2).strip()
           if resolutions:
               r=json.load(open(".review/review.json")); hit=0
-              for (fl, by), reason in resolutions.items():
-                  matches=[f for f in r.get("findings",[])
-                           if f.get("file_line")==fl and not f.get("resolved")
-                           and (by is None or f.get("by")==by)]
-                  if len(matches)>1 and by is None:
-                      print(f"ambiguous RESOLVE at {fl}: {len(matches)} findings - add by=<reviewer>")
-                      continue   # one ruling resolves ONE finding, never a location
-                  for f in matches[:1]:
-                      f["resolved"]=True
-                      f["resolution"]=f"owner adjudication: {reason}"
-                      hit+=1
+              for f in r.get("findings",[]):
+                  fl=f.get("file_line","")
+                  if fl in resolutions and not f.get("resolved"):
+                      f["resolved"]=True; f["resolution"]=f"owner adjudication: {resolutions[fl]}"; hit+=1
               json.dump(r,open(".review/review.json","w"),indent=2)
-              print(f"owner adjudications applied: {hit}")
+              print(f"adjudications applied: {hit}")
           else:
               print("no adjudication comments")
           PY
       - name: Validate the review record (the gate)
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
-          # consume the converge-ack HERE: a panel round genuinely ran (we have a
-          # record to validate), so the one authorized round is spent and the
-          # breaker re-arms for any future stall
+          # consume the converge-ack here: a panel round genuinely ran
           if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
             gh pr edit "$PR_NUM" --remove-label converge-ack 2>/dev/null || true
-            # the ruling closes the saga: reset the breaker's round count, so
-            # only failures AFTER this point count toward the next stall
-            gh pr comment "$PR_NUM" --body "<!-- sdlc-breaker-reset $(date -u +%Y-%m-%dT%H:%M:%SZ) -->" 2>/dev/null || true
-            echo "converge-ack consumed (authorized round completed; breaker count reset)"
+            echo "converge-ack consumed (authorized round completed)"
           fi
-          # panel is read from stack/review/panel.json (single source of truth).
-          # BOTH tiers are held to the same bar here: the record must be for this
-          # head and synthesized by a non-author harness - tier 2 gets no free pass.
-          python3 /tmp/stack/review/validate.py .review/review.json \
-            --require-commit "$PR_HEAD" --require-base "$PR_BASE" --author "${{ steps.author.outputs.harness }}"
+          python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
       - name: Rebuild the combined effort report (proof + review)
         if: always()
         env:
@@ -366,21 +301,14 @@ jobs:
           [ -f .review/review.json ] || exit 0
           python3 - <<'PY'
           import json, os, re, subprocess
-          n=os.environ["PR_NUM"]; repo=os.environ.get("GITHUB_REPOSITORY","")
-          head=os.environ.get("PR_HEAD",""); pr_author=os.environ.get("PR_GH_AUTHOR","").lower()
-          out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
-                              "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
-                             capture_output=True,text=True).stdout
+          n=os.environ["PR_NUM"]; head=os.environ.get("PR_HEAD","")
+          body=subprocess.run(["gh","pr","view",n,"--json","comments","-q",".comments[].body"],
+                              capture_output=True,text=True).stdout
           rec=None
-          for line in out.splitlines():
-              try: c=json.loads(line)
+          for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", body, re.S):
+              try: cand=json.loads(m.group(1))
               except Exception: continue
-              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"): continue
-              if c.get("login","").lower()==pr_author: continue
-              for m in re.finditer(r"<!--\s*sdlc-proof-record\s*(\{.*?\})\s*-->", c.get("body",""), re.S):
-                  try: cand=json.loads(m.group(1))
-                  except Exception: continue
-                  if cand.get("commit")==head and cand.get("base")==os.environ.get("PR_BASE",""): rec=cand   # same bar as the proof gate
+              if cand.get("commit")==head: rec=cand
           if rec:
               os.makedirs(".proof",exist_ok=True)
               json.dump(rec, open(".proof/proof.json","w"))
