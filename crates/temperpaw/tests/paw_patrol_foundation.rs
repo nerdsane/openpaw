@@ -3314,12 +3314,32 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     // fields and the Recorded/Superseded record sub-lifecycle (additive - S0
     // does not replace the automata; see docs/efforts/ARN-430).
     let review = read(patrol.join("specs/review_run.ioa.toml"));
-    for needle in ["\"Recorded\"", "\"Superseded\"", "IngestRecord", "record_present", "RecordedHasRecord", "Requested"] {
-        assert!(review.contains(needle), "review_run.ioa.toml should contain {needle}");
+    for needle in [
+        "\"Recorded\"",
+        "\"Superseded\"",
+        "IngestRecord",
+        "record_present",
+        "RecordedHasRecord",
+        "Requested",
+    ] {
+        assert!(
+            review.contains(needle),
+            "review_run.ioa.toml should contain {needle}"
+        );
     }
     let proof = read(patrol.join("specs/proof_packet.ioa.toml"));
-    for needle in ["\"Recorded\"", "IngestProof", "changed_surface", "independent_verifier", "ProofRecorded", "Drafting"] {
-        assert!(proof.contains(needle), "proof_packet.ioa.toml should contain {needle}");
+    for needle in [
+        "\"Recorded\"",
+        "IngestProof",
+        "changed_surface",
+        "independent_verifier",
+        "ProofRecorded",
+        "Drafting",
+    ] {
+        assert!(
+            proof.contains(needle),
+            "proof_packet.ioa.toml should contain {needle}"
+        );
     }
 
     // CSDL exposes the new entity types and the new properties.
@@ -3334,8 +3354,17 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
             "CSDL should expose the {entity} set"
         );
     }
-    for prop in ["\"ReviewersRan\"", "\"OpenActOnCount\"", "\"ChangedSurface\"", "\"IndependentVerifier\"", "\"RecordPresent\""] {
-        assert!(csdl.contains(prop), "CSDL should carry the record property {prop}");
+    for prop in [
+        "\"ReviewersRan\"",
+        "\"OpenActOnCount\"",
+        "\"ChangedSurface\"",
+        "\"IndependentVerifier\"",
+        "\"RecordPresent\"",
+    ] {
+        assert!(
+            csdl.contains(prop),
+            "CSDL should carry the record property {prop}"
+        );
     }
 
     // The ingest module is registered and its parser + committed binary exist.
@@ -3349,17 +3378,34 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "build.sh should build record_ingest"
     );
     assert!(
-        patrol.join("wasm/record_ingest/record_ingest.wasm").is_file(),
+        patrol
+            .join("wasm/record_ingest/record_ingest.wasm")
+            .is_file(),
         "record_ingest should have a committed .wasm binary"
     );
     let lib = read(patrol.join("wasm/record_ingest/src/lib.rs"));
-    for needle in ["fn parse_record", "sdlc-review-record-b64", "sdlc-proof-record-b64", "parse_ok"] {
-        assert!(lib.contains(needle), "record_ingest lib.rs should contain {needle}");
+    for needle in [
+        "fn parse_record",
+        "sdlc-review-record-b64",
+        "sdlc-proof-record-b64",
+        "parse_ok",
+    ] {
+        assert!(
+            lib.contains(needle),
+            "record_ingest lib.rs should contain {needle}"
+        );
     }
 
     // The new entities are governed under the existing Admin permit.
     let policy = read(patrol.join("policies/patrol.cedar"));
-    for needle in ["resource is Adjudication", "resource is StandingDecision", "resource is ShadowVerdict"] {
-        assert!(policy.contains(needle), "patrol.cedar should govern {needle}");
+    for needle in [
+        "resource is Adjudication",
+        "resource is StandingDecision",
+        "resource is ShadowVerdict",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "patrol.cedar should govern {needle}"
+        );
     }
 }
