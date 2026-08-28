@@ -107,11 +107,13 @@ jobs:
           done
 
       - name: Only the release head deploys
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # an older commit's run finishing late must not clobber a newer deploy:
           # deploy only if this run's sha is still the branch head
-          head=$(git ls-remote https://github.com/${GITHUB_REPOSITORY}.git refs/heads/release | cut -f1)
+          head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/release" -q .object.sha)
           if [ "$head" != "$GITHUB_SHA" ]; then
             echo "release has moved to ${head:0:9}; skipping deploy of ${GITHUB_SHA:0:9}"
             echo "SKIP_DEPLOY=1" >> "$GITHUB_ENV"
