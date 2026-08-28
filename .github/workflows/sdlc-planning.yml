@@ -26,6 +26,9 @@ jobs:
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          printf '%s\n%s' "$PR_TITLE" "$PR_BODY" > /tmp/pr-text.txt
           python3 /tmp/stack/gates/check-effort-artifacts.py \
-            --branch "$PR_BRANCH" --base "$PR_BASE" --head "$PR_HEAD"
+            --branch "$PR_BRANCH" --base "$PR_BASE" --head "$PR_HEAD" --pr-text-file /tmp/pr-text.txt
