@@ -194,15 +194,20 @@ enum BootstrapAction {
 /// async readiness probe, and is only meaningful for a Genesis `installed` record. There is no
 /// monotonic version integer on the record, so true newer-vs-older ordering is git ancestry in
 /// Genesis and is deliberately NOT consulted here — any runtime-ready Genesis install is kept.
+/// A record is a candidate to KEEP only if it is a completed Genesis install. The runtime-ready
+/// probe is only meaningful (and only run) for such records. Single source of truth so the caller's
+/// "should I probe readiness?" gate and `classify_bootstrap_action`'s keep guard never diverge.
+fn is_keep_eligible_genesis_install(record: &InstalledAppRecord) -> bool {
+    record.source_kind == "genesis" && record.status == "installed"
+}
+
 fn classify_bootstrap_action(
     installed: Option<&InstalledAppRecord>,
     installed_genesis_runtime_ready: bool,
 ) -> BootstrapAction {
     match installed {
         Some(record)
-            if record.source_kind == "genesis"
-                && record.status == "installed"
-                && installed_genesis_runtime_ready =>
+            if is_keep_eligible_genesis_install(record) && installed_genesis_runtime_ready =>
         {
             BootstrapAction::KeepInstalled
         }
@@ -510,7 +515,7 @@ async fn bootstrap_configured_genesis_apps(
                 // not a ceiling).
                 let eligible_genesis_install = record
                     .as_ref()
-                    .is_some_and(|r| r.source_kind == "genesis" && r.status == "installed");
+                    .is_some_and(is_keep_eligible_genesis_install);
                 let runtime_ready = if eligible_genesis_install {
                     genesis_bootstrap_app_runtime_ready(state, platform_store, tenant, &app_name)
                         .await
@@ -1961,29 +1966,6 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
     }
 
-    let genesis_bootstrap_timeout = genesis_bootstrap_timeout();
-    let genesis_bootstrap_installs = match tokio::time::timeout(
-        genesis_bootstrap_timeout,
-        bootstrap_configured_genesis_apps(&state, platform_store, &tenant),
-    )
-    .await
-    {
-        Ok(installs) => installs?,
-        Err(_) => {
-            tracing::warn!(
-                timeout_ms = genesis_bootstrap_timeout.as_millis(),
-                "Genesis bootstrap install/reconcile timed out; continuing startup without completing bootstrap"
-            );
-            0
-        }
-    };
-    if genesis_bootstrap_installs > 0 {
-        tracing::info!(
-            installed = genesis_bootstrap_installs,
-            "Installed configured Genesis bootstrap apps"
-        );
-    }
-
     // Phase 6a: Recover persisted WASM modules + Cedar policies BEFORE app install.
     //
     // OS app install (Phase 6b) runs an integrity check that verifies each
@@ -2020,6 +2002,36 @@ pub async fn run(mut config: Config, force_soul_setup: bool) -> Result<()> {
         );
         app_runtime_recovery
     };
+
+    // Genesis bootstrap install/reconcile — runs AFTER Phase 6a on purpose. The env-pinned ref is
+    // a floor, not a ceiling, so the keep-or-reinstall decision reads the installed app's runtime
+    // readiness (Cedar policies active + persisted WASM registered). Those are restored by Phase 6a
+    // (recover_cedar_policies + load_wasm_modules) above; running bootstrap before it would see a
+    // healthy install at a newer hash as not-yet-ready and wrongly downgrade it to the env pin —
+    // the exact redeploy-downgrade this change exists to prevent. Bootstrap IS an install, so it
+    // belongs after the persisted-state recovery, alongside the other install/reconcile phases.
+    let genesis_bootstrap_timeout = genesis_bootstrap_timeout();
+    let genesis_bootstrap_installs = match tokio::time::timeout(
+        genesis_bootstrap_timeout,
+        bootstrap_configured_genesis_apps(&state, platform_store, &tenant),
+    )
+    .await
+    {
+        Ok(installs) => installs?,
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = genesis_bootstrap_timeout.as_millis(),
+                "Genesis bootstrap install/reconcile timed out; continuing startup without completing bootstrap"
+            );
+            0
+        }
+    };
+    if genesis_bootstrap_installs > 0 {
+        tracing::info!(
+            installed = genesis_bootstrap_installs,
+            "Installed configured Genesis bootstrap apps"
+        );
+    }
 
     let startup_apps = startup_os_apps();
     tracing::info!(apps = ?startup_apps, "Startup OS app surface resolved from manifests");
