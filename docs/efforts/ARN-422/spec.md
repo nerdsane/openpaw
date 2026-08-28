@@ -11,20 +11,26 @@ changes, all change.
 - **prior record** — the `InstalledAppRecord` for the app that existed before this install began.
 
 ## Gap 1 — env bootstrap pin is a floor, not a ceiling (temperpaw)
-`bootstrap_configured_genesis_apps` must keep any runtime-ready Genesis install regardless of its
-hash, and (re)install the pinned ref only when there is nothing healthy to keep.
+`bootstrap_configured_genesis_apps` must keep any installed Genesis version regardless of its hash,
+and (re)install the pinned ref only when there is nothing installed to keep. The decision is made
+from the DURABLE record ALONE — NOT gated on runtime readiness (see decision log D9): at boot the
+runtime state the readiness probe would inspect (the process-global catalog, Cedar policies, WASM
+registration) is still being restored concurrently, so any probe is racy and can wrongly downgrade a
+healthy newer install to the older pin — the exact bug. The durable `InstalledAppRecord` is
+tenant-scoped and race-free. Healing a genuinely-broken install is the recovery path's job (reconcile
+the INSTALLED version), not the bootstrap's — reverting to an older env pin would be a downgrade
+masquerading as a heal.
 
-Decision table (pure fn `classify_bootstrap_action(record, genesis_runtime_ready)`):
+Decision table (pure fn `classify_bootstrap_action(record)`):
 
-| installed record                                   | runtime-ready | action         |
-|----------------------------------------------------|---------------|----------------|
-| none                                               | —             | InstallPinned  |
-| source_kind != genesis                             | —             | InstallPinned  |
-| genesis, status != "installed"                     | —             | InstallPinned  |
-| genesis, status == "installed"                     | false         | InstallPinned  |
-| genesis, status == "installed"                     | true          | KeepInstalled  |
+| installed record                                   | action         |
+|----------------------------------------------------|----------------|
+| none                                               | InstallPinned  |
+| source_kind != genesis                             | InstallPinned  |
+| genesis, status != "installed"                     | InstallPinned  |
+| genesis, status == "installed" (any hash)          | KeepInstalled  |
 
-Consequence (intended): bumping the env pin forward no longer force-upgrades a healthy older install.
+Consequence (intended): bumping the env pin forward no longer force-upgrades an installed version.
 Explicit install (agent tool / endpoint) is the upgrade path. This is what makes a Genesis/agent
 publish authoritative over a stale env pin.
 
