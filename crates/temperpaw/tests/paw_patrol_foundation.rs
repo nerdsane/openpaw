@@ -1630,9 +1630,7 @@ fn production_observe_only_script_turns_cutover_gate_into_a_guarded_proof() {
         );
     }
 
-    for needle in [
-        "for f in crates/paw-codex-worker/scripts/*.sh; do bash -n \"$f\"; done",
-        ] {
+    for needle in ["for f in crates/paw-codex-worker/scripts/*.sh; do bash -n \"$f\"; done"] {
         assert!(ci.contains(needle), "CI should syntax-check {needle}");
     }
 
