@@ -47,7 +47,10 @@ jobs:
           # the gate STOPS and says so, instead of burning a fourth panel. The
           # owner re-arms it by adding the 'converge-ack' label after deciding.
           if gh pr view "$PR_NUM" --json labels -q '.labels[].name' | grep -qx converge-ack; then
-            echo "converge-ack present - owner has decided, continuing"; exit 0; fi
+            # consume the ack: it authorizes exactly ONE resumed round, so the
+            # breaker re-arms for any future stall instead of dying forever
+            gh pr edit "$PR_NUM" --remove-label converge-ack 2>/dev/null || true
+            echo "converge-ack present - owner has decided; ack consumed, continuing"; exit 0; fi
           # count only rounds that failed at the VALIDATE step (real findings);
           # an infra failure (box unreachable, clone error) is not a review round
           ROUNDS=0
@@ -269,6 +272,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           GH_REPO_FULL: ${{ github.repository }}
           PR_GH_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
@@ -285,16 +289,22 @@ jobs:
           out=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments","--paginate",
                               "-q",'.[] | {assoc: .author_association, login: .user.login, body: .body}'],
                              capture_output=True,text=True).stdout
+          head=os.environ.get("PR_HEAD","")
           resolutions={}
           for line in out.splitlines():
               try: c=json.loads(line)
               except Exception: continue
               login=c.get("login","").lower()
-              if login != "github-actions[bot]" and c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"):
-                  continue
-              if login == author: continue
-              for m in re.finditer(r"^RESOLVE:\s*(\S+)\s+(.+)$", c.get("body",""), re.M):
-                  resolutions[m.group(1)] = m.group(2).strip()
+              # bots are NEVER trusted for adjudication: bot comments echo
+              # attacker-controlled PR metadata (e.g. the title) verbatim
+              if c.get("assoc") not in ("OWNER","MEMBER","COLLABORATOR"): continue
+              if login == author or login.endswith("[bot]"): continue
+              # format: RESOLVE: <head7> <file:line> <reason> - the head prefix
+              # pins the ruling to THIS code, so an old ruling cannot resolve a
+              # new finding that later appears at the same file:line
+              for m in re.finditer(r"^RESOLVE:\s*([0-9a-f]{7,40})\s+(\S+)\s+(.+)$", c.get("body",""), re.M):
+                  if head.startswith(m.group(1)):
+                      resolutions[m.group(2)] = m.group(3).strip()
           if resolutions:
               r=json.load(open(".review/review.json")); hit=0
               for f in r.get("findings",[]):
@@ -391,16 +401,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           RISK=$(python3 -c "import json; r=json.load(open('.review/review.json')); print(r.get('risk','high'))")
-          if git diff --name-only "origin/${{ github.event.pull_request.base.ref }}...HEAD" | grep -q '^\.github/workflows/'; then
+          # an earlier low-risk run may have armed auto-merge; any non-low outcome
+          # on the current head must revoke it, or GitHub merges a head this
+          # review assigned to a human
+          if git diff --name-only "origin/${PR_BASE_REF}...HEAD" | grep -q '^\.github/workflows/'; then
+            gh pr merge "$PR_NUM" --disable-auto 2>/dev/null || true
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
-            echo "workflow files changed - a human presses merge"; exit 0; fi
+            echo "workflow files changed - auto-merge revoked, a human presses merge"; exit 0; fi
           if [ "$RISK" = "low" ]; then
             gh pr merge "$PR_NUM" --squash --auto && echo "auto-merge enabled: panel risk low, gates green"
           else
+            gh pr merge "$PR_NUM" --disable-auto 2>/dev/null || true
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
-            echo "panel risk $RISK - a human presses merge"
+            echo "panel risk $RISK - auto-merge revoked, a human presses merge"
           fi
       - name: Fold into the effort report + comment
         if: always()

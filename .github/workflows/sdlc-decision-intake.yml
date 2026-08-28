@@ -22,7 +22,7 @@ jobs:
     # only PR comments, only from the repo's own people, only DECISION: comments
     if: >-
       github.event.issue.pull_request != null &&
-      startsWith(github.event.comment.body, 'DECISION:') &&
+      (startsWith(github.event.comment.body, 'DECISION:') || startsWith(github.event.comment.body, 'RESOLVE:')) &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
@@ -34,8 +34,25 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
           COMMENT_URL: ${{ github.event.comment.html_url }}
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
         run: |
           set -euo pipefail
+          # RESOLVE needs only a re-run: the adjudication step reads comments
+          # LIVE, so replaying the old event payload is fine. DECISION changes
+          # the PR BODY (the intent reviewers read) and a rerun replays the
+          # ORIGINAL payload - so the body edit must fire a real `edited` event,
+          # which requires a PAT (GITHUB_TOKEN-created events are suppressed).
+          if [[ "$COMMENT_BODY" == RESOLVE:* ]]; then
+            HEAD=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
+            RUN=$(gh run list --workflow sdlc-review --json databaseId,headSha,status -q "[.[] | select(.headSha == \"$HEAD\" and .status == \"completed\")][0].databaseId" || true)
+            if [ -n "${RUN:-}" ] && [ "$RUN" != "null" ]; then
+              gh run rerun "$RUN" && echo "review gate re-run - RESOLVE comments are read live"
+            else
+              echo "no completed review run for this head - RESOLVE applies on the next run"
+            fi
+            exit 0
+          fi
+          if [ -n "${STACK_TOKEN:-}" ]; then export GH_TOKEN="$STACK_TOKEN"; fi
           gh pr view "$PR_NUM" --json body -q .body > /tmp/body.md
           python3 - <<'PY'
           import os
@@ -56,12 +73,4 @@ jobs:
           gh label create converge-ack -d "owner decided after convergence stall - re-arms the review gate" -c "0e8a16" 2>/dev/null || true
           gh pr edit "$PR_NUM" --add-label converge-ack
           gh pr comment "$PR_NUM" --body "Ruling recorded in the standing decisions; review gate re-armed. The next panel round reads it as intent."
-          # GitHub suppresses events created with GITHUB_TOKEN, so the label add
-          # above cannot fire the labeled trigger - re-run the gate directly.
-          HEAD=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)
-          RUN=$(gh run list --workflow sdlc-review --json databaseId,headSha,status                   -q "[.[] | select(.headSha == \"$HEAD\" and .status == \"completed\")][0].databaseId" || true)
-          if [ -n "${RUN:-}" ] && [ "$RUN" != "null" ]; then
-            gh run rerun "$RUN" && echo "review gate re-run ($RUN) with the ruling in the intent"
-          else
-            echo "no completed review run for this head - the gate runs on the next push"
-          fi
+          echo "body edited with PAT - the edited event re-runs the gate with the fresh payload"
