@@ -1942,8 +1942,8 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        20,
-        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun)"
+        23,
+        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun and the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict)"
     );
     assert!(
         bundle
@@ -3289,5 +3289,123 @@ fn paw_patrol_wasm_modules_have_startup_build_script() {
         "cp \"$source_file\" \"$SCRIPT_DIR/$module/$module.wasm\"",
     ] {
         assert!(script.contains(needle), "build.sh should contain {needle}");
+    }
+}
+
+// --- Stage 3 S0: record entities + shadow ingest (ARN-430) ---
+
+#[test]
+fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
+    let patrol = repo_root().join("os-apps/paw-patrol");
+
+    // The three new entities have specs.
+    for spec in [
+        "adjudication.ioa.toml",
+        "standing_decision.ioa.toml",
+        "shadow_verdict.ioa.toml",
+    ] {
+        assert!(
+            patrol.join("specs").join(spec).is_file(),
+            "paw-patrol should define specs/{spec}"
+        );
+    }
+
+    // ReviewRun/ProofPacket keep their existing lifecycle AND gain the record
+    // fields and the Recorded/Superseded record sub-lifecycle (additive - S0
+    // does not replace the automata; see docs/efforts/ARN-430).
+    let review = read(patrol.join("specs/review_run.ioa.toml"));
+    for needle in [
+        "\"Recorded\"",
+        "\"Superseded\"",
+        "IngestRecord",
+        "record_present",
+        "RecordedHasRecord",
+        "Requested",
+    ] {
+        assert!(
+            review.contains(needle),
+            "review_run.ioa.toml should contain {needle}"
+        );
+    }
+    let proof = read(patrol.join("specs/proof_packet.ioa.toml"));
+    for needle in [
+        "\"Recorded\"",
+        "IngestProof",
+        "changed_surface",
+        "independent_verifier",
+        "ProofRecorded",
+        "Drafting",
+    ] {
+        assert!(
+            proof.contains(needle),
+            "proof_packet.ioa.toml should contain {needle}"
+        );
+    }
+
+    // CSDL exposes the new entity types and the new properties.
+    let csdl = read(patrol.join("specs/model.csdl.xml"));
+    for entity in ["Adjudication", "StandingDecision", "ShadowVerdict"] {
+        assert!(
+            csdl.contains(&format!("<EntityType Name=\"{entity}\">")),
+            "CSDL should expose {entity}"
+        );
+        assert!(
+            csdl.contains(&format!("<EntitySet Name=\"{entity}s\"")),
+            "CSDL should expose the {entity} set"
+        );
+    }
+    for prop in [
+        "\"ReviewersRan\"",
+        "\"OpenActOnCount\"",
+        "\"ChangedSurface\"",
+        "\"IndependentVerifier\"",
+        "\"RecordPresent\"",
+    ] {
+        assert!(
+            csdl.contains(prop),
+            "CSDL should carry the record property {prop}"
+        );
+    }
+
+    // The ingest module is registered and its parser + committed binary exist.
+    let manifest = read(patrol.join("app.toml"));
+    assert!(
+        manifest.contains("name = \"record_ingest\""),
+        "app.toml should register record_ingest"
+    );
+    assert!(
+        read(patrol.join("wasm/build.sh")).contains("record_ingest"),
+        "build.sh should build record_ingest"
+    );
+    assert!(
+        patrol
+            .join("wasm/record_ingest/record_ingest.wasm")
+            .is_file(),
+        "record_ingest should have a committed .wasm binary"
+    );
+    let lib = read(patrol.join("wasm/record_ingest/src/lib.rs"));
+    for needle in [
+        "fn parse_record",
+        "sdlc-review-record-b64",
+        "sdlc-proof-record-b64",
+        "parse_ok",
+    ] {
+        assert!(
+            lib.contains(needle),
+            "record_ingest lib.rs should contain {needle}"
+        );
+    }
+
+    // The new entities are governed under the existing Admin permit.
+    let policy = read(patrol.join("policies/patrol.cedar"));
+    for needle in [
+        "resource is Adjudication",
+        "resource is StandingDecision",
+        "resource is ShadowVerdict",
+    ] {
+        assert!(
+            policy.contains(needle),
+            "patrol.cedar should govern {needle}"
+        );
     }
 }

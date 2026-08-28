@@ -1,9 +1,9 @@
 [automaton]
 name = "ReviewRun"
-states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed"]
+states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed", "Recorded", "Superseded"]
 initial = "Requested"
 
-allow_indefinite_states = ["ChangesRequested", "Approved", "Escalated", "Failed"]
+allow_indefinite_states = ["ChangesRequested", "Approved", "Escalated", "Failed", "Recorded", "Superseded"]
 
 [[state]]
 name = "work_cycle_id"
@@ -39,6 +39,44 @@ initial = ""
 name = "proof_packet_id"
 type = "string"
 initial = ""
+
+# --- Stage 3 S0 record fields (ARN-430): the decoded review record ---
+# The record's shape validation (a 40-char commit sha, a non-empty reviewer
+# set, well-formed findings) is enforced at the ingest boundary in the
+# record_ingest module (parse_ok), NOT as transition guards: the guard grammar
+# has no string-length/regex predicate, and guards evaluate against pre-state
+# without the incoming action's params, so a guard cannot inspect the record
+# being written. record_present (set by IngestRecord) is the durable guarantee
+# the invariant asserts. See docs/efforts/ARN-430/decisions.md.
+[[state]]
+name = "commit"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewers_ran"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "findings"
+type = "string"
+initial = "[]"
+
+[[state]]
+name = "risk"
+type = "string"
+initial = ""
+
+[[state]]
+name = "open_act_on_count"
+type = "string"
+initial = "0"
+
+[[state]]
+name = "record_present"
+type = "bool"
+initial = "false"
 
 [[action]]
 name = "Request"
@@ -130,6 +168,60 @@ module = "review_gate_lifecycle"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
+
+# --- Stage 3 S0 record lifecycle (ARN-430) ---
+# Ingest fires record_ingest on a raw GitHub comment body. The module parses
+# the review record and returns a callback: on a valid review record it asks
+# the kernel to dispatch IngestRecord with the decoded fields as params; on a
+# comment with no/invalid review record it returns the inert "callback" action,
+# which the kernel does not dispatch (the run stays in Requested). The module
+# never writes - the state machine does, through IngestRecord.
+[[action]]
+name = "Ingest"
+kind = "input"
+from = ["Requested"]
+to = "Requested"
+params = ["comment_body"]
+effect = [{ type = "trigger", name = "review_record_ingest" }]
+hint = "Parse a GitHub comment body for this run's review record; record_ingest returns IngestRecord + fields when the record is valid."
+
+[[action.triggers]]
+name = "review_record_ingest"
+kind = "wasm"
+module = "record_ingest"
+
+# IngestRecord writes the decoded review record (returned by record_ingest) onto
+# the run and moves it to Recorded. Only dispatched when the module parsed a
+# valid record (checked 40-char commit, non-empty reviewer set), so a Recorded
+# run always carries a real record. record_present marks the write for the
+# invariant.
+# IngestRecord fires once per run: the S0 shadow creates a FRESH run for each
+# record, so a run ingests from Requested and never re-ingests (Recorded is
+# terminal apart from Supersede). A corrected record is a NEW run; the old run
+# is retired with Supersede - last-created wins.
+[[action]]
+name = "IngestRecord"
+kind = "input"
+from = ["Requested"]
+to = "Recorded"
+params = ["commit", "reviewers_ran", "findings", "risk", "open_act_on_count"]
+effect = [{ type = "set_bool", var = "record_present", value = "true" }]
+hint = "Write the decoded review record (commit, reviewers, findings, risk, open act-on count) and mark it Recorded."
+
+# Superseded is terminal: it marks THIS run retired once a newer run has recorded
+# the record for a later head. The superseding record lives on its own run; this
+# one is kept for history (Superseded has no outgoing transitions).
+[[action]]
+name = "Supersede"
+kind = "input"
+from = ["Recorded"]
+to = "Superseded"
+hint = "Supersede this run when a newer review record for a later head has been recorded on its own run."
+
+[[invariant]]
+name = "RecordedHasRecord"
+when = ["Recorded", "Superseded"]
+assert = "record_present"
 
 [[state_timeout]]
 state = "Requested"
