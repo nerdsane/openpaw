@@ -31,6 +31,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-temperpaw-production
+  cancel-in-progress: false
+
 jobs:
   redeploy:
     runs-on: ubuntu-latest
