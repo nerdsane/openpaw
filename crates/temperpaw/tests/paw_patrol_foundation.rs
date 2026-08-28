@@ -1693,7 +1693,6 @@ fn production_cutover_runbook_maps_every_human_blocker_to_a_gate() {
     );
 }
 
-
 #[test]
 fn production_preflight_exports_standalone_human_blockers_artifact() {
     let root = repo_root();
@@ -3305,4 +3304,3 @@ fn paw_patrol_wasm_modules_have_startup_build_script() {
         assert!(script.contains(needle), "build.sh should contain {needle}");
     }
 }
-
