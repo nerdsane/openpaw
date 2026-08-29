@@ -518,3 +518,42 @@ permit(
 ) when {
   context.module == "release_run_lifecycle"
 };
+
+// ARN-434: the S1 shadow sweep runs as the verified operator credential and must
+// write the S0 records and the ShadowVerdict rows. Narrowly scoped - exactly the
+// actions the sweep dispatches, on exactly those resources, gated on the same
+// verified-operator predicate the kernel uses for operator authority
+// (agent_type == "operator" && agentTypeVerified == true, so a self-declared
+// header agent can never match). Nothing else is broadened.
+permit(
+  principal is Agent,
+  action in [Action::"Ingest", Action::"IngestRecord"],
+  resource is ReviewRun
+) when {
+  principal has agent_type &&
+  principal.agent_type == "operator" &&
+  principal has agentTypeVerified &&
+  principal.agentTypeVerified == true
+};
+
+permit(
+  principal is Agent,
+  action in [Action::"Ingest", Action::"IngestProof"],
+  resource is ProofPacket
+) when {
+  principal has agent_type &&
+  principal.agent_type == "operator" &&
+  principal has agentTypeVerified &&
+  principal.agentTypeVerified == true
+};
+
+permit(
+  principal is Agent,
+  action in [Action::"Record", Action::"MarkAgree", Action::"MarkDisagree"],
+  resource is ShadowVerdict
+) when {
+  principal has agent_type &&
+  principal.agent_type == "operator" &&
+  principal has agentTypeVerified &&
+  principal.agentTypeVerified == true
+};

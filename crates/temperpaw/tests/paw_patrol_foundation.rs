@@ -3409,3 +3409,82 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         );
     }
 }
+
+// --- ARN-434: narrow Cedar permits for the shadow-sweep writes ---
+
+#[test]
+fn verified_operator_may_write_shadow_records_narrowly() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-patrol/policies/patrol.cedar"));
+    let engine = AuthzEngine::new(&policy).expect("patrol.cedar should parse");
+    let attrs = resource_attrs(&[("id", serde_json::json!("x"))]);
+    // The sweep's key resolves to the verified operator (agent_type "operator",
+    // agentTypeVerified == true - byte-identical to the prod operator credential).
+    let operator = agent_context("operator", "operator");
+
+    // ALLOWED: exactly the S1-denied action x resource pairs.
+    for (action, resource) in [
+        ("Ingest", "ReviewRun"),
+        ("IngestRecord", "ReviewRun"),
+        ("Ingest", "ProofPacket"),
+        ("IngestProof", "ProofPacket"),
+        ("Record", "ShadowVerdict"),
+        ("MarkAgree", "ShadowVerdict"),
+        ("MarkDisagree", "ShadowVerdict"),
+    ] {
+        let d = engine.authorize(&operator, action, resource, &attrs);
+        assert!(
+            d.is_allowed(),
+            "verified operator should be allowed {resource}.{action}: {d:?}"
+        );
+    }
+
+    // SCOPED OUT: a non-operator agent gets none of it.
+    let worker = agent_context("some-worker", "worker");
+    assert!(
+        !engine
+            .authorize(&worker, "Ingest", "ReviewRun", &attrs)
+            .is_allowed(),
+        "a non-operator agent must not Ingest ReviewRun"
+    );
+
+    // SCOPED OUT: the operator permit covers ONLY the listed actions/resources -
+    // including a nonexistent action on a granted resource (ShadowVerdict.Ingest,
+    // which the intent explicitly disclaims).
+    for (action, resource) in [
+        ("Supersede", "ReviewRun"),        // real action, not granted
+        ("SupersedeProof", "ProofPacket"), // real action, not granted
+        ("Record", "ReviewRun"),           // Record is ShadowVerdict-only here
+        ("Ingest", "ShadowVerdict"),       // Ingest is not a ShadowVerdict action
+    ] {
+        let d = engine.authorize(&operator, action, resource, &attrs);
+        assert!(
+            !d.is_allowed(),
+            "operator permit must NOT cover {resource}.{action}: {d:?}"
+        );
+    }
+
+    // SCOPED OUT: a SELF-DECLARED operator (agent_type == "operator" but
+    // agentTypeVerified == false - the header path, not a resolved credential)
+    // is denied. This is the exact attack the verified flag exists for.
+    let self_declared = temper_authz::SecurityContext::anonymous().with_agent_context(
+        Some("operator"),
+        None,
+        Some("operator"),
+    );
+    for (action, resource) in [
+        ("Ingest", "ReviewRun"),
+        ("IngestRecord", "ReviewRun"),
+        ("Ingest", "ProofPacket"),
+        ("IngestProof", "ProofPacket"),
+        ("Record", "ShadowVerdict"),
+        ("MarkAgree", "ShadowVerdict"),
+        ("MarkDisagree", "ShadowVerdict"),
+    ] {
+        let d = engine.authorize(&self_declared, action, resource, &attrs);
+        assert!(
+            !d.is_allowed(),
+            "a self-declared (unverified) operator must NOT write {resource}.{action}: {d:?}"
+        );
+    }
+}
