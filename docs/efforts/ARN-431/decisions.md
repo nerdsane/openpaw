@@ -100,3 +100,24 @@ start.
 **Nit (permissions):** dropped the unused `contents: read` (no repo checkout -
 stack is cloned with STACK_TOKEN); kept `pull-requests: read` + `checks: read`
 which gh needs via GITHUB_TOKEN.
+
+---
+
+## Terminal act-on (#486): the mirror needs a repo tree
+
+**Act-on:** the sweep ran `check-effort-artifacts.py` / `check-decision-log.py`
+(the planning + decision-log mirrors) with NO checkout of this repo, so they
+computed against an empty tree (git diff empty -> exempt -> a hollow pass).
+**Fix:** the job now `actions/checkout`s this repo, and the run step sweeps ONE
+PR at a time - fetching each PR's head (`refs/pull/<n>/head`, depth 1) and
+checking it out - so each PR's mirror reads THAT PR's `docs/efforts/<id>/`. This
+is why a single checkout wasn't enough: the sweep covers a multi-PR window and
+each PR's design chain lives on its own head.
+**Reverts the earlier nit:** ARN-431's #486 round dropped `permissions:
+contents: read` as unused; the checkout now needs it, so it is restored. The
+history reads: removed when there was no checkout, restored when the mirror fix
+added one.
+**Considers taken:** the token-validation loop uses `read -ra` (no pathname
+expansion can fire - `*` is rejected, not globbed); the nightly sort/cap path's
+first live exercise is on the first nightly run, noted in the workflow.
+**Where:** `.github/workflows/shadow-sweep.yml`.

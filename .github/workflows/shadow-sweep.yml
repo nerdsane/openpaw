@@ -18,14 +18,21 @@ on:
         required: false
         default: ""
 permissions:
-  # gh reads PRs + their check-runs via GITHUB_TOKEN; no repo checkout (stack is
-  # cloned with STACK_TOKEN), so no contents scope is needed.
+  # contents: read - the job checks out this repo so the planning/decision-log
+  # mirror scripts (check-effort-artifacts.py / check-decision-log.py) run
+  # against each PR's real tree instead of an empty one.
+  contents: read
+  # gh reads PRs + their check-runs via GITHUB_TOKEN.
   pull-requests: read
   checks: read
 jobs:
   shadow-sweep:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout this repo (so the mirror scripts have a tree)
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
       - name: Fetch the sweep from stack
         env:
           STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
@@ -41,13 +48,16 @@ jobs:
           INPUT_PRS: ${{ github.event.inputs.pr_numbers }}
         run: |
           set -euo pipefail
-          # Validate the dispatch input PER TOKEN (split on whitespace/commas):
-          # each must be 1-6 digits, else fail loudly. Never sanitize-by-deletion,
-          # which could concatenate "12;34" into a different valid PR number.
+          # Validate the dispatch input PER TOKEN, split with read -ra (no glob,
+          # no word-split surprises). Each token must be 1-6 digits, else fail
+          # loudly - never sanitize-by-deletion, which could concatenate "12;34"
+          # into a different valid PR number.
+          IFS=$', \t\n' read -ra toks <<< "${INPUT_PRS:-}"
           input_prs=""
-          for tok in ${INPUT_PRS//,/ }; do
+          for tok in "${toks[@]}"; do
+            [ -z "$tok" ] && continue
             case "$tok" in
-              ''|*[!0-9]*) echo "::error::invalid pr_numbers token '$tok' (expected 1-6 digits)"; exit 1 ;;
+              *[!0-9]*) echo "::error::invalid pr_numbers token '$tok' (expected 1-6 digits)"; exit 1 ;;
             esac
             if [ "${#tok}" -gt 6 ]; then echo "::error::pr_numbers token '$tok' too long"; exit 1; fi
             input_prs="${input_prs:+$input_prs }$tok"
@@ -59,7 +69,8 @@ jobs:
             # nightly: PRs updated in the last ~48h - a wide overlap so a skipped
             # nightly run leaves no coverage gap. Fetch newest-updated first so the
             # --limit cannot drop in-window PRs before the window filter runs, and
-            # warn loudly if the cap is hit (in-window PRs might still be truncated).
+            # warn loudly if the cap is hit. (This sort/cap path is first exercised
+            # live on the first nightly run - acceptable, and logged there.)
             since=$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-48H +%Y-%m-%dT%H:%M:%SZ)
             limit=200
             raw=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit "$limit" \
@@ -96,10 +107,16 @@ jobs:
             echo "::warning::TEMPER_API_KEY unavailable - printing verdicts without writing ShadowVerdicts"
             EXTRA=--no-write
           fi
-          # $PRS is digits + spaces; split into an array so each PR is a separate
-          # argument without word-splitting surprises.
+          # Sweep one PR at a time, each against ITS OWN checked-out tree, so the
+          # planning/decision-log mirror scripts read that PR's docs/efforts/.
           read -ra pr_args <<< "$PRS"
-          python3 /tmp/stack/shadow/shadow-sweep.py ${EXTRA:-} --stack-dir /tmp/stack "${pr_args[@]}"
+          for pr in "${pr_args[@]}"; do
+            if ! git fetch --depth 1 origin "refs/pull/${pr}/head" 2>/dev/null; then
+              echo "::warning::cannot fetch PR ${pr} head - skipping"; continue
+            fi
+            git checkout -q --detach FETCH_HEAD
+            python3 /tmp/stack/shadow/shadow-sweep.py ${EXTRA:-} --stack-dir /tmp/stack "$pr"
+          done
       - name: Nothing to sweep
         if: steps.window.outputs.prs == ''
         run: echo "No PRs in the window - nothing to sweep."
