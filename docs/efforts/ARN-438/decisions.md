@@ -78,28 +78,55 @@ change (a bump lands within ~24h instead of minutes).
 
 ---
 
-**Decision:** In the sweep, both matrix legs authenticate with STACK_TOKEN and the
-now-unused `pull-requests`/`checks` GITHUB_TOKEN permissions are dropped.
-**Came up because:** the temper leg cannot use GITHUB_TOKEN (wrong repo scope), and
-mixing tokens per leg is needless complexity.
-**Options:** (a) GITHUB_TOKEN for the temperpaw leg, STACK_TOKEN for temper; (b)
-STACK_TOKEN uniformly.
-**Chose (b) over (a) because:** uniform, one code path, and temper needs
-STACK_TOKEN regardless. Given up: least-privilege on the temperpaw leg (STACK_TOKEN
-is broader than the repo's GITHUB_TOKEN) - acceptable for a nightly shadow job that
-already needs the PAT for the other leg.
-**Where:** `shadow-sweep.yml` (`permissions: contents: read`; `GH_TOKEN`/`token`).
+**Decision:** In the sweep, both matrix legs authenticate with STACK_TOKEN, with
+the rationale that STACK_TOKEN is needed for the private stack clone anyway - NOT
+that GITHUB_TOKEN cannot read temper.
+**Came up because:** the #488 panel flagged the original comment ("GITHUB_TOKEN
+can't read the other repo") as wrong - nerdsane/temper is PUBLIC, so GITHUB_TOKEN
+(and anonymous) can read its PRs and check it out.
+**Options:** (a) GITHUB_TOKEN for reads (least-privilege), STACK_TOKEN only for the
+stack clone; (b) STACK_TOKEN uniformly with an honest rationale.
+**Chose (b) over (a) because:** the sweep must clone the PRIVATE arni-labs/stack
+with STACK_TOKEN regardless, so reusing that one PAT for both legs' reads is simpler
+than mixing a token per repo, and avoids relying on cross-repo public-checkout token
+subtleties. Given up: least-privilege on the reads - acceptable for a shadow-only
+nightly job. The wrong "can't read" rationale was corrected in the comments.
+**Where:** `shadow-sweep.yml` (header + `GH_TOKEN`/`token` comments).
 
 ---
 
-**Decision:** Dedupe bumps by the existence of the rev-specific branch
-`bot/temper-pin-<12hex>`.
-**Came up because:** a daily schedule would otherwise re-open a PR for the same rev
-every day until it merges, or re-open one a human deliberately closed.
-**Options:** (a) check for an OPEN PR with that head; (b) check whether the branch
-exists at all.
-**Chose (b) over (a) because:** (b) also refuses to re-open a bump that was merged
-(branch may persist) or closed on purpose - "already handled" is the right test,
-not "currently open." Given up: if someone deletes the branch after closing, the
-next run re-proposes it (rare, and arguably correct).
-**Where:** `temper-pin-bump.yml` ("Skip if a bump for this rev is already open").
+**Decision:** Dedupe bumps by the existence of a PR (ANY state) for the rev-specific
+branch `bot/temper-pin-<12hex>`, not by the branch's existence.
+**Came up because:** the #488 panel found that keying on branch existence skips
+forever if a prior run's `gh pr create` FAILED (branch pushed, no PR) - the exact
+recovery path the design needs.
+**Options:** (a) check whether the branch exists; (b) check for an OPEN PR only;
+(c) check for a PR in ANY state (`gh pr list --state all`).
+**Chose (c) over (a)/(b) because:** (a) strands forever on a failed create; (b)
+would re-open a bump a human deliberately CLOSED. (c) proceeds when no PR exists
+(reclaiming a stranded branch) yet respects both an in-flight (open) and a
+rejected (closed) PR; a merged bump is unreachable because the pin would already
+match. The branch is then pushed with plain `--force` (a shallow fresh checkout
+has no tracking ref for a lease), safe because dedupe proved no PR owns it.
+**Where:** `temper-pin-bump.yml` ("Skip if a bump PR for this rev already exists").
+
+---
+
+**Decision:** Assert each manifest carries a temper.git pin (nonzero) before and
+after the bump, derive the `cargo update` crate list from the temper.git keys, add
+a concurrency group and a forward-only compare check.
+**Came up because:** the #488 panel round 2: the uniformity check passed vacuously
+on a manifest with zero temper.git lines; the hardcoded 9-crate list was a sync
+burden; cron/dispatch could overlap; a reverted temper main could be bumped
+backward.
+**Options:** (a) leave the uniformity check as the only guard, keep the hardcoded
+list; (b) add per-manifest nonzero assertions, derive the crate list from the
+dependency keys, add concurrency + forward-only.
+**Chose (b) over (a) because:** each addition closes a real hole - a per-manifest
+nonzero check stops a silent unpinned manifest; a derived list can never drift when
+temper adds/removes a pinned crate (verified it yields the same 9 crates today);
+concurrency serializes cron vs dispatch; forward-only refuses a backward "bump".
+Given up: a few lines of shell. The rust toolchain now installs only after the
+no-drift early-exit (cheap nit from the panel).
+**Where:** `temper-pin-bump.yml` (drift + bump steps, `concurrency`, `Rust
+toolchain` step).

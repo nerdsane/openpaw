@@ -33,10 +33,6 @@ jobs:
     env:
       STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
       TEMPER_REPO: nerdsane/temper
-      # every crate that pins the temper rev (crates/temperpaw + paw-codex-worker)
-      TEMPER_CRATES: >-
-        temper-platform temper-observe temper-server temper-runtime temper-jit
-        temper-authz temper-store-postgres temper-store-turso temper-spec
     steps:
       - name: Guard the token
         run: |
@@ -47,7 +43,6 @@ jobs:
         with:
           token: ${{ secrets.STACK_TOKEN }}   # push + PR as the PAT so the PR triggers its gates
           fetch-depth: 1                       # shallow: we only need HEAD to branch from
-      - uses: dtolnay/rust-toolchain@stable   # cargo, to refresh Cargo.lock
       - name: Compute the drift
         id: drift
         env:
@@ -58,6 +53,14 @@ jobs:
           NEW=$(git ls-remote "https://github.com/${TEMPER_REPO}.git" main | cut -f1)
           case "$NEW" in *[!0-9a-f]*|"") echo "::error::bad temper HEAD '$NEW'"; exit 1 ;; esac
           if [ "${#NEW}" -ne 40 ]; then echo "::error::temper HEAD not a full sha: '$NEW'"; exit 1; fi
+
+          # Each manifest must actually CARRY a temper.git pin - otherwise the
+          # uniformity check below would pass vacuously on a manifest with zero
+          # matches (e.g. paw-codex-worker silently losing its pin).
+          for f in crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml; do
+            c=$(grep -cE 'nerdsane/temper\.git' "$f" || true)
+            if [ "$c" -eq 0 ]; then echo "::error::$f carries no temper.git dependency pin"; exit 1; fi
+          done
 
           # Read the current pin ONLY from the temper.git dependency lines, across
           # BOTH manifests, and require it to be uniform - a rev scoped to any other
@@ -96,6 +99,9 @@ jobs:
       - name: Up to date
         if: steps.drift.outputs.changed == 'false'
         run: echo "temper pin already current (or main not ahead) - nothing to bump."
+      - name: Rust toolchain
+        if: steps.drift.outputs.changed == 'true'   # only when we will actually bump + refresh the lock
+        uses: dtolnay/rust-toolchain@stable
       - name: Skip if a bump PR for this rev already exists
         id: dedupe
         if: steps.drift.outputs.changed == 'true'
@@ -136,16 +142,25 @@ jobs:
           for f in crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml; do
             sed -i "/nerdsane\/temper\.git/s/${CUR}/${NEW}/g" "$f"
           done
-          # after bump: the temper.git deps in BOTH manifests must ALL be exactly NEW.
+          # after bump: each manifest still carries a temper.git pin AND every
+          # temper.git dep in BOTH manifests is exactly NEW.
+          for f in crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml; do
+            c=$(grep -cE 'nerdsane/temper\.git' "$f" || true)
+            if [ "$c" -eq 0 ]; then echo "::error::$f lost its temper.git pin during the bump"; exit 1; fi
+          done
           NREVS=$(grep -hE 'nerdsane/temper\.git' crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml \
             | grep -oE 'rev = "[0-9a-f]{40}"' | grep -oE '[0-9a-f]{40}' | sort -u)
           if [ "$NREVS" != "$NEW" ]; then
             echo "::error::after bump the temper pin is not uniformly $NEW: ${NREVS:-none}"; exit 1; fi
 
           # 2. refresh Cargo.lock properly (the new kernel may pull new transitive
-          #    deps a pure sed would miss and break --locked). One -p per crate.
+          #    deps a pure sed would miss and break --locked). Derive the crate list
+          #    from the temper.git dependency KEYS in the manifests - no hardcoded
+          #    list to drift when temper adds/removes a pinned crate.
+          PKGS=$(grep -hE 'nerdsane/temper\.git' crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml \
+            | sed -E 's/^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*=.*/\1/' | sort -u)
           PKG_ARGS=""
-          for c in $TEMPER_CRATES; do PKG_ARGS="$PKG_ARGS -p $c"; done
+          for c in $PKGS; do PKG_ARGS="$PKG_ARGS -p $c"; done
           cargo update $PKG_ARGS
 
           if git diff --quiet; then echo "::error::no changes after bump - aborting"; exit 1; fi
@@ -164,10 +179,12 @@ jobs:
           MSG
           sed -i "s/__NEW__/$SHORT_NEW/g; s/__CUR__/$SHORT_CUR/g" /tmp/commit-msg.txt
           git commit -F /tmp/commit-msg.txt
-          # force-with-lease: a stranded branch from a prior failed pr-create (no PR,
-          # so we reached here) is safe to overwrite; --with-lease still refuses to
-          # clobber a branch that advanced under us.
-          git push --force-with-lease origin "$BRANCH"
+          # Plain --force (not --force-with-lease): this is a shallow, fresh checkout
+          # with no remote-tracking ref for BRANCH, so a lease has nothing to compare
+          # against and would be rejected. The PR-existence dedupe already proved no
+          # PR owns this rev-specific bot branch, so a stranded branch from a prior
+          # failed pr-create is ours to overwrite.
+          git push --force origin "$BRANCH"
 
           # PR body references ARN-438 (whose docs/efforts/ chain lives on main, so
           # the planning gate resolves the effort) and carries the decisions

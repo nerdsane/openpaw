@@ -28,22 +28,35 @@ Still shadow only: never blocks a merge, never writes to GitHub.
 
 ## Item 2: temper pin-bump automation
 
-`.github/workflows/temper-pin-bump.yml`, scheduled daily + `workflow_dispatch`:
+`.github/workflows/temper-pin-bump.yml`, scheduled daily + `workflow_dispatch`,
+with a `concurrency` group so a manual dispatch never races the cron:
 
-1. Read temper main HEAD (`git ls-remote` - temper is public) and the current pin
-   (`rev = "<40-hex>"` in `crates/temperpaw/Cargo.toml`).
-2. If equal, stop. If a branch `bot/temper-pin-<12hex>` already exists for that
-   rev, stop (a prior run already opened it - never re-open a merged/closed bump).
-3. Otherwise bump the rev in BOTH `crates/temperpaw/Cargo.toml` and
-   `crates/paw-codex-worker/Cargo.toml`, then `cargo update -p <each temper crate>`
-   to refresh `Cargo.lock` (a pure sed would miss any new transitive deps the new
-   kernel pulls and break `--locked`).
-4. Commit, push, and open ONE PR with `STACK_TOKEN`.
+1. Read temper main HEAD (`git ls-remote` - temper is public) and the current pin.
+   The pin is read ONLY from the `nerdsane/temper.git` dependency lines, and each
+   manifest must carry at least one such line (else fail - no vacuous pass), and
+   the rev must be uniform across both manifests (a half-drifted pin fails loudly).
+2. If equal, stop. Forward-only: if temper main is not strictly `ahead` of the pin
+   (reverted/force-pushed/diverged), do not bump backward. Then dedupe on **PR
+   existence**, not branch existence: skip only if a PR for `bot/temper-pin-<12hex>`
+   already exists in ANY state (open = in flight, closed = a human rejected this
+   rev); a merged bump is unreachable because the pin would already match. A prior
+   run whose `gh pr create` FAILED leaves a stranded branch with no PR, so keying on
+   the branch would skip forever - keying on the PR proceeds and reclaims it.
+3. Otherwise bump the rev on the temper.git lines of BOTH manifests (line-scoped
+   sed), re-assert uniformity == NEW, then `cargo update -p <crate>` for the crate
+   list DERIVED from the temper.git dependency keys (no hardcoded list to drift) to
+   refresh `Cargo.lock` (a pure sed would miss new transitive deps and break
+   `--locked`).
+4. Commit, push the bot branch with plain `git push --force` (a shallow fresh
+   checkout has no remote-tracking ref for a lease; the PR-existence dedupe already
+   proved the rev-specific bot branch is ours), and open ONE PR with `STACK_TOKEN`.
 
-**Why STACK_TOKEN, not GITHUB_TOKEN.** A PR created with GITHUB_TOKEN does not
-trigger `pull_request` workflows, so the bump's own gates would silently never
-fire. STACK_TOKEN is a real PAT whose events are not suppressed (the same reason
-`sdlc-decision-intake.yml` already uses it for body edits).
+**Why STACK_TOKEN, not GITHUB_TOKEN.** temper is PUBLIC, so this is NOT about read
+access. A PR created with GITHUB_TOKEN does not trigger `pull_request` workflows, so
+the bump's own gates would silently never fire. STACK_TOKEN is a real PAT whose
+events are not suppressed (the same reason `sdlc-decision-intake.yml` already uses
+it for body edits). The rust toolchain is installed only when a bump will happen
+(after the no-drift early-exit).
 
 **Gates.** The bump PR touches `Cargo.toml`, so the planning gate is not exempt and
 needs `docs/efforts/<id>/`. The PR body references ARN-438, whose design chain
