@@ -1,0 +1,132 @@
+# Decision log - temperpaw CI for ARN-438
+
+Appended as each call was made. The PR body's `## Decisions & Tradeoffs` carries
+these verbatim.
+
+---
+
+**Decision:** Reuse the existing `STACK_TOKEN` secret for the pin-bump PR (and for
+the sweep's cross-repo reads) rather than minting a new bot PAT.
+**Came up because:** The pin-bump PR must be created by a real PAT, never
+GITHUB_TOKEN, or its own gates never fire; the lead asked to check for an existing
+suitable secret before requesting a new one.
+**Options:** (a) a new dedicated bot identity + secret; (b) reuse STACK_TOKEN,
+already present and proven cross-repo.
+**Chose (b) over (a) because:** STACK_TOKEN is a rita-aga PAT that already clones
+`arni-labs/stack` AND edits this repo's PR bodies in `sdlc-decision-intake.yml` -
+precisely because "GITHUB_TOKEN-created events are suppressed." It has the exact
+capability needed, so a new identity is machinery for nothing. The panel is
+author-independent, so no review value is lost. Given up: a slightly narrower blast
+radius a dedicated token might have.
+**Where:** `.github/workflows/temper-pin-bump.yml` (token guard + `gh pr create`);
+`.github/workflows/shadow-sweep.yml` (checkout + gh calls).
+
+---
+
+**Decision:** Cover both repos with a job matrix inside the single existing
+`shadow-sweep.yml`, not a second workflow.
+**Came up because:** temper's PRs need the same shadow coverage; the brief said
+"one workflow, two repos - don't duplicate."
+**Options:** (a) copy the workflow to a temper-specific one; (b) a `repo` matrix.
+**Chose (b) over (a) because:** one definition, no drift between two copies; the
+per-PR checkout already parameterizes cleanly on `matrix.repo`. Given up: matrix
+legs each re-clone stack (minor duplicated setup cost).
+**Where:** `.github/workflows/shadow-sweep.yml` (`strategy.matrix.repo`).
+
+---
+
+**Decision:** The pin-bump refreshes `Cargo.lock` with `cargo update -p <crate>`,
+not a sed of the lock file.
+**Came up because:** CI builds `--locked`; a bumped `Cargo.toml` with a stale lock
+fails, and a new kernel can add transitive deps.
+**Options:** (a) sed the old sha -> new sha in Cargo.lock too; (b) run `cargo
+update` scoped to the temper crates.
+**Chose (b) over (a) because:** a sed only rewrites the source lines it already
+sees; it cannot add lock entries for deps the new kernel introduces, so `--locked`
+would break. `cargo update` re-resolves correctly. Given up: the workflow needs the
+rust toolchain (no compile, just resolution - acceptable).
+**Where:** `.github/workflows/temper-pin-bump.yml` ("refresh Cargo.lock" step).
+
+---
+
+**Decision:** Bump PRs reference ARN-438 rather than minting a new Linear issue per
+nightly bump.
+**Came up because:** the bump PR touches `Cargo.toml` (app code), so the planning
+gate is not exempt and needs `docs/efforts/<id>/`.
+**Options:** (a) a fresh issue + effort folder per bump; (b) reference ARN-438,
+whose design chain lives on main; (c) exempt Cargo-only PRs in the stack planning
+gate.
+**Chose (b) over (a)/(c) because:** (a) floods Linear with one issue per night for
+a mechanical change; (c) weakens a shared gate for everyone. ARN-438 owns the
+automation, so attributing its executions to it is honest, and the folder already
+on main satisfies the gate. Given up: bump PRs are not individually tracked issues
+(acceptable - they are visible as PRs and CI runs).
+**Where:** `temper-pin-bump.yml` PR body ("ARN-438"); `docs/efforts/ARN-438/`.
+
+---
+
+**Decision:** No cross-repo event plumbing (no `repository_dispatch` from temper);
+a scheduled diff check drives the bump.
+**Came up because:** the pin bump could be triggered by a temper-side push event.
+**Options:** (a) temper fires a dispatch into temperpaw on each main push; (b) a
+daily scheduled diff in temperpaw.
+**Chose (b) over (a) because:** the lead's ruling - "keep simple, no cross-repo
+event plumbing." A scheduled diff needs no secret in temper, no coupling, and a
+one-day latency on a pin bump is immaterial. Given up: same-day pickup of a kernel
+change (a bump lands within ~24h instead of minutes).
+**Where:** `temper-pin-bump.yml` (`schedule` + `workflow_dispatch`).
+
+---
+
+**Decision:** In the sweep, both matrix legs authenticate with STACK_TOKEN, with
+the rationale that STACK_TOKEN is needed for the private stack clone anyway - NOT
+that GITHUB_TOKEN cannot read temper.
+**Came up because:** the #488 panel flagged the original comment ("GITHUB_TOKEN
+can't read the other repo") as wrong - nerdsane/temper is PUBLIC, so GITHUB_TOKEN
+(and anonymous) can read its PRs and check it out.
+**Options:** (a) GITHUB_TOKEN for reads (least-privilege), STACK_TOKEN only for the
+stack clone; (b) STACK_TOKEN uniformly with an honest rationale.
+**Chose (b) over (a) because:** the sweep must clone the PRIVATE arni-labs/stack
+with STACK_TOKEN regardless, so reusing that one PAT for both legs' reads is simpler
+than mixing a token per repo, and avoids relying on cross-repo public-checkout token
+subtleties. Given up: least-privilege on the reads - acceptable for a shadow-only
+nightly job. The wrong "can't read" rationale was corrected in the comments.
+**Where:** `shadow-sweep.yml` (header + `GH_TOKEN`/`token` comments).
+
+---
+
+**Decision:** Dedupe bumps by the existence of a PR (ANY state) for the rev-specific
+branch `bot/temper-pin-<12hex>`, not by the branch's existence.
+**Came up because:** the #488 panel found that keying on branch existence skips
+forever if a prior run's `gh pr create` FAILED (branch pushed, no PR) - the exact
+recovery path the design needs.
+**Options:** (a) check whether the branch exists; (b) check for an OPEN PR only;
+(c) check for a PR in ANY state (`gh pr list --state all`).
+**Chose (c) over (a)/(b) because:** (a) strands forever on a failed create; (b)
+would re-open a bump a human deliberately CLOSED. (c) proceeds when no PR exists
+(reclaiming a stranded branch) yet respects both an in-flight (open) and a
+rejected (closed) PR; a merged bump is unreachable because the pin would already
+match. The branch is then pushed with plain `--force` (a shallow fresh checkout
+has no tracking ref for a lease), safe because dedupe proved no PR owns it.
+**Where:** `temper-pin-bump.yml` ("Skip if a bump PR for this rev already exists").
+
+---
+
+**Decision:** Assert each manifest carries a temper.git pin (nonzero) before and
+after the bump, derive the `cargo update` crate list from the temper.git keys, add
+a concurrency group and a forward-only compare check.
+**Came up because:** the #488 panel round 2: the uniformity check passed vacuously
+on a manifest with zero temper.git lines; the hardcoded 9-crate list was a sync
+burden; cron/dispatch could overlap; a reverted temper main could be bumped
+backward.
+**Options:** (a) leave the uniformity check as the only guard, keep the hardcoded
+list; (b) add per-manifest nonzero assertions, derive the crate list from the
+dependency keys, add concurrency + forward-only.
+**Chose (b) over (a) because:** each addition closes a real hole - a per-manifest
+nonzero check stops a silent unpinned manifest; a derived list can never drift when
+temper adds/removes a pinned crate (verified it yields the same 9 crates today);
+concurrency serializes cron vs dispatch; forward-only refuses a backward "bump".
+Given up: a few lines of shell. The rust toolchain now installs only after the
+no-drift early-exit (cheap nit from the panel).
+**Where:** `temper-pin-bump.yml` (drift + bump steps, `concurrency`, `Rust
+toolchain` step).
