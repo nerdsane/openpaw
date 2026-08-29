@@ -210,3 +210,13 @@ jobs:
           gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
             --title "chore(deps): bump temper pin to $SHORT_NEW" \
             --body-file /tmp/pr-body.md
+
+          # Supersede: this bump targets a newer temper rev than any still-open bump,
+          # so close the older open bot/temper-pin-* PRs (and delete their branches)
+          # rather than letting successive temper advances stack multiple open PRs.
+          olds=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName \
+            -q ".[] | select(.headRefName | startswith(\"bot/temper-pin-\")) | select(.headRefName != \"$BRANCH\") | .number")
+          for n in $olds; do
+            gh pr close "$n" --repo "$GITHUB_REPOSITORY" --delete-branch \
+              --comment "Superseded by the newer temper pin bump to ${SHORT_NEW}." || true
+          done

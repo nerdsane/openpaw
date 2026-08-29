@@ -15,10 +15,11 @@
 The sweep mints repo-qualified entity ids (`sv-<slug>-prN-gate`, from the stack
 half already merged), so temper#5 and temperpaw#5 never collide in prod Temper.
 
-**Token.** GITHUB_TOKEN is scoped to this repo only and cannot read
-`nerdsane/temper`. Every git and `gh` call in the workflow uses `STACK_TOKEN` (a
-rita-aga PAT that already reads both repos - it clones `arni-labs/stack` and edits
-this repo's PR bodies in `sdlc-decision-intake.yml`).
+**Token.** `nerdsane/temper` is PUBLIC, so GITHUB_TOKEN (and anonymous) can already
+read its PRs and check it out - the token is not about read access. The sweep must
+clone the PRIVATE `arni-labs/stack` for its script anyway, so it reuses that one
+`STACK_TOKEN` (a rita-aga PAT) for every git and `gh` call rather than mixing a
+token per repo.
 
 **Dispatch.** `workflow_dispatch` gains a `repo` choice (`both`/`temperpaw`/
 `temper`). Explicit `pr_numbers` require a single repo (otherwise which repo owns
@@ -49,7 +50,7 @@ with a `concurrency` group so a manual dispatch never races the cron:
    `--locked`).
 4. Commit, push the bot branch with plain `git push --force` (a shallow fresh
    checkout has no remote-tracking ref for a lease; the PR-existence dedupe already
-   proved the rev-specific bot branch is ours), and open ONE PR with `STACK_TOKEN`.
+   proved the rev-specific bot branch is ours), and open ONE PR with `STACK_TOKEN`. When it opens a new PR it supersedes (closes + deletes the branch of) any older open `bot/temper-pin-*` PR, so successive temper advances never stack multiple open bumps.
 
 **Why STACK_TOKEN, not GITHUB_TOKEN.** temper is PUBLIC, so this is NOT about read
 access. A PR created with GITHUB_TOKEN does not trigger `pull_request` workflows, so

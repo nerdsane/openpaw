@@ -130,3 +130,19 @@ Given up: a few lines of shell. The rust toolchain now installs only after the
 no-drift early-exit (cheap nit from the panel).
 **Where:** `temper-pin-bump.yml` (drift + bump steps, `concurrency`, `Rust
 toolchain` step).
+
+---
+
+**Decision:** Post-merge follow-ups from the #488 panel: supersede stacked bump
+PRs, pass `matrix.repo` via env in the sweep's "Nothing to sweep" step, and correct
+the spec's temper-is-private wording.
+**Came up because:** three non-blocking findings the panel logged for the next
+temperpaw touch (not worth reopening the merged #488).
+**Options:** (a) leave them; (b) batch them into one small follow-up PR.
+**Chose (b) over (a) because:** each is a real, cheap fix - successive temper
+advances would otherwise stack multiple open bump PRs; a `${{ }}` splice into a run
+script is a standing hygiene rule even for a controlled matrix value; and a wrong
+recorded rationale (temper is public, not private) misleads the next reader. Given
+up: nothing - one small PR through the normal gates.
+**Where:** `temper-pin-bump.yml` (supersede loop after `gh pr create`);
+`shadow-sweep.yml` ("Nothing to sweep" env); `docs/efforts/ARN-438/spec.md` (Token).
