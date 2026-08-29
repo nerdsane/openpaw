@@ -1,0 +1,122 @@
+# Stage-3 S1 shadow sweep (ARN-431). SHADOW ONLY: never blocks a merge, never
+# writes to GitHub. It records ShadowVerdict rows in prod Temper comparing the
+# state machine's per-gate verdict against CI's, and prints a disagreement table.
+# The sweep script lives in stack (shadow/shadow-sweep.py) and is cloned here the
+# same way the gates fetch stack.
+#
+# NOTE: until ARN-434's Cedar permits land in prod, the sweep's Temper writes are
+# denied, so the review/proof columns read `na` (planning/decision-log still
+# compare against CI). Nothing here blocks a merge or writes to GitHub.
+name: shadow-sweep
+on:
+  schedule:
+    - cron: "0 7 * * *"   # nightly (07:00 UTC)
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: "Space/comma-separated PR numbers to sweep (blank = nightly window)"
+        required: false
+        default: ""
+permissions:
+  # contents: read - the job checks out this repo so the planning/decision-log
+  # mirror scripts (check-effort-artifacts.py / check-decision-log.py) run
+  # against each PR's real tree instead of an empty one.
+  contents: read
+  # gh reads PRs + their check-runs via GITHUB_TOKEN.
+  pull-requests: read
+  checks: read
+jobs:
+  shadow-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo (so the mirror scripts have a tree)
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 1
+      - name: Fetch the sweep from stack
+        env:
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+        run: |
+          if [ -z "${STACK_TOKEN:-}" ]; then
+            echo "::error::STACK_TOKEN unavailable - the shadow sweep needs the stack script"; exit 1; fi
+          git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
+            echo "::error::cannot reach arni-labs/stack"; exit 1; }
+      - name: Resolve the PR window
+        id: window
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_PRS: ${{ github.event.inputs.pr_numbers }}
+        run: |
+          set -euo pipefail
+          # Validate the dispatch input PER TOKEN, split with read -ra (no glob,
+          # no word-split surprises). Each token must be 1-6 digits, else fail
+          # loudly - never sanitize-by-deletion, which could concatenate "12;34"
+          # into a different valid PR number.
+          IFS=$', \t\n' read -ra toks <<< "${INPUT_PRS:-}"
+          input_prs=""
+          for tok in "${toks[@]}"; do
+            [ -z "$tok" ] && continue
+            case "$tok" in
+              *[!0-9]*) echo "::error::invalid pr_numbers token '$tok' (expected 1-6 digits)"; exit 1 ;;
+            esac
+            if [ "${#tok}" -gt 6 ]; then echo "::error::pr_numbers token '$tok' too long"; exit 1; fi
+            input_prs="${input_prs:+$input_prs }$tok"
+          done
+
+          if [ -n "$input_prs" ]; then
+            prs="$input_prs"
+          else
+            # nightly: PRs updated in the last ~48h - a wide overlap so a skipped
+            # nightly run leaves no coverage gap. Fetch newest-updated first so the
+            # --limit cannot drop in-window PRs before the window filter runs, and
+            # warn loudly if the cap is hit. (This sort/cap path is first exercised
+            # live on the first nightly run - acceptable, and logged there.)
+            since=$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-48H +%Y-%m-%dT%H:%M:%SZ)
+            limit=200
+            raw=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit "$limit" \
+                  --search "sort:updated-desc" --json number,updatedAt) || {
+                    echo "::error::gh pr list failed"; exit 1; }
+            total=$(printf '%s' "$raw" | jq 'length')
+            prs=$(printf '%s' "$raw" | jq -r --arg since "$since" \
+                  '[.[] | select(.updatedAt > $since) | .number] | join(" ")')
+            if [ "$total" -ge "$limit" ]; then
+              echo "::warning::gh pr list returned the full ${limit}-row cap; in-window PRs may be truncated"
+            fi
+          fi
+          # Delimiter (heredoc) form so no value can inject an extra output key.
+          {
+            echo "prs<<SHADOW_PRS_EOF"
+            echo "$prs"
+            echo "SHADOW_PRS_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Run the shadow sweep (shadow only - never blocks)
+        if: steps.window.outputs.prs != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
+          STACK_DIR: /tmp/stack
+          SHADOW_REPO: ${{ github.repository }}
+          # Passed via env (not a ${{ }} splice into the script) so the value is
+          # data, never executable text.
+          PRS: ${{ steps.window.outputs.prs }}
+        run: |
+          set -euo pipefail
+          echo "NOTE: until ARN-434's Cedar permits land in prod, review/proof read 'na' (writes denied); planning/decision-log still compare. Shadow only - never blocks."
+          EXTRA=""
+          if [ -z "${TEMPER_API_KEY:-}" ]; then
+            echo "::warning::TEMPER_API_KEY unavailable - printing verdicts without writing ShadowVerdicts"
+            EXTRA=--no-write
+          fi
+          # Sweep one PR at a time, each against ITS OWN checked-out tree, so the
+          # planning/decision-log mirror scripts read that PR's docs/efforts/.
+          read -ra pr_args <<< "$PRS"
+          for pr in "${pr_args[@]}"; do
+            if ! git fetch --depth 1 origin "refs/pull/${pr}/head" 2>/dev/null; then
+              echo "::warning::cannot fetch PR ${pr} head - skipping"; continue
+            fi
+            git checkout -q --detach FETCH_HEAD
+            python3 /tmp/stack/shadow/shadow-sweep.py ${EXTRA:-} --stack-dir /tmp/stack "$pr"
+          done
+      - name: Nothing to sweep
+        if: steps.window.outputs.prs == ''
+        run: echo "No PRs in the window - nothing to sweep."
