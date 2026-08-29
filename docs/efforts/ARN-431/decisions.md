@@ -18,3 +18,35 @@ mean the script is non-deterministic, not that Temper and CI differ. Given up: a
 "pure" entity-derived verdict for those two, which waits for the Effort state
 machine (a later phase).
 **Where:** `stack/shadow/shadow-sweep.py`, `docs/efforts/ARN-431/spec.md`.
+
+---
+
+## Acceptance finding (Part 3, live run 2026-08-29)
+
+**Finding:** The shadow sweep's prod principal (`TEMPER_API_KEY`) is Cedar-denied
+for the paw-patrol write actions. `ReviewRun.Ingest`, `ReviewRun.IngestRecord`,
+`ProofPacket.Ingest`, and `ShadowVerdict.Record` / `MarkAgree` / `MarkDisagree`
+all return `403 AuthorizationDenied: no matching permit policy`. Only lazy entity
+creation and reads succeed.
+**Consequence in the acceptance run (PRs 477/480/481/482/484/476):**
+- `review` / `proof` shadow verdicts are `na` — the ReviewRun/ProofPacket
+  entities are lazy-created but stuck at their initial states (`Requested` /
+  `Drafting`) because `Ingest` is denied, so nothing advances them to `Recorded`.
+- 24 ShadowVerdict rows (4 gates x 6 PRs) exist but are EMPTY — they lazily mint
+  at ShadowVerdict's initial state `Recorded`, but `Record`/`MarkAgree` (which set
+  pr/gate/verdicts) were denied, so every field is null.
+- `planning` / `decision-log` verdicts are computed locally (from PR content via
+  the gate scripts), so they show correctly and agree with CI 12/12 — but their
+  ShadowVerdict rows also could not be populated.
+**This is not a Temper-vs-CI disagreement.** The review/proof `DIFF` rows are
+`na` vs `pass` because the sweep could not write to Temper, not because the state
+machine concluded differently. The real S0 machine output was never produced in
+prod for these PRs.
+**Not patched here (by constraint - modules/entities/Cedar unchanged in S1):**
+the fix is an owner authorization decision - grant a shadow-sweep identity (or
+the sweep's principal) permission for the Ingest/IngestRecord/IngestProof and
+ShadowVerdict write actions in paw-patrol's Cedar policy. This is the same
+"writes behind a governed action" work S2 needs, and it connects to ARN-430's
+recorded residual. Recommend a follow-up issue; S1's sweep + workflow are ready
+and will produce real entity-derived verdicts once the grant lands.
+**Where:** live run against openpaw-production; evidence in the ARN-431 report.
