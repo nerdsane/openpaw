@@ -1,0 +1,63 @@
+# Stage-3 S1 shadow sweep (ARN-431). SHADOW ONLY: never blocks a merge, never
+# writes to GitHub. It records ShadowVerdict rows in prod Temper comparing the
+# state machine's per-gate verdict against CI's, and prints a disagreement table.
+# The sweep script lives in stack (shadow/shadow-sweep.py) and is cloned here the
+# same way the gates fetch stack.
+name: shadow-sweep
+on:
+  schedule:
+    - cron: "0 7 * * *"   # nightly (07:00 UTC)
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: "Space-separated PR numbers to sweep (blank = nightly window)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+jobs:
+  shadow-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the sweep from stack
+        env:
+          STACK_TOKEN: ${{ secrets.STACK_TOKEN }}
+        run: |
+          if [ -z "${STACK_TOKEN:-}" ]; then
+            echo "::error::STACK_TOKEN unavailable - the shadow sweep needs the stack script"; exit 1; fi
+          git clone --depth 1 https://x-access-token:${STACK_TOKEN}@github.com/arni-labs/stack /tmp/stack || {
+            echo "::error::cannot reach arni-labs/stack"; exit 1; }
+      - name: Resolve the PR window
+        id: window
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_PRS: ${{ github.event.inputs.pr_numbers }}
+        run: |
+          if [ -n "${INPUT_PRS// /}" ]; then
+            echo "prs=${INPUT_PRS}" >> "$GITHUB_OUTPUT"
+          else
+            # nightly: PRs updated in the last ~25h (open or recently merged)
+            since=$(date -u -d '25 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)
+            prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit 50 \
+                  --json number,updatedAt \
+                  --jq "[.[] | select(.updatedAt > \"$since\") | .number] | join(\" \")")
+            echo "prs=${prs}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run the shadow sweep (shadow only - never blocks)
+        if: steps.window.outputs.prs != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
+          STACK_DIR: /tmp/stack
+          SHADOW_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "${TEMPER_API_KEY:-}" ]; then
+            echo "::warning::TEMPER_API_KEY unavailable - printing verdicts without writing ShadowVerdicts"
+            EXTRA=--no-write
+          fi
+          python3 /tmp/stack/shadow/shadow-sweep.py ${EXTRA:-} --stack-dir /tmp/stack ${{ steps.window.outputs.prs }}
+      - name: Nothing to sweep
+        if: steps.window.outputs.prs == ''
+        run: echo "No PRs in the window - nothing to sweep."
