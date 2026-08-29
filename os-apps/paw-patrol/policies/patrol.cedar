@@ -530,7 +530,9 @@ permit(
   action in [Action::"Ingest", Action::"IngestRecord"],
   resource is ReviewRun
 ) when {
+  principal has agent_type &&
   principal.agent_type == "operator" &&
+  principal has agentTypeVerified &&
   principal.agentTypeVerified == true
 };
 
@@ -539,7 +541,9 @@ permit(
   action in [Action::"Ingest", Action::"IngestProof"],
   resource is ProofPacket
 ) when {
+  principal has agent_type &&
   principal.agent_type == "operator" &&
+  principal has agentTypeVerified &&
   principal.agentTypeVerified == true
 };
 
@@ -548,6 +552,8 @@ permit(
   action in [Action::"Record", Action::"MarkAgree", Action::"MarkDisagree"],
   resource is ShadowVerdict
 ) when {
+  principal has agent_type &&
   principal.agent_type == "operator" &&
+  principal has agentTypeVerified &&
   principal.agentTypeVerified == true
 };
