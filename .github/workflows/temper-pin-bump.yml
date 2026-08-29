@@ -10,9 +10,11 @@
 # review panel, proof) - CI building and testing against the new kernel IS the
 # verification. No cross-repo event plumbing: a scheduled diff check, nothing more.
 #
-# It opens the PR with STACK_TOKEN (a rita-aga PAT), never GITHUB_TOKEN: a PR
-# created by GITHUB_TOKEN does not trigger pull_request workflows, so the bump's
-# own gates would silently never fire.
+# temper is PUBLIC (anonymous reads work), so STACK_TOKEN is NOT about read access.
+# It is required because the PR must be CREATED by a real PAT: a PR opened with the
+# Actions GITHUB_TOKEN does not trigger pull_request workflows, so the bump's own
+# gates would silently never fire. The branch is pushed with the same PAT to keep
+# one author identity.
 name: temper-pin-bump
 on:
   schedule:
@@ -20,6 +22,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read   # the branch push + PR use STACK_TOKEN, not GITHUB_TOKEN
+concurrency:
+  # serialize a manual dispatch against the cron (and against a slow prior run) so
+  # two bumps never race on the same branch/PR.
+  group: temper-pin-bump
+  cancel-in-progress: false
 jobs:
   bump:
     runs-on: ubuntu-latest
@@ -38,30 +45,58 @@ jobs:
       - name: Checkout temperpaw
         uses: actions/checkout@v6.0.2
         with:
-          token: ${{ secrets.STACK_TOKEN }}   # so the branch push is authenticated
-          fetch-depth: 0
+          token: ${{ secrets.STACK_TOKEN }}   # push + PR as the PAT so the PR triggers its gates
+          fetch-depth: 1                       # shallow: we only need HEAD to branch from
       - uses: dtolnay/rust-toolchain@stable   # cargo, to refresh Cargo.lock
       - name: Compute the drift
         id: drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # public compare API - GITHUB_TOKEN is enough
         run: |
           set -euo pipefail
           # temper main HEAD is public - anonymous ls-remote is enough.
           NEW=$(git ls-remote "https://github.com/${TEMPER_REPO}.git" main | cut -f1)
           case "$NEW" in *[!0-9a-f]*|"") echo "::error::bad temper HEAD '$NEW'"; exit 1 ;; esac
           if [ "${#NEW}" -ne 40 ]; then echo "::error::temper HEAD not a full sha: '$NEW'"; exit 1; fi
-          CUR=$(grep -m1 -oE 'rev = "[0-9a-f]{40}"' crates/temperpaw/Cargo.toml | grep -oE '[0-9a-f]{40}')
-          if [ -z "$CUR" ]; then echo "::error::cannot read the current temper pin"; exit 1; fi
+
+          # Read the current pin ONLY from the temper.git dependency lines, across
+          # BOTH manifests, and require it to be uniform - a rev scoped to any other
+          # git dep must not poison it, and a half-drifted paw-codex-worker pin must
+          # fail loudly rather than half-bump.
+          REVS=$(grep -hE 'nerdsane/temper\.git' crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml \
+            | grep -oE 'rev = "[0-9a-f]{40}"' | grep -oE '[0-9a-f]{40}' | sort -u)
+          n=$(printf '%s\n' "$REVS" | grep -c . || true)
+          if [ "$n" -ne 1 ]; then
+            echo "::error::temper pin is not uniform across the temper.git deps in both manifests: ${REVS:-none}"; exit 1; fi
+          CUR="$REVS"
           echo "current pin: $CUR"
           echo "temper main: $NEW"
+
+          if [ "$NEW" = "$CUR" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "pin already at main - nothing to bump."
+            exit 0
+          fi
+
+          # Forward-only: bump only when temper main is strictly AHEAD of the pin.
+          # If main was reverted/force-pushed behind (or diverged), do not "bump"
+          # backward. The compare API is public - GITHUB_TOKEN suffices.
+          STATUS=$(gh api "repos/${TEMPER_REPO}/compare/${CUR}...${NEW}" -q .status 2>/dev/null || echo "unknown")
+          if [ "$STATUS" != "ahead" ]; then
+            echo "::warning::temper main is '$STATUS' relative to the pin, not 'ahead' - not bumping (forward-only)."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           {
             echo "new=$NEW"
             echo "cur=$CUR"
-            if [ "$NEW" = "$CUR" ]; then echo "changed=false"; else echo "changed=true"; fi
+            echo "changed=true"
           } >> "$GITHUB_OUTPUT"
       - name: Up to date
         if: steps.drift.outputs.changed == 'false'
-        run: echo "temper pin already at main - nothing to bump."
-      - name: Skip if a bump for this rev is already open
+        run: echo "temper pin already current (or main not ahead) - nothing to bump."
+      - name: Skip if a bump PR for this rev already exists
         id: dedupe
         if: steps.drift.outputs.changed == 'true'
         env:
@@ -71,10 +106,14 @@ jobs:
           set -euo pipefail
           BRANCH="bot/temper-pin-${NEW:0:12}"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          # A branch already pushed for this exact rev means a prior run handled it
-          # (PR open, merged, or deliberately closed) - never re-open it.
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            echo "branch $BRANCH already exists - a bump for this rev was already opened; skipping."
+          # Key the skip on PR existence, NOT branch existence: a prior run whose
+          # `gh pr create` FAILED leaves a stranded branch with no PR, and keying on
+          # the branch would skip forever. Any PR for this head - open (in flight)
+          # or closed (a human rejected this rev) - means "handled, do not re-open";
+          # a merged bump is unreachable here because the pin would already match.
+          count=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state all --json number -q 'length')
+          if [ "$count" -gt 0 ]; then
+            echo "a PR already exists for $BRANCH - handled; skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -92,12 +131,16 @@ jobs:
           git config user.email "rita.aga.js@gmail.com"
           git checkout -b "$BRANCH"
 
-          # 1. bump the rev in BOTH manifests (data-only sed of the 40-char sha).
+          # 1. bump the rev ONLY on the temper.git dependency lines of both manifests
+          #    (line-scoped so no other dep sharing the sha could be touched).
           for f in crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml; do
-            sed -i "s/${CUR}/${NEW}/g" "$f"
+            sed -i "/nerdsane\/temper\.git/s/${CUR}/${NEW}/g" "$f"
           done
-          if grep -rqE "rev = \"${CUR}\"" crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml; then
-            echo "::error::old pin still present after sed"; exit 1; fi
+          # after bump: the temper.git deps in BOTH manifests must ALL be exactly NEW.
+          NREVS=$(grep -hE 'nerdsane/temper\.git' crates/temperpaw/Cargo.toml crates/paw-codex-worker/Cargo.toml \
+            | grep -oE 'rev = "[0-9a-f]{40}"' | grep -oE '[0-9a-f]{40}' | sort -u)
+          if [ "$NREVS" != "$NEW" ]; then
+            echo "::error::after bump the temper pin is not uniformly $NEW: ${NREVS:-none}"; exit 1; fi
 
           # 2. refresh Cargo.lock properly (the new kernel may pull new transitive
           #    deps a pure sed would miss and break --locked). One -p per crate.
@@ -121,7 +164,10 @@ jobs:
           MSG
           sed -i "s/__NEW__/$SHORT_NEW/g; s/__CUR__/$SHORT_CUR/g" /tmp/commit-msg.txt
           git commit -F /tmp/commit-msg.txt
-          git push origin "$BRANCH"
+          # force-with-lease: a stranded branch from a prior failed pr-create (no PR,
+          # so we reached here) is safe to overwrite; --with-lease still refuses to
+          # clobber a branch that advanced under us.
+          git push --force-with-lease origin "$BRANCH"
 
           # PR body references ARN-438 (whose docs/efforts/ chain lives on main, so
           # the planning gate resolves the effort) and carries the decisions

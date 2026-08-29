@@ -9,8 +9,11 @@
 # coverage. The sweep mints repo-qualified entity ids (sv-<slug>-prN-gate) so the
 # two repos' PR-number spaces never collide in prod Temper.
 #
-# Cross-repo reads need a token that can see BOTH repos: GITHUB_TOKEN is scoped to
-# this repo only, so every git/gh call here uses STACK_TOKEN (a rita-aga PAT).
+# nerdsane/temper is PUBLIC, so GITHUB_TOKEN (and anonymous) can already read its
+# PRs and check them out - STACK_TOKEN is NOT about temper being unreadable. The
+# sweep must clone the PRIVATE arni-labs/stack for its script anyway, so it reuses
+# that one PAT for every git/gh call here rather than mixing a token per repo.
+# (A shadow-only nightly job; the broader token is acceptable for the simplicity.)
 name: shadow-sweep
 on:
   schedule:
@@ -27,8 +30,8 @@ on:
         required: false
         default: ""
 permissions:
-  # Everything here authenticates with STACK_TOKEN (needs to read both repos), so
-  # the default GITHUB_TOKEN is effectively unused. Keep contents:read only.
+  # Everything here authenticates with STACK_TOKEN (the PAT the stack clone needs),
+  # so the default GITHUB_TOKEN is effectively unused. Keep contents:read only.
   contents: read
 jobs:
   shadow-sweep:
@@ -42,7 +45,7 @@ jobs:
         uses: actions/checkout@v6.0.2
         with:
           repository: ${{ matrix.repo }}
-          token: ${{ secrets.STACK_TOKEN }}   # GITHUB_TOKEN can't read the other repo
+          token: ${{ secrets.STACK_TOKEN }}   # one PAT for both legs (also clones private stack)
           fetch-depth: 1
       - name: Fetch the sweep from stack
         env:
@@ -55,7 +58,7 @@ jobs:
       - name: Resolve the PR window
         id: window
         env:
-          GH_TOKEN: ${{ secrets.STACK_TOKEN }}   # reads PRs/check-runs in EITHER repo
+          GH_TOKEN: ${{ secrets.STACK_TOKEN }}   # one PAT for both legs (temper is public; GITHUB_TOKEN would also work)
           MATRIX_REPO: ${{ matrix.repo }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_REPO: ${{ github.event.inputs.repo }}
@@ -124,7 +127,7 @@ jobs:
       - name: Run the shadow sweep (shadow only - never blocks)
         if: steps.window.outputs.prs != ''
         env:
-          GH_TOKEN: ${{ secrets.STACK_TOKEN }}   # reads PRs/check-runs in EITHER repo
+          GH_TOKEN: ${{ secrets.STACK_TOKEN }}   # one PAT for both legs (temper is public; GITHUB_TOKEN would also work)
           TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
           STACK_DIR: /tmp/stack
           SHADOW_REPO: ${{ matrix.repo }}
