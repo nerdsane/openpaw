@@ -50,3 +50,27 @@ ShadowVerdict write actions in paw-patrol's Cedar policy. This is the same
 recorded residual. Recommend a follow-up issue; S1's sweep + workflow are ready
 and will produce real entity-derived verdicts once the grant lands.
 **Where:** live run against openpaw-production; evidence in the ARN-431 report.
+
+---
+
+## Panel round fixes (#486)
+
+**Decision:** Pass the PR list to the sweep via an `env:` var read into a bash
+array, not a `${{ }}` splice into the `run:` script; sanitize the dispatch input
+and write `$GITHUB_OUTPUT` with a heredoc delimiter.
+**Came up because:** the panel flagged `steps.window.outputs.prs` spliced as a
+literal `${{ }}` into the shell (workflow-injection class), and `INPUT_PRS`
+written into `$GITHUB_OUTPUT` unquoted (output-injection class).
+**Fix:** `PRS: ${{ steps.window.outputs.prs }}` in `env`, then
+`read -ra pr_args <<< "$PRS"` + `"${pr_args[@]}"`; the dispatch input is
+`tr -cd '0-9 '`-sanitized before it reaches the shell, and the output is written
+with a `<<SHADOW_PRS_EOF` delimiter so no value can inject an extra key. Values
+are data, never executable text. **Where:** `.github/workflows/shadow-sweep.yml`.
+
+**Decision (considers):** Widen the nightly window to ~48h and note in the
+workflow that review/proof read `na` until ARN-434's permits land.
+**Where:** `.github/workflows/shadow-sweep.yml` (since window + header comment).
+
+Stale-branch artifacts (apparent ci.yml/READY_PATH revert + docs/efforts/ARN-432
+deletion) dissolved by merging origin/main - the PR diff is now only the
+shadow-sweep workflow + the ARN-431 design chain.

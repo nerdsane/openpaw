@@ -3,6 +3,10 @@
 # state machine's per-gate verdict against CI's, and prints a disagreement table.
 # The sweep script lives in stack (shadow/shadow-sweep.py) and is cloned here the
 # same way the gates fetch stack.
+#
+# NOTE: until ARN-434's Cedar permits land in prod, the sweep's Temper writes are
+# denied, so the review/proof columns read `na` (planning/decision-log still
+# compare against CI). Nothing here blocks a merge or writes to GitHub.
 name: shadow-sweep
 on:
   schedule:
@@ -35,16 +39,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_PRS: ${{ github.event.inputs.pr_numbers }}
         run: |
-          if [ -n "${INPUT_PRS// /}" ]; then
-            echo "prs=${INPUT_PRS}" >> "$GITHUB_OUTPUT"
+          # Sanitize the dispatch input to digits + spaces BEFORE it reaches the
+          # shell or $GITHUB_OUTPUT - never splice an untrusted value as script.
+          input_prs="$(printf '%s' "${INPUT_PRS:-}" | tr -cd '0-9 ')"
+          if [ -n "${input_prs// /}" ]; then
+            prs="$input_prs"
           else
-            # nightly: PRs updated in the last ~25h (open or recently merged)
-            since=$(date -u -d '25 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)
-            prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit 50 \
+            # nightly: PRs updated in the last ~48h - a wide overlap so a skipped
+            # nightly run does not leave a coverage gap.
+            since=$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-48H +%Y-%m-%dT%H:%M:%SZ)
+            prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit 100 \
                   --json number,updatedAt \
                   --jq "[.[] | select(.updatedAt > \"$since\") | .number] | join(\" \")")
-            echo "prs=${prs}" >> "$GITHUB_OUTPUT"
           fi
+          # Delimiter (heredoc) form so no value can inject an extra output key.
+          {
+            echo "prs<<SHADOW_PRS_EOF"
+            echo "$prs"
+            echo "SHADOW_PRS_EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Run the shadow sweep (shadow only - never blocks)
         if: steps.window.outputs.prs != ''
         env:
@@ -52,12 +65,19 @@ jobs:
           TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
           STACK_DIR: /tmp/stack
           SHADOW_REPO: ${{ github.repository }}
+          # Passed via env (not a ${{ }} splice into the script) so the value is
+          # data, never executable text.
+          PRS: ${{ steps.window.outputs.prs }}
         run: |
+          EXTRA=""
           if [ -z "${TEMPER_API_KEY:-}" ]; then
             echo "::warning::TEMPER_API_KEY unavailable - printing verdicts without writing ShadowVerdicts"
             EXTRA=--no-write
           fi
-          python3 /tmp/stack/shadow/shadow-sweep.py ${EXTRA:-} --stack-dir /tmp/stack ${{ steps.window.outputs.prs }}
+          # $PRS is digits + spaces; split into an array so each PR is a separate
+          # argument without word-splitting surprises.
+          read -ra pr_args <<< "$PRS"
+          python3 /tmp/stack/shadow/shadow-sweep.py ${EXTRA:-} --stack-dir /tmp/stack "${pr_args[@]}"
       - name: Nothing to sweep
         if: steps.window.outputs.prs == ''
         run: echo "No PRs in the window - nothing to sweep."
