@@ -14,11 +14,12 @@ on:
   workflow_dispatch:
     inputs:
       pr_numbers:
-        description: "Space-separated PR numbers to sweep (blank = nightly window)"
+        description: "Space/comma-separated PR numbers to sweep (blank = nightly window)"
         required: false
         default: ""
 permissions:
-  contents: read
+  # gh reads PRs + their check-runs via GITHUB_TOKEN; no repo checkout (stack is
+  # cloned with STACK_TOKEN), so no contents scope is needed.
   pull-requests: read
   checks: read
 jobs:
@@ -39,18 +40,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_PRS: ${{ github.event.inputs.pr_numbers }}
         run: |
-          # Sanitize the dispatch input to digits + spaces BEFORE it reaches the
-          # shell or $GITHUB_OUTPUT - never splice an untrusted value as script.
-          input_prs="$(printf '%s' "${INPUT_PRS:-}" | tr -cd '0-9 ')"
-          if [ -n "${input_prs// /}" ]; then
+          set -euo pipefail
+          # Validate the dispatch input PER TOKEN (split on whitespace/commas):
+          # each must be 1-6 digits, else fail loudly. Never sanitize-by-deletion,
+          # which could concatenate "12;34" into a different valid PR number.
+          input_prs=""
+          for tok in ${INPUT_PRS//,/ }; do
+            case "$tok" in
+              ''|*[!0-9]*) echo "::error::invalid pr_numbers token '$tok' (expected 1-6 digits)"; exit 1 ;;
+            esac
+            if [ "${#tok}" -gt 6 ]; then echo "::error::pr_numbers token '$tok' too long"; exit 1; fi
+            input_prs="${input_prs:+$input_prs }$tok"
+          done
+
+          if [ -n "$input_prs" ]; then
             prs="$input_prs"
           else
             # nightly: PRs updated in the last ~48h - a wide overlap so a skipped
-            # nightly run does not leave a coverage gap.
+            # nightly run leaves no coverage gap. Fetch newest-updated first so the
+            # --limit cannot drop in-window PRs before the window filter runs, and
+            # warn loudly if the cap is hit (in-window PRs might still be truncated).
             since=$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-48H +%Y-%m-%dT%H:%M:%SZ)
-            prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit 100 \
-                  --json number,updatedAt \
-                  --jq "[.[] | select(.updatedAt > \"$since\") | .number] | join(\" \")")
+            limit=200
+            raw=$(gh pr list --repo "${GITHUB_REPOSITORY}" --state all --limit "$limit" \
+                  --search "sort:updated-desc" --json number,updatedAt) || {
+                    echo "::error::gh pr list failed"; exit 1; }
+            total=$(printf '%s' "$raw" | jq 'length')
+            prs=$(printf '%s' "$raw" | jq -r --arg since "$since" \
+                  '[.[] | select(.updatedAt > $since) | .number] | join(" ")')
+            if [ "$total" -ge "$limit" ]; then
+              echo "::warning::gh pr list returned the full ${limit}-row cap; in-window PRs may be truncated"
+            fi
           fi
           # Delimiter (heredoc) form so no value can inject an extra output key.
           {
@@ -69,6 +89,8 @@ jobs:
           # data, never executable text.
           PRS: ${{ steps.window.outputs.prs }}
         run: |
+          set -euo pipefail
+          echo "NOTE: until ARN-434's Cedar permits land in prod, review/proof read 'na' (writes denied); planning/decision-log still compare. Shadow only - never blocks."
           EXTRA=""
           if [ -z "${TEMPER_API_KEY:-}" ]; then
             echo "::warning::TEMPER_API_KEY unavailable - printing verdicts without writing ShadowVerdicts"

@@ -74,3 +74,29 @@ workflow that review/proof read `na` until ARN-434's permits land.
 Stale-branch artifacts (apparent ci.yml/READY_PATH revert + docs/efforts/ARN-432
 deletion) dissolved by merging origin/main - the PR diff is now only the
 shadow-sweep workflow + the ARN-431 design chain.
+
+---
+
+## Panel delta fixes (#486)
+
+**Act-on (input sanitization concatenated):** replaced `tr -cd '0-9 '` (which
+could fuse "12;34" into a different valid PR number "1234") with PER-TOKEN
+validation - split on whitespace/commas, each token must be 1-6 digits or the
+run fails loudly. Verified under bash: "12;34" and "477 && rm -rf x" are
+rejected, valid lists accepted, blank -> nightly.
+
+**Act-on (limit truncates before the window filter):** the nightly query now
+fetches newest-updated-first (`--search "sort:updated-desc"`) with a 200 cap, so
+the limit cannot drop in-window PRs before the `updatedAt` filter runs, and it
+warns loudly if the full cap is returned (possible truncation).
+
+**Consider (gh failure not caught):** the `gh pr list` result is captured with an
+explicit `|| { echo ::error; exit 1; }` and the step runs `set -euo pipefail`.
+
+**Consider (nightly cron):** kept enabled (486 merges after 434's permits, so the
+na-window is nil-to-short) and the run step now logs the na-constraint line at
+start.
+
+**Nit (permissions):** dropped the unused `contents: read` (no repo checkout -
+stack is cloned with STACK_TOKEN); kept `pull-requests: read` + `checks: read`
+which gh needs via GITHUB_TOKEN.
