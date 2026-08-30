@@ -2513,6 +2513,14 @@ fn publish_or_update_app_via_git(
     if sandbox_url.is_empty() {
         return Err("temper.publish_app()/update_app() requires an attached sandbox".to_string());
     }
+    let genesis_token = ctx.get_secret("genesis_token").unwrap_or_default();
+    if genesis_token.trim().is_empty() {
+        return Err(
+            "Cannot publish to Genesis: the 'genesis_token' secret is not configured. \
+             An operator must set the GENESIS_TOKEN credential before agents can push to the registry."
+                .to_string(),
+        );
+    }
     let repository_id =
         ensure_genesis_repository(ctx, registry_url, registry_tenant, owner, name, message)?;
     let handle = wasm_helpers::sandbox::SandboxHandle {
@@ -2535,11 +2543,12 @@ fn publish_or_update_app_via_git(
         registry_url.trim_end_matches('/'),
         escape_odata_key(&app_id_for(owner, name))
     );
-    let headers = genesis_registry_headers(registry_tenant);
+    let headers = genesis_registry_headers(ctx, registry_tenant);
     let existing_latest_hash =
         fetch_genesis_latest_hash(ctx, &app_url, &headers, owner, name).unwrap_or_default();
     let git_header_key = format!("http.{}/.extraHeader", registry_url.trim_end_matches('/'));
     let git_tenant_header = format!("X-Tenant-Id: {registry_tenant}");
+    let git_auth_header = format!("Authorization: Bearer {}", genesis_token.trim());
     let command = format!(
         "set -euo pipefail\n\
          source_dir={}\n\
@@ -2556,6 +2565,7 @@ fn publish_or_update_app_via_git(
          find \"$publish_dir\" -type f \\( -name '*.pyc' -o -name '*.pyo' \\) -delete\n\
          cd \"$publish_dir\"\n\
          git config --unset-all {} >/dev/null 2>&1 || true\n\
+         git config --add {} {}\n\
          git config --add {} {}\n\
          git config protocol.version 0\n\
          git add .\n\
@@ -2577,6 +2587,8 @@ fn publish_or_update_app_via_git(
         shell_quote(&git_header_key),
         shell_quote(&git_header_key),
         shell_quote(&git_tenant_header),
+        shell_quote(&git_header_key),
+        shell_quote(&git_auth_header),
         shell_quote("TemperPaw Agent"),
         shell_quote("agent@temperpaw.local"),
         shell_quote(message),
@@ -2638,7 +2650,7 @@ fn ensure_genesis_repository(
         registry_url.trim_end_matches('/'),
         escape_odata_key(&repository_id)
     );
-    let headers = genesis_registry_headers(registry_tenant);
+    let headers = genesis_registry_headers(ctx, registry_tenant);
     let existing = ctx.http_call("GET", &url, &headers, "")?;
     if existing.status < 400 {
         return Ok(repository_id);
@@ -2691,7 +2703,7 @@ fn publish_genesis_app_version(
         registry_url.trim_end_matches('/'),
         escape_odata_key(&app_id)
     );
-    let headers = genesis_registry_headers(registry_tenant);
+    let headers = genesis_registry_headers(ctx, registry_tenant);
     let existing = ctx.http_call("GET", &app_url, &headers, "")?;
     if existing.status == 404 {
         let register_url = format!("{app_url}/Temper.Git.RegisterNewApp?await_integration=true");
@@ -2854,9 +2866,25 @@ fn genesis_registry_tenant(input: &serde_json::Map<String, Value>) -> String {
         .to_string()
 }
 
-fn genesis_registry_headers(registry_tenant: &str) -> Vec<(String, String)> {
+/// `Bearer <token>` value for the Genesis registry credential, or `None` when
+/// no token is configured. Genesis (ADR-0025) authenticates the GitToken as a
+/// Bearer; without it a `git push` fails with "could not read Username" and
+/// registry OData calls are rejected.
+fn genesis_bearer(token: &str) -> Option<String> {
+    let token = token.trim();
+    if token.is_empty() {
+        None
+    } else {
+        Some(format!("Bearer {token}"))
+    }
+}
+
+fn genesis_registry_headers(ctx: &Context, registry_tenant: &str) -> Vec<(String, String)> {
     let mut headers = internal_headers();
     headers.push(("X-Tenant-Id".to_string(), registry_tenant.to_string()));
+    if let Some(bearer) = genesis_bearer(&ctx.get_secret("genesis_token").unwrap_or_default()) {
+        headers.push(("Authorization".to_string(), bearer));
+    }
     headers
 }
 
@@ -3871,7 +3899,7 @@ mod tests {
         BatchableToolPlan, BatchableToolPlanKind, LAZY_SANDBOX,
         MAX_INLINE_SANDBOX_IMAGE_BASE64_CHARS, ODataQueryArg, batchable_tool_plan_from_code,
         coalesce_sandbox_args, encode_odata_filter_literal, escape_odata_string_literal,
-        fallback_web_search_query, genesis_registry_tenant, has_model_csdl,
+        fallback_web_search_query, genesis_bearer, genesis_registry_tenant, has_model_csdl,
         interpret_cached_web_query_result, interpret_web_query_entity_result, is_image_extension,
         is_vague_web_search_query, json_dumps, json_loads, media_type_from_extension,
         normalize_image_model_for_provider, normalize_image_provider, normalize_odata_query_arg,
@@ -3900,6 +3928,22 @@ mod tests {
         let mut input = serde_json::Map::new();
         input.insert("registry_tenant".to_string(), json!("team-a"));
         assert_eq!(genesis_registry_tenant(&input), "team-a");
+    }
+
+    #[test]
+    fn genesis_bearer_wraps_token_or_none() {
+        // The Genesis credential must ride as `Authorization: Bearer <token>`;
+        // without it the push fails with "could not read Username".
+        assert_eq!(
+            genesis_bearer("pawg_abc").as_deref(),
+            Some("Bearer pawg_abc")
+        );
+        assert_eq!(
+            genesis_bearer("  pawg_abc  ").as_deref(),
+            Some("Bearer pawg_abc")
+        );
+        assert_eq!(genesis_bearer("   "), None);
+        assert_eq!(genesis_bearer(""), None);
     }
 
     #[test]
