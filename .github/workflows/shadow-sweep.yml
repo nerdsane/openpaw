@@ -156,4 +156,6 @@ jobs:
           done
       - name: Nothing to sweep
         if: steps.window.outputs.prs == ''
-        run: echo "No PRs in the window for ${{ matrix.repo }} - nothing to sweep."
+        env:
+          MATRIX_REPO: ${{ matrix.repo }}   # via env, never spliced into the script
+        run: echo "No PRs in the window for $MATRIX_REPO - nothing to sweep."

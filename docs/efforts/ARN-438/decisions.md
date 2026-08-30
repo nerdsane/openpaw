@@ -130,3 +130,38 @@ Given up: a few lines of shell. The rust toolchain now installs only after the
 no-drift early-exit (cheap nit from the panel).
 **Where:** `temper-pin-bump.yml` (drift + bump steps, `concurrency`, `Rust
 toolchain` step).
+
+---
+
+**Decision:** Post-merge follow-ups from the #488 panel: supersede stacked bump
+PRs, pass `matrix.repo` via env in the sweep's "Nothing to sweep" step, and correct
+the spec's temper-is-private wording.
+**Came up because:** three non-blocking findings the panel logged for the next
+temperpaw touch (not worth reopening the merged #488).
+**Options:** (a) leave them; (b) batch them into one small follow-up PR.
+**Chose (b) over (a) because:** each is a real, cheap fix - successive temper
+advances would otherwise stack multiple open bump PRs; a `${{ }}` splice into a run
+script is a standing hygiene rule even for a controlled matrix value; and a wrong
+recorded rationale (temper is public, not private) misleads the next reader. Given
+up: nothing - one small PR through the normal gates.
+**Where:** `temper-pin-bump.yml` (supersede loop after `gh pr create`);
+`shadow-sweep.yml` ("Nothing to sweep" env); `docs/efforts/ARN-438/spec.md` (Token).
+
+---
+
+**Decision:** Harden the supersede logic (#489 panel round 1): only close a bump PR
+that we authored (rita-aga), that targets a DIFFERENT rev, and that is BEHIND the
+new target (temper compare `status == "ahead"`); fail loudly on close errors and if
+more than one bump PR remains open.
+**Came up because:** the first supersede pass closed every other open
+`bot/temper-pin-*` PR unconditionally (could close a NEWER bump from a mid-cron
+manual dispatch), and `gh pr close … || true` swallowed failures so a failed close
+still passed green while leaving duplicates.
+**Options:** (a) keep the unconditional close with `|| true`; (b) rev-compare each
+candidate, require the bot author, and fail loudly on errors / leftover duplicates.
+**Chose (b) over (a) because:** (a) can close a newer bump and hide close failures -
+both defeat the point of superseding. (b) closes only genuinely-older bumps, never a
+newer one, and surfaces any close failure or leftover duplicate as a red run for a
+human to resolve. Given up: the run now fails when a legitimate newer bump coexists -
+but that IS an anomaly worth flagging (per the lead's ask).
+**Where:** `temper-pin-bump.yml` (supersede block after `gh pr create`).
