@@ -211,12 +211,36 @@ jobs:
             --title "chore(deps): bump temper pin to $SHORT_NEW" \
             --body-file /tmp/pr-body.md
 
-          # Supersede: this bump targets a newer temper rev than any still-open bump,
-          # so close the older open bot/temper-pin-* PRs (and delete their branches)
-          # rather than letting successive temper advances stack multiple open PRs.
-          olds=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName \
-            -q ".[] | select(.headRefName | startswith(\"bot/temper-pin-\")) | select(.headRefName != \"$BRANCH\") | .number")
-          for n in $olds; do
-            gh pr close "$n" --repo "$GITHUB_REPOSITORY" --delete-branch \
-              --comment "Superseded by the newer temper pin bump to ${SHORT_NEW}." || true
-          done
+          # Supersede OLDER open bump PRs so successive temper advances don't stack.
+          # Close only a candidate that (a) we authored (rita-aga), (b) targets a
+          # DIFFERENT rev, and (c) is BEHIND NEW - i.e. NEW is `ahead` of the
+          # candidate's rev on temper. NEVER close a NEWER bump (a mid-cron manual
+          # dispatch may have opened one); the branch name's 12-hex is the target
+          # temper rev, compared via the temper compare API. Fail loudly: a close
+          # error, or more than one bump PR left open, is a real problem - not `|| true`.
+          BOT_IDENTITY="rita-aga"
+          close_failures=0
+          candidates=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --json number,headRefName,author \
+            -q ".[] | select(.headRefName | startswith(\"bot/temper-pin-\")) | select(.headRefName != \"$BRANCH\") | select(.author.login == \"$BOT_IDENTITY\") | [.number, .headRefName] | @tsv")
+          while IFS=$'\t' read -r num headref; do
+            [ -z "${num:-}" ] && continue
+            candrev="${headref#bot/temper-pin-}"
+            status=$(gh api "repos/${TEMPER_REPO}/compare/${candrev}...${NEW}" -q .status 2>/dev/null || echo "unknown")
+            if [ "$status" = "ahead" ]; then
+              if gh pr close "$num" --repo "$GITHUB_REPOSITORY" --delete-branch \
+                   --comment "Superseded by the newer temper pin bump to ${SHORT_NEW}."; then
+                echo "superseded older bump PR #$num ($candrev)"
+              else
+                echo "::error::failed to close superseded bump PR #$num"; close_failures=$((close_failures + 1))
+              fi
+            else
+              echo "::warning::leaving bump PR #$num ($candrev) open - compare vs ${SHORT_NEW} is '$status', not an older rev"
+            fi
+          done <<< "$candidates"
+          remaining=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName \
+            -q "[.[] | select(.headRefName | startswith(\"bot/temper-pin-\"))] | length")
+          if [ "$close_failures" -gt 0 ]; then
+            echo "::error::${close_failures} superseded-PR close(s) failed"; exit 1; fi
+          if [ "$remaining" -gt 1 ]; then
+            echo "::error::${remaining} open temper-pin bump PRs remain (expected 1) - a newer/racing bump needs manual resolution"; exit 1; fi

@@ -146,3 +146,22 @@ recorded rationale (temper is public, not private) misleads the next reader. Giv
 up: nothing - one small PR through the normal gates.
 **Where:** `temper-pin-bump.yml` (supersede loop after `gh pr create`);
 `shadow-sweep.yml` ("Nothing to sweep" env); `docs/efforts/ARN-438/spec.md` (Token).
+
+---
+
+**Decision:** Harden the supersede logic (#489 panel round 1): only close a bump PR
+that we authored (rita-aga), that targets a DIFFERENT rev, and that is BEHIND the
+new target (temper compare `status == "ahead"`); fail loudly on close errors and if
+more than one bump PR remains open.
+**Came up because:** the first supersede pass closed every other open
+`bot/temper-pin-*` PR unconditionally (could close a NEWER bump from a mid-cron
+manual dispatch), and `gh pr close … || true` swallowed failures so a failed close
+still passed green while leaving duplicates.
+**Options:** (a) keep the unconditional close with `|| true`; (b) rev-compare each
+candidate, require the bot author, and fail loudly on errors / leftover duplicates.
+**Chose (b) over (a) because:** (a) can close a newer bump and hide close failures -
+both defeat the point of superseding. (b) closes only genuinely-older bumps, never a
+newer one, and surfaces any close failure or leftover duplicate as a red run for a
+human to resolve. Given up: the run now fails when a legitimate newer bump coexists -
+but that IS an anomaly worth flagging (per the lead's ask).
+**Where:** `temper-pin-bump.yml` (supersede block after `gh pr create`).
