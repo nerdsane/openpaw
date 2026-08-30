@@ -374,8 +374,24 @@ async fn run_codex_exec_command(
     prompt: String,
     context_label: &str,
 ) -> Result<Output> {
-    run_codex_exec_command_with_args(config, workdir, codex_exec_args(workdir, &prompt), context_label)
-        .await
+    run_codex_exec_command_with_env(config, workdir, prompt, context_label, &[]).await
+}
+
+async fn run_codex_exec_command_with_env(
+    config: &Config,
+    workdir: &Path,
+    prompt: String,
+    context_label: &str,
+    extra_env: &[(String, String)],
+) -> Result<Output> {
+    run_codex_exec_command_with_args(
+        config,
+        workdir,
+        codex_exec_args(workdir, &prompt),
+        context_label,
+        extra_env,
+    )
+    .await
 }
 
 async fn run_codex_exec_command_with_args(
@@ -383,6 +399,7 @@ async fn run_codex_exec_command_with_args(
     workdir: &Path,
     args: Vec<std::ffi::OsString>,
     context_label: &str,
+    extra_env: &[(String, String)],
 ) -> Result<Output> {
     let mut command = Command::new(&config.codex_bin);
     command
@@ -391,6 +408,9 @@ async fn run_codex_exec_command_with_args(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
     configure_process_group(&mut command);
 
     let mut child = command
