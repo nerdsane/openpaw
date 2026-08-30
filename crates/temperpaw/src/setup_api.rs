@@ -36,7 +36,7 @@ use crate::transport_manager::{
     DiscordConnectParams, SlackConnectParams, TransportManager, TransportStatus,
 };
 
-const DEFAULT_SETUP_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_write_many,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,temper_image_generate,read,write,edit,bash";
+const DEFAULT_SETUP_AGENT_TOOLS_ENABLED: &str = "temper_create,temper_get,temper_list,temper_action,temper_patch,temper_submit_specs,temper_show_spec,temper_specs,temper_upload_wasm,temper_get_trajectories,temper_get_insights,temper_get_decisions,temper_poll_decision,temper_approve_decision,temper_deny_decision,temper_submit_policy,temper_list_policies,temper_get_policy,temper_update_policy,temper_delete_policy,temper_search_apps,temper_install_app,temper_publish_app,temper_update_app,temper_list_apps,temper_spawn_session,temper_list_sessions,temper_abort_session,temper_steer_session,temper_save_memory,temper_recall_memory,temper_write,temper_write_many,temper_read,temper_run_coding_agent,temper_get_secret,temper_datadog_query,temper_railway,temper_vercel,temper_web_search,temper_web_fetch,temper_image_generate,temper_image_edit,read,write,edit,bash";
 pub(crate) const DISCORD_TRANSPORT_CONNECTION_ID: &str = "transport-discord";
 const OPENAI_CODEX_AUTH_ENTITY_ID: &str = "openai-codex-auth";
 const OPENAI_CODEX_AUTH_ENTITY_TYPE: &str = "OpenAICodexAuth";
@@ -96,6 +96,7 @@ fn allowed_secret_keys() -> HashSet<&'static str> {
         "slack_signing_secret",
         "github_token",
         "exa_api_key",
+        "fal_key",
         "tensorlake_api_key",
         "temper_api_key",
         "llm_provider",
@@ -340,6 +341,13 @@ fn secrets_schema() -> Vec<SecretSchema> {
             label: "Exa API Key",
             required: false,
             description: "Web search via exa.ai — agents can research the internet",
+        },
+        SecretSchema {
+            key: "fal_key",
+            category: "media",
+            label: "FAL API Key",
+            required: false,
+            description: "Optional image-edit provider credential used only by PawMedia",
         },
         SecretSchema {
             key: "sandbox_provider",
@@ -3955,6 +3963,21 @@ mod tests {
                 "{key} should be visible in dashboard schema"
             );
         }
+    }
+
+    #[test]
+    fn paw_media_fal_secret_is_allowed_and_rendered() {
+        assert!(
+            allowed_secret_keys().contains("fal_key"),
+            "PawMedia's FAL credential should be accepted by the setup API"
+        );
+        let schema = secrets_schema();
+        let fal = schema
+            .iter()
+            .find(|secret| secret.key == "fal_key")
+            .expect("FAL credential should be visible in dashboard schema");
+        assert_eq!(fal.category, "media");
+        assert!(fal.description.contains("only by PawMedia"));
     }
 
     #[test]

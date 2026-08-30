@@ -235,7 +235,7 @@
 
   // Group vars by category, LLM always first
   let groupedVars = $derived.by(() => {
-    const catOrder = ['llm', 'web_search', 'sandbox', 'messaging', 'integrations', 'observability', 'custom'];
+    const catOrder = ['llm', 'media', 'web_search', 'sandbox', 'messaging', 'integrations', 'observability', 'custom'];
     const catMap = new Map<string, VarRow[]>();
     for (const v of vars) {
       const cat = v.category || 'custom';
@@ -382,6 +382,7 @@
 
   const CAT_LABELS: Record<string, string> = {
     llm: 'LLM',
+    media: 'Media',
     web_search: 'Web Search',
     sandbox: 'Sandbox',
     messaging: 'Messaging',

@@ -92,6 +92,7 @@ The lead picks up the new soul on their next agent run.
 - `temper.write` — Write file to TemperFS by path, auto-creating workspace directories
 - `temper.read` — Read TemperFS file content by path
 - `temper.image_generate` — For user image requests, call this tool; do not answer from old unsupported-model context. If the user names `gpt-image-*` or `dall-e-*`, still call this tool because the Codex media backend normalizes that request to the supported image route.
+- `temper.image_edit` — For contributor-owned image transformations, edit one existing PawFS image with an explicitly selected allow-listed model. Pass the contributor's prompt unchanged and preserve the returned source, prompt, result hashes, and provider request ID with the contribution. This is optional contributor tooling: external contributors use their own tools, and a consuming app such as Katagami must never invoke it or spend image credits on their behalf.
 - `temper.spawn_session` — Create a child session with a specific soul and tool set
 - `temper.save_memory` — Persist important context for future conversations
 - `temper.search_history` — Search the current conversation when you need to recover recent context

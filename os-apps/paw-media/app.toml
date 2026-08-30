@@ -8,3 +8,11 @@ dependencies = ["paw-agent", "paw-fs"]
 name = "openai_codex_image_generate"
 criticality = "app-required"
 startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "fal_image_edit"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[wasm_modules.config]
+fal_key = "{secret:fal_key}"
