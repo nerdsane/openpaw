@@ -581,3 +581,119 @@ is noted in `exec.ioa.toml` next to the output fields. This honors the round-1
 **Chose** (1)+(2) enforced in code, not a caveat, because the failure mode is killing a live panel. Batch-suffix concurrency (multiple governed copies of one source) remains a documented follow-up; the provider's 409 on the fixed name + these guards make single-copy safe now. Named copies from the provider would dissolve the whole class — worth an upstream ask.
 
 **Where:** `wasm-helpers/src/sandbox.rs` (`sandbox_copy_start`, `tensorlake_copy_start` with precondition + windowed/claimed discovery, `tensorlake_list_sandboxes`, `parse_created_ms`), `wasm/computer_copy_start/src/lib.rs` (`live_claimed_machine_ids`). PR #495.
+
+## R1 panel (2/3) — structural rework: entity-serialized copy, not seven patches
+
+The R1 panel (codex + fable; grok held) returned 9 findings on the discover-guards
+design above. The lead adjudicated: do NOT patch the seven leaks individually —
+fable's `consider` (computer.ioa.toml:242) is the real answer, so restructure once.
+This entry records the rework and maps every finding to its resolution.
+
+**Decision:** Serialize copy-per-source at the ENTITY level. A SOURCE takes a lock on
+Copy (Ready -> CopyInFlight); while CopyInFlight it is not Ready, so a second Copy
+cannot fire — the kernel's per-entity action ordering GUARANTEES at most one governed
+copy of a source in flight, by construction, with no provider-list race, clock
+window, or precondition heuristic. Discovery moves out of the initiate into the
+Copying poll (a durable initiated-but-undiscovered state). The source releases its
+lock (CopyUnlock -> Ready) as soon as the in-flight child OWNS its own copy machine
+(owned_machine) or has failed/vanished, watched by the source itself
+(computer_copy_lock_poll on a CopyInFlight self-loop — the source sequences its own
+unlock from a read; the module never dispatches cross-entity, per CLAUDE.md).
+
+**Came up because:** the whole adoption-hazard class existed because concurrency on
+one source was detected AFTER THE FACT via provider list calls + a creation-time
+window + a claimed-id snapshot — each of which can independently fail open (findings
+below). The kernel already serializes actions per entity; using that rules the race
+out structurally instead of by heuristic.
+
+**The name-claim IS the mutex (the load-bearing concurrency argument).** The tensorlake
+copy POST creates a fixed-named `<source>-copy`; a duplicate name returns a fast 4xx
+(409) with no copy created, and a 5xx/timeout means OUR copy was created (the name was
+free when our POST won). Therefore: computer_copy_start (INITIATE) treats 4xx as a
+definitive CopyFailed and only a non-4xx reaches CopyStarted -> Copying. Discovery
+runs ONLY on that non-4xx path (it lives in the Copying poll, only reachable via
+CopyStarted). So a successful initiate proves no `<source>-copy` existed before ours,
+and the `<source>-copy` the poll discovers is unambiguously ours. If a panel's raw
+copy (which has no Computer row, so claimed_ids can't catch it) beat us, WE get the
+409 and refuse; if we won, the panel's own copy gets the 409 and escalates to suffixed
+batch names our exact-name discovery ignores. claimed_ids remains as defense-in-depth
+(fail-closed + paginated), not the primary guard.
+
+**Options / why this over the seven patches:** patching each leak (retry discovery,
+fix the clock parse, paginate claimed_ids, etc.) would leave the same fragile "detect
+concurrency after the fact" shape. The entity lock removes the shape. Given up: a
+small amount of new surface (one state, one watcher module, four fields); gained:
+the guarantee is an invariant, not a race the guards happen to win.
+
+**Finding-by-finding (all 9):**
+- codex sandbox.rs:1152 (single-shot discovery loses a created copy): FIXED — discovery
+  is now the Copying poll, retried across invocations until found or the deadline; a
+  5xx/timeout initiate goes CopyStarted -> Copying (not CopyFailed), so a created copy
+  is never lost to list-propagation lag.
+- codex sandbox.rs:1160 + fable sandbox.rs:1217 (creation-window guard compares
+  unsynced clocks / parse_created_ms returns 0 for EVERY RFC3339 string — dead code):
+  FIXED — the entire window guard, parse_created_ms, created_ms, and the tolerance
+  constant are DELETED. The name-claim mutex replaces the ordering role the window was
+  supposed (and failing) to play.
+- codex computer_copy_start:57 + fable consider:110 (claimed_ids is a pre-POST,
+  fail-OPEN, first-200 snapshot): FIXED — claimed_ids moved to computer_copy_poll at
+  ADOPTION time, fail-CLOSED (any /tdata read error refuses to discover this tick
+  rather than adopting unchecked), and PAGINATED via @odata.nextLink (bounded page cap).
+- codex computer_terminate:35 (teardown trusts the mutable machine_id): FIXED at the
+  app level with an owned_machine provenance gate — computer_terminate calls the
+  provider ONLY when the row owns its machine (set at ProvisionComplete /
+  CopyDiscovered), never on the inherited source machine a child carries pre-discovery.
+  SECURITY RESIDUAL — see the ARN-450 entry: the gate is bypassable until the kernel
+  stops projecting undeclared params.
+- codex sandbox.rs:1104 (initiate+discovery bundled, no durable retry state): FIXED —
+  split into computer_copy_start (INITIATE, one concern) and computer_copy_poll
+  (DISCOVER + readiness); Copying is the durable initiated-but-undiscovered state.
+- fable sandbox.rs:1112 (precondition not atomic with the POST — two concurrent Copy
+  both adopt the single `<source>-copy`): FIXED structurally by the CopyInFlight lock;
+  two Copy on one source cannot both fire.
+- fable consider computer.ioa.toml:242 (serialize structurally, not by heuristic):
+  ADOPTED as the core of this rework.
+
+**Where:** `specs/computer.ioa.toml` (CopyInFlight state; owned_machine, inflight_copy_id,
+copy_lock_polls, max_lock_polls fields; Copy Ready->CopyInFlight + store_id_in;
+CopyLockPoll/CopyUnlock + CopyInFlight state_timeout; CopyStarted now initiate-only;
+CopyDiscovered; ProvisionComplete sets owned_machine), `wasm-helpers/src/sandbox.rs`
+(sandbox_copy_initiate + sandbox_copy_discover; deleted the window guard),
+`wasm/computer_copy_start` (initiate only), `wasm/computer_copy_poll` (discover-then-
+readiness, fail-closed paginated claimed_ids), `wasm/computer_copy_lock_poll` (NEW,
+source-side lock release), `wasm/computer_terminate` (owned_machine gate),
+`policies/compute.cedar` (CopyDiscovered/CopyLockPoll/CopyUnlock system-only + the new
+module's http_call/access_secret), `app.toml`, `wasm/build.sh`, `specs/model.csdl.xml`,
+`.scratch/e2e.sh`. Local green: wasm-helpers 56/56, 7 modules 34/34, e2e 28/28.
+
+## SECURITY RESIDUAL (ARN-450): kernel projects undeclared action params
+
+**Decision:** Close ARN-443 C+D on the copy/exec MACHINERY + C5 evidence, but do NOT
+claim "governed compute is securely isolated" until ARN-450 lands. Record the caveat
+prominently here and in the ARN-443 closing comment.
+
+**Came up because:** implementing the owned_machine terminate gate (finding #4) surfaced
+that the Temper kernel PROJECTS UNDECLARED action params into entity fields. Probed on
+a fresh local temperpaw: `POST Computers('x')/TemperPaw.Configure {"machine_id":"HACKED",
+"owned_machine":"true"}` (Configure declares neither) read back with both fields set;
+`Provision {"machine_id":"via-provision"}` likewise. GOOD: `status` (the state) is NOT
+projectable — `Configure {"status":"Ready"}` left status Created — so the state machine
+itself is not bypassable; only non-state fields are agent-writable this way.
+
+**Why it matters:** the owned_machine gate is the correct forward shape but is
+BYPASSABLE while projection exists — any tenant Agent can read arni-big's machine_id
+(Cedar permits Agent read), create its own Computer row, Configure{machine_id:<arni-big>,
+owned_machine:true} (both project), and Destroy -> computer_terminate deletes arni-big's
+sandbox. This exposure PREDATES #495 (the sync-copy version had it too); #495 does not
+introduce or worsen it, and adds the gate that becomes authoritative the moment the
+kernel is fixed (then only system callbacks set owned_machine).
+
+**Chose:** owner ruling (lead) — C+D closes with ARN-450 linked; the governed-compute
+security claim is explicitly gated on ARN-450 (declared-params-only projection in the
+kernel). The honest line: the feature WORKS (machinery + C5), it is not yet SAFE against
+a malicious tenant until ARN-450. Alternative (block C+D on the kernel fix) rejected:
+the machinery is provable now and the exposure is pre-existing and platform-wide, not a
+regression in this effort.
+
+**Where:** filed ARN-450 (high/security, kernel, linked to ARN-443) with the probe
+evidence and the declared-params-only fix; caveat carried in the ARN-443 closing comment.

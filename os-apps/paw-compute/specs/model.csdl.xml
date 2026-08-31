@@ -29,6 +29,10 @@
         <Property Name="ProjectHarnessId" Type="Edm.String" />
         <Property Name="SourceMachineId" Type="Edm.String" />
         <Property Name="CopyDeadlineAtMs" Type="Edm.String" />
+        <Property Name="OwnedMachine" Type="Edm.Boolean" />
+        <Property Name="InflightCopyId" Type="Edm.String" />
+        <Property Name="CopyLockPolls" Type="Edm.Int32" />
+        <Property Name="MaxLockPolls" Type="Edm.String" />
 
         <Action Name="Configure" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
@@ -99,17 +103,23 @@
           <Parameter Name="description" Type="Edm.String" />
         </Action>
 
+        <!-- computer_copy_start callback: initiate only; discovery happens in the poll. -->
         <Action Name="CopyStarted" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
-          <Parameter Name="machine_id" Type="Edm.String" />
-          <Parameter Name="sandbox_url" Type="Edm.String" />
-          <Parameter Name="source_machine_id" Type="Edm.String" />
-          <Parameter Name="name" Type="Edm.String" />
           <Parameter Name="copy_deadline_at_ms" Type="Edm.String" />
         </Action>
 
         <Action Name="CopyPoll" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <!-- computer_copy_poll callback: the copy sandbox was discovered. -->
+        <Action Name="CopyDiscovered" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="machine_id" Type="Edm.String" />
+          <Parameter Name="sandbox_url" Type="Edm.String" />
+          <Parameter Name="source_machine_id" Type="Edm.String" />
+          <Parameter Name="name" Type="Edm.String" />
         </Action>
 
         <Action Name="CopyComplete" IsBound="true">
@@ -122,6 +132,16 @@
         </Action>
 
         <Action Name="CopyExpired" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <!-- Source-side copy lock (ARN-443 C5): CopyLockPoll watches the in-flight
+             child; CopyUnlock releases the source (CopyInFlight -> Ready). -->
+        <Action Name="CopyLockPoll" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="CopyUnlock" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
         </Action>
 

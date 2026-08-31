@@ -8,9 +8,14 @@
 //! still reports TerminateComplete so the row always reaches Destroyed. A leaked
 //! sandbox is caught by the panel's stale-copy reaper.
 //!
-//! Safety: Destroy is never allowed from Provisioning, where a child's machine_id
-//! is still the SOURCE's machine — so this module never terminates a source it
-//! shouldn't. It always acts on the row's own recorded machine.
+//! Safety (ARN-443 C5, provenance): this module calls the provider terminate ONLY
+//! when the row OWNS its machine (`owned_machine` — set at ProvisionComplete or
+//! CopyDiscovered). A child copy carries the inherited SOURCE machine_id until it
+//! discovers its own (owned_machine stays false through Created→Provisioning→
+//! Copying-before-discovery), so even if a teardown reached it, the source's sandbox
+//! can NEVER be terminated through the child. This is defense in depth behind the
+//! spec guard that keeps Destroy out of Provisioning; it does not rely on the
+//! mutable machine_id field alone.
 //!
 //! Build: `cargo build --target wasm32-wasip1 --release`.
 
@@ -28,12 +33,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let machine_id = entity_field_str(&fields, &["machine_id", "MachineId"])
             .unwrap_or("")
             .to_string();
+        let owns_machine = bool_field(&fields, &["owned_machine", "OwnedMachine"]);
 
         if machine_id.is_empty() {
             ctx.log(
                 "info",
                 &format!(
                     "computer_terminate: {} has no machine_id — nothing to terminate",
+                    ctx.entity_id
+                ),
+            );
+        } else if !owns_machine {
+            // The row does not own this machine (e.g. a copy child still carrying the
+            // inherited SOURCE machine_id before discovery). NEVER call the provider —
+            // terminating here could tear down a source's sandbox.
+            ctx.log(
+                "info",
+                &format!(
+                    "computer_terminate: {} does not own machine {machine_id} (owned_machine=false) — refusing provider terminate",
                     ctx.entity_id
                 ),
             );
@@ -68,6 +85,18 @@ fn provider_from_fields(fields: &Value) -> String {
         .unwrap_or_else(|| "tensorlake".to_string())
 }
 
+/// Read a bool field that may be stored as a JSON bool or a "true"/"false" string.
+fn bool_field(fields: &Value, keys: &[&str]) -> bool {
+    for k in keys {
+        match fields.get(k) {
+            Some(Value::Bool(b)) => return *b,
+            Some(Value::String(s)) => return s == "true",
+            _ => {}
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +106,16 @@ mod tests {
         assert_eq!(provider_from_fields(&json!({})), "tensorlake");
         assert_eq!(provider_from_fields(&json!({"provider": "tl"})), "tensorlake");
         assert_eq!(provider_from_fields(&json!({"provider": "modal"})), "modal");
+    }
+
+    #[test]
+    fn owned_machine_gate_reads_bool_and_string() {
+        // A copy child pre-discovery (owned_machine false / absent) must NOT be
+        // treated as owning its machine.
+        assert!(!bool_field(&json!({"machine_id": "src-123"}), &["owned_machine"]));
+        assert!(!bool_field(&json!({"owned_machine": "false"}), &["owned_machine"]));
+        // A provisioned or discovered row owns its machine.
+        assert!(bool_field(&json!({"owned_machine": "true"}), &["owned_machine"]));
+        assert!(bool_field(&json!({"owned_machine": true}), &["owned_machine"]));
     }
 }

@@ -1038,124 +1038,113 @@ fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
     None
 }
 
-/// ASYNC copy start (ARN-443, fix after C5), with concurrency guards (added after
-/// the outgoing lead flagged that name discovery could adopt a live panel's copy).
+/// ASYNC copy — INITIATE only (ARN-443 C5 structural fix). One concern: fire the
+/// copy POST. Discovery is a SEPARATE step (`sandbox_copy_discover`) driven from the
+/// Copying poll, so initiate and discover are distinct transitions.
 ///
 /// The tensorlake live-copy API is SYNCHRONOUS — POST /sandboxes/{src}/copy blocks
-/// until the copy is fully provisioned (minutes) then returns — so it cannot finish
-/// inside one ~120s WASM invocation. This INITIATES the copy with a short wait (the
-/// copy is created server-side regardless of whether the response arrives), then
-/// DISCOVERS the created copy and returns its handle WITHOUT waiting for readiness;
-/// the caller polls readiness from the Copying state.
-///
-/// Discovery is by the provider's fixed single-copy name `<source>-copy`, which the
-/// panel's raw copies ALSO use — so two guards keep a governed copy from ever
-/// claiming a panel's (or anyone's) sandbox, which would let the lease reaper kill a
-/// running review:
-///  (2) PRECONDITION — refuse if an un-suffixed `<source>-copy` already exists
-///      (the provider's fixed naming means only ONE anonymous copy can be in
-///      flight; a second POST 409s), so a pre-existing one is never ours.
-///  (1) DISCOVERY FILTER — the adopted sandbox must have been created AFTER our
-///      POST (creation-time window) AND must not already be referenced by another
-///      live Computer row (`claimed_ids`, passed by the caller).
-/// `claimed_ids` are the machine_ids of live Computer rows; `now_ms` is the caller's
-/// clock just before the POST. Returns Err on a definitive failure OR a "retry
-/// later" precondition (a copy already in flight).
-pub fn sandbox_copy_start(
+/// until the copy is fully provisioned (minutes) then returns — so this cannot wait
+/// for the copy. It fires the POST with a short wait (the copy is created
+/// server-side regardless of whether the response arrives) and returns:
+///  - a 4xx is a DEFINITIVE failure (Err) — including the provider's 409 when a
+///    `<source>-copy` already exists. That 409 is the ORDERING GUARANTEE that makes
+///    discovery safe: a successful initiate means no `<source>-copy` existed before,
+///    so the `<source>-copy` discovered next is unambiguously OURS (this is why the
+///    old creation-time window guard was removed — it was also dead code, as the
+///    provider returns RFC3339 timestamps that parsed to 0).
+///  - a 2xx / 5xx / gateway timeout means the copy is being created — return Ok; the
+///    Copying poll discovers it.
+pub fn sandbox_copy_initiate(
     ctx: &Context,
     provider: &str,
     source_sandbox_id: &str,
     wait_secs: u64,
-    claimed_ids: &[String],
-) -> Result<SandboxHandle, String> {
+) -> Result<(), String> {
     let api_key = resolve_sandbox_api_key(ctx, provider)?;
-    let handle = match provider {
-        "tensorlake" => {
-            tensorlake_copy_start(ctx, &api_key, source_sandbox_id, wait_secs, claimed_ids)
-        }
-        other => Err(format!("sandbox_copy_start unsupported for provider: {other}")),
+    let result = match provider {
+        "tensorlake" => tensorlake_copy_initiate(ctx, &api_key, source_sandbox_id, wait_secs),
+        other => Err(format!("sandbox_copy_initiate unsupported for provider: {other}")),
     };
-    let outcome = if handle.is_ok() { "started" } else { "error" };
+    let outcome = if result.is_ok() { "initiated" } else { "error" };
     log_sandbox_observability(
-        ctx, provider, "copy_start", outcome,
-        handle.as_ref().map(|h| h.sandbox_id.as_str()).unwrap_or(""),
-        None, None, source_sandbox_id,
+        ctx, provider, "copy_initiate", outcome, "", None, None, source_sandbox_id,
     );
-    handle
+    result
 }
 
-/// Tolerance (ms) on the "created after our POST" window — absorbs clock skew
-/// between the host and the provider and list-propagation lag, so a fresh copy of
-/// ours is never wrongly rejected while a clearly-older sandbox still is.
-const COPY_DISCOVERY_WINDOW_TOLERANCE_MS: i64 = 60_000;
-
-fn tensorlake_copy_start(
+fn tensorlake_copy_initiate(
     ctx: &Context,
     api_key: &str,
     source_sandbox_id: &str,
     wait_secs: u64,
+) -> Result<(), String> {
+    let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
+    let body = json!({ "times": 1, "timeout_seconds": wait_secs });
+    match ctx.http_call("POST", &copy_url, &bearer_headers_json(api_key), &body.to_string()) {
+        Ok(r) if r.status >= 400 && r.status < 500 => Err(format!(
+            "Tensorlake copy of {source_sandbox_id} rejected (HTTP {}): {}",
+            r.status,
+            &r.body[..r.body.len().min(300)]
+        )),
+        _ => Ok(()), // 2xx (created), 5xx, gateway timeout, or http error: being created
+    }
+}
+
+/// ASYNC copy — DISCOVER the created copy (ARN-443 C5). Driven from the Copying poll
+/// until the copy sandbox appears. The copy carries the provider's fixed single-copy
+/// name `<source>-copy`. Because a successful initiate proves no `<source>-copy`
+/// existed beforehand (the provider 409s a duplicate), the one we find is ours; the
+/// `claimed_ids` filter (machine_ids referenced by live Computer rows, passed by the
+/// caller) is defense-in-depth so discovery can never adopt a sandbox already owned
+/// by another governed row even under a list-propagation race.
+///
+/// Returns Ok(Some(handle)) when found, Ok(None) when the source or copy is not yet
+/// listed (the caller re-arms and retries within the deadline), Err on a hard list
+/// failure.
+pub fn sandbox_copy_discover(
+    ctx: &Context,
+    provider: &str,
+    source_sandbox_id: &str,
     claimed_ids: &[String],
-) -> Result<SandboxHandle, String> {
-    // Resolve the source name (the copy is named "<source-name>-copy").
-    let rows_before = tensorlake_list_sandboxes(ctx, api_key)?;
-    let source_name = rows_before
+) -> Result<Option<SandboxHandle>, String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    match provider {
+        "tensorlake" => tensorlake_copy_discover(ctx, &api_key, source_sandbox_id, claimed_ids),
+        other => Err(format!("sandbox_copy_discover unsupported for provider: {other}")),
+    }
+}
+
+fn tensorlake_copy_discover(
+    ctx: &Context,
+    api_key: &str,
+    source_sandbox_id: &str,
+    claimed_ids: &[String],
+) -> Result<Option<SandboxHandle>, String> {
+    let rows = tensorlake_list_sandboxes(ctx, api_key)?;
+    // The copy is named "<source-name>-copy"; the source must be listed to know it.
+    let source_name = match rows
         .iter()
         .find(|r| r.id == source_sandbox_id)
         .map(|r| r.name.clone())
         .filter(|n| !n.is_empty())
-        .ok_or_else(|| format!("source sandbox {source_sandbox_id} not found / unnamed"))?;
-    let want = format!("{source_name}-copy");
-
-    // (2) Precondition: refuse if an un-suffixed <source>-copy already exists —
-    // only one anonymous copy can be in flight, and a pre-existing one is not ours
-    // (it may be a live panel copy). Retry later.
-    if rows_before
-        .iter()
-        .any(|r| r.name == want && r.id != source_sandbox_id && !is_terminated_status(&r.status))
     {
-        return Err(format!(
-            "a copy '{want}' is already in flight; retry later (only one anonymous copy per source)"
-        ));
-    }
-
-    // Initiate. Short wait creates the copy server-side; a 4xx is a definitive
-    // no-copy failure, a 5xx/timeout means it was created (discover it).
-    let post_ms = Context::get_time_millis();
-    let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
-    let body = json!({ "times": 1, "timeout_seconds": wait_secs });
-    match ctx.http_call("POST", &copy_url, &bearer_headers_json(api_key), &body.to_string()) {
-        Ok(r) if r.status >= 400 && r.status < 500 => {
-            return Err(format!(
-                "Tensorlake copy of {source_sandbox_id} rejected (HTTP {}): {}",
-                r.status,
-                &r.body[..r.body.len().min(300)]
-            ));
-        }
-        _ => { /* 2xx (created), 5xx, gateway timeout, or http error: discover */ }
-    }
-
-    // (1) Discovery filter: the copy must be un-suffixed <source>-copy, not
-    // terminated, not the source, created at/after our POST (minus tolerance), and
-    // NOT already claimed by another live Computer row.
-    let rows_after = tensorlake_list_sandboxes(ctx, api_key)?;
-    let min_created = post_ms - COPY_DISCOVERY_WINDOW_TOLERANCE_MS;
-    let copy = rows_after.iter().find(|r| {
+        Some(n) => n,
+        None => return Ok(None), // source not listed yet — retry
+    };
+    let want = format!("{source_name}-copy");
+    let copy = rows.iter().find(|r| {
         r.name == want
             && r.id != source_sandbox_id
             && !is_terminated_status(&r.status)
             && !claimed_ids.iter().any(|c| c == &r.id)
-            && (r.created_ms == 0 || r.created_ms >= min_created)
     });
-    copy.map(|r| handle_for(r.id.clone())).ok_or_else(|| {
-        format!("Tensorlake copy of {source_sandbox_id} was initiated but no fresh, unclaimed '{want}' was found")
-    })
+    Ok(copy.map(|r| handle_for(r.id.clone())))
 }
 
 struct SandboxRow {
     id: String,
     name: String,
     status: String,
-    created_ms: i64,
 }
 
 fn tensorlake_list_sandboxes(ctx: &Context, api_key: &str) -> Result<Vec<SandboxRow>, String> {
@@ -1188,38 +1177,10 @@ fn tensorlake_list_sandboxes(ctx: &Context, api_key: &str) -> Result<Vec<Sandbox
                 id: id.to_string(),
                 name: e.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 status: e.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                created_ms: parse_created_ms(e),
             });
         }
     }
     Ok(out)
-}
-
-/// Best-effort creation timestamp in ms. Tolerates epoch seconds, epoch ms, or an
-/// RFC3339 string; returns 0 (unknown) if absent/unparseable, in which case the
-/// window check is skipped for that row (the precondition + claimed-id guards still
-/// apply).
-fn parse_created_ms(row: &Value) -> i64 {
-    for key in ["created_at", "createdAt", "created", "created_at_ms"] {
-        match row.get(key) {
-            Some(Value::Number(n)) => {
-                if let Some(i) = n.as_i64() {
-                    return if i < 100_000_000_000 { i * 1000 } else { i };
-                }
-            }
-            Some(Value::String(sv)) => {
-                if let Ok(i) = sv.parse::<i64>() {
-                    return if i < 100_000_000_000 { i * 1000 } else { i };
-                }
-                // RFC3339 → epoch ms via a minimal parse is not available in this
-                // no_std-ish wasm build; leave 0 (unknown) and rely on the other
-                // guards rather than mis-parse a date.
-                return 0;
-            }
-            _ => {}
-        }
-    }
-    0
 }
 
 fn is_terminated_status(status: &str) -> bool {

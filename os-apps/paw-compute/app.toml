@@ -29,6 +29,11 @@ criticality = "app-required"
 startup_loading = "lazy"
 
 [[wasm_modules]]
+name = "computer_copy_lock_poll"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
 name = "computer_terminate"
 criticality = "app-required"
 startup_loading = "lazy"
