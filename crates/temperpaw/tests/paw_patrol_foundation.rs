@@ -95,6 +95,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "signal.ioa.toml",
         "factory_case.ioa.toml",
         "work_cycle.ioa.toml",
+        "intent.ioa.toml",
+        "effort.ioa.toml",
         "worker_run.ioa.toml",
         "review_run.ioa.toml",
         "evaluation_run.ioa.toml",
@@ -118,6 +120,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "Signal",
         "FactoryCase",
         "WorkCycle",
+        "Intent",
+        "Effort",
         "WorkerRun",
         "ReviewRun",
         "EvaluationRun",
@@ -132,6 +136,10 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         assert!(
             csdl.contains(&format!("<EntityType Name=\"{entity}\">")),
             "CSDL should expose {entity}"
+        );
+        assert!(
+            csdl.contains(&format!("<EntitySet Name=\"{entity}s\"")),
+            "CSDL should expose the {entity}s entity set"
         );
     }
 }
@@ -1942,9 +1950,19 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        23,
-        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun and the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict)"
+        25,
+        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun, the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict, and the ARN-441 Intent/Effort entity loop)"
     );
+    for entity in ["Intent", "Effort"] {
+        assert!(
+            bundle
+                .specs
+                .iter()
+                .any(|(entity_type, _)| entity_type == entity),
+            "paw-patrol bundle should include the ARN-441 {entity} spec: {:?}",
+            bundle.specs.iter().map(|(t, _)| t).collect::<Vec<_>>()
+        );
+    }
     assert!(
         bundle
             .specs

@@ -88,3 +88,83 @@ recorded it as the model for the honest hand-off call.
 **Where:** handoff brief at scratchpad/ARN-441-handoff-brief.md; foundation
 (migration decision, rename survey/map, this chain) preserved on
 `claude/arn-441-entity-loop`.
+
+---
+
+**Decision (BLOCKER surfaced to owner, 2026-08-31, successor session):** The
+recorded migration premise - "WorkRequest/WorkCycle are NOT the live stage-2
+driver; renamed entities driven synthetically in shadow" - is CONTRADICTED BY
+SOURCE. A pure paw-patrol-only, zero-behavior-change, shadow-safe rename PR is
+therefore not achievable; escalated to the team-lead/owner for an A-vs-B ruling
+before any rename surgery.
+**Came up because:** the reference survey went repo-wide (not just paw-patrol) and
+found WorkCycle/WorkRequest are live-driven by two OTHER deployable units.
+**Evidence (verified in source):**
+- crates/paw-codex-worker (compiled prod worker): `temper_api.rs:111`
+  `config.entity_url("WorkCycles", work_cycle_id)`; `fetch_work_cycle_until_review_passed`
+  polls WorkCycle (`temper_api.rs:123-137`); `event_loop.rs` claims queued WorkerRuns
+  and drives the cycle; posts `work_cycle_id` / `Fail`. ~70 refs.
+- dashboard/ (Svelte): `stores/workcycles.ts` `queryEntities('WorkCycles', ...)` +
+  `getEntity('WorkCycles', id)`; `app-views/paw-patrol.ts` addresses the `WorkCycles`
+  set and `WorkCycleId` columns + relation graph.
+- CSDL: `<EntitySet Name="WorkCycles" EntityType="TemperPaw.Patrol.WorkCycle"/>`
+  (+ WorkRequests). Worker + dashboard address the OData SET names; a clean rename
+  makes the set `Efforts` and 404s the live worker / blanks the dashboard.
+- Also independent, MUST-NOT-TOUCH WorkCycle concepts in other apps:
+  `os-apps/paw-harness/specs/work_cycle.ioa.toml` (+ its cedar/csdl) and
+  `reference-projects/deep-sci-fi/dsf-harness/specs/dsf_work_cycle.ioa.toml` - separate
+  entities, out of ARN-441 scope.
+**Options:** (A) coordinated hard cutover across 3 pipelines (app publish+install,
+paw-codex-worker rebuild+deploy, dashboard deploy) in a quiet window - clean end
+state, but no atomic flip => breakage window for in-flight efforts, worker/dashboard
+come into scope; (B) additive-then-flip - add Effort/Intent as new types for the new
+lifecycle, keep WorkCycle/WorkRequest live for worker+dashboard until the phase-3
+flip (same "retire AT the flip" discipline as gate_render/merge-permit/risk_rule),
+no prod breakage, two names coexist only during the shadow window.
+**Recommended:** B (shadow-first, matches the rest of ARN-441). Pending owner ruling.
+**Where:** finding messaged to team-lead 2026-08-31; no code touched yet.
+
+---
+
+**Decision (OWNER RULING, team-lead 2026-08-31): Option B - additive-then-flip.**
+**Came up because:** the source-contradiction blocker above needed an A-vs-B call.
+**Chose B because:** (1) the approved spec's spine is "nothing existing retires until
+its entity twin proves out live" - A (hard 3-unit cutover with a breakage window)
+contradicts the spec Rita approved; B is what the spec implies. (2) Rita's naming
+ruling's REASON was "before more machinery hardcodes legacy names" - B honors it fully:
+Intent/Effort are created NOW and every NEW piece speaks ONLY the domain names (zero
+new legacy hardcoding); the legacy names survive only in already-deployed consumers
+(worker, dashboard) and retire AT the flip, like risk_rule and the CI gates. Bounded
+coexistence, not a permanent tax. (3) At flip time the retirement of
+WorkCycles/WorkRequests is a normal coordinated change on by-then read-mostly
+machinery - no quiet-window heroics.
+**Scope for PR 1a (folds old 1a+1b into one additive PR):** CREATE Intent + Effort
+types at full shape - Effort with Intended-initial six-stage lifecycle, chain-file
+guards, chain reference fields, WorkerRun Heartbeat + state_timeout lease; Intent as
+the renamed WorkRequest shape with Accept->Effort handoff - plus Cedar, CSDL sets
+Intents/Efforts, and the wasm handlers for the NEW types (work_cycle_lifecycle logic
+GENERALIZED, not moved). WorkCycle/WorkRequest specs/wasm/worker/dashboard UNTOUCHED.
+A flip-time retirement note is added to the RFC Not-in-scope.
+**Where:** team-lead ruling 2026-08-31; PR on claude/arn-441-entity-loop.
+
+---
+
+**Decision (lead confirm + lease refinement, 2026-08-31):** Effort automaton
+approved as proposed; lease timeout applies ONLY to owned states.
+**Came up because:** the lease exists for orphan PICKUP, not death; pre-attachment
+states have no owner, so a timeout there is noise, not orphan detection.
+**Resolution:** state_timeout->Stalled on the owned states Building, InReview,
+Proving, Merged, Deploying. Pre-attachment states Intended/Specified/Planned ->
+`allow_indefinite` (my pick over a long timeout): it is the honest "no owner, no
+lease" model, and the Intent entity's own intake timeouts already cover "nobody
+picked this up." Stalled/Verified/Abandoned are also allow_indefinite (resting
+states). Timeout target is Stalled (recoverable), never Fail/Abandoned.
+**WorkCycle AwaitingHuman* pause states (where they went):** NOT dropped - the
+completion-approval pause becomes step 3's Cedar-deny->MCP elicitation; a
+start-approval pause, if still wanted, becomes a guard on StartBuild in a later step.
+Both recorded in the RFC deferred list.
+**Split (approved):** PR 1a = Intent + Effort types (full shape) + CSDL sets Intents/
+Efforts + Cedar + Intent.Accept->Effort birth. PR 1b = chain-file guards +
+effort_lifecycle wasm (generalized) + WorkerRun Heartbeat + state_timeout lease, with
+a forced timeout->Stalled drive as proof. Both additive/create-only.
+**Where:** lead ruling 2026-08-31; building 1a now.

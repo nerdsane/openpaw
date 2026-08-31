@@ -1,0 +1,162 @@
+[automaton]
+# Intent - human or manager-agent intent submitted into Patrol as work
+# (WorkRequest shape, renamed to the SDLC vocabulary; ARN-441). Triage (worth
+# doing?) is a different lifecycle than execution (done right?), so Intent stays
+# the intake and Accept BIRTHS an Effort. Additive: WorkRequest stays live for the
+# paw-codex-worker + dashboard until the phase-3 flip.
+name = "Intent"
+states = ["Draft", "Submitted", "Triaged", "Accepted", "Rejected", "Linked"]
+initial = "Draft"
+
+allow_indefinite_states = ["Draft", "Accepted", "Rejected", "Linked"]
+
+[[state]]
+name = "source"
+type = "string"
+initial = ""
+
+[[state]]
+name = "request_text"
+type = "string"
+initial = ""
+
+[[state]]
+name = "requester_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "signal_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "factory_case_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "triage_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# Seed fields for the Effort born at Accept (mapped by the entity trigger below).
+[[state]]
+name = "task_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_detail"
+type = "string"
+initial = ""
+
+[[state]]
+name = "risk_lane"
+type = "string"
+initial = "L0"
+
+[[state]]
+name = "repo"
+type = "string"
+initial = ""
+
+[[state]]
+name = "branch"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Submit"
+kind = "input"
+from = ["Draft"]
+to = "Submitted"
+params = ["source", "request_text", "requester_id"]
+hint = "Submit human or manager-agent intent into Patrol as work. (Intake routing generalizes from patrol_request_router in a later step; the Effort is born at Accept.)"
+
+[[action]]
+name = "AttachSignal"
+kind = "input"
+from = ["Submitted", "Triaged"]
+to = "Submitted"
+params = ["signal_id"]
+hint = "Attach an observed signal to this intent."
+
+[[action]]
+name = "Triage"
+kind = "input"
+from = ["Submitted"]
+to = "Triaged"
+params = ["triage_summary", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
+hint = "Record Patrol triage and the execution seed (task, risk, repo/branch) before accepting."
+
+# Accept BIRTHS the Effort: a declarative entity trigger creates an Effort
+# (initial Intended) and dispatches Seed with the intent linkage + task fields.
+# `principal` elevates the create to the intake service so the Effort surface can
+# be locked to it in Cedar (ordinary agents cannot create an Effort directly).
+[[action]]
+name = "Accept"
+kind = "input"
+from = ["Triaged"]
+to = "Accepted"
+params = ["factory_case_id"]
+hint = "Accept this intent and birth its Effort (Intended, intent.md attached at birth)."
+
+[[action.triggers]]
+name = "intent_accepted_births_effort"
+kind = "entity"
+principal = "patrol-intake-service"
+to_state = "Accepted"
+target_entity = "Effort"
+target_action = "Seed"
+
+[action.triggers.params_from]
+intent_id = "Id"
+pm_issue_id = "pm_issue_id"
+factory_case_id = "factory_case_id"
+task_summary = "task_summary"
+task_detail = "task_detail"
+risk_lane = "risk_lane"
+repo = "repo"
+branch = "branch"
+
+[action.triggers.resolve_target]
+type = "create"
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Accepted", "Linked"]
+to = "Linked"
+params = ["pm_issue_id"]
+hint = "Link the durable paw-pm Issue created or reused by Patrol (Linear mirror)."
+
+[[action]]
+name = "Reject"
+kind = "input"
+from = ["Triaged", "Submitted"]
+to = "Rejected"
+params = ["triage_summary"]
+hint = "Reject an intent that should not become work."
+
+[[state_timeout]]
+state = "Submitted"
+after_seconds = 86400
+on_timeout = "Reject"
+params = { triage_summary = "Intent was not triaged within 24h." }
+
+[[state_timeout]]
+state = "Triaged"
+after_seconds = 86400
+on_timeout = "Reject"
+params = { triage_summary = "Intent was not accepted or rejected within 24h." }

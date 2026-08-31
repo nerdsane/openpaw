@@ -5,9 +5,11 @@ permit(
 ) when {
   resource is PatrolRequest ||
   resource is WorkRequest ||
+  resource is Intent ||
   resource is Signal ||
   resource is FactoryCase ||
   resource is WorkCycle ||
+  resource is Effort ||
   resource is WorkerRun ||
   resource is WorkerProvider ||
   resource is WorkerAgent ||
@@ -34,9 +36,11 @@ permit(
 ) when {
   resource is PatrolRequest ||
   resource is WorkRequest ||
+  resource is Intent ||
   resource is Signal ||
   resource is FactoryCase ||
   resource is WorkCycle ||
+  resource is Effort ||
   resource is WorkerRun ||
   resource is WorkerProvider ||
   resource is WorkerAgent ||
@@ -170,9 +174,11 @@ permit(
   (
     resource is PatrolRequest ||
     resource is WorkRequest ||
+    resource is Intent ||
     resource is Signal ||
     resource is FactoryCase ||
     resource is WorkCycle ||
+    resource is Effort ||
     resource is WorkerRun ||
     resource is WorkerProvider ||
     resource is WorkerAgent ||
@@ -556,4 +562,67 @@ permit(
   principal.agent_type == "operator" &&
   principal has agentTypeVerified &&
   principal.agentTypeVerified == true
+};
+
+// ============================ ARN-441: the entity loop ========================
+// Intent (WorkRequest renamed) + Effort (WorkCycle EXTENDED). Additive in shadow;
+// WorkRequest/WorkCycle policies above stay live until the phase-3 flip. Intent/
+// Effort are also on the Admin blanket + read/list blanket above.
+
+// Intent intake - open to agents, like the WorkRequest manager surface.
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"Submit",
+    Action::"AttachSignal",
+    Action::"Triage",
+    Action::"Accept",
+    Action::"LinkPmIssue",
+    Action::"Reject"
+  ],
+  resource is Intent
+);
+
+// Effort lifecycle - the new SDLC actions, driven by the system/patrol surface.
+// (Overlapping actions - AttachWorkerRun, WorkerDone, SubmitForReview,
+// AttachReviewRun, ReportE2e, PassReview, RequestChanges, PassEvaluation,
+// AttachProofPacket, Resume - are already granted to system agents on Effort by
+// the system-agent block above; this block adds the actions unique to Effort.)
+permit(
+  principal,
+  action in [
+    Action::"Seed",
+    Action::"Specify",
+    Action::"Plan",
+    Action::"StartBuild",
+    Action::"Merge",
+    Action::"Deploy",
+    Action::"MarkDeployVerified",
+    Action::"Verify",
+    Action::"Stall",
+    Action::"Abandon"
+  ],
+  resource is Effort
+) when {
+  principal is Admin ||
+  (principal is Agent && (
+    principal.agent_type == "system" ||
+    principal.agent_type == "supervisor"
+  ))
+};
+
+// Effort BIRTH - create + Seed ONLY via the intake service (the elevation the
+// declarative Intent.Accept -> Effort.Seed trigger runs under). No ordinary-Agent
+// create grant, mirroring the ReleaseRun / patrol-release-service pattern: an
+// Effort is born by accepting an Intent, never conjured directly.
+permit(
+  principal,
+  action in [
+    Action::"create",
+    Action::"Effort.Seed", Action::"Seed"
+  ],
+  resource is Effort
+) when {
+  principal.agent_type == "patrol-intake-service"
 };
