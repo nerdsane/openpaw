@@ -731,20 +731,26 @@ fn unique_run_id(ctx: &Context) -> String {
 }
 
 /// Build the capture id from the entity id, host clock, and per-instance
-/// counter. Pure (testable). The entity id is sanitized to a filename-safe
-/// token so it cannot escape `/tmp/.paw-*` or break the redirection; an empty
-/// entity id falls back to `exec`.
+/// counter. Pure (testable). The entity id is encoded to a filename-safe token
+/// so it cannot escape `/tmp/.paw-*` or break the redirection; an empty entity
+/// id falls back to `exec`.
+///
+/// The encoding is injective: ASCII alphanumerics and `-` pass through, and
+/// every other byte — `_` included — becomes `_` + its two hex digits. Because
+/// `_` is itself escaped, it only ever marks an escape, so two distinct entity
+/// ids can never map to the same token (the old lossy `→ _` scheme collided
+/// e.g. `a/b` with `a?b`). Distinct entities therefore never share capture
+/// files even within one clock millisecond.
 fn capture_run_id(entity_id: &str, now_millis: i64, seq: u32) -> String {
-    let entity: String = entity_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
+    let mut entity = String::with_capacity(entity_id.len());
+    for b in entity_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' {
+            entity.push(b as char);
+        } else {
+            entity.push('_');
+            entity.push_str(&format!("{b:02x}"));
+        }
+    }
     let entity = if entity.is_empty() { "exec" } else { &entity };
     format!("{entity}-{now_millis:x}-{seq:08x}")
 }
@@ -1231,6 +1237,17 @@ mod tests {
         assert!(id.ends_with("-00000007"));
         // Empty entity id falls back to a safe token.
         assert!(capture_run_id("", 1, 0).starts_with("exec-"));
+    }
+
+    #[test]
+    fn capture_id_encoding_is_injective() {
+        // Distinct entity ids that the old lossy sanitizer collapsed to the
+        // same token (both `→ a_b`) must now differ, so concurrent execs on the
+        // same sandbox in the same millisecond cannot cross output. (Greptile)
+        assert_ne!(capture_run_id("a/b", 1000, 0), capture_run_id("a?b", 1000, 0));
+        // The literal `_` is escaped too, so it cannot alias an escaped byte.
+        assert_ne!(capture_run_id("a_b", 1000, 0), capture_run_id("a/b", 1000, 0));
+        assert_ne!(capture_run_id("a b", 1000, 0), capture_run_id("a_b", 1000, 0));
     }
 
     #[test]
