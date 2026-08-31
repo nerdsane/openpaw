@@ -35,6 +35,14 @@ name = "work_cycle_id"
 type = "string"
 initial = ""
 
+# ARN-441 (additive): when this WorkerRun owns an Effort, effort_id links back so
+# WorkerRun.Heartbeat can reset that Effort's ownership lease. Empty for the legacy
+# WorkCycle flow (which keeps using work_cycle_id) - untouched until the phase-3 flip.
+[[state]]
+name = "effort_id"
+type = "string"
+initial = ""
+
 [[state]]
 name = "factory_case_id"
 type = "string"
@@ -85,8 +93,8 @@ name = "Configure"
 kind = "input"
 from = ["Queued"]
 to = "Queued"
-params = ["work_cycle_id", "factory_case_id", "risk_lane", "task", "branch_name", "worktree_path", "runner_kind", "allowed_worker_id", "provider_id", "required_capabilities"]
-hint = "Configure a queued worker run. Patrol uses required_capabilities to route Datadog (datadog_query), GitHub (github_query), implementation, review, and evaluation work to capable agents."
+params = ["work_cycle_id", "effort_id", "factory_case_id", "risk_lane", "task", "branch_name", "worktree_path", "runner_kind", "allowed_worker_id", "provider_id", "required_capabilities"]
+hint = "Configure a queued worker run. Patrol uses required_capabilities to route Datadog (datadog_query), GitHub (github_query), implementation, review, and evaluation work to capable agents. effort_id links the owned Effort (ARN-441) for the heartbeat lease."
 
 [[action]]
 name = "Claim"
@@ -138,6 +146,37 @@ from = ["CloudApproved"]
 to = "Running"
 params = ["worker_id"]
 hint = "Dispatch the approved cloud worker."
+
+# ARN-441 (additive): the owning agent's liveness signal. A self-loop on Running
+# (no `to` - stays Running) that entity-triggers Effort.Heartbeat on the owned
+# Effort (resolved by effort_id), resetting that Effort's ownership lease clock.
+# No-op when effort_id is empty (legacy WorkCycle runs never owned an Effort).
+[[action]]
+name = "Heartbeat"
+kind = "input"
+from = ["Running"]
+hint = "Owning worker reports liveness; resets the owned Effort's lease (ARN-441)."
+
+[[action.triggers]]
+name = "worker_heartbeat_keeps_effort_alive"
+kind = "entity"
+target_entity = "Effort"
+target_action = "Heartbeat"
+
+[action.triggers.guard]
+type = "not"
+
+[action.triggers.guard.guard]
+type = "field_equals"
+field = "effort_id"
+value = ""
+
+[action.triggers.params_from]
+owner_worker_run_id = "Id"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "effort_id"
 
 [[action]]
 name = "ReportDone"

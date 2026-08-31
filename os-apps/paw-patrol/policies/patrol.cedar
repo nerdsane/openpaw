@@ -357,7 +357,8 @@ permit(
   action in [
     Action::"StartLocal",
     Action::"ReportDone",
-    Action::"ReportFailed"
+    Action::"ReportFailed",
+    Action::"Heartbeat"
   ],
   resource is WorkerRun
 ) when {

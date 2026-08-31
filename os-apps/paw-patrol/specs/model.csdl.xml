@@ -191,6 +191,7 @@
         <Property Name="ProviderId" Type="Edm.String"/>
         <Property Name="RequiredCapabilities" Type="Edm.String"/>
         <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="EffortId" Type="Edm.String"/>
         <Property Name="FactoryCaseId" Type="Edm.String"/>
         <Property Name="RiskLane" Type="Edm.String"/>
         <Property Name="Task" Type="Edm.String"/>
