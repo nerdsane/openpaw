@@ -214,7 +214,28 @@ from = ["Intended"]
 to = "Specified"
 params = ["spec_ref"]
 effect = "set spec_written true"
-hint = "Attach the spec (spec.md on TemperFS) and enter Specified. 1b enforces file presence."
+hint = "Attach the spec (spec.md on TemperFS) and enter Specified. The effort_lifecycle wasm refuses (via RejectSpec) unless spec_ref names a Ready paw-fs File."
+
+# Chain-file guard: kernel guards can't read files, so the transition into
+# Specified fires a wasm that checks spec_ref names a Ready File; on missing it
+# errors and on_failure rolls back to Intended (the machine refuses on missing).
+[[action.triggers]]
+name = "effort_specify_requires_spec_file"
+kind = "wasm"
+module = "effort_lifecycle"
+on_failure = "RejectSpec"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RejectSpec"
+kind = "input"
+from = ["Specified"]
+to = "Intended"
+params = ["error_message"]
+effect = "set spec_written false"
+hint = "Roll back Specify when spec.md is not a Ready File (chain-file guard refusal)."
 
 [[action]]
 name = "Plan"
@@ -224,7 +245,25 @@ to = "Planned"
 params = ["plan_ref", "plan_summary"]
 guard = "is_true spec_written"
 effect = "set plan_written true"
-hint = "Attach the plan (plan.md on TemperFS) and enter Planned. 1b enforces file presence."
+hint = "Attach the plan (plan.md on TemperFS) and enter Planned. The effort_lifecycle wasm refuses (via RejectPlan) unless plan_ref names a Ready paw-fs File."
+
+[[action.triggers]]
+name = "effort_plan_requires_plan_file"
+kind = "wasm"
+module = "effort_lifecycle"
+on_failure = "RejectPlan"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RejectPlan"
+kind = "input"
+from = ["Planned"]
+to = "Specified"
+params = ["error_message"]
+effect = "set plan_written false"
+hint = "Roll back Plan when plan.md is not a Ready File (chain-file guard refusal)."
 
 [[action]]
 name = "StartBuild"

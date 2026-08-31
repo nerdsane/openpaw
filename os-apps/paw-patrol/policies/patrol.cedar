@@ -65,7 +65,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle"].contains(context.module)
+  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "effort_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle"].contains(context.module)
 };
 
 // Manager surfaces such as OpenClaw may submit requests and route approvals, but
@@ -611,6 +611,8 @@ permit(
     Action::"Specify",
     Action::"Plan",
     Action::"StartBuild",
+    Action::"RejectSpec",
+    Action::"RejectPlan",
     Action::"AttachWorkerRun",
     Action::"WorkerDone",
     Action::"SubmitForReview",
