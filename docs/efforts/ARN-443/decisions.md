@@ -162,3 +162,61 @@ in prod via Genesis, so these fixes ship here BEFORE any future Genesis publish.
   to the collision-safe header form; stderr_tail comes from result.stderr.
 - **Where:** computer_exec/src/lib.rs `wrap_command` / `parse_captured_output` /
   `success_params`.
+
+# Round 2 hardening (panel found 7 act-ons; #6 was my P1 fix, done)
+
+## R2.1 created_by fully removed (was half-dropped)
+- **Decision:** Remove `CreatedBy` property + `created_by` Run parameter from
+  model.csdl.xml, and the `Run(...,created_by)` / audit-field mentions in APP.md.
+- **Came up because:** the spec dropped created_by but the CSDL still declared it,
+  and Temper merges arbitrary request keys into fields — so the audit field stayed
+  caller-writable via OData. Removing it from the schema removes the surface.
+- **Where:** specs/model.csdl.xml, APP.md.
+
+## R2.2 LatencyDiag command/computer_id pinned in the trigger config (not fields)
+- **Decision:** Move LatencyDiag's `command` and `computer_id` from mutable state
+  vars to the `[action.triggers.config]` (spec-defined, request-untouched);
+  computer_exec reads config FIRST for these keys (`config_field_or_param`).
+- **Came up because:** field-first precedence did not constrain LatencyDiag —
+  Temper merges every RunScan request key into fields FIRST, so "field wins" read
+  the attacker's value. The trigger config is not request-influenced, so a pinned
+  value there cannot be overridden.
+- **Options:** wasm validates against spec-declared values (chosen, via config) /
+  rely on parameterless RunScan (insufficient — arbitrary keys still merge).
+- **Where:** specs/latency_diag.ioa.toml; computer_exec/src/lib.rs
+  `config_field_or_param`. For Exec, nothing is pinned in config, so the caller's
+  Run params (via fields) are used as before.
+
+## R2.3 Tensorlake poll is time-bounded to outlive the command timeout
+- **Decision:** Poll the rc-file by WALL TIME (until ~116s, under the 120s WASM
+  cap) instead of a fixed 600 iterations.
+- **Came up because:** fast GETs could exhaust 600 iterations in ~30s — before the
+  110s command timeout — returning "timed out" (Failed) while the process ran on
+  until the sandbox timeout killed it: a live-process window behind a Failed row.
+- **Chose time-bound because:** it guarantees the poll outlives any caller's inner
+  command timeout, so the timeout's result is read within this invocation. Kept an
+  iteration cap as a stalled-clock guard.
+- **Where:** wasm-helpers/src/sandbox.rs `tensorlake_exec` poll loop.
+
+## R2.4 Outer-timeout vs command's own 124 disambiguated by a done marker
+- **Decision:** The wrapper writes a `.done` marker only if the child completed
+  (not killed); its ABSENCE (with the outer exit) is the timed-out signal, emitted
+  as `__EXEC_TIMED_OUT 1`. run() maps that to RunFailed; a command that legitimately
+  exits 124 (done present) is a normal RunSucceeded(124).
+- **Where:** computer_exec/src/lib.rs `wrap_command` / `parse_captured_output` / run().
+
+## R2.5 Tensorlake capture id — already random per dispatch (#468); log id hardened
+- **Decision:** No change to the tensorlake capture id — it is already a per-dispatch
+  random u64 (from #468, inherited via the rebase), NOT a counter; verified no
+  counter remains. Separately, harden computer_exec's own `~/.exec-out/<id>` log
+  filename (see R2.7) so distinct exec ids never collide, and note that the random
+  tensorlake capture id already prevents captured-output crossing regardless.
+- **Where:** wasm-helpers/src/sandbox.rs `unique_run_id` (already random).
+
+## R2.7 exec_log_id — injective, bounded, hash-suffixed (was lossy)
+- **Decision:** Replace lossy `sanitize_exec_id` with `exec_log_id`: injective
+  encoding (alnum/`-` pass; other bytes `_`+hex), capped at 32 chars + an 8-hex FNV
+  hash of the full id — same shape as #468's label.
+- **Came up because:** the lossy sanitizer could map distinct exec ids to the same
+  `~/.exec-out` filename.
+- **Where:** computer_exec/src/lib.rs `exec_log_id` (+ `fnv1a_32`).

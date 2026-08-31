@@ -911,18 +911,29 @@ fn tensorlake_exec(
         return Err(format!("sandbox.bash(): start failed: {}", resp.body));
     }
 
-    // Poll for exit code file (network latency provides natural backoff)
+    // Poll for the exit-code file (network latency provides natural backoff).
+    // Bound by WALL TIME, not a fixed iteration count: the poll must outlive any
+    // caller's inner command timeout (computer_exec caps commands at 110s), so a
+    // command that hits its own timeout is still reaped and its result read
+    // within THIS invocation — otherwise the poll could give up early (fast GETs)
+    // and leave a live process behind a Failed row. Kept under the 120s WASM
+    // invocation limit; the iteration cap is a belt-and-suspenders guard against a
+    // stalled clock.
     let headers = bearer_headers(api_key);
     let rc_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file));
+    let poll_deadline = Context::get_time_millis() + 116_000;
     let mut exit_code: i64 = -1;
     let mut found = false;
-    for _ in 0..600 {
+    for _ in 0..50_000 {
         if let Ok(r) = ctx.http_call("GET", &rc_url, &headers, "") {
             if r.status >= 200 && r.status < 300 {
                 exit_code = r.body.trim().parse::<i64>().unwrap_or(-1);
                 found = true;
                 break;
             }
+        }
+        if Context::get_time_millis() >= poll_deadline {
+            break;
         }
     }
 

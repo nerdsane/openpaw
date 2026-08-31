@@ -17,8 +17,8 @@ Computer provisioning is handled by the session's `sandbox_provisioner` module i
 One governed shell command on a Computer's sandbox (ADR-0002).
 
 - **States**: Created -> Running -> Succeeded | Failed (both terminal)
-- **Walk**: create an Exec, dispatch `Run(computer_id, command, created_by)`. The `computer_exec` WASM integration resolves the Computer row, executes the command on its sandbox via the shared provider abstraction, and reports back — `RunSucceeded(exit_code, stdout_tail, stderr_tail, stdout_path, stdout_bytes)` or `RunFailed(error)`.
-- **Audit fields**: `computer_id`, `command`, `exit_code`, `stdout_tail`, `stderr_tail` (256 KB tails), `stdout_path`, `stdout_bytes`, `error`, `created_by`
+- **Walk**: create an Exec, dispatch `Run(computer_id, command)`. The `computer_exec` WASM integration resolves the Computer row, executes the command on its sandbox via the shared provider abstraction, and reports back — `RunSucceeded(exit_code, stdout_tail, stderr_tail, stdout_path, stdout_bytes)` or `RunFailed(error)`.
+- **Audit fields**: `computer_id`, `command`, `exit_code`, `stdout_tail`, `stderr_tail` (256 KB tails), `stdout_path`, `stdout_bytes`, `error`
 
 Full output is never lost. Before running, `computer_exec` wraps the command so its full combined output is persisted to `~/.exec-out/<exec_id>.log` on the computer, then returns a 256 KB tail. `stdout_path` is that log path and `stdout_bytes` is its full byte count — so an agent can `grep`/`sed`/page the complete output via follow-up Execs even when it exceeds the tail. The wrapper preserves the original exit code (`exit $__rc`), so `exit_code` still reflects the user command, not the wrapper.
 

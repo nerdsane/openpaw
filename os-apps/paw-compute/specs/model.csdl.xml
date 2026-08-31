@@ -95,13 +95,11 @@
         <Property Name="StdoutPath" Type="Edm.String" />
         <Property Name="StdoutBytes" Type="Edm.String" />
         <Property Name="Error" Type="Edm.String" />
-        <Property Name="CreatedBy" Type="Edm.String" />
 
         <Action Name="Run" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Exec" />
           <Parameter Name="computer_id" Type="Edm.String" Nullable="false" />
           <Parameter Name="command" Type="Edm.String" Nullable="false" />
-          <Parameter Name="created_by" Type="Edm.String" />
         </Action>
 
         <Action Name="RunSucceeded" IsBound="true">

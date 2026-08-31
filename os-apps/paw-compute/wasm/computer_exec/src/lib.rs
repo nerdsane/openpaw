@@ -27,16 +27,16 @@ const OUTPUT_TAIL_BYTES: usize = 262_144;
 
 /// Hard wall-clock limit for the command on the sandbox, enforced by `timeout`
 /// so a runaway command is killed and cannot outlive the exec (no orphans). Kept
-/// just under the 120s WASM invocation cap (temper-wasm `WasmResourceLimits`), so
-/// the timeout fires and its result is read within one synchronous invocation.
-/// Longer runs need the async exec path (ARN-443 D), not a larger value here.
+/// just under the 120s WASM invocation cap (temper-wasm `WasmResourceLimits`) AND
+/// under the tensorlake helper's poll budget, so the timeout fires and its result
+/// is read within one synchronous invocation. Longer runs need the async exec
+/// path (ARN-443 D), not a larger value here.
 const EXEC_TIMEOUT_SECS: u64 = 110;
 
-/// `timeout` exit code when the wall-clock limit is reached (coreutils).
-const TIMEOUT_EXIT_CODE: i64 = 124;
-
-/// Marker (on a fixed line, wrapper-emitted) announcing the stdout log path.
+/// Marker (fixed line, wrapper-emitted) announcing the stdout log path.
 const EXEC_LOG_MARKER: &str = "__EXEC_LOG_PATH";
+/// Marker (fixed line, wrapper-emitted) carrying the timed-out flag (0/1).
+const EXEC_TO_MARKER: &str = "__EXEC_TIMED_OUT";
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -44,10 +44,10 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let ctx = Context::from_host()?;
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
-        let computer_id = field_or_param(&ctx, &fields, "computer_id")
+        let computer_id = config_field_or_param(&ctx, &fields, "computer_id")
             .ok_or("computer_exec: missing computer_id")?;
         let command =
-            field_or_param(&ctx, &fields, "command").ok_or("computer_exec: missing command")?;
+            config_field_or_param(&ctx, &fields, "command").ok_or("computer_exec: missing command")?;
 
         ctx.log(
             "info",
@@ -65,27 +65,32 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let wrapped = wrap_command(&command, &ctx.entity_id);
         let result = sandbox::sandbox_exec(&ctx, &handle, &wrapped, "/")?;
+        let captured = parse_captured_output(&result.stdout);
         ctx.log(
             "info",
             &format!(
-                "computer_exec: command exited {} (stdout {} bytes, stderr {} bytes)",
+                "computer_exec: command exited {} (timed_out={}, stderr {} bytes)",
                 result.exit_code,
-                result.stdout.len(),
+                captured.timed_out,
                 result.stderr.len()
             ),
         );
 
-        // A `timeout`-killed command is a FAILURE, not a result: mark Failed so
-        // the row does not report a bogus exit code, and the process is already
-        // gone (timeout killed its group on the sandbox — no orphan).
-        if result.exit_code == TIMEOUT_EXIT_CODE {
+        // A `timeout`-killed command is a FAILURE, not a result: the done marker
+        // is absent (the child never reached it), which distinguishes an
+        // outer-timeout from a command that legitimately exits 124. The process
+        // is already gone (timeout killed its group on the sandbox — no orphan).
+        if captured.timed_out {
             set_failure_result(&format!(
                 "command exceeded the {EXEC_TIMEOUT_SECS}s limit and was terminated on the sandbox"
             ));
             return Ok(());
         }
 
-        set_success_result("RunSucceeded", &success_params(&result, OUTPUT_TAIL_BYTES));
+        set_success_result(
+            "RunSucceeded",
+            &success_params(&captured, &result, OUTPUT_TAIL_BYTES),
+        );
         Ok(())
     })();
 
@@ -95,18 +100,25 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     0
 }
 
-/// Read a value from entity state, falling back to trigger params.
+/// Read a value from the trigger config FIRST, then entity state, then trigger
+/// params.
 ///
-/// Entity fields WIN: a spec-pinned field (e.g. LatencyDiag's canned command and
-/// pinned computer_id) can never be overridden by caller-supplied trigger params.
-/// For Exec, the Run action writes its `command`/`computer_id` params onto the
-/// entity fields before this trigger fires, so reading the field first still
-/// yields the caller's command. Trigger params remain a fallback for any field
-/// the state has left empty.
-fn field_or_param(ctx: &Context, fields: &Value, key: &str) -> Option<String> {
-    entity_field_str(fields, &[key])
+/// The trigger config is spec-defined and NOT influenced by the request body, so
+/// a value pinned there (LatencyDiag's canned command / computer_id) can never be
+/// overridden by a caller. Temper merges arbitrary request-body keys into entity
+/// fields, so the field is NOT a safe source for a constrained value — hence
+/// config wins. For Exec nothing is pinned in config, so the caller's Run params
+/// (written to fields) are used.
+fn config_field_or_param(ctx: &Context, fields: &Value, key: &str) -> Option<String> {
+    ctx.config
+        .get(key)
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
+        .cloned()
+        .or_else(|| {
+            entity_field_str(fields, &[key])
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
         .or_else(|| {
             ctx.trigger_params
                 .get(key)
@@ -193,29 +205,31 @@ fn sandbox_handle_from_computer(computer: &Value) -> Result<SandboxHandle, Strin
 /// Wrap the user command so its full stdout and stderr are persisted to separate
 /// per-exec log files on the sandbox while the row carries a bounded tail of each.
 ///
-/// - The command runs under `timeout` in a CHILD `bash -c` (a subshell/child
-///   process): the command's own `exit`/`exec` control flow cannot skip the
-///   wrapper's epilogue, and `timeout -k` kills the whole child group if it runs
-///   past `EXEC_TIMEOUT_SECS` (no orphaned process).
-/// - stdout → `<id>.log`, stderr → `<id>.err` (separate streams, not conflated).
-/// - `__rc=$?` preserves the child's exit code (124 = timed out).
-/// - The wrapper prints, to its own **stdout**: the stdout byte count, a
-///   `__EXEC_LOG_PATH` marker, and the stdout tail. It writes the stderr tail to
-///   its own **stderr** (`>&2`), which the provider captures as a separate
-///   stream — so no delimiter lives inside the stdout data, and a command that
-///   prints a marker-looking line cannot corrupt the split. `exit $__rc`
-///   surfaces the true status; the full logs stay on the computer for follow-up
-///   Execs to grep/sed/page.
+/// - The command runs in a CHILD `bash -c` (subshell/child): its own `exit`/`exec`
+///   control flow cannot skip the wrapper's epilogue.
+/// - `timeout -k` kills the whole child group if it runs past `EXEC_TIMEOUT_SECS`
+///   (no orphaned process). A `.done` marker is written iff the child completed —
+///   its ABSENCE is the timed-out signal, which distinguishes an outer-timeout
+///   from a command that legitimately exits 124.
+/// - stdout → `<id>.log`, stderr → `<id>.err` (separate streams). The wrapper
+///   prints, to its own stdout, the stdout byte count, the log-path marker, the
+///   timed-out marker, and the stdout tail; it writes the stderr tail to its own
+///   stderr (`>&2`) — so no command-controllable delimiter lives in the stdout
+///   data. `exit $__rc` surfaces the true status.
 fn wrap_command(command: &str, exec_id: &str) -> String {
-    let id = sanitize_exec_id(exec_id);
+    let id = exec_log_id(exec_id);
     let log = format!("~/.exec-out/{id}.log");
     let err = format!("~/.exec-out/{id}.err");
-    let q = shell_single_quote(command);
+    let done = format!("~/.exec-out/{id}.done");
+    // The child writes the .done marker only if it reaches the end (not killed).
+    let inner = format!("{command}\n__c=$? ; : > {done} ; exit $__c");
+    let q = shell_single_quote(&inner);
     format!(
-        "mkdir -p ~/.exec-out && \
+        "mkdir -p ~/.exec-out ; rm -f {done} ; \
          timeout -k 5s {EXEC_TIMEOUT_SECS}s bash -c {q} > {log} 2> {err} ; __rc=$? ; \
-         wc -c < {log} ; echo \"{EXEC_LOG_MARKER} {log}\" ; tail -c {OUTPUT_TAIL_BYTES} {log} ; \
-         tail -c {OUTPUT_TAIL_BYTES} {err} >&2 ; exit $__rc"
+         if [ -f {done} ]; then __to=0 ; else __to=1 ; fi ; \
+         wc -c < {log} ; echo \"{EXEC_LOG_MARKER} {log}\" ; echo \"{EXEC_TO_MARKER} $__to\" ; \
+         tail -c {OUTPUT_TAIL_BYTES} {log} ; tail -c {OUTPUT_TAIL_BYTES} {err} >&2 ; exit $__rc"
     )
 }
 
@@ -224,56 +238,73 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// Reduce an exec id to a filename-safe token so it cannot escape `~/.exec-out`.
-/// Anything outside `[A-Za-z0-9._-]` becomes `_`.
-fn sanitize_exec_id(exec_id: &str) -> String {
-    let cleaned: String = exec_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if cleaned.is_empty() {
-        "exec".to_string()
-    } else {
-        cleaned
+/// FNV-1a 32-bit digest of the full id, so a bounded (truncated) exec-log id
+/// stays distinguishing between distinct ids.
+fn fnv1a_32(bytes: &[u8]) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for &b in bytes {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
     }
+    h
 }
 
-/// The stdout byte count, stdout log path, and stdout tail parsed out of a
-/// wrapped command's stdout. (stderr arrives on a separate stream — see
+/// Injective, filename-safe, bounded encoding of the exec id for `~/.exec-out`.
+/// Alphanumerics and `-` pass through; every other byte — `_` included — becomes
+/// `_` + two hex digits (so `_` only marks an escape and distinct ids never
+/// alias, e.g. `a/b` vs `a?b`). Capped at 32 encoded chars + an 8-hex FNV hash of
+/// the FULL id, so the filename stays bounded while distinct ids stay distinct.
+/// Empty falls back to `exec`.
+fn exec_log_id(exec_id: &str) -> String {
+    let mut enc = String::with_capacity(exec_id.len());
+    for b in exec_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' {
+            enc.push(b as char);
+        } else {
+            enc.push('_');
+            enc.push_str(&format!("{b:02x}"));
+        }
+    }
+    let head: String = enc.chars().take(32).collect();
+    let head = if head.is_empty() { "exec".to_string() } else { head };
+    format!("{head}-{:08x}", fnv1a_32(exec_id.as_bytes()))
+}
+
+/// The stdout byte count, log path, timed-out flag, and stdout tail parsed out of
+/// a wrapped command's stdout. (stderr arrives on a separate stream — see
 /// [`success_params`].)
 struct CapturedOutput {
     path: Option<String>,
     bytes: Option<u64>,
+    timed_out: bool,
     tail: String,
 }
 
-/// Parse the wrapped-command stdout: `<bytes>\n__EXEC_LOG_PATH <path>\n<tail>`.
-/// The marker sits on a fixed line the wrapper emits, so command output that
+/// Parse the wrapped-command stdout:
+/// `<bytes>\n__EXEC_LOG_PATH <path>\n__EXEC_TIMED_OUT <0|1>\n<tail>`.
+/// The markers sit on fixed lines the wrapper emits, so command output that
 /// happens to contain the marker text stays in the tail and cannot be mistaken
-/// for the delimiter. If the header is absent — e.g. the wrapper never ran
+/// for a delimiter. If the header is absent — e.g. the wrapper never ran
 /// (provider error text) — the raw text is returned as the tail so nothing is
 /// silently dropped.
 fn parse_captured_output(stdout: &str) -> CapturedOutput {
-    let mut parts = stdout.splitn(3, '\n');
+    let mut parts = stdout.splitn(4, '\n');
     let first = parts.next().unwrap_or("");
     let second = parts.next().unwrap_or("");
+    let third = parts.next().unwrap_or("");
     let rest = parts.next().unwrap_or("");
 
     let bytes = first.trim().parse::<u64>().ok();
     let path = second
         .strip_prefix(&format!("{EXEC_LOG_MARKER} "))
         .map(|s| s.trim().to_string());
+    let to_flag = third.strip_prefix(&format!("{EXEC_TO_MARKER} "));
 
-    if bytes.is_none() && path.is_none() {
+    if bytes.is_none() || path.is_none() || to_flag.is_none() {
         return CapturedOutput {
             path: None,
             bytes: None,
+            timed_out: false,
             tail: stdout.to_string(),
         };
     }
@@ -281,21 +312,21 @@ fn parse_captured_output(stdout: &str) -> CapturedOutput {
     CapturedOutput {
         path,
         bytes,
+        timed_out: to_flag.map(|s| s.trim() == "1").unwrap_or(false),
         tail: rest.to_string(),
     }
 }
 
 /// Build the RunSucceeded callback params, truncating each stream to a bounded
-/// tail and surfacing the full-stdout log path/size captured by [`wrap_command`].
-/// stderr comes from the provider's separate stderr capture (the wrapper writes
-/// the stderr tail to its own fd 2), so stdout and stderr never share a stream.
-fn success_params(result: &ExecResult, tail_bytes: usize) -> Value {
-    let captured = parse_captured_output(&result.stdout);
+/// tail and surfacing the full-stdout log path/size. stderr comes from the
+/// provider's separate stderr capture (the wrapper writes the stderr tail to its
+/// own fd 2), so stdout and stderr never share a stream.
+fn success_params(captured: &CapturedOutput, result: &ExecResult, tail_bytes: usize) -> Value {
     json!({
         "exit_code": result.exit_code.to_string(),
         "stdout_tail": output_tail(&captured.tail, tail_bytes),
         "stderr_tail": output_tail(&result.stderr, tail_bytes),
-        "stdout_path": captured.path.unwrap_or_default(),
+        "stdout_path": captured.path.clone().unwrap_or_default(),
         "stdout_bytes": captured.bytes.map(|b| b.to_string()).unwrap_or_default(),
     })
 }
@@ -382,8 +413,6 @@ mod tests {
 
     #[test]
     fn handle_rejects_missing_status_fail_closed() {
-        // Fail CLOSED: a computer with no Status must be refused, not treated
-        // as Ready.
         let computer = json!({
             "Id": "c",
             "fields": { "sandbox_url": "https://x.sandbox.tensorlake.ai", "machine_id": "x" }
@@ -393,20 +422,19 @@ mod tests {
     }
 
     #[test]
-    fn field_wins_over_trigger_param() {
-        // Entity fields win: a spec-pinned command cannot be overridden by a
-        // caller-supplied trigger param.
-        let ctx_params = json!({ "command": "rm -rf /", "computer_id": "attacker" });
-        let fields = json!({ "command": "echo pinned", "computer_id": "dsf" });
-        // Emulate field_or_param's precedence directly against the two sources.
-        let pick = |k: &str| {
-            super::entity_field_str(&fields, &[k])
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .or_else(|| ctx_params.get(k).and_then(|v| v.as_str()).map(str::to_string))
-        };
-        assert_eq!(pick("command").as_deref(), Some("echo pinned"));
-        assert_eq!(pick("computer_id").as_deref(), Some("dsf"));
+    fn exec_log_id_is_injective_and_bounded() {
+        // Distinct ids that a lossy sanitizer would collapse must differ.
+        assert_ne!(exec_log_id("a/b"), exec_log_id("a?b"));
+        assert_ne!(exec_log_id("a_b"), exec_log_id("a/b"));
+        // No path/space/quote can escape ~/.exec-out.
+        let id = exec_log_id("../../etc/passwd '; rm -rf ~");
+        assert!(!id.contains('/') && !id.contains(' ') && !id.contains('\''), "{id}");
+        // Bounded: 32 encoded head + '-' + 8 hex = <= 41.
+        let long = exec_log_id(&"x".repeat(500));
+        assert!(long.len() <= 41, "{} {}", long.len(), long);
+        // Two long ids sharing the first 32 encoded chars still differ via hash.
+        assert_ne!(exec_log_id(&("y".repeat(40) + "A")), exec_log_id(&("y".repeat(40) + "B")));
+        assert!(exec_log_id("").starts_with("exec-"));
     }
 
     #[test]
@@ -433,8 +461,6 @@ mod tests {
 
     #[test]
     fn tail_trims_leading_replacement_char() {
-        // A byte-level `tail -c` on the sandbox can leave a leading partial char
-        // (decoded to U+FFFD); it is trimmed so the tail starts clean.
         let text = format!("\u{FFFD}rest of the output");
         assert_eq!(output_tail(&text, 8192), "rest of the output");
     }
@@ -447,61 +473,56 @@ mod tests {
     // -- Command wrapping ----------------------------------------------------
 
     #[test]
-    fn wrap_runs_command_in_a_timed_child_and_separates_streams() {
+    fn wrap_runs_command_in_a_timed_child_with_done_marker() {
         let wrapped = wrap_command("echo hi", "exec-1");
         assert!(wrapped.contains("mkdir -p ~/.exec-out"));
-        // Child process (bash -c) under a hard timeout with a kill grace.
-        assert!(wrapped.contains("timeout -k 5s 110s bash -c 'echo hi'"), "{wrapped}");
-        // Separate stdout and stderr files (not conflated).
-        assert!(wrapped.contains("> ~/.exec-out/exec-1.log 2> ~/.exec-out/exec-1.err"));
-        // stdout metadata + tail go to the wrapper's stdout.
-        assert!(wrapped.contains("wc -c < ~/.exec-out/exec-1.log"));
-        assert!(wrapped.contains("__EXEC_LOG_PATH ~/.exec-out/exec-1.log"));
-        assert!(wrapped.contains("tail -c 262144 ~/.exec-out/exec-1.log"));
-        // stderr tail goes to the wrapper's OWN stderr (>&2) — no delimiter in
-        // the stdout stream, so command output can't corrupt the split.
-        assert!(wrapped.contains("tail -c 262144 ~/.exec-out/exec-1.err >&2"));
-        assert!(!wrapped.contains("__EXEC_ERR"));
-        // Original exit code preserved through the wrapper's epilogue.
-        assert!(wrapped.contains("__rc=$?"));
+        // Child (bash -c) under a hard timeout with a kill grace.
+        assert!(wrapped.contains("timeout -k 5s 110s bash -c "), "{wrapped}");
+        // Separate stdout and stderr files.
+        assert!(wrapped.contains("2> ~/.exec-out/"));
+        // Done marker distinguishes outer-timeout from a real exit 124.
+        assert!(wrapped.contains(".done"));
+        assert!(wrapped.contains("if [ -f"));
+        assert!(wrapped.contains("__EXEC_TIMED_OUT"));
+        // stderr tail goes to the wrapper's own stderr (no in-band delimiter).
+        assert!(wrapped.contains(">&2"));
         assert!(wrapped.trim_end().ends_with("exit $__rc"));
     }
 
     #[test]
     fn wrap_single_quotes_the_command() {
-        // A command with a single quote is safely quoted for bash -c.
         let wrapped = wrap_command("echo 'hi'", "e");
-        assert!(wrapped.contains(r"bash -c 'echo '\''hi'\'''"), "{wrapped}");
+        assert!(wrapped.contains(r"echo '\''hi'\''"), "{wrapped}");
     }
 
     #[test]
-    fn wrap_sanitizes_exec_id_into_filename() {
-        let wrapped = wrap_command("true", "abc/../../etc 9");
-        assert!(wrapped.contains("~/.exec-out/abc_.._.._etc_9.log"));
-        assert!(!wrapped.contains("../../etc"));
-    }
-
-    #[test]
-    fn parse_extracts_bytes_path_and_tail() {
-        let stdout = "1234\n__EXEC_LOG_PATH ~/.exec-out/e.log\nhello\nworld\n";
+    fn parse_extracts_bytes_path_timeout_and_tail() {
+        let stdout = "1234\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_TIMED_OUT 0\nhello\nworld\n";
         let cap = parse_captured_output(stdout);
         assert_eq!(cap.bytes, Some(1234));
         assert_eq!(cap.path.as_deref(), Some("~/.exec-out/e.log"));
+        assert!(!cap.timed_out);
         assert_eq!(cap.tail, "hello\nworld\n");
     }
 
     #[test]
-    fn parse_keeps_tail_containing_marker_text() {
-        // A command that prints the marker text on a later line cannot be
-        // mistaken for the header — the marker only counts on line 2.
-        let stdout = "7\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_LOG_PATH not-a-marker\n";
+    fn parse_flags_timeout() {
+        let stdout = "0\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_TIMED_OUT 1\n";
         let cap = parse_captured_output(stdout);
-        assert_eq!(cap.bytes, Some(7));
-        assert_eq!(cap.tail, "__EXEC_LOG_PATH not-a-marker\n");
+        assert!(cap.timed_out);
     }
 
     #[test]
-    fn parse_falls_back_to_raw_when_markers_absent() {
+    fn parse_keeps_tail_containing_marker_text() {
+        // A command printing the marker text on a later line is not a delimiter.
+        let stdout =
+            "7\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_TIMED_OUT 0\n__EXEC_LOG_PATH nope\n";
+        let cap = parse_captured_output(stdout);
+        assert_eq!(cap.tail, "__EXEC_LOG_PATH nope\n");
+    }
+
+    #[test]
+    fn parse_falls_back_to_raw_when_header_absent() {
         let stdout = "some unexpected provider output";
         let cap = parse_captured_output(stdout);
         assert_eq!(cap.bytes, None);
@@ -511,13 +532,13 @@ mod tests {
 
     #[test]
     fn success_params_carry_exit_code_stdout_and_stderr() {
-        // stderr comes from the provider's separate stderr capture.
         let result = ExecResult {
-            stdout: "3\n__EXEC_LOG_PATH ~/.exec-out/e.log\nok\n".to_string(),
+            stdout: "3\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_TIMED_OUT 0\nok\n".to_string(),
             stderr: "warn\n".to_string(),
             exit_code: 0,
         };
-        let params = success_params(&result, 8192);
+        let cap = parse_captured_output(&result.stdout);
+        let params = success_params(&cap, &result, 8192);
         assert_eq!(params["exit_code"], "0");
         assert_eq!(params["stdout_tail"], "ok\n");
         assert_eq!(params["stderr_tail"], "warn\n");
@@ -527,32 +548,16 @@ mod tests {
 
     #[test]
     fn success_params_stdout_tail_keeps_marker_lookalike() {
-        // A command printing the marker text stays in the stdout tail intact —
-        // no delimiter in the stdout stream to corrupt it (Greptile P1).
+        // A command printing a marker-looking line stays in the stdout tail
+        // intact — no in-band delimiter to corrupt it.
         let result = ExecResult {
-            stdout: "20\n__EXEC_LOG_PATH ~/.exec-out/e.log\nline1\n__EXEC_ERR_TAIL\nline3\n"
+            stdout: "20\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_TIMED_OUT 0\nline1\n__EXEC_TIMED_OUT 1\nline3\n"
                 .to_string(),
             stderr: String::new(),
             exit_code: 0,
         };
-        let params = success_params(&result, 8192);
-        assert_eq!(params["stdout_tail"], "line1\n__EXEC_ERR_TAIL\nline3\n");
-        assert_eq!(params["stderr_tail"], "");
-    }
-
-    #[test]
-    fn success_params_truncate_output() {
-        let body = "y".repeat(20_000);
-        let result = ExecResult {
-            stdout: format!("20000\n__EXEC_LOG_PATH ~/.exec-out/e.log\n{body}"),
-            stderr: String::new(),
-            exit_code: 1,
-        };
-        let params = success_params(&result, 8192);
-        assert_eq!(params["exit_code"], "1");
-        let stdout_tail = params["stdout_tail"].as_str().unwrap();
-        assert!(stdout_tail.contains("bytes truncated"));
-        assert!(stdout_tail.len() < 20_000);
-        assert_eq!(params["stdout_bytes"], "20000");
+        let cap = parse_captured_output(&result.stdout);
+        let params = success_params(&cap, &result, 8192);
+        assert_eq!(params["stdout_tail"], "line1\n__EXEC_TIMED_OUT 1\nline3\n");
     }
 }

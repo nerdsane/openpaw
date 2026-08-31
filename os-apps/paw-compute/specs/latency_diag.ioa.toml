@@ -17,15 +17,12 @@ states = ["Idle", "Scanning", "Ready", "Failed"]
 initial = "Idle"
 allow_indefinite_states = ["Idle", "Scanning"]
 
-[[state]]
-name = "computer_id"
-type = "string"
-initial = "dsf"
-
-[[state]]
-name = "command"
-type = "string"
-initial = "sh -c '. ~/.config/pup/dd.env 2>/dev/null; NOW=$(date +%s); curl -s \"https://api.datadoghq.com/api/v1/query?from=$((NOW-3600))&to=$NOW&query=p95:trace.fastapi.request%7Bservice:deep-sci-fi-backend,env:production%7D\" -H \"DD-API-KEY: $DD_API_KEY\" -H \"DD-APPLICATION-KEY: $DD_APP_KEY\" | head -c 2000'"
+# NOTE: computer_id and command are NOT state variables. They are pinned in the
+# trigger config below (spec-defined, trusted), so a RunScan request can never
+# influence them. Temper merges arbitrary request-body keys into entity fields,
+# so a caller-writable command/computer_id field would be an injection surface;
+# putting them in the trigger config (which the request cannot touch) closes it.
+# computer_exec reads config first for these keys.
 
 [[state]]
 name = "exit_code"
@@ -59,6 +56,10 @@ on_failure = "RunFailed"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+# Pinned target + command (trusted; not caller-writable). computer_exec reads
+# these from config first, so a RunScan request cannot override them.
+computer_id = "dsf"
+command = "sh -c '. ~/.config/pup/dd.env 2>/dev/null; NOW=$(date +%s); curl -s \"https://api.datadoghq.com/api/v1/query?from=$((NOW-3600))&to=$NOW&query=p95:trace.fastapi.request%7Bservice:deep-sci-fi-backend,env:production%7D\" -H \"DD-API-KEY: $DD_API_KEY\" -H \"DD-APPLICATION-KEY: $DD_APP_KEY\" | head -c 2000'"
 
 [[action]]
 name = "RunSucceeded"
