@@ -27,31 +27,26 @@ type = "string"
 initial = ""
 
 [[state]]
-name = "pm_issue_id"
-type = "string"
-initial = ""
-
-[[state]]
 name = "factory_case_id"
 type = "string"
 initial = ""
 
-# review_run_ids / proof_packet_ids / adjudication_ids hold JSON-array text,
-# appended via action params (kernel guards cannot read params; the collection is
-# opaque to guards - the singular current-id fields below back the state guards).
+# review_run_ids / proof_packet_ids / adjudication_ids are real list fields
+# (Collection(Edm.String) in CSDL), appended one element at a time via list_append
+# on the attach actions - no JSON-blob-in-a-string for outside code to parse.
 [[state]]
 name = "review_run_ids"
-type = "string"
+type = "list"
 initial = "[]"
 
 [[state]]
 name = "proof_packet_ids"
-type = "string"
+type = "list"
 initial = "[]"
 
 [[state]]
 name = "adjudication_ids"
-type = "string"
+type = "list"
 initial = "[]"
 
 [[state]]
@@ -60,6 +55,13 @@ type = "string"
 initial = ""
 
 # --- Design chain files (TemperFS refs) ---------------------------------------
+# intent.md is referenced at birth (seeded from the accepted Intent) so the chain
+# starts complete; spec.md/plan.md attach as the Effort advances.
+[[state]]
+name = "intent_ref"
+type = "string"
+initial = ""
+
 [[state]]
 name = "spec_ref"
 type = "string"
@@ -200,8 +202,8 @@ name = "Seed"
 kind = "input"
 from = ["Intended"]
 to = "Intended"
-params = ["intent_id", "pm_issue_id", "factory_case_id", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
-hint = "Seed a new Effort from the accepted Intent (linkage + task + repo)."
+params = ["intent_id", "intent_ref", "factory_case_id", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
+hint = "Seed a new Effort from the accepted Intent: linkage (intent_id), the intent.md reference (intent_ref, guaranteed at birth), task, and repo. pm_issue_id is NOT copied - it is read from the Intent via intent_id (single source; the Intent's LinkPmIssue can set it after birth)."
 
 # Specify - the spec.md door. In 1b a wasm validates spec.md exists on TemperFS
 # and refuses on missing; here the marker is set by effect and the door is open.
@@ -263,7 +265,8 @@ kind = "input"
 from = ["InReview"]
 to = "InReview"
 params = ["reviewer_run_id", "review_run_ids"]
-hint = "Attach the independent ReviewRun (and append to the chain list)."
+effect = [{ type = "list_append", var = "review_run_ids" }]
+hint = "Attach a ReviewRun: reviewer_run_id records the current reviewer; review_run_ids is the run id appended to the chain list (a real list, one element per attach)."
 
 [[action]]
 name = "ReportE2e"
@@ -317,8 +320,11 @@ kind = "input"
 from = ["Proving"]
 to = "Proving"
 params = ["proof_packet_id", "proof_packet_ids"]
-effect = "set proof_attached true"
-hint = "Attach the human- and machine-readable proof packet (and append to the chain list)."
+effect = [
+  { type = "set_bool", var = "proof_attached", value = true },
+  { type = "list_append", var = "proof_packet_ids" }
+]
+hint = "Attach the proof packet: proof_packet_id records the current packet; proof_packet_ids is the id appended to the chain list."
 
 # Merge - step 3 puts a Cedar merge permit on this action (records-Recorded + zero
 # open act-ons + risk low). Here the state guard requires the gate markers.
@@ -381,7 +387,8 @@ kind = "input"
 from = ["Stalled"]
 to = "Building"
 params = ["adjudication_ids"]
-hint = "Resume a stalled effort (pickup). A later step guards this on an Adjudication."
+effect = [{ type = "list_append", var = "adjudication_ids" }]
+hint = "Resume a stalled effort (pickup); adjudication_ids is the owner-ruling id appended to the chain list. A later step guards this on an Adjudication."
 
 [[action]]
 name = "Abandon"

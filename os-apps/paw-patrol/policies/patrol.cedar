@@ -578,6 +578,7 @@ permit(
     Action::"AttachSignal",
     Action::"Triage",
     Action::"Accept",
+    Action::"RebirthEffort",
     Action::"LinkPmIssue",
     Action::"Reject"
   ],
@@ -589,8 +590,10 @@ permit(
 // above), so the whole Effort authority reads in one place.
 permit(
   principal,
+  // Lifecycle transitions only - NOT Seed/create (birth is the intake service's
+  // alone; see the birth permit below). Splitting them keeps the birth rule intact:
+  // an Effort is born only by accepting an Intent, never by a lifecycle driver.
   action in [
-    Action::"Seed",
     Action::"Specify",
     Action::"Plan",
     Action::"StartBuild",
@@ -614,15 +617,17 @@ permit(
   resource is Effort
 ) when {
   principal is Admin ||
-  (principal is Agent && (
+  // `principal has agent_type` before every == : app Cedar is schema-less, so a
+  // principal missing the attribute must be denied explicitly, not error.
+  (principal is Agent && principal has agent_type && (
     principal.agent_type == "system" ||
     principal.agent_type == "supervisor" ||
     // The verified operator drives the SHADOW Effort lifecycle - the same
     // trusted sweep/verification authority ARN-434 grants the S0/S1 record
-    // writes (agent_type "operator" && agentTypeVerified, so a self-declared
-    // header agent never matches). The per-gate authority flips (steps 3-4) put
-    // stricter permits on Merge/Deploy; this operator surface tightens there.
-    (principal has agent_type && principal.agent_type == "operator" &&
+    // writes (agentTypeVerified, so a self-declared header agent never matches).
+    // The per-gate authority flips (steps 3-4) put stricter permits on
+    // Merge/Deploy; this operator surface tightens there.
+    (principal.agent_type == "operator" &&
      principal has agentTypeVerified && principal.agentTypeVerified == true)
   ))
 };
@@ -633,11 +638,14 @@ permit(
 // Effort is born by accepting an Intent, never conjured directly.
 permit(
   principal,
+  // Only `Seed` (the bare action name the dispatch uses - confirmed in the live
+  // drive log: temper.action "Seed", agent_type "patrol-intake-service"; the
+  // namespaced Effort.Seed hedge is dropped) plus `create`.
   action in [
     Action::"create",
-    Action::"Effort.Seed", Action::"Seed"
+    Action::"Seed"
   ],
   resource is Effort
 ) when {
-  principal.agent_type == "patrol-intake-service"
+  principal has agent_type && principal.agent_type == "patrol-intake-service"
 };

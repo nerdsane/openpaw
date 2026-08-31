@@ -76,6 +76,13 @@ name = "branch"
 type = "string"
 initial = ""
 
+# TemperFS reference to the rendered intent.md; copied to the Effort at birth so
+# the design chain starts complete (ARN-441 acceptance: intent.md at birth).
+[[state]]
+name = "intent_ref"
+type = "string"
+initial = ""
+
 [[action]]
 name = "Submit"
 kind = "input"
@@ -88,17 +95,16 @@ hint = "Submit human or manager-agent intent into Patrol as work. (Intake routin
 name = "AttachSignal"
 kind = "input"
 from = ["Submitted", "Triaged"]
-to = "Submitted"
 params = ["signal_id"]
-hint = "Attach an observed signal to this intent."
+hint = "Attach an observed signal to this intent. Self-loop (no `to`) - a signal on a Triaged intent must not regress it to Submitted; it stays in its current state."
 
 [[action]]
 name = "Triage"
 kind = "input"
 from = ["Submitted"]
 to = "Triaged"
-params = ["triage_summary", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
-hint = "Record Patrol triage and the execution seed (task, risk, repo/branch) before accepting."
+params = ["triage_summary", "task_summary", "task_detail", "risk_lane", "repo", "branch", "intent_ref"]
+hint = "Record Patrol triage, the execution seed (task, risk, repo/branch), and the intent.md reference before accepting."
 
 # Accept BIRTHS the Effort: a declarative entity trigger creates an Effort
 # (initial Intended) and dispatches Seed with the intent linkage + task fields.
@@ -122,7 +128,41 @@ target_action = "Seed"
 
 [action.triggers.params_from]
 intent_id = "Id"
-pm_issue_id = "pm_issue_id"
+intent_ref = "intent_ref"
+factory_case_id = "factory_case_id"
+task_summary = "task_summary"
+task_detail = "task_detail"
+risk_lane = "risk_lane"
+repo = "repo"
+branch = "branch"
+
+[action.triggers.resolve_target]
+type = "create"
+
+# Birth-failure repair (ARN-441, review round 1). Accept commits (Triaged ->
+# Accepted) and THEN the birth trigger creates the Effort; if that create fails,
+# the Intent stays Accepted with no linked Effort. RebirthEffort re-attempts the
+# birth (same create trigger). It is a create, so use it ONLY when no Effort
+# exists for this Intent yet (query Efforts by intent_id first) - a monitor that
+# finds an Accepted Intent with no Effort dispatches this; it must not double-birth.
+[[action]]
+name = "RebirthEffort"
+kind = "input"
+from = ["Accepted"]
+to = "Accepted"
+hint = "Re-attempt the Effort birth for an Accepted Intent that has no linked Effort (repair path for a failed birth trigger)."
+
+[[action.triggers]]
+name = "intent_rebirth_effort"
+kind = "entity"
+principal = "patrol-intake-service"
+to_state = "Accepted"
+target_entity = "Effort"
+target_action = "Seed"
+
+[action.triggers.params_from]
+intent_id = "Id"
+intent_ref = "intent_ref"
 factory_case_id = "factory_case_id"
 task_summary = "task_summary"
 task_detail = "task_detail"

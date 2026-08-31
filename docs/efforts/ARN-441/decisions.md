@@ -203,3 +203,70 @@ agent never matches) - it is the legitimate driver of the shadow SDLC entities, 
 (steps 3-4) put stricter permits on Merge/Deploy, tightening this surface there.
 Given up: nothing for the shadow phase; the operator surface narrows at the flips.
 **Where:** `os-apps/paw-patrol/policies/patrol.cedar` (Effort lifecycle permit block).
+
+---
+
+**Decision:** (#491 panel round 1, 2026-08-31) Split the Effort Cedar permits: birth
+(create + Seed) ONLY for patrol-intake-service; the lifecycle permit drops Seed.
+**Came up because:** both reviewers found the lifecycle grant let verified operators
+Seed, bypassing the birth rule (an Effort is born only by accepting an Intent).
+**Options:** (a) keep one combined permit (rejected - it lets a lifecycle driver
+conjure Efforts); (b) split birth from lifecycle.
+**Chose (b) because:** it makes the birth rule hold in policy, not just convention.
+Also dropped the Effort.Seed-vs-Seed dual-id hedge (the live drive log shows the bare
+`Seed` fires: temper.action "Seed"), and hoisted `principal has agent_type` before
+every == (schema-less Cedar must deny-on-missing explicitly). Given up: nothing.
+**Where:** patrol.cedar Effort lifecycle + birth permits; verified by a live negative
+drive (operator POST /tdata/Efforts -> 403).
+
+---
+
+**Decision:** (#491 panel round 1) Chain-id collections are real `list` fields, not
+JSON-in-a-string.
+**Came up because:** both reviewers flagged review_run_ids/proof_packet_ids/
+adjudication_ids as JSON-blob strings - an entity-first violation (outside code must
+parse/rewrite blobs).
+**Options:** (a) keep JSON strings; (b) real list fields appended per-link via
+list_append.
+**Chose (b) because:** the kernel has a real list type + list_append effect (ARN-92:
+the kernel takes real arrays). The attach actions append one element each; CSDL is
+Collection(Edm.String). Verified live: review_run_ids reads back as ["rev-1"] (a JSON
+array, not a string). Given up: nothing. **This decision flows into 1b's chain-file
+guards** (they read the lists, not blobs).
+**Where:** effort.ioa.toml (3 list fields + list_append on AttachReviewRun/
+AttachProofPacket/Resume), model.csdl.xml (Collection).
+
+---
+
+**Decision:** (#491 panel round 1) pm_issue_id has a single source - the Intent -
+and is dropped from the Effort row.
+**Came up because:** pm_issue_id was copied to the Effort at birth, but Intent.
+LinkPmIssue can set it AFTER Accept, so the copy goes stale.
+**Options:** (a) copy at birth (stale); (b) add an Effort update path when the Intent
+links later (more machinery + the Intent->Effort reverse-ref problem); (c) drop the
+copy, read via intent_id.
+**Chose (c) because:** at Accept the pm_issue_id is not even set yet (LinkPmIssue is
+Accepted->Linked, after Accept), so the birth copy is premature AND stale-prone;
+reading it from the Intent via intent_id is the single source. Given up: pm_issue_id
+is not directly on the Effort row (one join via intent_id) - acceptable, the Intent
+IS the Linear mirror holder.
+**Where:** effort.ioa.toml (dropped field + Seed param), model.csdl.xml, intent params_from.
+
+---
+
+**Decision:** (#491 panel round 1) A failed Effort birth is recoverable via a
+RebirthEffort repair action; intent.md is referenced at birth; AttachSignal is a
+self-loop.
+**Came up because:** three reviewer findings - (2) Accept commits before the birth
+trigger with no repair path; (5) the birth did not reference intent.md (an acceptance
+criterion); (6) AttachSignal from Triaged regressed the Intent to Submitted.
+**Options:** (2) entity-trigger on_failure (uncertain support) vs a repair action;
+(5) copy the ref vs attach the file; (6) self-loop vs split per-from-state.
+**Chose:** (2) a RebirthEffort action (Accepted->Accepted) carrying the same create
+trigger - a supported, explicit repair (semantics: use only when no Effort exists for
+the Intent, so it cannot double-birth); (5) copy intent_ref through Seed (guaranteed
+at birth, verified live); (6) drop AttachSignal's `to` so it stays in the current
+state. Given up: nothing.
+**Where:** intent.ioa.toml (RebirthEffort, intent_ref, AttachSignal self-loop),
+effort.ioa.toml (intent_ref), paw_patrol_foundation.rs (birth-wiring test - the
+"take it" consider).
