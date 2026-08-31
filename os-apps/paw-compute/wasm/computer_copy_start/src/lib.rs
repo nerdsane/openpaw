@@ -19,7 +19,12 @@ use wasm_helpers::sandbox::{self, normalize_sandbox_provider};
 /// Seconds to let the provider work before it returns the new sandbox id. Kept
 /// WELL under the 120s cap — this call must return promptly with the id; full
 /// readiness is polled from Copying, not waited on here.
-const COPY_START_TIMEOUT_SECS: u64 = 10;
+// The tensorlake copy API is SYNCHRONOUS (blocks until the copy is fully ready).
+// This short wait just needs the copy created server-side; sandbox_copy_start then
+// discovers it by name and the Copying poll loop handles readiness — so the
+// initiate fits well under the ~120s WASM cap (a full synchronous wait was the R1
+// bug, and a too-short wait that failed on the real API was the C5 bug).
+const COPY_START_WAIT_SECS: u64 = 5;
 /// Wall-clock budget (ms) for the copy to become ready, stamped on the row so the
 /// poll reads a single deadline. A live-copy of a real box takes minutes.
 const COPY_READY_BUDGET_MS: i64 = 300_000;
@@ -46,7 +51,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         // Kick off the copy; returns the new sandbox id promptly (may still boot).
         let handle =
-            sandbox::sandbox_copy(&ctx, &provider, &source_machine_id, COPY_START_TIMEOUT_SECS)?;
+            sandbox::sandbox_copy_start(&ctx, &provider, &source_machine_id, COPY_START_WAIT_SECS)?;
 
         let deadline_at_ms = Context::get_time_millis() + COPY_READY_BUDGET_MS;
         set_success_result(

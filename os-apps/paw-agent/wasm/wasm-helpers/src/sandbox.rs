@@ -1038,6 +1038,146 @@ fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
     None
 }
 
+/// ASYNC copy start (ARN-443, fix after C5): the tensorlake live-copy API is
+/// SYNCHRONOUS — POST /sandboxes/{src}/copy blocks until the copy is fully
+/// provisioned (minutes for a large box) then returns, so it cannot complete
+/// inside one ~120s WASM invocation. This initiates the copy with a SHORT wait
+/// (the copy is created server-side regardless of whether the response arrives),
+/// then DISCOVERS the created copy by name via a list, and returns its handle
+/// WITHOUT waiting for readiness — the caller polls readiness from the Copying
+/// state. Returns Err only on a definitive early failure (a 4xx: bad source, auth).
+pub fn sandbox_copy_start(
+    ctx: &Context,
+    provider: &str,
+    source_sandbox_id: &str,
+    wait_secs: u64,
+) -> Result<SandboxHandle, String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let handle = match provider {
+        "tensorlake" => tensorlake_copy_start(ctx, &api_key, source_sandbox_id, wait_secs),
+        other => Err(format!("sandbox_copy_start unsupported for provider: {other}")),
+    };
+    let outcome = if handle.is_ok() { "started" } else { "error" };
+    log_sandbox_observability(
+        ctx, provider, "copy_start", outcome,
+        handle.as_ref().map(|h| h.sandbox_id.as_str()).unwrap_or(""),
+        None, None, source_sandbox_id,
+    );
+    handle
+}
+
+fn tensorlake_copy_start(
+    ctx: &Context,
+    api_key: &str,
+    source_sandbox_id: &str,
+    wait_secs: u64,
+) -> Result<SandboxHandle, String> {
+    // 1. Initiate. A short wait creates the copy server-side; the response may be
+    //    the id (rare: ready fast), a 5xx/gateway timeout (created, still booting),
+    //    or an http error (timed out). Only a 4xx is a definitive no-copy failure.
+    let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
+    let body = json!({ "times": 1, "timeout_seconds": wait_secs });
+    match ctx.http_call("POST", &copy_url, &bearer_headers_json(api_key), &body.to_string()) {
+        Ok(r) if r.status >= 200 && r.status < 300 => {
+            if let Some(id) = serde_json::from_str::<Value>(&r.body)
+                .ok()
+                .as_ref()
+                .and_then(extract_copied_sandbox_id)
+            {
+                return Ok(handle_for(id)); // ready-fast path
+            }
+            // 2xx but no id — fall through to discovery.
+        }
+        Ok(r) if r.status >= 400 && r.status < 500 => {
+            return Err(format!(
+                "Tensorlake copy of {source_sandbox_id} rejected (HTTP {}): {}",
+                r.status,
+                &r.body[..r.body.len().min(300)]
+            ));
+        }
+        _ => { /* 5xx / gateway timeout / http error: the copy was created; discover it */ }
+    }
+    // 2. Discover the created copy by name (<source-name>-copy).
+    tensorlake_find_copy(ctx, api_key, source_sandbox_id)?.ok_or_else(|| {
+        format!("Tensorlake copy of {source_sandbox_id} was initiated but no copy sandbox was found")
+    })
+}
+
+/// List sandboxes; resolve the source's name from its id, then return the handle
+/// of the sandbox named "<source-name>-copy" (tensorlake's single-copy name) that
+/// is not the source itself and is not terminated. Newest match wins if several.
+fn tensorlake_find_copy(
+    ctx: &Context,
+    api_key: &str,
+    source_sandbox_id: &str,
+) -> Result<Option<SandboxHandle>, String> {
+    let resp = ctx.http_call(
+        "GET",
+        "https://api.tensorlake.ai/sandboxes",
+        &bearer_headers(api_key),
+        "",
+    )?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!("Tensorlake list sandboxes failed (HTTP {})", resp.status));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse Tensorlake sandbox list: {e}"))?;
+    let rows = sandbox_list_rows(&parsed);
+    let source_name = rows
+        .iter()
+        .find(|r| r.0 == source_sandbox_id)
+        .map(|r| r.1.clone())
+        .unwrap_or_default();
+    if source_name.is_empty() {
+        return Ok(None);
+    }
+    let want = format!("{source_name}-copy");
+    let copy = rows.iter().find(|r| {
+        r.1 == want && r.0 != source_sandbox_id && !is_terminated_status(&r.2)
+    });
+    Ok(copy.map(|r| handle_for(r.0.clone())))
+}
+
+/// Extract (id, name, status) rows from a sandbox-list response (array at root or
+/// under `sandboxes`).
+fn sandbox_list_rows(parsed: &Value) -> Vec<(String, String, String)> {
+    let arr = parsed
+        .as_array()
+        .or_else(|| parsed.get("sandboxes").and_then(|v| v.as_array()));
+    let mut out = Vec::new();
+    if let Some(arr) = arr {
+        for e in arr {
+            let id = e
+                .get("sandbox_id")
+                .or_else(|| e.get("id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if id.is_empty() {
+                continue;
+            }
+            let name = e.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let status = e.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            out.push((id.to_string(), name.to_string(), status.to_string()));
+        }
+    }
+    out
+}
+
+fn is_terminated_status(status: &str) -> bool {
+    matches!(
+        status.to_ascii_lowercase().as_str(),
+        "terminated" | "destroyed" | "stopped" | "failed" | "deleted"
+    )
+}
+
+fn handle_for(sandbox_id: String) -> SandboxHandle {
+    SandboxHandle {
+        sandbox_url: format!("https://{sandbox_id}.sandbox.tensorlake.ai"),
+        sandbox_id,
+        provider: "tensorlake".to_string(),
+    }
+}
+
 fn tensorlake_terminate(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
     let url = format!("https://api.tensorlake.ai/sandboxes/{sandbox_id}");
     let resp = ctx.http_call("DELETE", &url, &bearer_headers(api_key), "")?;
