@@ -347,6 +347,119 @@ pub fn sandbox_create(
     result
 }
 
+/// Copy a running sandbox via the provider's live-copy API, returning the new
+/// sandbox's handle. The copy reproduces the source exactly (image, logins,
+/// files) — the review panel uses this to spawn a per-review child of arni-big.
+pub fn sandbox_copy(
+    ctx: &Context,
+    provider: &str,
+    source_sandbox_id: &str,
+    ready_timeout_secs: u64,
+) -> Result<SandboxHandle, String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_copy(ctx, &api_key, source_sandbox_id, ready_timeout_secs),
+        other => Err(format!("sandbox_copy unsupported for provider: {other}")),
+    };
+    match &result {
+        Ok(h) => log_sandbox_observability(
+            ctx, provider, "copy", "success", &h.sandbox_id, None, None, source_sandbox_id,
+        ),
+        Err(_) => log_sandbox_observability(
+            ctx, provider, "copy", "error", "", None, None, source_sandbox_id,
+        ),
+    }
+    result
+}
+
+/// Terminate a sandbox (best-effort teardown). Idempotent: an already-gone
+/// sandbox (404) is treated as success, so reaping never fails on a race.
+pub fn sandbox_terminate(ctx: &Context, provider: &str, sandbox_id: &str) -> Result<(), String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_terminate(ctx, &api_key, sandbox_id),
+        other => Err(format!("sandbox_terminate unsupported for provider: {other}")),
+    };
+    match &result {
+        Ok(()) => log_sandbox_observability(
+            ctx, provider, "terminate", "success", sandbox_id, None, None, "",
+        ),
+        Err(_) => log_sandbox_observability(
+            ctx, provider, "terminate", "error", sandbox_id, None, None, "",
+        ),
+    }
+    result
+}
+
+/// Start a command ASYNCHRONOUSLY (ARN-443 D): POST the process and return the
+/// run_id used to build the `/tmp/.paw-{out,err,rc}-<run_id>` capture files. Does
+/// NOT poll — the caller drives completion via [`sandbox_exec_poll`] across
+/// separate WASM invocations, so a command may outlive a single 120s invocation
+/// (the synchronous [`sandbox_exec`] cannot).
+/// `run_id` is supplied by the caller (not minted here) so it is STABLE across
+/// retries of the same logical start: the launch is idempotent (guarded by an
+/// `rc`-file check and a `flock`), so a retried `Run` trigger cannot spawn a
+/// second process. Callers derive it deterministically from the Exec row id — one
+/// exec per row, so per-dispatch randomness is neither needed nor wanted here.
+pub fn sandbox_exec_start(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    command: &str,
+    run_id: &str,
+    tail_bytes: usize,
+) -> Result<(), String> {
+    let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
+    let result = match handle.provider.as_str() {
+        "tensorlake" => {
+            tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command, run_id, tail_bytes)
+        }
+        other => Err(format!("async exec unsupported for provider: {other}")),
+    };
+    let outcome = if result.is_ok() { "started" } else { "error" };
+    log_sandbox_observability(
+        ctx, &handle.provider, "exec_start", outcome, &handle.sandbox_id, None, None, "",
+    );
+    result
+}
+
+/// A run_id derived deterministically from the entity id (no per-dispatch
+/// randomness): stable across trigger retries so the idempotent launch dedups a
+/// re-fired start. Unique per Exec row because the entity id is.
+pub fn deterministic_run_id(entity_id: &str) -> String {
+    capture_run_id(entity_id, 0)
+}
+
+/// Poll a command started by [`sandbox_exec_start`]. `Some(result)` once the rc
+/// file exists (the command finished); `None` while it is still running.
+///
+/// `tail_bytes` bounds how much stdout/stderr is pulled OFF the sandbox: only the
+/// last `tail_bytes` of each stream are fetched (HTTP Range), so a multi-gigabyte
+/// output can never be read whole into WASM memory. The capture files are NOT
+/// deleted here — they are ephemeral on the sandbox and die with it when the copy
+/// is Destroyed, which avoids a delete-before-the-result-commits window (a crash
+/// between delete and the terminal callback would otherwise lose the result).
+pub fn sandbox_exec_poll(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    run_id: &str,
+    tail_bytes: usize,
+) -> Result<Option<ExecResult>, String> {
+    let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
+    match handle.provider.as_str() {
+        "tensorlake" => tensorlake_exec_poll(ctx, &api_key, &handle.sandbox_url, run_id, tail_bytes),
+        other => Err(format!("async exec unsupported for provider: {other}")),
+    }
+}
+
+/// The `/tmp/.paw-{out,err,rc}-<run_id>` capture file paths for a run.
+fn paw_capture_files(run_id: &str) -> (String, String, String) {
+    (
+        format!("/tmp/.paw-out-{run_id}"),
+        format!("/tmp/.paw-err-{run_id}"),
+        format!("/tmp/.paw-rc-{run_id}"),
+    )
+}
+
 /// Check if a sandbox is ready to accept commands.
 pub fn sandbox_health_check(ctx: &Context, handle: &SandboxHandle) -> Result<bool, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
@@ -736,9 +849,46 @@ fn unique_run_id(ctx: &Context) -> Result<String, String> {
 /// obtain randomness must abort, not risk crossing another exec's output.
 fn random_u64() -> Result<u64, String> {
     let mut b = [0u8; 8];
-    getrandom::getrandom(&mut b)
-        .map_err(|e| format!("host RNG unavailable (random_get failed: {e})"))?;
+    fill_random(&mut b)?;
     Ok(u64::from_le_bytes(b))
+}
+
+/// Fill `buf` with random bytes.
+///
+/// On wasm this is a RAW WASI `random_get` import — NOT the `getrandom` crate.
+/// The crate's `wasm32-unknown-unknown` support is a hard `compile_error!`, which
+/// broke every wasm-helpers consumer still built for that target (unrelated
+/// paw-agent/foresight/ingest modules) even though they never draw randomness.
+/// A raw import is dead-code-eliminated when unused, so those modules compile
+/// again, and the temper host provides `random_get` for wasip1 modules.
+#[cfg(target_arch = "wasm32")]
+fn fill_random(buf: &mut [u8]) -> Result<(), String> {
+    #[link(wasm_import_module = "wasi_snapshot_preview1")]
+    unsafe extern "C" {
+        fn random_get(buf: *mut u8, buf_len: usize) -> u16;
+    }
+    let rc = unsafe { random_get(buf.as_mut_ptr(), buf.len()) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(format!("host RNG unavailable (random_get errno {rc})"))
+    }
+}
+
+/// Native (unit tests only): a std-seeded fill. `random_u64` is not exercised by
+/// the pure `capture_run_id` tests, so this only needs to be non-panicking.
+#[cfg(not(target_arch = "wasm32"))]
+fn fill_random(buf: &mut [u8]) -> Result<(), String> {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_usize(buf.as_ptr() as usize);
+    let mut v = h.finish();
+    for chunk in buf.chunks_mut(8) {
+        let bytes = v.to_le_bytes();
+        chunk.copy_from_slice(&bytes[..chunk.len()]);
+        v = v.wrapping_mul(6364136223846793005).wrapping_add(1);
+    }
+    Ok(())
 }
 
 /// FNV-1a 32-bit hash — a small, dependency-free digest of the full entity id so
@@ -826,6 +976,81 @@ fn tensorlake_create(
         sandbox_id,
         provider: "tensorlake".to_string(),
     })
+}
+
+fn tensorlake_copy(
+    ctx: &Context,
+    api_key: &str,
+    source_sandbox_id: &str,
+    ready_timeout_secs: u64,
+) -> Result<SandboxHandle, String> {
+    // Server live-copy API: POST /sandboxes/{source}/copy.
+    let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
+    let headers = bearer_headers_json(api_key);
+    let body = json!({ "times": 1, "timeout_seconds": ready_timeout_secs });
+    let resp = ctx.http_call("POST", &copy_url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "Tensorlake sandbox copy of {source_sandbox_id} failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(500)]
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse Tensorlake copy response: {e}"))?;
+    let sandbox_id = extract_copied_sandbox_id(&parsed).ok_or_else(|| {
+        format!(
+            "Tensorlake copy returned no sandbox id: {}",
+            &resp.body[..resp.body.len().min(300)]
+        )
+    })?;
+    Ok(SandboxHandle {
+        sandbox_url: format!("https://{sandbox_id}.sandbox.tensorlake.ai"),
+        sandbox_id,
+        provider: "tensorlake".to_string(),
+    })
+}
+
+/// Pull the new sandbox id out of a copy response, tolerating shapes: a bare
+/// `{sandbox_id|id}`, or `{sandboxes:[{sandbox_id|id}|"<id>", ...]}` (the batch
+/// form). Returns the first id found.
+fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
+    if let Some(s) = parsed.get("sandbox_id").and_then(|v| v.as_str()) {
+        return Some(s.to_string());
+    }
+    if let Some(s) = parsed.get("id").and_then(|v| v.as_str()) {
+        return Some(s.to_string());
+    }
+    if let Some(arr) = parsed.get("sandboxes").and_then(|v| v.as_array()) {
+        for e in arr {
+            if let Some(s) = e
+                .get("sandbox_id")
+                .or_else(|| e.get("id"))
+                .and_then(|v| v.as_str())
+            {
+                return Some(s.to_string());
+            }
+            if let Some(s) = e.as_str() {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn tensorlake_terminate(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
+    let url = format!("https://api.tensorlake.ai/sandboxes/{sandbox_id}");
+    let resp = ctx.http_call("DELETE", &url, &bearer_headers(api_key), "")?;
+    // 2xx = terminated; 404 = already gone (idempotent success for the reaper).
+    if (resp.status >= 200 && resp.status < 300) || resp.status == 404 {
+        Ok(())
+    } else {
+        Err(format!(
+            "Tensorlake terminate of {sandbox_id} failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ))
+    }
 }
 
 fn tensorlake_health_check(
@@ -980,6 +1205,119 @@ fn tensorlake_exec(
         stderr,
         exit_code,
     })
+}
+
+/// Async exec START: POST the process, return its run_id. No poll.
+fn tensorlake_exec_start(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_url: &str,
+    command: &str,
+    run_id: &str,
+    tail_bytes: usize,
+) -> Result<(), String> {
+    let (out_file, err_file, rc_file) = paw_capture_files(run_id);
+    let lock_file = format!("/tmp/.paw-lock-{run_id}");
+    let out_tail = format!("{out_file}.tail");
+    let err_tail = format!("{err_file}.tail");
+    // Idempotent launch (rc-check + flock so a retried start never double-spawns),
+    // then bound the output AT THE SOURCE: after the command, write `tail -c
+    // {tail_bytes}` files and — on SUCCESS ONLY — delete the full (possibly huge)
+    // out/err so a durable box does not accumulate them; on FAILURE the full files
+    // are KEPT for debugging. The poll reads only the bounded `.tail` files, so a
+    // gigabyte of output can never be pulled whole into WASM memory. rc is written
+    // LAST, so when the poll sees it the tails are ready.
+    let wrapped = format!(
+        "if [ -f {rc_file} ]; then exit 0; fi; \
+         exec 9>{lock_file} 2>/dev/null; \
+         if ! flock -n 9; then exit 0; fi; \
+         if [ -f {rc_file} ]; then exit 0; fi; \
+         ({command}) > {out_file} 2> {err_file}; RC=$?; \
+         tail -c {tail_bytes} {out_file} > {out_tail} 2>/dev/null; \
+         tail -c {tail_bytes} {err_file} > {err_tail} 2>/dev/null; \
+         if [ \"$RC\" = 0 ]; then rm -f {out_file} {err_file}; fi; \
+         echo $RC > {rc_file}"
+    );
+    let body = json!({ "command": "/bin/bash", "args": ["-c", &wrapped] });
+    let resp = ctx.http_call(
+        "POST",
+        &format!("{sandbox_url}/api/v1/processes"),
+        &bearer_headers_json(api_key),
+        &body.to_string(),
+    )?;
+    if resp.status >= 400 {
+        return Err(format!("sandbox async start failed: {}", resp.body));
+    }
+    Ok(())
+}
+
+/// Async exec POLL: `Some(result)` once the rc file exists (finished), else
+/// `None` (still running). On completion only the last `tail_bytes` of stdout and
+/// stderr are pulled (HTTP Range) so a huge output cannot OOM the module; the
+/// capture files are left in place (they die with the ephemeral sandbox, and not
+/// deleting here removes the lose-the-result-on-crash window — see caller).
+fn tensorlake_exec_poll(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_url: &str,
+    run_id: &str,
+    tail_bytes: usize,
+) -> Result<Option<ExecResult>, String> {
+    let (out_file, err_file, rc_file) = paw_capture_files(run_id);
+    let rc = ctx.http_call(
+        "GET",
+        &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file)),
+        &bearer_headers(api_key),
+        "",
+    )?;
+    if rc.status < 200 || rc.status >= 300 {
+        return Ok(None); // rc file not written yet — still running
+    }
+    let exit_code = rc.body.trim().parse::<i64>().unwrap_or(-1);
+    // Read only the bounded `.tail` files the wrapper produced (≤ tail_bytes each),
+    // so output is capped at the SOURCE — no full-body read, no OOM.
+    let stdout = read_capture_tail(ctx, api_key, sandbox_url, &format!("{out_file}.tail"), tail_bytes);
+    let stderr = read_capture_tail(ctx, api_key, sandbox_url, &format!("{err_file}.tail"), tail_bytes);
+    Ok(Some(ExecResult {
+        stdout,
+        stderr,
+        exit_code,
+    }))
+}
+
+/// Read a bounded `.tail` capture file (the wrapper already truncated it to
+/// tail_bytes on the box). Only a 2xx body is returned — a 404 (no output) or a
+/// 5xx error page becomes an EMPTY tail, never the error page itself. A defensive
+/// re-truncate guards against a provider that returns more than asked. The exit
+/// code is the source of truth; output is best-effort.
+fn read_capture_tail(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_url: &str,
+    path: &str,
+    tail_bytes: usize,
+) -> String {
+    let resp = match ctx.http_call(
+        "GET",
+        &format!("{sandbox_url}/api/v1/files?path={}", url_encode(path)),
+        &bearer_headers(api_key),
+        "",
+    ) {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
+    if resp.status < 200 || resp.status >= 300 {
+        return String::new(); // 404 = no output; error page = not a tail
+    }
+    let body = resp.body;
+    if body.len() <= tail_bytes {
+        return body;
+    }
+    let mut start = body.len() - tail_bytes;
+    while start < body.len() && !body.is_char_boundary(start) {
+        start += 1;
+    }
+    body[start..].to_string()
 }
 
 // ===========================================================================
@@ -1556,4 +1894,14 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn extract_copied_sandbox_id_tolerates_shapes() {
+        use serde_json::json;
+        assert_eq!(extract_copied_sandbox_id(&json!({"sandbox_id":"a1"})).as_deref(), Some("a1"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"id":"b2"})).as_deref(), Some("b2"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"sandboxes":[{"sandbox_id":"c3"}]})).as_deref(), Some("c3"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"sandboxes":["d4"]})).as_deref(), Some("d4"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"nope":1})), None);
+    }
+
 }

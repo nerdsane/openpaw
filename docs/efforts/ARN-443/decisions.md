@@ -270,3 +270,290 @@ accepted residuals.
   log dir within a box's lifespan. Accepted with this note; revisit if exec volume
   ever approaches that.
 - **Iteration cap in the poll:** kept as-is (a stalled-clock guard).
+
+# Part C — copies as governed children (design decisions)
+
+## C1 — Option A (spawn child) + Leased as a distinct STATE (not a flag/entity)
+- **Decision:** Copy spawns a child Computer that runs its OWN copy
+  (ProvisionFromCopy → computer_copy → CopyComplete → Leased); reaping is a
+  state_timeout on Leased only. Not a ComputerCopy entity, not an is_copy flag.
+- **Where:** specs/computer.ioa.toml. Confirmed with team-lead (independent
+  convergence on the same shape).
+
+## C2 — parent reference is source_machine_id, set by the callback (no parent_computer_id field)
+- **Decision:** The child records `source_machine_id` (set by computer_copy in the
+  CopyComplete callback), not a `parent_computer_id` entity-id field.
+- **Came up because:** the `spawn` primitive copies parent fields into the child's
+  initial-action params by SAME NAME only — it cannot inject the parent's
+  entity-id or rename a field, so a `parent_computer_id = <source entity id>` field
+  can't be set cleanly without a fragile name==id convention. computer_copy, by
+  contrast, knows exactly what machine it copied.
+- **Chose source_machine_id because:** it is the parent's stable machine identity,
+  set from a source the module actually has, and together with the inherited
+  `name` + the Leased state it fully serves the governed-child audit ("a leased
+  copy of <name>, from machine <source_machine_id>, now on <machine_id>"). This
+  reads the team-lead's "sets parent_computer_id=source" as satisfied by the
+  machine identity rather than a second, hard-to-set entity-id field — DEVIATION
+  from the literal field name, surfaced for confirmation.
+- **Where:** computer_copy/src/lib.rs; specs/computer.ioa.toml source_machine_id.
+
+## C3 — Terminating intermediate state (not a fire-and-forget on Destroyed)
+- **Decision:** Destroy → Terminating (fires computer_terminate) → TerminateComplete
+  → Destroyed, rather than firing the terminate as a side effect on the final
+  Destroyed state.
+- **Came up because:** a trigger on a terminal state has no callback target, and a
+  WASM integration must not dispatch on a final/other machine; a clean callback
+  needs a non-final state.
+- **Chose Terminating because:** the module reports TerminateComplete (the machine
+  sequences the teardown), best-effort/idempotent, with a safety state_timeout.
+- **Where:** specs/computer.ioa.toml.
+
+## C4 — Destroy excludes Provisioning (source-termination safety)
+- **Decision:** Destroy's `from` is Ready/Sleeping/Created/Leased — NOT Provisioning.
+- **Came up because:** during a child's copy the child's machine_id is still the
+  SOURCE's machine; a Destroy-from-Provisioning would fire computer_terminate on
+  the source's sandbox and kill it.
+- **Where:** specs/computer.ioa.toml Destroy; CopyFailed goes straight to Destroyed
+  with no terminate.
+
+## C5 — provider CALLS (real copy/terminate) deferred to prod verification, with a hard condition
+- **Decision:** The local e2e proves the state machine, Cedar, the source-safety
+  guard, the failure path, and the reap STATE flow (with stub machines). The two
+  real provider CALLS — a live tensorlake copy and a live terminate — are proved
+  at C's Genesis-publish / prod step, not locally.
+- **Came up because:** `tensorlake_api_key` is a prod Temper secret; it is not in
+  Railway env and the `tl` CLI does not expose the raw key. Prod secrets do not
+  migrate to local boxes for convenience, so a local server cannot make a real
+  tensorlake copy. Team-lead confirmed this posture and that the prod "verify
+  live" step is higher-fidelity anyway.
+- **CONDITION for C = done (must be met at prod verification, not optional):** ONE
+  full real cycle — Copy → the real child sandbox EXISTS (`tl sbx ls` shows it) →
+  Leased → forced/short lease timeout → Destroyed → provider-confirmed TERMINATED
+  (`tl sbx ls` shows it gone). This closes the one gap the local stub cannot.
+- **Where:** local e2e = this effort's proof record; prod cycle = C's Genesis
+  publish + live verification (temperpaw DoD).
+
+# Part D — async exec (batched into C's PR #494 per Rita; Option A, acked)
+
+## D0 — status at this checkpoint
+- **Built + committed:** the async wasm-helpers foundation — `sandbox_exec_start`
+  (POST, returns run_id, no poll) + `sandbox_exec_poll(run_id) -> Option<ExecResult>`
+  (Some once the rc file exists, None while running). The sync `sandbox_exec`
+  stays for LatencyDiag/short callers. 56/56 tests, wasip1 clean (commit 8a057cda5).
+- **Also fixed a #468 regression (e42706c5c):** wasm-helpers used the `getrandom`
+  crate, which hard-`compile_error!`s on wasm32-unknown-unknown and broke every
+  consumer still on that target (make wasm failed). Replaced with a raw WASI
+  `random_get` import (DCE'd when unused; host-provided on wasip1). Rides this PR
+  to main; flagged for possible fast-track.
+
+## D-plan — remaining (resume here)
+1. **Exec spec restructure** (exec.ioa.toml): states Created → **Starting** →
+   Running → Succeeded|Failed. Fields add `run_id`, `started_at_ms`.
+   - `Run(computer_id, command)` → Starting; effect `computer_exec_start`;
+     on_failure RunFailed.
+   - `ExecStarted(run_id, started_at_ms)` → Running (callback from start).
+   - `[[state_timeout]] state="Running" after_seconds=10 on_timeout="Poll"`.
+   - `Poll` → Running (self-loop); effect `computer_exec_poll`; on_failure RunFailed.
+     (Re-entering Running re-arms the timeout — that IS the poll loop.)
+   - `RunSucceeded` / `RunFailed` (from Running AND Starting) unchanged-ish.
+   - `Cancel(error)` (from Running/Starting) → Failed.
+   - `[[state_timeout]] state="Starting"` safety → RunFailed. LatencyDiag stays on
+     the sync `computer_exec`.
+2. **computer_exec_start module:** resolve computer (loopback + Ready gate), wrap
+   the command with a LONG `timeout <deadline>s bash -c '<cmd>'` (async has no 90s
+   cap — the poll loop spans invocations), `sandbox_exec_start` → run_id, report
+   `ExecStarted(run_id, started_at_ms)`.
+3. **computer_exec_poll module:** read computer_id + run_id, re-resolve the
+   computer, `sandbox_exec_poll(run_id)`. Some → RunSucceeded(exit_code, tails) /
+   RunFailed. None & now < started_at_ms + MAX_RUN → no result (stay Running, the
+   Poll transition already re-armed the timeout). None & past deadline →
+   RunFailed("exceeded deadline"). Keep the simple stdout/stderr tails (no
+   log-file/markers — that was the sync path's paging feature; async leaves
+   stdout_path/bytes empty).
+4. **Cedar:** Poll/Cancel for Agent; ExecStarted as system; computer_exec_start/
+   poll in the http_call/access_secret module scoping.
+5. **build.sh + app.toml:** add computer_exec_start + computer_exec_poll.
+6. **Panel scripts (stack):** create + Run a Computer.Exec, poll the row to
+   Succeeded/Failed, read the tail — behind PANEL_EXEC=governed (raw `tl sbx exec`
+   default until proven).
+7. **Combined e2e:** C lifecycle (Copy→Leased→forced timeout→Destroyed) + a
+   governed Exec through the async poll incl. a >120s command (proves the poll
+   survives invocation boundaries) + Cancel. Real provider calls per C5 (prod
+   verify). Local proves the state machines + poll loop with stubs.
+
+## D open question for the loop
+- Whether a Poll trigger may return WITHOUT set_result on the not-done branch
+  (relying on the Poll transition's timeout re-arm), or must report a benign
+  KeepRunning self-loop. Confirm against the host at first e2e; default to
+  KeepRunning if a no-result return is rejected.
+
+## Encodes from the getrandom regression (team-lead requested)
+- **E1 — a dependency added for one module's need must not poison the shared
+  helper crate for targets that don't use it.** wasm-helpers is a shared path dep
+  of many modules; adding `getrandom` (a hard `compile_error!` on
+  wasm32-unknown-unknown) broke consumers that never draw randomness. Shared
+  crates take target-portable dependencies only; a target-specific need uses a
+  cfg'd raw import (DCE'd when unused), not a crate that fails to compile on some
+  targets. Strongest rung available now = this note + the fix; a CI lint that
+  shared wasm crates carry no target-breaking deps would be the durable rung.
+- **E2 — several consumer modules are still wasm32-unknown-unknown against the
+  standing wasip1 rule.** The getrandom break only EXPOSED this; the modules
+  (context_preparer, provider_auth_gate, provider_caller, and others) should be
+  wasip1 per the deploy rule. Team-lead is filing this as its own small issue —
+  NOT C/D scope.
+
+## D-FINAL — poll-loop semantics settled at kernel source (open question closed)
+
+**Decision:** The async-exec poll loop re-arms via an explicit `reset_on = ["Poll"]`
+on the `Running` `state_timeout`, and `computer_exec_poll`'s not-done branch reports
+SUCCESS with an EMPTY callback action (no transition). The `KeepRunning` action is
+DELETED. The same finding forced `reset_on = ["Heartbeat"]` on the `Leased`
+`state_timeout` so a copy's Heartbeat actually renews its lease.
+
+**Came up because:** the D open question ("may a Poll trigger return without a
+result on the not-done branch, or must it report a benign KeepRunning?"). The
+team-lead asked to settle it empirically and prefer the no-result re-arm if the
+kernel accepts a triggered module reporting nothing.
+
+**What the kernel source proves (rev 43f9379, the running build):**
+- A triggered WASM module reporting an EMPTY callback IS accepted: the engine
+  parses `result.callback_action` as `parsed.get("action").unwrap_or("")`
+  (`temper-wasm/src/engine/mod.rs:339`), and the dispatch path runs the callback
+  only `if !callback_action.is_empty()`, otherwise returns `Ok(None)` — no error,
+  no stall (`temper-server/src/state/dispatch/wasm.rs:485`). So the not-done branch
+  should report success with no action. (Reporting NOTHING at all is different:
+  an unset result is read as `success:false` → on_failure=RunFailed. So the module
+  must call `set_success_result("", …)` explicitly.)
+- BUT a self-loop does NOT re-arm a `state_timeout` on its own. Arming
+  (`temper-server/src/state/dispatch/state_timeouts.rs:225-244`) computes
+  `state_changed = pre_state != post_state`; for a self-loop that is `false`, so
+  `is_entry` is false and the timer is re-armed only when
+  `is_reset = !state_changed && reset_on.contains(action)`. Without the action in
+  `reset_on`, the branch `continue`s and the timer is NOT re-armed.
+
+**Two latent bugs this exposed (both in my own committed D/C specs), now fixed:**
+1. The `Running` timeout had no `reset_on`, so the Poll loop would have fired
+   exactly ONCE and then stalled in Running forever. `KeepRunning` did not save it —
+   it is also a self-loop and equally fails to re-arm. Fix: `reset_on = ["Poll"]`
+   on the Running timeout; delete `KeepRunning`; not-done branch reports `("", {})`.
+2. The `Leased` timeout had no `reset_on`, so `Heartbeat` (documented as "renews
+   the lease") was a silent no-op — the lease would have fired 3600s after the copy
+   went live regardless of heartbeats. Fix: `reset_on = ["Heartbeat"]`.
+
+**Options:** (a) keep KeepRunning as the not-done callback — REJECTED: it is pure
+machinery that does not even re-arm (self-loop), so it would have masked bug #1
+without fixing it; (b) no-result return with no set_result — REJECTED: read as
+failure → RunFailed; (c) explicit empty-callback success + reset_on — CHOSEN: the
+kernel-blessed "report nothing" signal, with the re-arm carried by the one
+mechanism that actually re-arms a self-loop.
+
+**Chose (c):** gained a correct, minimal loop (one fewer action, one fewer Cedar
+entry) and a correctly-renewing lease; gave up nothing — the deleted KeepRunning
+never worked as imagined.
+
+**Where:** `os-apps/paw-compute/specs/exec.ioa.toml` (Running `reset_on`, KeepRunning
+removed), `computer.ioa.toml` (Leased `reset_on`), `policies/compute.cedar`
+(KeepRunning removed), `os-apps/paw-compute/wasm/computer_exec_poll/src/lib.rs`
+(not-done → `set_success_result("", …)`). Kernel citations above.
+
+## E3 — self-loop state_timeouts need explicit reset_on (encode)
+A `[[state_timeout]]` on a state that a self-loop action re-enters is NOT re-armed
+by that self-loop unless the action is listed in the timeout's `reset_on`. Any
+keep-alive / poll loop built on a self-loop MUST declare `reset_on = ["<action>"]`,
+or it fires once and stalls. Two specs in this very effort shipped the bug before a
+kernel-source read caught it. Strongest available rung: this note; a spec-lint that
+flags a self-loop action targeting a state whose `state_timeout` lacks it in
+`reset_on` would be the durable rung (candidate for temper-spec's parser, which
+already validates reset_on names).
+
+## Round 1 (panel 2/3) — 8 act-ons, batched
+
+**R1.1 (CRITICAL) — async copy (the copy had D's exec problem).** `computer_copy`
+did ONE synchronous `sandbox_copy` blocking up to 240s, inside the ~120s WASM cap —
+a real live-copy of arni-big (minutes) would die mid-invocation every time. Fixed
+the same way as D's exec: split into `computer_copy_start` (a short-timeout POST
+that returns the new sandbox id promptly → `CopyStarted` → new `Copying` state) and
+`computer_copy_poll` (a `Copying` state_timeout, `reset_on=["CopyPoll"]`, health-
+checks readiness across invocations → `CopyComplete`→Leased; past the deadline or on
+a hard failure → `CopyExpired`→Terminating, which tears down the leaked COPY —
+machine_id is the copy's by then). `Destroy` now also allows `Copying`. Where:
+`specs/computer.ioa.toml`, `wasm/computer_copy_start`, `wasm/computer_copy_poll`,
+`policies/compute.cedar`, `app.toml`, `build.sh`.
+
+**R1.2 — CSDL drift.** `model.csdl.xml` was missing the new surface. Added Computer
+`SourceMachineId`/`CopyDeadlineAtMs` + actions Copy/ProvisionFromCopy/CopyStarted/
+CopyPoll/CopyComplete/CopyFailed/CopyExpired/Heartbeat/TerminateComplete, and Exec
+`RunId`/`StartedAtMs`/`DeadlineAtMs` + ExecStarted/Poll/Cancel. (Dispatch reads the
+spec, not the CSDL — which is why the e2e worked — but the served $metadata contract
+was stale.) Where: `specs/model.csdl.xml`.
+
+**R1.3 — poll read truncates at the source.** `tensorlake_exec_poll` read the FULL
+stdout/stderr into WASM memory before the caller truncated. Now fetches only the
+last `tail_bytes` of each stream via an HTTP Range request (`read_file_tail`), with a
+caller-side tail as a backstop if the provider ignores Range — a multi-GB output can
+no longer OOM the module. Where: `wasm-helpers/src/sandbox.rs`.
+
+**R1.4 — no delete before the result commits.** The poll deleted the rc/output files
+before the terminal callback committed; a crash in between lost the result. It no
+longer deletes — the capture files are ephemeral and die with the sandbox when the
+copy is Destroyed. Where: `wasm-helpers/src/sandbox.rs` (`tensorlake_exec_poll`).
+
+**R1.5 — idempotent start (no duplicate orphan on retry).** `sandbox_exec_start`
+minted a NEW random run_id per attempt on a non-idempotent POST. Now the caller
+passes a DETERMINISTIC run_id derived from the Exec row id (`deterministic_run_id`,
+one exec per row), and the launch wrapper is idempotent (rc-file check + `flock`), so
+a retried `Run` trigger cannot spawn a second process. Where:
+`wasm-helpers/src/sandbox.rs`, `wasm/computer_exec_start`.
+
+**R1.6 — transient vs terminal in the poll.** One Temper-read or provider blip →
+`RunFailed` used to kill a live exec. `computer_exec_poll` now treats a resolve/poll
+error as "still running" (empty callback, reset_on re-fires) BEFORE the deadline, and
+only fails terminally once past it. Where: `wasm/computer_exec_poll`.
+
+**R1.7 — single deadline source.** The run limit lived in two modules (start's
+`MAX_RUN_SECS`, poll's `MAX_RUN_MS`) against the host clock. `computer_exec_start` now
+stamps `deadline_at_ms` on the Exec row once; the poll only reads and compares it.
+Where: `specs/exec.ioa.toml` (field + ExecStarted param), `computer_exec_start`,
+`computer_exec_poll`.
+
+**R1.8 — a copy never inherits the source's name.** `Copy`'s `copy_fields` dropped
+`name` (an attach/resolution key — a copy named "arni-big" would collide with the
+source in attach-by-name and box_resolve); `computer_copy_start` sets a distinct
+`copy-<child-id>` name at `CopyStarted`. Where: `specs/computer.ioa.toml`,
+`wasm/computer_copy_start`.
+
+**Consider taken — poll backoff.** For a 30-min exec, 10s ticks = ~180 invocations.
+`computer_exec_poll` now backs off after the first minute: it still fires every 10s
+(and re-arms) but only hits the provider ~1 tick in 3 (~30s), using elapsed time (no
+new field). Where: `wasm/computer_exec_poll`.
+
+**Known residual (documented):** `computer_copy_start`'s POST is not perfectly
+idempotent (the provider mints the copy id, so a retried start after a created-but-
+unreported copy leaks a sandbox). It is caught by the lease timeout / the panel's
+stale-copy reaper — the same net as CopyFailed's existing leak note. Not a new class.
+
+## Round 2 (panel 2/3) — 3 act-ons, all in the tail-read edges
+
+The round-1 Range-read fix had three edge holes. Reworked to bound output AT THE
+SOURCE instead of at read time, which closes all three cleanly (HttpResponse
+exposes only status+body — no headers, no size cap — so a safe Range probe was not
+possible: any GET that the server answered with a full body would already have
+buffered it into WASM memory).
+
+**R2.1 + R2.2 — no full-body read, ever; and status-checked.** The launch wrapper
+now writes `tail -c {tail_bytes}` `.tail` files on the box, and the poll reads ONLY
+those bounded files (`read_capture_tail`), so a gigabyte of output is truncated
+before it leaves the sandbox — the Range fallback that could accept a full-body 200
+is gone. `read_capture_tail` returns a body only on a 2xx status; a 404 (no output)
+or a 5xx error page becomes an EMPTY tail, never the error page itself. Where:
+`wasm-helpers/src/sandbox.rs` (`tensorlake_exec_start` wrapper, `tensorlake_exec_poll`,
+`read_capture_tail`), `computer_exec_start` (passes the tail bound).
+
+**R2.3 — bounded on-box retention.** The wrapper deletes the full stdout/stderr on
+SUCCESS ONLY (rc == 0), after the bounded `.tail` files are written, so a durable
+computer never accumulates unbounded output; on FAILURE the full files are KEPT for
+debugging. The result is never lost (the `.tail` the poll reports is written before
+the delete, and rc — which signals completion — is written last). The retention rule
+is noted in `exec.ioa.toml` next to the output fields. This honors the round-1
+"result before delete" ordering while removing the unbounded-growth path. Where:
+`wasm-helpers/src/sandbox.rs`, `specs/exec.ioa.toml`.
