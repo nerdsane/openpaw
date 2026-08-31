@@ -83,13 +83,6 @@ name = "intent_ref"
 type = "string"
 initial = ""
 
-# Back-reference to the born Effort, written by Effort.Seed (#491 round 2). Backs
-# RebirthEffort's idempotency guard: one Intent, one live Effort.
-[[state]]
-name = "effort_id"
-type = "string"
-initial = ""
-
 [[action]]
 name = "Submit"
 kind = "input"
@@ -152,22 +145,11 @@ type = "create"
 # birth (same create trigger). It is a create, so use it ONLY when no Effort
 # exists for this Intent yet (query Efforts by intent_id first) - a monitor that
 # finds an Accepted Intent with no Effort dispatches this; it must not double-birth.
-# LinkEffort records the born Effort's id (dispatched by Effort.Seed's back-ref
-# trigger). Self-loop; intake-service only (Cedar). Idempotent - re-linking the same
-# effort_id is harmless.
-[[action]]
-name = "LinkEffort"
-kind = "input"
-from = ["Draft", "Submitted", "Triaged", "Accepted", "Rejected", "Linked"]
-params = ["effort_id"]
-hint = "Record the born Effort's id on the Intent (written by Effort.Seed; backs the one-Intent-one-Effort guard). Self-loop, enabled from any state so the back-ref write never drops (Seed fires it from Accepted/Linked in practice)."
-
 [[action]]
 name = "RebirthEffort"
 kind = "input"
 from = ["Accepted", "Linked"]
-guard = [{ type = "cross_entity_state", entity_type = "Effort", entity_id_source = "effort_id", required_status = ["Abandoned"] }]
-hint = "Re-attempt the Effort birth for an Accepted/Linked Intent whose Effort does not exist or was Abandoned (idempotency guard: a live Effort blocks it). Self-loop; intake-service only (Cedar)."
+hint = "Re-attempt the Effort birth for an Accepted/Linked Intent that has no linked Effort (repair for a failed birth). Self-loop (no `to`) so it stays in the current state; reachable after LinkPmIssue too. Intake-service only (Cedar)."
 
 [[action.triggers]]
 name = "intent_rebirth_effort"

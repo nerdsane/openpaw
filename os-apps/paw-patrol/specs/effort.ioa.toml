@@ -203,39 +203,13 @@ kind = "input"
 from = ["Intended"]
 to = "Intended"
 params = ["intent_id", "intent_ref", "factory_case_id", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
-hint = "Seed a new Effort from the accepted Intent: linkage (intent_id), the intent.md reference (intent_ref), task, and repo. pm_issue_id is NOT copied - read from the Intent via intent_id (single source)."
+hint = "Seed a new Effort from the accepted Intent: linkage (intent_id), the intent.md reference (intent_ref, guaranteed at birth), task, and repo. pm_issue_id is NOT copied - it is read from the Intent via intent_id (single source; the Intent's LinkPmIssue can set it after birth)."
 
-# intent.md-at-birth guard (#491 round 2, deferred to 1b): validate intent_ref
-# names a Ready File; on_failure Abandons the just-born Effort (Seed is the earliest
-# stage that can honestly check the File - kernel guards can't read files/strings).
-[[action.triggers]]
-name = "effort_seed_requires_intent_file"
-kind = "wasm"
-module = "effort_lifecycle"
-on_failure = "Abandon"
-
-[action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-
-# Write the effort_id back onto the Intent (resolve the Intent by intent_id) so
-# 'one Intent, one Effort' has an enforcement point (RebirthEffort's idempotency
-# guard reads it). Runs as the intake service, same as the birth.
-[[action.triggers]]
-name = "effort_seed_links_back_to_intent"
-kind = "entity"
-principal = "patrol-intake-service"
-target_entity = "Intent"
-target_action = "LinkEffort"
-
-[action.triggers.params_from]
-effort_id = "Id"
-
-[action.triggers.resolve_target]
-type = "field"
-field = "intent_id"
-
-# Specify - the spec.md door. In 1b a wasm validates spec.md exists on TemperFS
-# and refuses on missing; here the marker is set by effect and the door is open.
+# Specify - the first guarded door. A wasm validates that BOTH intent.md and
+# spec.md are Ready Files on TemperFS; here the marker is set by effect. intent.md
+# is an at-birth criterion, but the create-dispatched Seed cannot carry a wasm
+# trigger without a cyclic reaction graph (ARN-448), so the first guarded door
+# enforces intent_ref too - an Effort cannot leave Intended without a Ready intent.md.
 [[action]]
 name = "Specify"
 kind = "input"
@@ -243,11 +217,12 @@ from = ["Intended"]
 to = "Specified"
 params = ["spec_ref"]
 effect = "set spec_written true"
-hint = "Attach the spec (spec.md on TemperFS) and enter Specified. The effort_lifecycle wasm refuses (via RejectSpec) unless spec_ref names a Ready paw-fs File."
+hint = "Attach the spec (spec.md on TemperFS) and enter Specified. The effort_lifecycle wasm refuses (via RejectSpec) unless BOTH intent_ref (intent.md, from birth) and spec_ref name Ready paw-fs Files."
 
 # Chain-file guard: kernel guards can't read files, so the transition into
-# Specified fires a wasm that checks spec_ref names a Ready File; on missing it
-# errors and on_failure rolls back to Intended (the machine refuses on missing).
+# Specified fires a wasm that checks intent_ref AND spec_ref name Ready Files; on
+# missing either it errors and on_failure rolls back to Intended (the machine
+# refuses on missing).
 [[action.triggers]]
 name = "effort_specify_requires_spec_file"
 kind = "wasm"
@@ -264,7 +239,7 @@ from = ["Specified"]
 to = "Intended"
 params = ["error_message"]
 effect = "set spec_written false"
-hint = "Roll back Specify when spec.md is not a Ready File (chain-file guard refusal)."
+hint = "Roll back Specify when intent.md or spec.md is not a Ready File (chain-file guard refusal)."
 
 [[action]]
 name = "Plan"

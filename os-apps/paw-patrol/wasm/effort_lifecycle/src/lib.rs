@@ -2,7 +2,11 @@
 //!
 //! Kernel guards cannot read files, so the design-chain doors are enforced here:
 //! `Specify` and `Plan` each fire this module, which checks that the attached
-//! reference (`spec_ref` / `plan_ref`) names a paw-fs `File` in the `Ready` state.
+//! reference names a paw-fs `File` in the `Ready` state. `Specify` checks BOTH
+//! `intent_ref` (intent.md) and `spec_ref` (spec.md) - intent.md is an at-birth
+//! criterion, but the create-dispatched Seed cannot carry a wasm trigger without a
+//! cyclic reaction graph (ARN-448), so the first guarded door enforces it. `Plan`
+//! checks `plan_ref` (plan.md).
 //! On a missing or not-yet-ready file this module ERRORS, and the transition's
 //! `on_failure` (RejectSpec / RejectPlan) rolls the Effort back - the state machine
 //! refuses on a missing chain file. This module only VALIDATES and returns; it never
@@ -21,14 +25,19 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
         match ctx.trigger_action.as_str() {
-            // intent.md is the first chain file - validated at birth (Seed); a
-            // missing/not-Ready intent.md Abandons the just-born Effort (on_failure).
-            "Seed" => require_ready_file(
-                &ctx, &base_url, &headers, &fields, "intent_ref", "IntentRef", "intent.md",
-            ),
-            "Specify" => require_ready_file(
-                &ctx, &base_url, &headers, &fields, "spec_ref", "SpecRef", "spec.md",
-            ),
+            // Specify is the first guarded door. It enforces BOTH intent.md and
+            // spec.md are Ready: intent.md is an at-birth acceptance criterion, but
+            // the create-dispatched Seed cannot carry a wasm trigger without a cyclic
+            // reaction graph (ARN-448), so the earliest safe door checks it here. An
+            // Effort therefore cannot leave Intended without a Ready intent.md.
+            "Specify" => {
+                require_ready_file(
+                    &ctx, &base_url, &headers, &fields, "intent_ref", "IntentRef", "intent.md",
+                )?;
+                require_ready_file(
+                    &ctx, &base_url, &headers, &fields, "spec_ref", "SpecRef", "spec.md",
+                )
+            }
             "Plan" => require_ready_file(
                 &ctx, &base_url, &headers, &fields, "plan_ref", "PlanRef", "plan.md",
             ),

@@ -593,7 +593,7 @@ permit(
 // the Intent's declarative RebirthEffort trigger already runs under this elevation.
 permit(
   principal,
-  action in [Action::"RebirthEffort", Action::"LinkEffort"],
+  action == Action::"RebirthEffort",
   resource is Intent
 ) when {
   principal has agent_type && principal.agent_type == "patrol-intake-service"

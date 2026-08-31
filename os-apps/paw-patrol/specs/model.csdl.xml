@@ -61,7 +61,6 @@
         <Property Name="Repo" Type="Edm.String"/>
         <Property Name="Branch" Type="Edm.String"/>
         <Property Name="IntentRef" Type="Edm.String"/>
-        <Property Name="EffortId" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Human or manager-agent intent submitted into Patrol as work; Accept births its Effort."/>
       </EntityType>
