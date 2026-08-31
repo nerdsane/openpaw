@@ -434,3 +434,16 @@ above + anything blog-bound must not claim the #2/#3 cycle crashes the kernel). 
 strip itself stands: correct per Ruling A, cascade + composite green, acyclic.
 **Where:** boot logs scratchpad/boot-{A-clean,1f92-bt,basemain,256mb}.log; strip at
 f5121cbf0; finding messaged to team-lead 2026-08-31.
+
+**Refinement (team-lead, 2026-08-31):** frame the ARN-448 correction precisely - the
+cycle theory was right about the MECHANISM (recursive dispatch of a cascading
+reaction graph overflows the worker stack) and wrong about the LOCATION (the suspect
+loop is base paw-fs's File<->FileVersion choreography during boot reconcile, not the
+ARN-441 #2/#3 machinery). The base-main repro removes the EVIDENCE that a cyclic
+cross-entity trigger graph crashes the runtime, but does not disprove it - so "can a
+cyclic cross-entity trigger graph also crash the reaction-graph builder" stays a
+SECONDARY OPEN question in ARN-448, neither proven nor refuted. Ruling A STANDS: the
+#2/#3 machinery is NOT re-landed mid-flight - it is deferred until boots are stable
+and the cycle question is answered deliberately, not on a hunch. The 16MB stack
+constant (45147ead3) is named as a stack-size band-aid over the first instance (the
+no-band-aids rule); the kernel fix is iterative/queued dispatch, not a bigger stack.
