@@ -19,7 +19,12 @@ startup_loading = "lazy"
 
 
 [[wasm_modules]]
-name = "computer_copy"
+name = "computer_copy_start"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "computer_copy_poll"
 criticality = "app-required"
 startup_loading = "lazy"
 

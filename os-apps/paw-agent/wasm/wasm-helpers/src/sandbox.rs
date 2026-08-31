@@ -396,14 +396,20 @@ pub fn sandbox_terminate(ctx: &Context, provider: &str, sandbox_id: &str) -> Res
 /// NOT poll — the caller drives completion via [`sandbox_exec_poll`] across
 /// separate WASM invocations, so a command may outlive a single 120s invocation
 /// (the synchronous [`sandbox_exec`] cannot).
+/// `run_id` is supplied by the caller (not minted here) so it is STABLE across
+/// retries of the same logical start: the launch is idempotent (guarded by an
+/// `rc`-file check and a `flock`), so a retried `Run` trigger cannot spawn a
+/// second process. Callers derive it deterministically from the Exec row id — one
+/// exec per row, so per-dispatch randomness is neither needed nor wanted here.
 pub fn sandbox_exec_start(
     ctx: &Context,
     handle: &SandboxHandle,
     command: &str,
-) -> Result<String, String> {
+    run_id: &str,
+) -> Result<(), String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
     let result = match handle.provider.as_str() {
-        "tensorlake" => tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command),
+        "tensorlake" => tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command, run_id),
         other => Err(format!("async exec unsupported for provider: {other}")),
     };
     let outcome = if result.is_ok() { "started" } else { "error" };
@@ -413,16 +419,31 @@ pub fn sandbox_exec_start(
     result
 }
 
+/// A run_id derived deterministically from the entity id (no per-dispatch
+/// randomness): stable across trigger retries so the idempotent launch dedups a
+/// re-fired start. Unique per Exec row because the entity id is.
+pub fn deterministic_run_id(entity_id: &str) -> String {
+    capture_run_id(entity_id, 0)
+}
+
 /// Poll a command started by [`sandbox_exec_start`]. `Some(result)` once the rc
 /// file exists (the command finished); `None` while it is still running.
+///
+/// `tail_bytes` bounds how much stdout/stderr is pulled OFF the sandbox: only the
+/// last `tail_bytes` of each stream are fetched (HTTP Range), so a multi-gigabyte
+/// output can never be read whole into WASM memory. The capture files are NOT
+/// deleted here — they are ephemeral on the sandbox and die with it when the copy
+/// is Destroyed, which avoids a delete-before-the-result-commits window (a crash
+/// between delete and the terminal callback would otherwise lose the result).
 pub fn sandbox_exec_poll(
     ctx: &Context,
     handle: &SandboxHandle,
     run_id: &str,
+    tail_bytes: usize,
 ) -> Result<Option<ExecResult>, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
     match handle.provider.as_str() {
-        "tensorlake" => tensorlake_exec_poll(ctx, &api_key, &handle.sandbox_url, run_id),
+        "tensorlake" => tensorlake_exec_poll(ctx, &api_key, &handle.sandbox_url, run_id, tail_bytes),
         other => Err(format!("async exec unsupported for provider: {other}")),
     }
 }
@@ -1189,10 +1210,21 @@ fn tensorlake_exec_start(
     api_key: &str,
     sandbox_url: &str,
     command: &str,
-) -> Result<String, String> {
-    let run_id = unique_run_id(ctx)?;
-    let (out_file, err_file, rc_file) = paw_capture_files(&run_id);
-    let wrapped = format!("({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}");
+    run_id: &str,
+) -> Result<(), String> {
+    let (out_file, err_file, rc_file) = paw_capture_files(run_id);
+    let lock_file = format!("/tmp/.paw-lock-{run_id}");
+    // Idempotent launch: if the run already finished (rc present) do nothing; else
+    // take an exclusive flock and re-check rc under it, so a retried start for the
+    // same run_id never spawns a second process (finished → skip; still running →
+    // flock is held → skip; free → run once).
+    let wrapped = format!(
+        "if [ -f {rc_file} ]; then exit 0; fi; \
+         exec 9>{lock_file} 2>/dev/null; \
+         if ! flock -n 9; then exit 0; fi; \
+         if [ -f {rc_file} ]; then exit 0; fi; \
+         ({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}"
+    );
     let body = json!({ "command": "/bin/bash", "args": ["-c", &wrapped] });
     let resp = ctx.http_call(
         "POST",
@@ -1203,60 +1235,73 @@ fn tensorlake_exec_start(
     if resp.status >= 400 {
         return Err(format!("sandbox async start failed: {}", resp.body));
     }
-    Ok(run_id)
+    Ok(())
 }
 
 /// Async exec POLL: `Some(result)` once the rc file exists (finished), else
-/// `None` (still running). On completion the capture files are read and removed.
+/// `None` (still running). On completion only the last `tail_bytes` of stdout and
+/// stderr are pulled (HTTP Range) so a huge output cannot OOM the module; the
+/// capture files are left in place (they die with the ephemeral sandbox, and not
+/// deleting here removes the lose-the-result-on-crash window — see caller).
 fn tensorlake_exec_poll(
     ctx: &Context,
     api_key: &str,
     sandbox_url: &str,
     run_id: &str,
+    tail_bytes: usize,
 ) -> Result<Option<ExecResult>, String> {
     let (out_file, err_file, rc_file) = paw_capture_files(run_id);
-    let headers = bearer_headers(api_key);
     let rc = ctx.http_call(
         "GET",
         &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file)),
-        &headers,
+        &bearer_headers(api_key),
         "",
     )?;
     if rc.status < 200 || rc.status >= 300 {
         return Ok(None); // rc file not written yet — still running
     }
     let exit_code = rc.body.trim().parse::<i64>().unwrap_or(-1);
-    let stdout = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&out_file)),
-            &headers,
-            "",
-        )
-        .map(|r| r.body)
-        .unwrap_or_default();
-    let stderr = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&err_file)),
-            &headers,
-            "",
-        )
-        .map(|r| r.body)
-        .unwrap_or_default();
-    for f in [&out_file, &err_file, &rc_file] {
-        let _ = ctx.http_call(
-            "DELETE",
-            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(f)),
-            &headers,
-            "",
-        );
-    }
+    let stdout = read_file_tail(ctx, api_key, sandbox_url, &out_file, tail_bytes);
+    let stderr = read_file_tail(ctx, api_key, sandbox_url, &err_file, tail_bytes);
     Ok(Some(ExecResult {
         stdout,
         stderr,
         exit_code,
     }))
+}
+
+/// Fetch only the last `tail_bytes` of a sandbox file via an HTTP Range request,
+/// so output that could be gigabytes never enters WASM memory whole. If the
+/// provider ignores Range and returns the full body (200), it is truncated to the
+/// tail here as a backstop. A read error yields an empty string (output is
+/// best-effort; the exit code is the source of truth).
+fn read_file_tail(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_url: &str,
+    path: &str,
+    tail_bytes: usize,
+) -> String {
+    let mut headers = bearer_headers(api_key);
+    headers.push(("Range".to_string(), format!("bytes=-{tail_bytes}")));
+    let body = ctx
+        .http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(path)),
+            &headers,
+            "",
+        )
+        .map(|r| r.body)
+        .unwrap_or_default();
+    if body.len() <= tail_bytes {
+        return body;
+    }
+    // Range ignored (full body returned): keep the tail, on a char boundary.
+    let mut start = body.len() - tail_bytes;
+    while start < body.len() && !body.is_char_boundary(start) {
+        start += 1;
+    }
+    body[start..].to_string()
 }
 
 // ===========================================================================

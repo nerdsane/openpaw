@@ -465,3 +465,69 @@ kernel-source read caught it. Strongest available rung: this note; a spec-lint t
 flags a self-loop action targeting a state whose `state_timeout` lacks it in
 `reset_on` would be the durable rung (candidate for temper-spec's parser, which
 already validates reset_on names).
+
+## Round 1 (panel 2/3) — 8 act-ons, batched
+
+**R1.1 (CRITICAL) — async copy (the copy had D's exec problem).** `computer_copy`
+did ONE synchronous `sandbox_copy` blocking up to 240s, inside the ~120s WASM cap —
+a real live-copy of arni-big (minutes) would die mid-invocation every time. Fixed
+the same way as D's exec: split into `computer_copy_start` (a short-timeout POST
+that returns the new sandbox id promptly → `CopyStarted` → new `Copying` state) and
+`computer_copy_poll` (a `Copying` state_timeout, `reset_on=["CopyPoll"]`, health-
+checks readiness across invocations → `CopyComplete`→Leased; past the deadline or on
+a hard failure → `CopyExpired`→Terminating, which tears down the leaked COPY —
+machine_id is the copy's by then). `Destroy` now also allows `Copying`. Where:
+`specs/computer.ioa.toml`, `wasm/computer_copy_start`, `wasm/computer_copy_poll`,
+`policies/compute.cedar`, `app.toml`, `build.sh`.
+
+**R1.2 — CSDL drift.** `model.csdl.xml` was missing the new surface. Added Computer
+`SourceMachineId`/`CopyDeadlineAtMs` + actions Copy/ProvisionFromCopy/CopyStarted/
+CopyPoll/CopyComplete/CopyFailed/CopyExpired/Heartbeat/TerminateComplete, and Exec
+`RunId`/`StartedAtMs`/`DeadlineAtMs` + ExecStarted/Poll/Cancel. (Dispatch reads the
+spec, not the CSDL — which is why the e2e worked — but the served $metadata contract
+was stale.) Where: `specs/model.csdl.xml`.
+
+**R1.3 — poll read truncates at the source.** `tensorlake_exec_poll` read the FULL
+stdout/stderr into WASM memory before the caller truncated. Now fetches only the
+last `tail_bytes` of each stream via an HTTP Range request (`read_file_tail`), with a
+caller-side tail as a backstop if the provider ignores Range — a multi-GB output can
+no longer OOM the module. Where: `wasm-helpers/src/sandbox.rs`.
+
+**R1.4 — no delete before the result commits.** The poll deleted the rc/output files
+before the terminal callback committed; a crash in between lost the result. It no
+longer deletes — the capture files are ephemeral and die with the sandbox when the
+copy is Destroyed. Where: `wasm-helpers/src/sandbox.rs` (`tensorlake_exec_poll`).
+
+**R1.5 — idempotent start (no duplicate orphan on retry).** `sandbox_exec_start`
+minted a NEW random run_id per attempt on a non-idempotent POST. Now the caller
+passes a DETERMINISTIC run_id derived from the Exec row id (`deterministic_run_id`,
+one exec per row), and the launch wrapper is idempotent (rc-file check + `flock`), so
+a retried `Run` trigger cannot spawn a second process. Where:
+`wasm-helpers/src/sandbox.rs`, `wasm/computer_exec_start`.
+
+**R1.6 — transient vs terminal in the poll.** One Temper-read or provider blip →
+`RunFailed` used to kill a live exec. `computer_exec_poll` now treats a resolve/poll
+error as "still running" (empty callback, reset_on re-fires) BEFORE the deadline, and
+only fails terminally once past it. Where: `wasm/computer_exec_poll`.
+
+**R1.7 — single deadline source.** The run limit lived in two modules (start's
+`MAX_RUN_SECS`, poll's `MAX_RUN_MS`) against the host clock. `computer_exec_start` now
+stamps `deadline_at_ms` on the Exec row once; the poll only reads and compares it.
+Where: `specs/exec.ioa.toml` (field + ExecStarted param), `computer_exec_start`,
+`computer_exec_poll`.
+
+**R1.8 — a copy never inherits the source's name.** `Copy`'s `copy_fields` dropped
+`name` (an attach/resolution key — a copy named "arni-big" would collide with the
+source in attach-by-name and box_resolve); `computer_copy_start` sets a distinct
+`copy-<child-id>` name at `CopyStarted`. Where: `specs/computer.ioa.toml`,
+`wasm/computer_copy_start`.
+
+**Consider taken — poll backoff.** For a 30-min exec, 10s ticks = ~180 invocations.
+`computer_exec_poll` now backs off after the first minute: it still fires every 10s
+(and re-arms) but only hits the provider ~1 tick in 3 (~30s), using elapsed time (no
+new field). Where: `wasm/computer_exec_poll`.
+
+**Known residual (documented):** `computer_copy_start`'s POST is not perfectly
+idempotent (the provider mints the copy id, so a retried start after a created-but-
+unreported copy leaks a sandbox). It is caught by the lease timeout / the panel's
+stale-copy reaper — the same net as CopyFailed's existing leak note. Not a new class.

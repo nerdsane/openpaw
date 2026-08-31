@@ -74,12 +74,19 @@ name = "run_id"
 type = "string"
 initial = ""
 
-# Host wall-clock (ms) when the process was started — used by the poll ONLY as a
-# safety deadline (the sandbox-side `timeout` is the real command bound; this
-# guards against a poll that never sees an rc file). Real-exec path only, never
-# DST.
+# Host wall-clock (ms) when the process was started. Real-exec path only, never DST.
 [[state]]
 name = "started_at_ms"
+type = "string"
+initial = ""
+
+# The SINGLE poll deadline (host wall-clock ms), stamped once by computer_exec_start
+# (started + run limit + margin). The poll only READS and compares this — it never
+# re-derives a budget of its own, so the two modules cannot disagree. The
+# sandbox-side `timeout` is the real command bound; this guards a poll that never
+# sees an rc file. Real-exec path only, never DST.
+[[state]]
+name = "deadline_at_ms"
 type = "string"
 initial = ""
 
@@ -113,7 +120,7 @@ name = "ExecStarted"
 kind = "input"
 from = ["Starting"]
 to = "Running"
-params = ["run_id", "started_at_ms"]
+params = ["run_id", "started_at_ms", "deadline_at_ms"]
 hint = "Callback from computer_exec_start — the process was launched; the Poll loop now drives it to completion."
 
 # The poll loop: while Running, fire Poll every N seconds; each Poll re-enters

@@ -19,9 +19,13 @@ use wasm_helpers::sandbox::{self, SandboxHandle, normalize_sandbox_provider};
 use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
 
 /// Hard wall-clock limit for an async command, enforced sandbox-side by `timeout`
-/// so a runaway is killed even though the WASM never blocks on it. The poll loop
-/// waits (across invocations) up to this long plus a margin.
+/// so a runaway is killed even though the WASM never blocks on it. The poll loop's
+/// deadline (`deadline_at_ms`, set here) is this plus a margin — computed ONCE, on
+/// the row, so the poll never re-derives it (single source of truth).
 const MAX_RUN_SECS: u64 = 1800;
+/// Extra wall-clock the poll waits past the sandbox-side `timeout` before it gives
+/// up — covers the poll cadence and a slow final rc write.
+const POLL_DEADLINE_MARGIN_MS: i64 = 60_000;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -42,8 +46,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             "timeout -k 5s {MAX_RUN_SECS}s bash -c {}",
             shell_single_quote(&command)
         );
-        let run_id = sandbox::sandbox_exec_start(&ctx, &handle, &wrapped)?;
-        let started_at_ms = Context::get_time_millis().to_string();
+        // Deterministic, retry-stable run_id (one exec per Exec row): a re-fired
+        // start reuses it and the idempotent launch dedups, so a retry cannot leave
+        // a duplicate orphan process.
+        let run_id = sandbox::deterministic_run_id(&ctx.entity_id);
+        sandbox::sandbox_exec_start(&ctx, &handle, &wrapped, &run_id)?;
+        let now_ms = Context::get_time_millis();
+        let deadline_at_ms = now_ms + (MAX_RUN_SECS as i64) * 1000 + POLL_DEADLINE_MARGIN_MS;
 
         ctx.log(
             "info",
@@ -55,7 +64,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         set_success_result(
             "ExecStarted",
-            &json!({ "run_id": run_id, "started_at_ms": started_at_ms }),
+            &json!({
+                "run_id": run_id,
+                "started_at_ms": now_ms.to_string(),
+                "deadline_at_ms": deadline_at_ms.to_string(),
+            }),
         );
         Ok(())
     })();

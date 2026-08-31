@@ -68,8 +68,11 @@ permit(
         Action::"Computer.ProvisionFailed", Action::"ProvisionFailed",
         Action::"Computer.CheckpointComplete", Action::"CheckpointComplete",
         Action::"Computer.ProvisionFromCopy", Action::"ProvisionFromCopy",
+        Action::"Computer.CopyStarted", Action::"CopyStarted",
+        Action::"Computer.CopyPoll", Action::"CopyPoll",
         Action::"Computer.CopyComplete", Action::"CopyComplete",
         Action::"Computer.CopyFailed", Action::"CopyFailed",
+        Action::"Computer.CopyExpired", Action::"CopyExpired",
         Action::"Computer.TerminateComplete", Action::"TerminateComplete",
         Action::"Computer.Destroy", Action::"Destroy"
     ],
@@ -173,7 +176,8 @@ permit(
     context.module == "computer_exec" ||
     context.module == "computer_exec_start" ||
     context.module == "computer_exec_poll" ||
-    context.module == "computer_copy" ||
+    context.module == "computer_copy_start" ||
+    context.module == "computer_copy_poll" ||
     context.module == "computer_terminate"
 };
 
@@ -187,6 +191,7 @@ permit(
     context.module == "computer_exec" ||
     context.module == "computer_exec_start" ||
     context.module == "computer_exec_poll" ||
-    context.module == "computer_copy" ||
+    context.module == "computer_copy_start" ||
+    context.module == "computer_copy_poll" ||
     context.module == "computer_terminate"
 };

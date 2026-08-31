@@ -21,62 +21,112 @@ use wasm_helpers::sandbox::{self, ExecResult, SandboxHandle, normalize_sandbox_p
 use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
 
 const OUTPUT_TAIL_BYTES: usize = 262_144;
-/// Safety deadline for the poll (the sandbox-side `timeout` in computer_exec_start
-/// is the real command bound; this only guards a poll that never sees an rc file).
-const MAX_RUN_MS: i64 = 1_800_000 + 60_000;
 /// `timeout`'s exit status when it kills the command.
 const TIMEOUT_EXIT_CODE: i64 = 124;
+/// Poll cadence (matches the Running state_timeout).
+const POLL_INTERVAL_MS: i64 = 10_000;
+/// After this much elapsed the poll backs off (hits the provider ~1 tick in 3).
+const BACKOFF_AFTER_MS: i64 = 60_000;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
-    let result = (|| -> Result<(), String> {
-        let ctx = Context::from_host()?;
-        let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
+    let ctx = match Context::from_host() {
+        Ok(c) => c,
+        Err(e) => {
+            set_error_result(&e);
+            return 0;
+        }
+    };
+    let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
-        let computer_id =
-            field(&fields, "computer_id").ok_or("computer_exec_poll: missing computer_id")?;
-        let run_id = field(&fields, "run_id").ok_or("computer_exec_poll: missing run_id")?;
+    let run_id = match field(&fields, "run_id") {
+        Some(r) => r,
+        None => {
+            // No run_id means the start never reported — a real failure, not transient.
+            set_failure_result("computer_exec_poll: missing run_id");
+            return 0;
+        }
+    };
+    let now = Context::get_time_millis();
+    // Single deadline source: computer_exec_start stamps deadline_at_ms on the row;
+    // the poll only reads and compares it (no second budget computed here).
+    let deadline_at = field(&fields, "deadline_at_ms")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let past_deadline = deadline_at != 0 && now > deadline_at;
+    let started_at = field(&fields, "started_at_ms")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let elapsed = if started_at != 0 { now - started_at } else { 0 };
 
-        let temper_api_url = resolve_temper_api_url(&ctx, &fields);
-        let computer = fetch_computer(&ctx, &temper_api_url, &fields, &computer_id)?;
-        let handle = handle_from_computer(&computer)
-            .map_err(|e| format!("computer_exec_poll: computer {computer_id}: {e}"))?;
+    // Backoff: for a long run, don't hit the provider on every 10s tick — after the
+    // first minute poll ~every 30s. The timer still fires (and re-arms via reset_on);
+    // this just makes two of every three ticks a no-op.
+    if !past_deadline && elapsed > BACKOFF_AFTER_MS && (elapsed / POLL_INTERVAL_MS) % 3 != 0 {
+        report_still_running();
+        return 0;
+    }
 
-        match sandbox::sandbox_exec_poll(&ctx, &handle, &run_id)? {
-            Some(result) => {
-                if result.exit_code == TIMEOUT_EXIT_CODE {
-                    set_failure_result("command exceeded the run limit and was terminated");
-                } else {
-                    set_success_result("RunSucceeded", &success_params(&result));
-                }
+    // Resolve the computer + sandbox handle. A transient failure here (a Temper read
+    // hiccup, a provider blip) must NOT kill a live exec: report "still running" and
+    // let the next tick retry — unless we are already past the deadline, when giving
+    // up is the terminal answer.
+    let handle = match resolve_handle(&ctx, &fields) {
+        Ok(h) => h,
+        Err(e) => {
+            if past_deadline {
+                set_failure_result(&format!("exec deadline passed; last error: {e}"));
+            } else {
+                report_still_running();
             }
-            None => {
-                let started = field(&fields, "started_at_ms")
-                    .and_then(|s| s.parse::<i64>().ok())
-                    .unwrap_or(0);
-                if started != 0 && Context::get_time_millis() - started > MAX_RUN_MS {
-                    set_failure_result("exec exceeded its deadline without completing");
-                } else {
-                    // Still running, before the safety deadline: report success
-                    // with an EMPTY callback action. The kernel treats an empty
-                    // callback_action as "no callback" (engine parses action ->
-                    // "" and wasm.rs skips dispatch, returning Ok(None)) — no
-                    // spurious transition. The loop is carried entirely by the
-                    // Running state_timeout, which the Poll self-loop re-arms via
-                    // its reset_on = ["Poll"]. (An UNSET result would instead be
-                    // read as success:false -> on_failure=RunFailed, so we must
-                    // report explicitly, just with no action.)
-                    set_success_result("", &json!({}));
-                }
+            return 0;
+        }
+    };
+
+    match sandbox::sandbox_exec_poll(&ctx, &handle, &run_id, OUTPUT_TAIL_BYTES) {
+        Ok(Some(result)) => {
+            if result.exit_code == TIMEOUT_EXIT_CODE {
+                set_failure_result("command exceeded the run limit and was terminated");
+            } else {
+                set_success_result("RunSucceeded", &success_params(&result));
             }
         }
-        Ok(())
-    })();
-
-    if let Err(e) = result {
-        set_error_result(&e);
+        Ok(None) => {
+            if past_deadline {
+                set_failure_result("exec exceeded its deadline without completing");
+            } else {
+                report_still_running();
+            }
+        }
+        Err(e) => {
+            // Provider error polling the process: transient before the deadline
+            // (re-arm and retry), terminal once past it.
+            if past_deadline {
+                set_failure_result(&format!("exec deadline passed; last poll error: {e}"));
+            } else {
+                report_still_running();
+            }
+        }
     }
     0
+}
+
+/// Report success with an EMPTY callback: no transition, so the Running
+/// state_timeout (reset_on = ["Poll"]) alone carries the loop. The kernel treats
+/// an empty callback_action as "no callback" (engine parses action -> "", wasm.rs
+/// skips dispatch -> Ok(None)); an UNSET result would read as success:false ->
+/// on_failure = RunFailed, so we report explicitly, just with no action.
+fn report_still_running() {
+    set_success_result("", &json!({}));
+}
+
+fn resolve_handle(ctx: &Context, fields: &Value) -> Result<SandboxHandle, String> {
+    let computer_id =
+        field(fields, "computer_id").ok_or("computer_exec_poll: missing computer_id")?;
+    let temper_api_url = resolve_temper_api_url(ctx, fields);
+    let computer = fetch_computer(ctx, &temper_api_url, fields, &computer_id)?;
+    handle_from_computer(&computer)
+        .map_err(|e| format!("computer_exec_poll: computer {computer_id}: {e}"))
 }
 
 fn success_params(result: &ExecResult) -> Value {

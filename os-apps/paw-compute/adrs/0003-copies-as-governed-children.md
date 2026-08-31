@@ -18,10 +18,17 @@ and not a flag.
 - `Computer.Copy` (on a source, a `Ready` self-loop) uses the kernel's `spawn`
   effect to create a child Computer, carrying the source's machine_id + spec into
   the child's `ProvisionFromCopy` params via `copy_fields`.
-- The child runs its OWN copy: `ProvisionFromCopy → computer_copy → CopyComplete
-  → Leased`. `computer_copy` calls `sandbox_copy` (the provider live-copy API) and
-  reports `source_machine_id` (the parent reference; the parent's entity id is
-  derivable by query, not precomputed).
+- The child runs its OWN copy, ASYNCHRONOUSLY: `ProvisionFromCopy →
+  computer_copy_start → CopyStarted → Copying → (poll loop) → CopyComplete →
+  Leased`. A live-copy of a real box takes minutes — past the ~120s WASM invocation
+  cap — so `computer_copy_start` only KICKS OFF the copy (a short-timeout POST that
+  returns the new sandbox id) and `computer_copy_poll` health-checks readiness from
+  a `Copying` `state_timeout` (`reset_on=["CopyPoll"]`) across invocations, the same
+  pattern as the async Exec (ARN-443 D). A copy that never becomes ready
+  (`CopyExpired`) is torn down through `Terminating` (its machine_id is the copy's).
+  `CopyStarted` records `source_machine_id` (the parent reference; the parent's
+  entity id is derivable by query, not precomputed) and a distinct `copy-…` name —
+  never the source's name, which is an attach/resolution key.
 - Children land in a distinct **Leased** state, never `Ready`. A lease
   `state_timeout` lives ONLY on `Leased`, so it reaps copies and can NEVER touch a
   source (sources stay `Ready`, `allow_indefinite`). `Heartbeat` renews the lease.
