@@ -21,6 +21,11 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
         match ctx.trigger_action.as_str() {
+            // intent.md is the first chain file - validated at birth (Seed); a
+            // missing/not-Ready intent.md Abandons the just-born Effort (on_failure).
+            "Seed" => require_ready_file(
+                &ctx, &base_url, &headers, &fields, "intent_ref", "IntentRef", "intent.md",
+            ),
             "Specify" => require_ready_file(
                 &ctx, &base_url, &headers, &fields, "spec_ref", "SpecRef", "spec.md",
             ),
