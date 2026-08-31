@@ -54,3 +54,18 @@
   a spawn without tracing the integration dispatch path; a long-running
   integration can outlive the transition that fired it.
 - **Where:** superseded by the random-u64 decision above; analysis in spec.md.
+
+## Round 3: fail the exec on RNG error — delete the fallback
+- **Decision:** If `random_get` errors, `random_u64` returns `Err` and the exec
+  fails (`RunFailed`, "host RNG unavailable"); no fallback capture id.
+- **Came up because:** the round-2 panel (Codex) flagged the heap-address fallback
+  as not unique — allocator addresses can repeat across calls/instances, so the
+  fallback could itself collide, defeating the fix.
+- **Options:** cleverer fallback (a clock, a counter — all can repeat) / delete it
+  and fail loudly.
+- **Chose delete-and-fail because:** an exec that cannot obtain randomness must not
+  risk a capture-file collision, and `random_get` erroring is already an abnormal
+  host state (WASI wires it). Fix by deletion, not cleverness. Given up: nothing —
+  the fallback only ever traded a hard failure for a silent collision risk.
+- **Where:** `os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs` `random_u64`
+  (now `Result<u64, String>`), propagated via `unique_run_id`? → `tensorlake_exec`.

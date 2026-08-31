@@ -721,24 +721,24 @@ fn bearer_headers_json(api_key: &str) -> Vec<(String, String)> {
 /// counter 0) — and a long-running exec can overlap another dispatch for the
 /// same entity. So uniqueness comes from a per-dispatch random u64 instead; the
 /// entity id is kept only as a readable label. (ARN-401)
-fn unique_run_id(ctx: &Context) -> String {
-    capture_run_id(&ctx.entity_id, random_u64())
+fn unique_run_id(ctx: &Context) -> Result<String, String> {
+    Ok(capture_run_id(&ctx.entity_id, random_u64()?))
 }
 
-/// A random u64 for per-dispatch uniqueness. On wasm32-wasip1 this is WASI
-/// `random_get` (the temper host wires `wasi_snapshot_preview1`); on native it
-/// is the OS RNG. This is the sole uniqueness source for the capture id — see
-/// `capture_run_id`.
-fn random_u64() -> u64 {
+/// A random u64 for per-dispatch uniqueness — the sole uniqueness source for the
+/// capture id (see `capture_run_id`). On wasm32-wasip1 this is WASI `random_get`
+/// (the temper host wires `wasi_snapshot_preview1`); on native it is the OS RNG.
+///
+/// If the host RNG is unavailable we FAIL — never a fallback id. A non-random
+/// fallback (a heap address, a clock) can repeat across calls or instances, which
+/// is exactly the capture-file collision this whole change exists to prevent; and
+/// `random_get` erroring is already an abnormal host state. An exec that cannot
+/// obtain randomness must abort, not risk crossing another exec's output.
+fn random_u64() -> Result<u64, String> {
     let mut b = [0u8; 8];
-    // If the host RNG were ever unavailable we must not silently reuse an id, so
-    // fall back to a fresh heap address (still varies per call) rather than a
-    // constant. In practice random_get always succeeds on the wired host.
-    if getrandom::getrandom(&mut b).is_err() {
-        let probe = Box::new(0u8);
-        return (&*probe as *const u8 as usize as u64) ^ 0x9e37_79b9_7f4a_7c15;
-    }
-    u64::from_le_bytes(b)
+    getrandom::getrandom(&mut b)
+        .map_err(|e| format!("host RNG unavailable (random_get failed: {e})"))?;
+    Ok(u64::from_le_bytes(b))
 }
 
 /// FNV-1a 32-bit hash — a small, dependency-free digest of the full entity id so
@@ -889,7 +889,7 @@ fn tensorlake_exec(
     command: &str,
     _workdir: &str,
 ) -> Result<ExecResult, String> {
-    let run_id = unique_run_id(ctx);
+    let run_id = unique_run_id(ctx)?;
     let out_file = format!("/tmp/.paw-out-{run_id}");
     let err_file = format!("/tmp/.paw-err-{run_id}");
     let rc_file = format!("/tmp/.paw-rc-{run_id}");
