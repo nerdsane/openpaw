@@ -13,12 +13,9 @@
 //! Build: `cargo build --target wasm32-wasip1 --release`.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::entity_field_str;
 use wasm_helpers::sandbox::{self, normalize_sandbox_provider};
+use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
 
-/// Seconds to let the provider work before it returns the new sandbox id. Kept
-/// WELL under the 120s cap — this call must return promptly with the id; full
-/// readiness is polled from Copying, not waited on here.
 // The tensorlake copy API is SYNCHRONOUS (blocks until the copy is fully ready).
 // This short wait just needs the copy created server-side; sandbox_copy_start then
 // discovers it by name and the Copying poll loop handles readiness — so the
@@ -49,9 +46,18 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
-        // Kick off the copy; returns the new sandbox id promptly (may still boot).
-        let handle =
-            sandbox::sandbox_copy_start(&ctx, &provider, &source_machine_id, COPY_START_WAIT_SECS)?;
+        // Initiate + discover the copy WITHOUT waiting for readiness. Pass the
+        // machine_ids already claimed by live Computer rows so discovery can never
+        // adopt another Computer's sandbox (e.g. a live panel copy of the same
+        // source) — that would let the lease reaper terminate a running review.
+        let claimed_ids = live_claimed_machine_ids(&ctx, &fields);
+        let handle = sandbox::sandbox_copy_start(
+            &ctx,
+            &provider,
+            &source_machine_id,
+            COPY_START_WAIT_SECS,
+            &claimed_ids,
+        )?;
 
         let deadline_at_ms = Context::get_time_millis() + COPY_READY_BUDGET_MS;
         set_success_result(
@@ -87,6 +93,43 @@ fn copy_name(entity_id: &str) -> String {
     } else {
         format!("copy-{short}")
     }
+}
+
+/// machine_ids referenced by LIVE Computer rows (any non-terminal state), read via
+/// the Temper loopback. Discovery excludes these so a governed copy never adopts a
+/// sandbox that already belongs to another Computer (the panel's live copy is a raw
+/// `tl` sandbox with no Computer row, so it is caught by the name-precondition +
+/// creation-time window instead; this catches governed ones). Best-effort: on a
+/// read failure we return what we have — the name precondition + window still guard.
+fn live_claimed_machine_ids(ctx: &Context, fields: &Value) -> Vec<String> {
+    let api = resolve_temper_api_url(ctx, fields);
+    let headers = odata_headers(ctx, &ctx.tenant, fields);
+    let body = match bounded_reads::get_json(
+        ctx,
+        &api,
+        "/tdata/Computers?$select=machine_id,status&$top=200",
+        &headers,
+        "computer_copy_start.claimed",
+    ) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    if let Some(arr) = body.get("value").and_then(|v| v.as_array()) {
+        for row in arr {
+            let f = row.get("fields").unwrap_or(row);
+            let status = entity_field_str(f, &["status", "Status"]).unwrap_or("");
+            if matches!(status, "Destroyed" | "Created" | "") {
+                continue; // not holding a live sandbox
+            }
+            if let Some(mid) = entity_field_str(f, &["machine_id", "MachineId"])
+                .filter(|m| !m.is_empty())
+            {
+                out.push(mid.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// The provider recorded on the row, normalized; defaults to tensorlake.

@@ -557,3 +557,27 @@ the delete, and rc — which signals completion — is written last). The retent
 is noted in `exec.ioa.toml` next to the output fields. This honors the round-1
 "result before delete" ordering while removing the unbounded-growth path. Where:
 `wasm-helpers/src/sandbox.rs`, `specs/exec.ioa.toml`.
+
+## C5 (prod verify) — the deferred proof path caught what the local e2e could not
+
+**Decision:** After merge, the deploy leg published paw-compute to Genesis and installed on prod; the C5 real-provider drive then exercised a real Copy of arni-big — and caught a bug no local test could, validating why C5 is a required gate, not a formality.
+
+**Came up because:** the effort's C5 hard condition (real Copy → child in `tl sbx ls` → Leased → forced lease → Destroyed → provider-gone, + a real >120s governed exec) run on prod openpaw, where a tensorlake credential + a Ready arni-big Computer row + admin all legitimately exist (they do not off-prod — see the security-boundary finding).
+
+**What C5 found:** the tensorlake live-copy API is SYNCHRONOUS — `POST /sandboxes/{src}/copy` blocks until the copy is fully provisioned (minutes) then returns. So the async-start's short-timeout POST returned `HTTP 502 "Upstream ReadTimedout"` while the copy provisioned server-side (a leaked sandbox, later terminated). The child went Destroyed via CopyFailed; the source guard held (machine_id was still the source's, so no terminate; arni-big untouched). Neither a short wait (502 + leak) nor a long one (>120s WASM cap = the R1 bug) works with a blocking copy API. This is unreachable by the local e2e (no credential/admin off-prod), so it is the strongest argument yet for ARN-449 (a local system-principal e2e affordance).
+
+**Chose:** verified-or-reverted (ARN-422) — rolled prod back to `temperpaw/paw-compute@24679ec8` (prior version), effort OPEN, fix forward. Given: the alternative (declare done on merge) would have shipped a copy path that dies on every real copy.
+
+**Where:** prod install/rollback via `/paw/apps/install-from-genesis`; transcript `/tmp/verify-temperpaw/2026-08-31/c5-drive.log`; fix in PR #495.
+
+## Fix — async copy INITIATES + DISCOVERS, with concurrency guards
+
+**Decision:** `sandbox_copy_start` initiates the copy with a short wait (the copy is created server-side regardless of the response), then discovers the created `<source>-copy` sandbox by name and returns its handle without waiting for readiness; `computer_copy_poll` polls readiness from Copying. A 4xx is a definitive CopyFailed; a 5xx/timeout means the copy was created → discover.
+
+**Came up because:** the copy API is synchronous (above), so the copy cannot be completed inside one WASM invocation — it must be fired, then discovered + polled across invocations.
+
+**Options / the hazard closed IN CODE (outgoing lead's requirement):** name-only discovery could adopt the WRONG sandbox — the panel's raw copies use the same `<source>-copy` name and run concurrently, so a governed Copy could claim a live review's copy and the lease reaper would then terminate a running panel. Guards: (2) PRECONDITION — refuse if an un-suffixed `<source>-copy` already exists (provider fixed-naming allows only one anonymous copy in flight; a pre-existing one is not ours) → retry-later; (1) DISCOVERY FILTER — the adopted sandbox must be created at/after our POST (creation-time window, 60s tolerance for clock skew) AND not already referenced by a live Computer row (`claimed_ids`, fetched by computer_copy_start from `/tdata/Computers`).
+
+**Chose** (1)+(2) enforced in code, not a caveat, because the failure mode is killing a live panel. Batch-suffix concurrency (multiple governed copies of one source) remains a documented follow-up; the provider's 409 on the fixed name + these guards make single-copy safe now. Named copies from the provider would dissolve the whole class — worth an upstream ask.
+
+**Where:** `wasm-helpers/src/sandbox.rs` (`sandbox_copy_start`, `tensorlake_copy_start` with precondition + windowed/claimed discovery, `tensorlake_list_sandboxes`, `parse_created_ms`), `wasm/computer_copy_start/src/lib.rs` (`live_claimed_machine_ids`). PR #495.
