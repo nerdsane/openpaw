@@ -332,3 +332,57 @@ accepted residuals.
   (`tl sbx ls` shows it gone). This closes the one gap the local stub cannot.
 - **Where:** local e2e = this effort's proof record; prod cycle = C's Genesis
   publish + live verification (temperpaw DoD).
+
+# Part D — async exec (batched into C's PR #494 per Rita; Option A, acked)
+
+## D0 — status at this checkpoint
+- **Built + committed:** the async wasm-helpers foundation — `sandbox_exec_start`
+  (POST, returns run_id, no poll) + `sandbox_exec_poll(run_id) -> Option<ExecResult>`
+  (Some once the rc file exists, None while running). The sync `sandbox_exec`
+  stays for LatencyDiag/short callers. 56/56 tests, wasip1 clean (commit 8a057cda5).
+- **Also fixed a #468 regression (e42706c5c):** wasm-helpers used the `getrandom`
+  crate, which hard-`compile_error!`s on wasm32-unknown-unknown and broke every
+  consumer still on that target (make wasm failed). Replaced with a raw WASI
+  `random_get` import (DCE'd when unused; host-provided on wasip1). Rides this PR
+  to main; flagged for possible fast-track.
+
+## D-plan — remaining (resume here)
+1. **Exec spec restructure** (exec.ioa.toml): states Created → **Starting** →
+   Running → Succeeded|Failed. Fields add `run_id`, `started_at_ms`.
+   - `Run(computer_id, command)` → Starting; effect `computer_exec_start`;
+     on_failure RunFailed.
+   - `ExecStarted(run_id, started_at_ms)` → Running (callback from start).
+   - `[[state_timeout]] state="Running" after_seconds=10 on_timeout="Poll"`.
+   - `Poll` → Running (self-loop); effect `computer_exec_poll`; on_failure RunFailed.
+     (Re-entering Running re-arms the timeout — that IS the poll loop.)
+   - `RunSucceeded` / `RunFailed` (from Running AND Starting) unchanged-ish.
+   - `Cancel(error)` (from Running/Starting) → Failed.
+   - `[[state_timeout]] state="Starting"` safety → RunFailed. LatencyDiag stays on
+     the sync `computer_exec`.
+2. **computer_exec_start module:** resolve computer (loopback + Ready gate), wrap
+   the command with a LONG `timeout <deadline>s bash -c '<cmd>'` (async has no 90s
+   cap — the poll loop spans invocations), `sandbox_exec_start` → run_id, report
+   `ExecStarted(run_id, started_at_ms)`.
+3. **computer_exec_poll module:** read computer_id + run_id, re-resolve the
+   computer, `sandbox_exec_poll(run_id)`. Some → RunSucceeded(exit_code, tails) /
+   RunFailed. None & now < started_at_ms + MAX_RUN → no result (stay Running, the
+   Poll transition already re-armed the timeout). None & past deadline →
+   RunFailed("exceeded deadline"). Keep the simple stdout/stderr tails (no
+   log-file/markers — that was the sync path's paging feature; async leaves
+   stdout_path/bytes empty).
+4. **Cedar:** Poll/Cancel for Agent; ExecStarted as system; computer_exec_start/
+   poll in the http_call/access_secret module scoping.
+5. **build.sh + app.toml:** add computer_exec_start + computer_exec_poll.
+6. **Panel scripts (stack):** create + Run a Computer.Exec, poll the row to
+   Succeeded/Failed, read the tail — behind PANEL_EXEC=governed (raw `tl sbx exec`
+   default until proven).
+7. **Combined e2e:** C lifecycle (Copy→Leased→forced timeout→Destroyed) + a
+   governed Exec through the async poll incl. a >120s command (proves the poll
+   survives invocation boundaries) + Cancel. Real provider calls per C5 (prod
+   verify). Local proves the state machines + poll loop with stubs.
+
+## D open question for the loop
+- Whether a Poll trigger may return WITHOUT set_result on the not-done branch
+  (relying on the Poll transition's timeout re-arm), or must report a benign
+  KeepRunning self-loop. Confirm against the host at first e2e; default to
+  KeepRunning if a no-result return is rejected.
