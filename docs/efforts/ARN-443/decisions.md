@@ -270,3 +270,48 @@ accepted residuals.
   log dir within a box's lifespan. Accepted with this note; revisit if exec volume
   ever approaches that.
 - **Iteration cap in the poll:** kept as-is (a stalled-clock guard).
+
+# Part C — copies as governed children (design decisions)
+
+## C1 — Option A (spawn child) + Leased as a distinct STATE (not a flag/entity)
+- **Decision:** Copy spawns a child Computer that runs its OWN copy
+  (ProvisionFromCopy → computer_copy → CopyComplete → Leased); reaping is a
+  state_timeout on Leased only. Not a ComputerCopy entity, not an is_copy flag.
+- **Where:** specs/computer.ioa.toml. Confirmed with team-lead (independent
+  convergence on the same shape).
+
+## C2 — parent reference is source_machine_id, set by the callback (no parent_computer_id field)
+- **Decision:** The child records `source_machine_id` (set by computer_copy in the
+  CopyComplete callback), not a `parent_computer_id` entity-id field.
+- **Came up because:** the `spawn` primitive copies parent fields into the child's
+  initial-action params by SAME NAME only — it cannot inject the parent's
+  entity-id or rename a field, so a `parent_computer_id = <source entity id>` field
+  can't be set cleanly without a fragile name==id convention. computer_copy, by
+  contrast, knows exactly what machine it copied.
+- **Chose source_machine_id because:** it is the parent's stable machine identity,
+  set from a source the module actually has, and together with the inherited
+  `name` + the Leased state it fully serves the governed-child audit ("a leased
+  copy of <name>, from machine <source_machine_id>, now on <machine_id>"). This
+  reads the team-lead's "sets parent_computer_id=source" as satisfied by the
+  machine identity rather than a second, hard-to-set entity-id field — DEVIATION
+  from the literal field name, surfaced for confirmation.
+- **Where:** computer_copy/src/lib.rs; specs/computer.ioa.toml source_machine_id.
+
+## C3 — Terminating intermediate state (not a fire-and-forget on Destroyed)
+- **Decision:** Destroy → Terminating (fires computer_terminate) → TerminateComplete
+  → Destroyed, rather than firing the terminate as a side effect on the final
+  Destroyed state.
+- **Came up because:** a trigger on a terminal state has no callback target, and a
+  WASM integration must not dispatch on a final/other machine; a clean callback
+  needs a non-final state.
+- **Chose Terminating because:** the module reports TerminateComplete (the machine
+  sequences the teardown), best-effort/idempotent, with a safety state_timeout.
+- **Where:** specs/computer.ioa.toml.
+
+## C4 — Destroy excludes Provisioning (source-termination safety)
+- **Decision:** Destroy's `from` is Ready/Sleeping/Created/Leased — NOT Provisioning.
+- **Came up because:** during a child's copy the child's machine_id is still the
+  SOURCE's machine; a Destroy-from-Provisioning would fire computer_terminate on
+  the source's sandbox and kill it.
+- **Where:** specs/computer.ioa.toml Destroy; CopyFailed goes straight to Destroyed
+  with no terminate.
