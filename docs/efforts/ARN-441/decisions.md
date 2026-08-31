@@ -315,3 +315,50 @@ wasm-validated integrity guards (idempotency, non-empty) are the identical patte
 1b's chain-file guards and belong with them, keeping 1a declarative. Pending owner
 adjudication (round 3 residual).
 **Where:** recommendation messaged to team-lead; guards to land in 1b effort_lifecycle wasm.
+
+---
+
+**Decision:** (1b drive, owner ruling A, 2026-08-31) Add a narrow verified-operator
+File-create grant to paw-fs Cedar (CROSS-APP touch) so the shadow SDLC drive can
+create the Ready chain Files the Effort guards require.
+**Came up because:** the chain-file guards (Specify/Plan/Seed) require Ready
+intent.md/spec.md/plan.md paw-fs Files; the verify-temperpaw drive authenticates as
+the verified operator, which paw-fs File Cedar does not let create Files (only
+agent_type "system" or a workspace-matched agent). Because intent.md is validated at
+BIRTH, nearly the whole positive-path drive was blocked.
+**Options:** (A) a narrow verified-operator File-create grant in paw-fs (same
+shadow-authority justification as the accepted Effort lifecycle grant); (B) drive
+File creation as a system principal (no reachable path - "system" never accepted from
+headers); (C) prove only the negative/refusal paths + cascade.
+**Chose (A) because:** the drive identity IS our governed operator, and A unblocks the
+FULL proof (positive path + idempotency block + forced timeout->Stalled), not just the
+refusals. Scoped to the NARROWEST surface (Create + StreamUpdated on File only,
+verified-operator predicate with has-guards). Given up: a cross-app Cedar touch - it
+lives in THIS PR, gets flagged in the panel intent as such, and is FLIP-RELEVANT (at
+the phase-3 flip chain files come from intake/worker principals, not the drive
+operator - revisit/remove this grant then).
+**Where:** os-apps/paw-fs/policies/file.cedar (verified-operator File write permit).
+
+---
+
+**Decision (P0 FINDING, surfaced to owner, 2026-08-31): the #2/#3 cross-entity
+machinery boot-crashes temperpaw; awaiting owner A/B/C ruling before the drive.**
+**Came up because:** booting 1b to drive it, temperpaw stack-overflows at startup
+(`tokio-rt-worker overflowed its stack; fatal runtime error: stack overflow`).
+**Diagnosis (exhaustive):** git-bisect via clean full checkouts, log-verified for
+"stack overflow" (NOT healthz - healthz answers transiently before the crash):
+lease-only (3c533d591) and chain-file-guards (1f9215875) boot STABLE; the #2/#3
+commit (60bb97c9c) crashes. RUST_MIN_STACK=64MB does NOT help -> genuine INFINITE
+recursion (cycle), not depth. The composite cascade PASSES (tolerates cycles); the
+RUNTIME reaction-graph builder does not. The cyclic topology: Intent.Accept/
+RebirthEffort -> Effort.Seed, Effort.Seed -> Intent.LinkEffort (back-ref),
+cross_entity_state guard Intent->Effort, + a wasm trigger on the create-dispatched
+Seed. A real temper gap worth its own issue (verifier accepts cyclic cross-entity
+trigger graphs the runtime cannot build).
+**Options:** (A) ship 1b CORE now - lease + Specify/Plan chain-file guards (both
+boot-stable) + intent.md enforced at Specify (not the create-dispatched Seed);
+defer #2/#3 idempotency to a follow-up once the cyclic-graph issue is fixed. (B)
+redesign #2/#3 acyclic (wasm query-before-create, no back-ref/guard cycle). (C) fix
+the temper reaction-graph recursion first, keep the current design.
+**Recommended:** A. Pending owner ruling; nothing lost (all committed/pushed).
+**Where:** temperpaw #492 (60bb97c9c); boot logs in scratchpad/boot-*.log.

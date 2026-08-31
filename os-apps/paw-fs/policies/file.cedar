@@ -80,3 +80,23 @@ permit(
     action in [Action::"create", Action::"Create", Action::"StreamUpdated", Action::"update"],
     resource is File
 );
+
+// ARN-441 (temperpaw #492, CROSS-APP touch - flagged for panel): the shadow SDLC
+// drive is our governed verified operator, and the Effort chain-file guards
+// (Specify/Plan/Seed) require Ready intent.md/spec.md/plan.md Files. Grant that
+// operator the NARROWEST File write surface - Create + StreamUpdated (the action
+// that marks a File Ready) on File only, gated on the same verified-operator
+// predicate as the paw-patrol Effort lifecycle grant (agent_type "operator" &&
+// agentTypeVerified, so a self-declared header agent never matches).
+// FLIP-RELEVANT: at the phase-3 flip the chain files come from the intake/worker
+// principals, not the drive operator - revisit (likely remove) this grant then.
+permit(
+    principal is Agent,
+    action in [Action::"Create", Action::"create", Action::"StreamUpdated"],
+    resource is File
+) when {
+    principal has agent_type &&
+    principal.agent_type == "operator" &&
+    principal has agentTypeVerified &&
+    principal.agentTypeVerified == true
+};
