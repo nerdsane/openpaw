@@ -531,3 +531,29 @@ new field). Where: `wasm/computer_exec_poll`.
 idempotent (the provider mints the copy id, so a retried start after a created-but-
 unreported copy leaks a sandbox). It is caught by the lease timeout / the panel's
 stale-copy reaper — the same net as CopyFailed's existing leak note. Not a new class.
+
+## Round 2 (panel 2/3) — 3 act-ons, all in the tail-read edges
+
+The round-1 Range-read fix had three edge holes. Reworked to bound output AT THE
+SOURCE instead of at read time, which closes all three cleanly (HttpResponse
+exposes only status+body — no headers, no size cap — so a safe Range probe was not
+possible: any GET that the server answered with a full body would already have
+buffered it into WASM memory).
+
+**R2.1 + R2.2 — no full-body read, ever; and status-checked.** The launch wrapper
+now writes `tail -c {tail_bytes}` `.tail` files on the box, and the poll reads ONLY
+those bounded files (`read_capture_tail`), so a gigabyte of output is truncated
+before it leaves the sandbox — the Range fallback that could accept a full-body 200
+is gone. `read_capture_tail` returns a body only on a 2xx status; a 404 (no output)
+or a 5xx error page becomes an EMPTY tail, never the error page itself. Where:
+`wasm-helpers/src/sandbox.rs` (`tensorlake_exec_start` wrapper, `tensorlake_exec_poll`,
+`read_capture_tail`), `computer_exec_start` (passes the tail bound).
+
+**R2.3 — bounded on-box retention.** The wrapper deletes the full stdout/stderr on
+SUCCESS ONLY (rc == 0), after the bounded `.tail` files are written, so a durable
+computer never accumulates unbounded output; on FAILURE the full files are KEPT for
+debugging. The result is never lost (the `.tail` the poll reports is written before
+the delete, and rc — which signals completion — is written last). The retention rule
+is noted in `exec.ioa.toml` next to the output fields. This honors the round-1
+"result before delete" ordering while removing the unbounded-growth path. Where:
+`wasm-helpers/src/sandbox.rs`, `specs/exec.ioa.toml`.

@@ -406,10 +406,13 @@ pub fn sandbox_exec_start(
     handle: &SandboxHandle,
     command: &str,
     run_id: &str,
+    tail_bytes: usize,
 ) -> Result<(), String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
     let result = match handle.provider.as_str() {
-        "tensorlake" => tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command, run_id),
+        "tensorlake" => {
+            tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command, run_id, tail_bytes)
+        }
         other => Err(format!("async exec unsupported for provider: {other}")),
     };
     let outcome = if result.is_ok() { "started" } else { "error" };
@@ -1211,19 +1214,29 @@ fn tensorlake_exec_start(
     sandbox_url: &str,
     command: &str,
     run_id: &str,
+    tail_bytes: usize,
 ) -> Result<(), String> {
     let (out_file, err_file, rc_file) = paw_capture_files(run_id);
     let lock_file = format!("/tmp/.paw-lock-{run_id}");
-    // Idempotent launch: if the run already finished (rc present) do nothing; else
-    // take an exclusive flock and re-check rc under it, so a retried start for the
-    // same run_id never spawns a second process (finished → skip; still running →
-    // flock is held → skip; free → run once).
+    let out_tail = format!("{out_file}.tail");
+    let err_tail = format!("{err_file}.tail");
+    // Idempotent launch (rc-check + flock so a retried start never double-spawns),
+    // then bound the output AT THE SOURCE: after the command, write `tail -c
+    // {tail_bytes}` files and — on SUCCESS ONLY — delete the full (possibly huge)
+    // out/err so a durable box does not accumulate them; on FAILURE the full files
+    // are KEPT for debugging. The poll reads only the bounded `.tail` files, so a
+    // gigabyte of output can never be pulled whole into WASM memory. rc is written
+    // LAST, so when the poll sees it the tails are ready.
     let wrapped = format!(
         "if [ -f {rc_file} ]; then exit 0; fi; \
          exec 9>{lock_file} 2>/dev/null; \
          if ! flock -n 9; then exit 0; fi; \
          if [ -f {rc_file} ]; then exit 0; fi; \
-         ({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}"
+         ({command}) > {out_file} 2> {err_file}; RC=$?; \
+         tail -c {tail_bytes} {out_file} > {out_tail} 2>/dev/null; \
+         tail -c {tail_bytes} {err_file} > {err_tail} 2>/dev/null; \
+         if [ \"$RC\" = 0 ]; then rm -f {out_file} {err_file}; fi; \
+         echo $RC > {rc_file}"
     );
     let body = json!({ "command": "/bin/bash", "args": ["-c", &wrapped] });
     let resp = ctx.http_call(
@@ -1261,8 +1274,10 @@ fn tensorlake_exec_poll(
         return Ok(None); // rc file not written yet — still running
     }
     let exit_code = rc.body.trim().parse::<i64>().unwrap_or(-1);
-    let stdout = read_file_tail(ctx, api_key, sandbox_url, &out_file, tail_bytes);
-    let stderr = read_file_tail(ctx, api_key, sandbox_url, &err_file, tail_bytes);
+    // Read only the bounded `.tail` files the wrapper produced (≤ tail_bytes each),
+    // so output is capped at the SOURCE — no full-body read, no OOM.
+    let stdout = read_capture_tail(ctx, api_key, sandbox_url, &format!("{out_file}.tail"), tail_bytes);
+    let stderr = read_capture_tail(ctx, api_key, sandbox_url, &format!("{err_file}.tail"), tail_bytes);
     Ok(Some(ExecResult {
         stdout,
         stderr,
@@ -1270,33 +1285,34 @@ fn tensorlake_exec_poll(
     }))
 }
 
-/// Fetch only the last `tail_bytes` of a sandbox file via an HTTP Range request,
-/// so output that could be gigabytes never enters WASM memory whole. If the
-/// provider ignores Range and returns the full body (200), it is truncated to the
-/// tail here as a backstop. A read error yields an empty string (output is
-/// best-effort; the exit code is the source of truth).
-fn read_file_tail(
+/// Read a bounded `.tail` capture file (the wrapper already truncated it to
+/// tail_bytes on the box). Only a 2xx body is returned — a 404 (no output) or a
+/// 5xx error page becomes an EMPTY tail, never the error page itself. A defensive
+/// re-truncate guards against a provider that returns more than asked. The exit
+/// code is the source of truth; output is best-effort.
+fn read_capture_tail(
     ctx: &Context,
     api_key: &str,
     sandbox_url: &str,
     path: &str,
     tail_bytes: usize,
 ) -> String {
-    let mut headers = bearer_headers(api_key);
-    headers.push(("Range".to_string(), format!("bytes=-{tail_bytes}")));
-    let body = ctx
-        .http_call(
-            "GET",
-            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(path)),
-            &headers,
-            "",
-        )
-        .map(|r| r.body)
-        .unwrap_or_default();
+    let resp = match ctx.http_call(
+        "GET",
+        &format!("{sandbox_url}/api/v1/files?path={}", url_encode(path)),
+        &bearer_headers(api_key),
+        "",
+    ) {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
+    if resp.status < 200 || resp.status >= 300 {
+        return String::new(); // 404 = no output; error page = not a tail
+    }
+    let body = resp.body;
     if body.len() <= tail_bytes {
         return body;
     }
-    // Range ignored (full body returned): keep the tail, on a char boundary.
     let mut start = body.len() - tail_bytes;
     while start < body.len() && !body.is_char_boundary(start) {
         start += 1;

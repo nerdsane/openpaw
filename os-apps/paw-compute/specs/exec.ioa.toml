@@ -50,6 +50,12 @@ name = "stderr_tail"
 type = "string"
 initial = ""
 
+# On-box capture retention (async path): the launch wrapper writes bounded
+# `.tail` files (≤256KB) that the poll reads, and — on SUCCESS ONLY — deletes the
+# full stdout/stderr on the box so a durable computer never accumulates unbounded
+# output. On FAILURE the full files are KEPT for debugging (the exit code and the
+# bounded tail are on the row either way). See wasm-helpers `tensorlake_exec_start`.
+#
 # Kept for compatibility with the sync path's full-output paging; the async path
 # leaves them empty (it carries only bounded tails).
 [[state]]

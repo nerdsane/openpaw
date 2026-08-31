@@ -26,6 +26,10 @@ const MAX_RUN_SECS: u64 = 1800;
 /// Extra wall-clock the poll waits past the sandbox-side `timeout` before it gives
 /// up — covers the poll cadence and a slow final rc write.
 const POLL_DEADLINE_MARGIN_MS: i64 = 60_000;
+/// Bytes of stdout/stderr tail captured on the box (must match the poll's read
+/// bound). The wrapper truncates to this at the source, so the poll never pulls a
+/// full body — a huge output cannot OOM the module.
+const OUTPUT_TAIL_BYTES: usize = 262_144;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -50,7 +54,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         // start reuses it and the idempotent launch dedups, so a retry cannot leave
         // a duplicate orphan process.
         let run_id = sandbox::deterministic_run_id(&ctx.entity_id);
-        sandbox::sandbox_exec_start(&ctx, &handle, &wrapped, &run_id)?;
+        sandbox::sandbox_exec_start(&ctx, &handle, &wrapped, &run_id, OUTPUT_TAIL_BYTES)?;
         let now_ms = Context::get_time_millis();
         let deadline_at_ms = now_ms + (MAX_RUN_SECS as i64) * 1000 + POLL_DEADLINE_MARGIN_MS;
 
