@@ -362,3 +362,30 @@ redesign #2/#3 acyclic (wasm query-before-create, no back-ref/guard cycle). (C) 
 the temper reaction-graph recursion first, keep the current design.
 **Recommended:** A. Pending owner ruling; nothing lost (all committed/pushed).
 **Where:** temperpaw #492 (60bb97c9c); boot logs in scratchpad/boot-*.log.
+
+---
+
+**Decision:** (owner ruling A executed, 2026-08-31, successor 2) Strip the #2/#3
+cyclic machinery from 1b and enforce intent.md at the Specify door instead;
+RebirthEffort's idempotency is DEFERRED A SECOND TIME (reason: ARN-448).
+**Came up because:** the P0 finding above - commit 60bb97c9c boot-crashes temperpaw
+via a cyclic cross-entity trigger graph (ARN-448), and the owner ruled A (ship 1b
+core, defer #2/#3).
+**Options:** (A) ship 1b core - lease + Specify/Plan chain-file guards + intent.md
+enforced at Specify (all boot-stable); defer #2/#3 idempotency until ARN-448 is
+fixed. (B) redesign #2/#3 acyclic now (a wasm that query-before-creates, no
+back-ref/guard cycle) - more machinery on an unfixed kernel gap. (C) fix the temper
+reaction-graph recursion first (out of ARN-441 scope, blocks the whole effort).
+**Chose (A) because:** it is the owner ruling, and it lands the honest guarantee
+(an Effort cannot leave Intended without a Ready intent.md) with zero cyclic
+topology - the Specify arm validates BOTH intent_ref and spec_ref. intent.md is an
+at-birth criterion, but the create-dispatched Seed cannot carry a wasm trigger
+without reintroducing the exact cycle that crashes, so the earliest safe door checks
+it. Given up: enforcement at the literal birth instant (an Effort can exist in
+Intended with no intent.md, but it cannot ADVANCE) and RebirthEffort double-birth
+idempotency (a repair action a monitor calls only when no Effort exists; the risk is
+a duplicate Effort if misused, not a crash). Follow-up: the idempotency + effort_id
+back-ref rides AFTER ARN-448 lands; option B (acyclic wasm query-before-create) is
+the fallback design if the kernel fix is far out.
+**Where:** temperpaw f5121cbf0 (reverts 60bb97c9c; effort_lifecycle Specify arm
+checks intent_ref+spec_ref); RebirthEffort back to a plain repair in intent.ioa.toml.
