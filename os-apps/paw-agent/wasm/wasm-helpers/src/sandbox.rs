@@ -889,6 +889,9 @@ fn tensorlake_exec(
     command: &str,
     _workdir: &str,
 ) -> Result<ExecResult, String> {
+    // Wall-clock captured at invocation ENTRY, so the poll budget below accounts
+    // for the process-start latency, not just the time after it.
+    let invocation_start = Context::get_time_millis();
     let run_id = unique_run_id(ctx)?;
     let out_file = format!("/tmp/.paw-out-{run_id}");
     let err_file = format!("/tmp/.paw-err-{run_id}");
@@ -912,16 +915,17 @@ fn tensorlake_exec(
     }
 
     // Poll for the exit-code file (network latency provides natural backoff).
-    // Bound by WALL TIME, not a fixed iteration count: the poll must outlive any
-    // caller's inner command timeout (computer_exec caps commands at 110s), so a
-    // command that hits its own timeout is still reaped and its result read
-    // within THIS invocation — otherwise the poll could give up early (fast GETs)
-    // and leave a live process behind a Failed row. Kept under the 120s WASM
-    // invocation limit; the iteration cap is a belt-and-suspenders guard against a
-    // stalled clock.
+    // Bound by WALL TIME from invocation entry, not a fixed iteration count.
+    // Budget against the 120s WASM invocation cap: a caller's command timeout must
+    // be < 100s (computer_exec uses 90s), the poll runs to ~100s from entry so it
+    // outlives that timeout and reaps the result, and the remaining ~20s covers
+    // the stdout/stderr reads + the callback — all inside the 120s cap. Without
+    // this the poll could give up early (fast GETs burning a fixed iteration
+    // budget) and leave a live process behind a Failed row. The iteration cap is a
+    // belt-and-suspenders guard against a stalled clock.
     let headers = bearer_headers(api_key);
     let rc_url = format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file));
-    let poll_deadline = Context::get_time_millis() + 116_000;
+    let poll_deadline = invocation_start + 100_000;
     let mut exit_code: i64 = -1;
     let mut found = false;
     for _ in 0..50_000 {

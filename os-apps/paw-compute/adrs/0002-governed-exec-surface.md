@@ -22,7 +22,7 @@ missing is an entity that exposes that plumbing as a governed action.
 Add an Exec entity to paw-compute (Created → Running → Succeeded | Failed).
 One Exec row is one shell command on one Computer's sandbox:
 
-- `Run(computer_id, command, created_by)` transitions Created → Running and
+- `Run(computer_id, command)` transitions Created → Running and
   fires the new `computer_exec` WASM integration.
 - The module resolves the Computer row via the Temper API loopback,
   requires it to be Ready with a recorded sandbox_url, builds a
@@ -41,8 +41,9 @@ scoped to `context.module == "computer_exec"`.
 ## Consequences
 
 - Every command executed on a computer is an entity: Cedar-gated at Run,
-  auditable after the fact from the row (command, exit code, output tails,
-  created_by) without any provider-side tooling.
+  auditable after the fact from the row (command, exit code, output
+  tails); WHO ran it is kernel-stamped on the events (non-spoofable), not a
+  caller-supplied field.
 - Provider credentials (tensorlake_api_key, modal tokens) stay host-side,
   injected through the trigger config overlay at runtime. Harnesses never
   see or hold them; nothing secret lives in the spec or repo.

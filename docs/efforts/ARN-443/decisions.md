@@ -220,3 +220,53 @@ in prod via Genesis, so these fixes ship here BEFORE any future Genesis publish.
 - **Came up because:** the lossy sanitizer could map distinct exec ids to the same
   `~/.exec-out` filename.
 - **Where:** computer_exec/src/lib.rs `exec_log_id` (+ `fnv1a_32`).
+
+# Round 3 — BREAKER APPLIED (owner decision; 2 surgical fixes + adjudicated residuals)
+
+Rounds were not converging (9→7→6). Owner ruling: the exec wrapper's metadata is
+best-effort OBSERVABILITY; the security boundary is Cedar + kernel identity
+stamping. An authenticated caller "spoofing" its own exec's completion bit is
+lying in its own audit record — WHO ran WHAT stays kernel-stamped and unforgeable.
+No round 4. Two plain-correctness findings got a surgical fix; the rest are
+accepted residuals.
+
+## R3.1 Completion/timeout decided in the OUTER script, from timeout's exit
+- **Decision:** The user command runs only in the child `bash -c`; the wrapper's
+  epilogue (rc + markers + tails) lives in the OUTER script and always runs.
+  Timed-out is read from `timeout`'s own exit status (124), not a child-written
+  `.done` marker.
+- **Came up because:** the `.done` marker was written inside the child, so a
+  legitimate `exec long-running` (which replaces the child and never reaches the
+  marker) was misreported as timed-out; both reviewers flagged the structure.
+- **Chose outer-epilogue because:** nothing the command does (exit/exec/background
+  spawn) can skip an epilogue that runs in the outer script, and reading 124 from
+  `timeout` handles `exec` correctly. Given up: a command that itself exits exactly
+  124 is classified as timed-out — accepted (see residuals).
+- **Where:** computer_exec/src/lib.rs `wrap_command`.
+
+## R3.2 Poll budget reserves read + callback headroom
+- **Decision:** Start the poll wall-clock at invocation ENTRY and bound it to
+  ~100s (was 116s from post-setup); reduce the command timeout to 90s.
+- **Came up because:** a 116s poll left almost no room under the 120s WASM cap for
+  the output reads + callback dispatch.
+- **Budget math:** command ≤90s < poll ~100s (outlives it, reaps the result) <
+  120s cap, leaving ~20s for reads + callback.
+- **Where:** wasm-helpers/src/sandbox.rs `tensorlake_exec` (poll_deadline from
+  invocation_start); computer_exec `EXEC_TIMEOUT_SECS = 90`.
+
+## R3.3 ADR-0002 aligned with the created_by removal
+- **Decision:** Drop `created_by` from ADR-0002's Run signature + audit-field list;
+  note identity is kernel-stamped.
+- **Where:** adrs/0002-governed-exec-surface.md.
+
+## Accepted residuals (owner-adjudicated at the breaker; NOT bugs to fix)
+- **Timeout/exit-124 ambiguity:** a command self-reporting 124 is classed as
+  timed-out. Accepted — it is the caller's own audit record; corrupting one's own
+  completion bit ≠ crossing another exec; Cedar + kernel identity is the boundary.
+  R3.1 further narrows it structurally.
+- **Background processes outliving an early-exiting command:** normal unix
+  semantics; the Computer-copy lifecycle (C) reaps by teardown — not the exec's job.
+- **FNV-32 exec-log-id collision:** a 32-bit birthday needs ~65k execs against one
+  log dir within a box's lifespan. Accepted with this note; revisit if exec volume
+  ever approaches that.
+- **Iteration cap in the poll:** kept as-is (a stalled-clock guard).

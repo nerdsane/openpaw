@@ -25,13 +25,13 @@ use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_tempe
 /// bounds only the tails carried back on the row.
 const OUTPUT_TAIL_BYTES: usize = 262_144;
 
-/// Hard wall-clock limit for the command on the sandbox, enforced by `timeout`
-/// so a runaway command is killed and cannot outlive the exec (no orphans). Kept
-/// just under the 120s WASM invocation cap (temper-wasm `WasmResourceLimits`) AND
-/// under the tensorlake helper's poll budget, so the timeout fires and its result
-/// is read within one synchronous invocation. Longer runs need the async exec
-/// path (ARN-443 D), not a larger value here.
-const EXEC_TIMEOUT_SECS: u64 = 110;
+/// Hard wall-clock limit for the command on the sandbox, enforced by `timeout` so
+/// a runaway command is killed and cannot outlive the exec (no orphans). Budget
+/// math against the 120s WASM invocation cap (temper-wasm `WasmResourceLimits`):
+/// command ≤90s, then the tensorlake helper polls to ~100s (outliving this), then
+/// the output reads + callback fit in the remaining ~20s. Must stay below the
+/// helper's poll budget. Longer runs need the async exec path (ARN-443 D).
+const EXEC_TIMEOUT_SECS: u64 = 90;
 
 /// Marker (fixed line, wrapper-emitted) announcing the stdout log path.
 const EXEC_LOG_MARKER: &str = "__EXEC_LOG_PATH";
@@ -205,29 +205,31 @@ fn sandbox_handle_from_computer(computer: &Value) -> Result<SandboxHandle, Strin
 /// Wrap the user command so its full stdout and stderr are persisted to separate
 /// per-exec log files on the sandbox while the row carries a bounded tail of each.
 ///
-/// - The command runs in a CHILD `bash -c` (subshell/child): its own `exit`/`exec`
-///   control flow cannot skip the wrapper's epilogue.
-/// - `timeout -k` kills the whole child group if it runs past `EXEC_TIMEOUT_SECS`
-///   (no orphaned process). A `.done` marker is written iff the child completed —
-///   its ABSENCE is the timed-out signal, which distinguishes an outer-timeout
-///   from a command that legitimately exits 124.
-/// - stdout → `<id>.log`, stderr → `<id>.err` (separate streams). The wrapper
-///   prints, to its own stdout, the stdout byte count, the log-path marker, the
-///   timed-out marker, and the stdout tail; it writes the stderr tail to its own
+/// - The user command runs in a CHILD `bash -c` under `timeout`. The OUTER
+///   script's epilogue (rc + markers + tails) ALWAYS runs afterward — nothing the
+///   command does (`exit`, `exec`, background spawns) can skip it, because the
+///   command never runs in the wrapper's own shell.
+/// - Timed-out is read from `timeout`'s own exit status (124), NOT a marker the
+///   command could skip — so `exec long-running` is reported by its real outcome,
+///   not misclassified. (A command that itself exits exactly 124 is then
+///   classified as timed-out: an accepted residual — it is the caller's own audit
+///   record, and WHO ran WHAT stays kernel-stamped and unforgeable; the security
+///   boundary is Cedar + kernel identity, not this observability bit.)
+/// - `timeout -k` kills the whole child group past `EXEC_TIMEOUT_SECS` (no
+///   orphan). stdout → `<id>.log`, stderr → `<id>.err` (separate streams). The
+///   wrapper prints the stdout byte count, the log-path marker, the timed-out
+///   marker, and the stdout tail to its own stdout; the stderr tail to its own
 ///   stderr (`>&2`) — so no command-controllable delimiter lives in the stdout
 ///   data. `exit $__rc` surfaces the true status.
 fn wrap_command(command: &str, exec_id: &str) -> String {
     let id = exec_log_id(exec_id);
     let log = format!("~/.exec-out/{id}.log");
     let err = format!("~/.exec-out/{id}.err");
-    let done = format!("~/.exec-out/{id}.done");
-    // The child writes the .done marker only if it reaches the end (not killed).
-    let inner = format!("{command}\n__c=$? ; : > {done} ; exit $__c");
-    let q = shell_single_quote(&inner);
+    let q = shell_single_quote(command);
     format!(
-        "mkdir -p ~/.exec-out ; rm -f {done} ; \
+        "mkdir -p ~/.exec-out ; \
          timeout -k 5s {EXEC_TIMEOUT_SECS}s bash -c {q} > {log} 2> {err} ; __rc=$? ; \
-         if [ -f {done} ]; then __to=0 ; else __to=1 ; fi ; \
+         if [ \"$__rc\" -eq 124 ]; then __to=1 ; else __to=0 ; fi ; \
          wc -c < {log} ; echo \"{EXEC_LOG_MARKER} {log}\" ; echo \"{EXEC_TO_MARKER} $__to\" ; \
          tail -c {OUTPUT_TAIL_BYTES} {log} ; tail -c {OUTPUT_TAIL_BYTES} {err} >&2 ; exit $__rc"
     )
@@ -473,17 +475,18 @@ mod tests {
     // -- Command wrapping ----------------------------------------------------
 
     #[test]
-    fn wrap_runs_command_in_a_timed_child_with_done_marker() {
+    fn wrap_runs_command_in_a_timed_child_epilogue_outside() {
         let wrapped = wrap_command("echo hi", "exec-1");
         assert!(wrapped.contains("mkdir -p ~/.exec-out"));
         // Child (bash -c) under a hard timeout with a kill grace.
-        assert!(wrapped.contains("timeout -k 5s 110s bash -c "), "{wrapped}");
+        assert!(wrapped.contains("timeout -k 5s 90s bash -c "), "{wrapped}");
         // Separate stdout and stderr files.
         assert!(wrapped.contains("2> ~/.exec-out/"));
-        // Done marker distinguishes outer-timeout from a real exit 124.
-        assert!(wrapped.contains(".done"));
-        assert!(wrapped.contains("if [ -f"));
-        assert!(wrapped.contains("__EXEC_TIMED_OUT"));
+        // Timed-out is derived from timeout's own exit (124) in the OUTER script —
+        // no child-written marker to skip; correctly handles `exec`.
+        assert!(wrapped.contains(r#"if [ "$__rc" -eq 124 ]"#), "{wrapped}");
+        assert!(!wrapped.contains(".done"));
+        assert!(wrapped.contains("__EXEC_TIMED_OUT $__to"));
         // stderr tail goes to the wrapper's own stderr (no in-band delimiter).
         assert!(wrapped.contains(">&2"));
         assert!(wrapped.trim_end().ends_with("exit $__rc"));
