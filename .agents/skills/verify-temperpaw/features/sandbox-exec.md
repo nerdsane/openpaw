@@ -9,10 +9,10 @@ capture files and cross output.
 ## What to verify
 - `capture_run_id` builds a filename- and shell-safe id from the calling
   entity, host clock, and per-instance counter.
-- Two different entities' execs never collide (the ARN-401 cross-entity bug).
-- The entity-id encoding is injective (distinct ids never map to one token).
-- Same-entity execs are serialized by the actor model (one message at a time),
-  so they cannot overlap.
+- Two execs never share capture files — cross-entity (the ARN-401 bug) OR
+  same-entity concurrent (a long-running exec can overlap another dispatch for
+  the same entity). Uniqueness comes from a per-dispatch random u64.
+- The entity-id label is injective, bounded (≤32 chars + hash), and empty-safe.
 
 ## How to drive it (rerun)
 Pure logic is unit-tested; run the crate tests and the wasm build:

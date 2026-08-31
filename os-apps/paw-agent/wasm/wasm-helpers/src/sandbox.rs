@@ -723,36 +723,67 @@ fn bearer_headers_json(api_key: &str) -> Vec<(String, String)> {
 /// and add the host clock plus a per-instance counter to separate repeated
 /// execs from the same entity/instance. (ARN-401)
 fn unique_run_id(ctx: &Context) -> String {
-    use core::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let now = Context::get_time_millis();
-    capture_run_id(&ctx.entity_id, now, seq)
+    capture_run_id(&ctx.entity_id, random_u64())
 }
 
-/// Build the capture id from the entity id, host clock, and per-instance
-/// counter. Pure (testable). The entity id is encoded to a filename-safe token
-/// so it cannot escape `/tmp/.paw-*` or break the redirection; an empty entity
-/// id falls back to `exec`.
+/// A random u64 for per-dispatch uniqueness. On wasm32-wasip1 this is WASI
+/// `random_get` (the temper host wires `wasi_snapshot_preview1`); on native it
+/// is the OS RNG. This is the sole uniqueness source for the capture id — see
+/// `capture_run_id`.
+fn random_u64() -> u64 {
+    let mut b = [0u8; 8];
+    // If the host RNG were ever unavailable we must not silently reuse an id, so
+    // fall back to a fresh heap address (still varies per call) rather than a
+    // constant. In practice random_get always succeeds on the wired host.
+    if getrandom::getrandom(&mut b).is_err() {
+        let probe = Box::new(0u8);
+        return (&*probe as *const u8 as usize as u64) ^ 0x9e37_79b9_7f4a_7c15;
+    }
+    u64::from_le_bytes(b)
+}
+
+/// FNV-1a 32-bit hash — a small, dependency-free digest of the full entity id so
+/// the bounded (truncated) entity segment stays distinguishing even for long ids.
+fn fnv1a_32(bytes: &[u8]) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for &b in bytes {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
+}
+
+/// Build the capture id for `/tmp/.paw-{out,err,rc}-<id>`. Pure (testable).
 ///
-/// The encoding is injective: ASCII alphanumerics and `-` pass through, and
-/// every other byte — `_` included — becomes `_` + its two hex digits. Because
-/// `_` is itself escaped, it only ever marks an escape, so two distinct entity
-/// ids can never map to the same token (the old lossy `→ _` scheme collided
-/// e.g. `a/b` with `a?b`). Distinct entities therefore never share capture
-/// files even within one clock millisecond.
-fn capture_run_id(entity_id: &str, now_millis: i64, seq: u32) -> String {
-    let mut entity = String::with_capacity(entity_id.len());
+/// Uniqueness comes from `rand`, a random u64 drawn once per dispatch — so two
+/// execs never share capture files even when they run for the SAME entity in the
+/// same instant (the ARN-401 class of collision, which a wall-clock + per-
+/// instance counter could not close: every trigger dispatch is a fresh WASM
+/// instance, so the counter resets to 0). No wall-clock is read, keeping the
+/// module free of ambient time (DST discipline).
+///
+/// The entity id is kept only as a human-readable, filename-safe label:
+/// - encoded injectively (alphanumerics and `-` pass through; every other byte,
+///   `_` included, becomes `_` + two hex digits — so `_` only ever marks an
+///   escape and distinct ids never alias, e.g. `a/b` vs `a?b`);
+/// - bounded to 32 encoded chars plus an 8-hex FNV hash of the FULL id, so the
+///   filename can never exceed the filesystem's per-component limit while the
+///   segment stays distinguishing;
+/// - prefixed with `e` so an empty id (encoded segment "") cannot alias any
+///   real id.
+fn capture_run_id(entity_id: &str, rand: u64) -> String {
+    let mut enc = String::with_capacity(entity_id.len());
     for b in entity_id.bytes() {
         if b.is_ascii_alphanumeric() || b == b'-' {
-            entity.push(b as char);
+            enc.push(b as char);
         } else {
-            entity.push('_');
-            entity.push_str(&format!("{b:02x}"));
+            enc.push('_');
+            enc.push_str(&format!("{b:02x}"));
         }
     }
-    let entity = if entity.is_empty() { "exec" } else { &entity };
-    format!("{entity}-{now_millis:x}-{seq:08x}")
+    let head: String = enc.chars().take(32).collect();
+    let hash = fnv1a_32(entity_id.as_bytes());
+    format!("e{head}-{hash:08x}-{rand:016x}")
 }
 
 // ===========================================================================
@@ -1205,49 +1236,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capture_id_is_scoped_to_the_entity() {
-        // Two different entities executing concurrently (same clock, same
-        // per-instance seq of 0 because each is a fresh WASM instance) must not
-        // collide — this is the ARN-401 crossing bug.
-        let a = capture_run_id("rr-healthy-112", 1000, 0);
-        let b = capture_run_id("rr-rollback-113", 1000, 0);
+    fn capture_id_is_unique_per_dispatch_same_entity() {
+        // THE ARN-401 CLASS: two execs for the SAME entity that used to collide
+        // (same clock, both fresh instances so counter 0) must not share capture
+        // files. Uniqueness now comes from the per-dispatch random u64.
+        let a = capture_run_id("session-42", 0x1111_1111_1111_1111);
+        let b = capture_run_id("session-42", 0x2222_2222_2222_2222);
         assert_ne!(a, b);
-        assert!(a.starts_with("rr-healthy-112-"));
-        assert!(b.starts_with("rr-rollback-113-"));
-        // And the /tmp path that gets built from it differs.
         assert_ne!(format!("/tmp/.paw-out-{a}"), format!("/tmp/.paw-out-{b}"));
     }
 
     #[test]
-    fn capture_id_separates_repeats_from_one_entity() {
-        // Same entity, later clock or higher counter → distinct id.
-        assert_ne!(capture_run_id("e", 1000, 0), capture_run_id("e", 1000, 1));
-        assert_ne!(capture_run_id("e", 1000, 0), capture_run_id("e", 2000, 0));
+    fn capture_id_carries_a_readable_entity_label() {
+        // Different entities are still distinguishable by the readable prefix
+        // (the cross-entity ARN-401 case), even with the same random draw.
+        let a = capture_run_id("rr-healthy-112", 7);
+        let b = capture_run_id("rr-rollback-113", 7);
+        assert_ne!(a, b);
+        assert!(a.starts_with("err-healthy-112-"), "{a}");
+        assert!(b.starts_with("err-rollback-113-"), "{b}");
     }
 
     #[test]
     fn capture_id_sanitizes_unsafe_entity_ids() {
         // Path separators / spaces / quotes cannot escape /tmp/.paw-* or break
         // the shell redirection.
-        let id = capture_run_id("../../etc/passwd '; rm -rf ~", 42, 7);
+        let id = capture_run_id("../../etc/passwd '; rm -rf ~", 0xdead_beef);
         assert!(!id.contains('/'), "{id}");
         assert!(!id.contains(' '), "{id}");
         assert!(!id.contains('\''), "{id}");
         assert!(!id.contains('.'), "{id}");
-        assert!(id.ends_with("-00000007"));
-        // Empty entity id falls back to a safe token.
-        assert!(capture_run_id("", 1, 0).starts_with("exec-"));
+        assert!(id.ends_with("-00000000deadbeef"), "{id}");
     }
 
     #[test]
     fn capture_id_encoding_is_injective() {
-        // Distinct entity ids that the old lossy sanitizer collapsed to the
-        // same token (both `→ a_b`) must now differ, so concurrent execs on the
-        // same sandbox in the same millisecond cannot cross output. (Greptile)
-        assert_ne!(capture_run_id("a/b", 1000, 0), capture_run_id("a?b", 1000, 0));
-        // The literal `_` is escaped too, so it cannot alias an escaped byte.
-        assert_ne!(capture_run_id("a_b", 1000, 0), capture_run_id("a/b", 1000, 0));
-        assert_ne!(capture_run_id("a b", 1000, 0), capture_run_id("a_b", 1000, 0));
+        // Distinct entity ids that the old lossy sanitizer collapsed to the same
+        // token (both `→ a_b`) get distinct readable segments (same random draw).
+        let same = 5u64;
+        assert_ne!(capture_run_id("a/b", same), capture_run_id("a?b", same));
+        // `_` is escaped too, so it cannot alias an escaped byte.
+        assert_ne!(capture_run_id("a_b", same), capture_run_id("a/b", same));
+        assert_ne!(capture_run_id("a b", same), capture_run_id("a_b", same));
+    }
+
+    #[test]
+    fn capture_id_is_length_bounded_and_empty_safe() {
+        // A very long entity id is capped (32 encoded chars + 8-hex hash), so
+        // the filename stays well under the filesystem per-component limit.
+        let long = "x".repeat(500);
+        let id = capture_run_id(&long, 1);
+        // "e" + 32 + "-" + 8 + "-" + 16 == 59 chars; /tmp/.paw-out- prefix is 13.
+        assert!(id.len() <= 60, "len {} id {}", id.len(), id);
+        assert!(format!("/tmp/.paw-out-{id}").len() < 120);
+        // The bound stays distinguishing via the full-id hash: two long ids that
+        // share the first 32 encoded chars still differ.
+        let a = "y".repeat(40) + "A";
+        let b = "y".repeat(40) + "B";
+        assert_ne!(capture_run_id(&a, 1), capture_run_id(&b, 1));
+        // Empty id cannot alias a real id: it encodes to just the "e" prefix.
+        assert!(capture_run_id("", 1).starts_with("e-"), "{}", capture_run_id("", 1));
+        assert_ne!(capture_run_id("", 1), capture_run_id("e", 1));
     }
 
     #[test]

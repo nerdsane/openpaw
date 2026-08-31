@@ -32,6 +32,7 @@ the paw-agent tool-run path). Any governed exec on a shared computer.
 - No change to the exec contract or provider API.
 
 ## Open questions
-- Can two execs for the SAME entity overlap? (Answered in spec: no — Temper
-  actors process one message at a time, so same-entity dispatches are serialized;
-  the real concurrency is cross-entity.)
+- Can two execs for the SAME entity overlap? (Answered: YES. The exec is a
+  long-running side effect that does not block the entity actor for its whole
+  duration, so same-entity execs can overlap. Resolved by making the capture id
+  globally unique per dispatch via a random u64 — see spec.)

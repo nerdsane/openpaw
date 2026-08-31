@@ -9,36 +9,44 @@ Status: accepted. Intent: docs/efforts/ARN-401/intent.md
 - Pure and unit-testable (no host calls inside the id-building function).
 
 ## Design
-`unique_run_id(ctx)` composes the id from three parts:
-- `ctx.entity_id` — the calling entity. Two different entities (the real
-  concurrency, e.g. a rollback vs a health probe) never collide because their
-  ids differ.
-- `get_time_millis()` — the host clock, separating repeats over time.
-- a per-instance `AtomicU32` counter — separating repeats within one instance.
+`unique_run_id(ctx)` = `capture_run_id(ctx.entity_id, random_u64())`.
 
-`capture_run_id(entity_id, now_millis, seq)` is the pure builder. The entity id
-is encoded **injectively**: ASCII alphanumerics and `-` pass through; every other
-byte — `_` included — becomes `_` + two hex digits. Because `_` is itself
-escaped, it only ever marks an escape, so two distinct entity ids can never map
-to the same token (the earlier lossy `→ _` scheme collided `a/b` with `a?b`). An
-empty entity id falls back to `exec`.
+- **Uniqueness comes from `random_u64()`** — a random u64 drawn once per
+  dispatch. On `wasm32-wasip1` this is WASI `random_get` (the temper host wires
+  `wasi_snapshot_preview1`); on native (tests) it is the OS RNG. A random draw is
+  globally unique per dispatch, so two execs never share capture files even for
+  the SAME entity in the same instant. No wall-clock is read, keeping the module
+  free of ambient time (DST discipline).
+- **The entity id is a readable label only** — `capture_run_id(entity_id, rand)`
+  (pure, testable) prefixes the id with a bounded, filename-safe encoding of the
+  entity so temp files are human-attributable:
+  - injective encoding: alphanumerics and `-` pass through; every other byte —
+    `_` included — becomes `_` + two hex digits (so `_` only ever marks an
+    escape, and `a/b` never aliases `a?b`);
+  - bounded: first 32 encoded chars + an 8-hex FNV-1a hash of the FULL id, so the
+    filename can never exceed the filesystem per-component limit while staying
+    distinguishing;
+  - prefixed with `e`, so an empty id (encoded segment "") cannot alias a real id.
+
+Format: `e{≤32 encoded}-{fnv32:08x}-{rand:016x}`.
 
 ## Policy / invariants
-- Determinism: the builder is pure; the only non-determinism (clock, counter)
-  lives in the caller, matching the existing exec path.
+- Determinism: `capture_run_id` is pure; the only non-determinism (the RNG draw)
+  lives in `unique_run_id`, which runs only on the real exec path
+  (`tensorlake_exec`), never in the DST/sim path. No ambient time is read.
 - Safety: the encoded token cannot contain `/`, whitespace, quotes, or `.`, so it
-  cannot escape `/tmp/.paw-*` or break the shell redirection.
+  cannot escape `/tmp/.paw-*` or break the shell redirection; length is bounded.
 
-## Same-entity concurrency (why entity scope suffices)
-Temper entities are actors that process one message at a time
-(`temper-runtime` `actor/traits.rs`: "Called sequentially — one message at a
-time"; `actor/cell.rs` is a strict `recv().await` → `handle(...).await` → loop,
-and WASM integrations run inline within the awaited `handle()` — the only
-`tokio::spawn` is the actor's own run-loop). So two dispatches for the SAME
-entity are serialized: the first exec writes, reads, and deletes its capture
-files before the second begins. Concurrency is only ever cross-entity, which the
-entity-scoped id covers. Entity scope is therefore sufficient; no per-dispatch
-nonce is needed (and none is available in pure WASM).
+## Same-entity concurrency (the corrected understanding)
+An earlier draft argued entity scope sufficed because Temper actors process one
+message at a time. **That was wrong**, and the review panel (Codex + Fable) caught
+it: the sandbox exec is a long-running side effect (it polls for up to 600
+iterations) and does not block the entity actor for its whole duration — which is
+exactly why a ~30-min run is a known problem (ARN-443 part D). So two dispatches
+for the SAME entity CAN have their execs overlap in wall-clock time. A wall-clock
++ per-instance counter cannot separate them (both fresh instances read the same
+millisecond and both counters start at 0). The per-dispatch random u64 closes
+this: it is unique regardless of entity, clock, or instance.
 
 ## Deferred / out of scope
 - Streaming / cancel / long-run (>poll-cap) exec — ARN-443 part D.

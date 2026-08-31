@@ -1,40 +1,56 @@
 # Decisions - unique sandbox exec capture id per entity
 
-## Scope the capture id to the calling entity (not a global nonce)
-- **Decision:** Build the capture id from `entity_id` + host clock + per-instance
-  counter, rather than a globally-unique nonce.
-- **Came up because:** the collision that caused ARN-401 was cross-entity (a
-  ReleaseRun rollback vs a different health-probe entity running at once).
-- **Options:** global nonce (needs entropy WASM does not have) / entity scope.
-- **Chose entity scope over a nonce because:** pure WASM has no host RNG or
-  per-dispatch id; entity scope kills the real (cross-entity) collision with the
-  inputs actually available. Given up: nothing for the real threat — same-entity
-  overlap does not occur (see next decision).
-- **Where:** `os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs` `unique_run_id`.
+## Make the capture id globally unique per dispatch via a random u64
+- **Decision:** Derive the capture id's uniqueness from a random u64 drawn once
+  per dispatch (WASI `random_get` on wasip1, OS RNG on native), not from the
+  entity id + wall-clock + per-instance counter.
+- **Came up because:** the review panel (Codex + Fable) showed the entity+clock+
+  counter scheme still collides for two execs of the SAME entity in the same
+  millisecond (both fresh instances → counter 0, same clock). See the correction
+  entry below.
+- **Options:** entity id + clock + counter (insufficient) / the Exec row id where
+  available (path-dependent — only unique when entity_id is the Exec id, not for
+  the Session run_tools path) / a per-dispatch random u64 (uniform).
+- **Chose the random u64 because:** it is globally unique per dispatch on BOTH
+  exec paths, and the host already wires WASI (`temper-wasm` engine provides
+  `random_get`), so it is available. It also removes the wall-clock read, keeping
+  the module free of ambient time (DST discipline). Given up: the id is no longer
+  a pure function of the inputs — but `capture_run_id(entity_id, rand)` stays pure
+  and testable; only `unique_run_id` (impure, real-exec-path only) draws the RNG.
+- **Where:** `os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs`
+  `unique_run_id` / `random_u64` / `capture_run_id`; `getrandom` dep in Cargo.toml.
 
-## Make the entity-id encoding injective (hex-escape)
-- **Decision:** Encode the entity id injectively — alphanumerics and `-` pass
-  through; every other byte, `_` included, becomes `_` + two hex digits.
-- **Came up because:** Greptile flagged the lossy `→ _` sanitizer: `a/b` and
-  `a?b` both collapsed to `a_b`, so distinct entities could still collide.
-- **Options:** merge as-is / append a hash suffix (probabilistic) / injective
-  hex-escape (provable).
-- **Chose injective over a hash because:** it is provably collision-free, keeps a
-  readable prefix, and all prior tests still pass. Given up: slightly longer
-  tokens for punctuated ids.
-- **Where:** `capture_run_id`, commit on `claude/exec-capture-isolation`.
+## Keep the entity id as a bounded, injective, readable label
+- **Decision:** Keep an encoded entity id as a human-readable prefix on the
+  capture filename — injective, capped at 32 encoded chars + an 8-hex FNV hash of
+  the full id, prefixed with `e`.
+- **Came up because:** temp files should be attributable to their entity; and the
+  panel flagged that an unbounded entity id could exceed the filesystem per-
+  component limit, plus the empty-id vs literal-`exec` alias nit.
+- **Options:** drop the entity label entirely (random-only) / keep it unbounded /
+  keep it bounded + hashed.
+- **Chose bounded + hashed because:** attributable filenames aid debugging;
+  bounding fixes the length limit; the full-id hash keeps the truncated segment
+  distinguishing; the `e` prefix makes the empty id unambiguous. Injective
+  encoding (`_`+hex for every non-[alnum-] byte) also closed the earlier Greptile
+  lossy-sanitizer finding. Given up: a few extra chars per filename.
+- **Where:** `capture_run_id`.
 
-## No same-entity discriminator: the actor model serializes it
-- **Decision:** Do not add a per-dispatch discriminator for same-entity execs.
-- **Came up because:** Greptile then asked about two `run_tools` dispatches for
-  the SAME session colliding within one millisecond.
-- **Options:** add sandbox-side `mktemp`/nonce machinery / rely on the execution
-  model.
-- **Chose rely-on-the-model because:** Temper actors process one message at a
-  time (`temper-runtime` `actor/traits.rs`, `actor/cell.rs`: `recv().await` →
-  `handle().await` → loop; integrations run inline, the only `tokio::spawn` is the
-  actor's own loop). Same-entity dispatches are serialized — the first exec
-  writes/reads/deletes before the second starts — so the collision cannot occur.
-  Adding machinery would violate "no machinery for a non-problem." Given up:
-  nothing; the finding does not apply to this execution model.
-- **Where:** analysis in docs/efforts/ARN-401/spec.md; no code change.
+## CORRECTION: same-entity execs are NOT serialized (earlier reasoning was wrong)
+- **Decision:** Reverse the earlier call that "entity scope suffices because the
+  actor model serializes same-entity dispatch." It does not; the fix above adds
+  per-dispatch uniqueness.
+- **Came up because:** I first argued (from `actor/traits.rs` "one message at a
+  time" + the absence of a per-message `tokio::spawn`) that a same-entity exec
+  collision could not occur, and resolved the panel's P1 as invalid. The panel
+  (Codex + Fable, independently) showed the window is real: the exec is a
+  long-running side effect (polls up to 600 iterations) that does NOT hold the
+  actor for its whole duration — which is precisely why a ~30-min run is a known
+  limitation (ARN-443 part D). So two same-entity dispatches can have overlapping
+  execs.
+- **Options:** keep dismissing it (wrong) / add the per-dispatch discriminator.
+- **Chose to fix because:** the collision is the exact ARN-401 class, one level
+  down. The lesson: do not infer an execution-model guarantee from the absence of
+  a spawn without tracing the integration dispatch path; a long-running
+  integration can outlive the transition that fired it.
+- **Where:** superseded by the random-u64 decision above; analysis in spec.md.
