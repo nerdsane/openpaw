@@ -62,11 +62,6 @@ name = "error"
 type = "string"
 initial = ""
 
-[[state]]
-name = "created_by"
-type = "string"
-initial = ""
-
 # -- Actions -------------------------------------------------------------------
 
 [[action]]
@@ -74,7 +69,7 @@ name = "Run"
 kind = "input"
 from = ["Created"]
 to = "Running"
-params = ["computer_id", "command", "created_by"]
+params = ["computer_id", "command"]
 hint = "Execute the command on the named computer's sandbox. The computer must be provisioned (Ready) with a recorded sandbox_url."
 effect = [{ type = "trigger", name = "computer_exec" }]
 
@@ -104,8 +99,8 @@ name = "RunFailed"
 kind = "input"
 from = ["Running"]
 to = "Failed"
-params = ["error"]
-hint = "Callback from computer_exec — execution failed before producing an exit code."
+params = ["error", "exit_code", "stdout_tail", "stderr_tail"]
+hint = "Callback from computer_exec — execution failed. The result fields are cleared (sent empty) so a failure never leaves stale output on the row."
 
 [[invariant]]
 name = "SucceededIsFinal"

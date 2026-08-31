@@ -21,11 +21,11 @@ permit(
 );
 
 // Entity operations. The Computer row is the live agent<->sandbox mapping
-// (no sidecar store), so attach = read-by-name. Read/list are open within
-// the tenant (API access is already credential-gated); create requires an
-// Agent principal.
+// (no sidecar store), so attach = read-by-name. Read/list/create require an
+// Agent principal (Admin is covered by the blanket permit above) — ADR-0001
+// scopes attach to authenticated tenant agents, not any principal.
 permit(
-    principal,
+    principal is Agent,
     action in [
         Action::"read",
         Action::"list"
@@ -104,12 +104,12 @@ permit(
     principal.agent_type == "system"
 };
 
+// Admins can do anything with Execs (create/read/list/Run + callbacks),
+// consistent with the Computer and LatencyDiag blanket Admin permits — the
+// intent grants Admin the full surface, not just callbacks.
 permit(
     principal is Admin,
-    action in [
-        Action::"Exec.RunSucceeded", Action::"RunSucceeded",
-        Action::"Exec.RunFailed", Action::"RunFailed"
-    ],
+    action,
     resource is Exec
 );
 
@@ -141,13 +141,11 @@ permit(
     principal.agent_type == "system"
 };
 
+// Admins can do anything with LatencyDiags (create/read/list/RunScan +
+// callbacks), consistent with the Computer and Exec blanket Admin permits.
 permit(
     principal is Admin,
-    action in [
-        Action::"LatencyDiag.RunScan", Action::"RunScan",
-        Action::"LatencyDiag.RunSucceeded", Action::"RunSucceeded",
-        Action::"LatencyDiag.RunFailed", Action::"RunFailed"
-    ],
+    action,
     resource is LatencyDiag
 );
 
