@@ -14,8 +14,8 @@ initial = "Intended"
 # Pre-attachment states (Intended/Specified/Planned) have no owner, so no lease -
 # an intent legitimately sits until someone picks it up (the Intent entity's own
 # intake timeouts cover that). Stalled/Verified/Abandoned are resting states. The
-# owned states (Building/InReview/Proving/Merged/Deploying) get state_timeout ->
-# Stalled in step 1b (the ownership lease); none are added here.
+# owned states (Building/InReview/Proving/Merged/Deploying) carry the ownership
+# lease (state_timeout -> Stalled, reset by Heartbeat; see the bottom of the file).
 allow_indefinite_states = [
   "Intended", "Specified", "Planned", "Stalled", "Verified", "Abandoned"
 ]
@@ -120,7 +120,7 @@ type = "string"
 initial = ""
 
 # The lease owner: the WorkerRun whose Heartbeat keeps an owned state alive
-# (step 1b wires the state_timeout -> Stalled against a missed heartbeat).
+# (the owned-state state_timeout -> Stalled below is reset by Heartbeat).
 [[state]]
 name = "owner_worker_run_id"
 type = "string"
@@ -205,8 +205,11 @@ to = "Intended"
 params = ["intent_id", "intent_ref", "factory_case_id", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
 hint = "Seed a new Effort from the accepted Intent: linkage (intent_id), the intent.md reference (intent_ref, guaranteed at birth), task, and repo. pm_issue_id is NOT copied - it is read from the Intent via intent_id (single source; the Intent's LinkPmIssue can set it after birth)."
 
-# Specify - the spec.md door. In 1b a wasm validates spec.md exists on TemperFS
-# and refuses on missing; here the marker is set by effect and the door is open.
+# Specify - the first guarded door. A wasm validates that BOTH intent.md and
+# spec.md are Ready Files on TemperFS; here the marker is set by effect. intent.md
+# is an at-birth criterion, but the create-dispatched Seed cannot carry a wasm
+# trigger without a cyclic reaction graph (ARN-448), so the first guarded door
+# enforces intent_ref too - an Effort cannot leave Intended without a Ready intent.md.
 [[action]]
 name = "Specify"
 kind = "input"
@@ -214,7 +217,29 @@ from = ["Intended"]
 to = "Specified"
 params = ["spec_ref"]
 effect = "set spec_written true"
-hint = "Attach the spec (spec.md on TemperFS) and enter Specified. 1b enforces file presence."
+hint = "Attach the spec (spec.md on TemperFS) and enter Specified. The effort_lifecycle wasm refuses (via RejectSpec) unless BOTH intent_ref (intent.md, from birth) and spec_ref name Ready paw-fs Files."
+
+# Chain-file guard: kernel guards can't read files, so the transition into
+# Specified fires a wasm that checks intent_ref AND spec_ref name Ready Files; on
+# missing either it errors and on_failure rolls back to Intended (the machine
+# refuses on missing).
+[[action.triggers]]
+name = "effort_specify_requires_spec_file"
+kind = "wasm"
+module = "effort_lifecycle"
+on_failure = "RejectSpec"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RejectSpec"
+kind = "input"
+from = ["Specified"]
+to = "Intended"
+params = ["error_message"]
+effect = "set spec_written false"
+hint = "Roll back Specify when intent.md or spec.md is not a Ready File (chain-file guard refusal)."
 
 [[action]]
 name = "Plan"
@@ -224,7 +249,25 @@ to = "Planned"
 params = ["plan_ref", "plan_summary"]
 guard = "is_true spec_written"
 effect = "set plan_written true"
-hint = "Attach the plan (plan.md on TemperFS) and enter Planned. 1b enforces file presence."
+hint = "Attach the plan (plan.md on TemperFS) and enter Planned. The effort_lifecycle wasm refuses (via RejectPlan) unless plan_ref names a Ready paw-fs File."
+
+[[action.triggers]]
+name = "effort_plan_requires_plan_file"
+kind = "wasm"
+module = "effort_lifecycle"
+on_failure = "RejectPlan"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RejectPlan"
+kind = "input"
+from = ["Planned"]
+to = "Specified"
+params = ["error_message"]
+effect = "set plan_written false"
+hint = "Roll back Plan when plan.md is not a Ready File (chain-file guard refusal)."
 
 [[action]]
 name = "StartBuild"
@@ -369,15 +412,27 @@ to = "Verified"
 guard = "is_true deploy_verified"
 hint = "Close the Effort once the deploy is verified live."
 
-# Stalled - orphan/stall state. In 1b the owned states carry state_timeout ->
-# Stalled (the ownership lease). Stall here is the manual/review-stall entry.
+# Heartbeat - the ownership lease reset (ARN-441 1b, ADR-0049/0050). The owning
+# agent (via its WorkerRun.Heartbeat, which entity-triggers this) signals liveness
+# on an owned state; it is a self-loop (no `to` - stays in the current state) and
+# resets the state_timeout clock for that state (reset_on below). No Heartbeat
+# within the lease TTL -> the state machine moves the Effort to Stalled by itself.
+[[action]]
+name = "Heartbeat"
+kind = "input"
+from = ["Building", "InReview", "Proving", "Merged", "Deploying"]
+params = ["owner_worker_run_id"]
+hint = "Owner liveness signal on an owned state; resets the ownership lease clock."
+
+# Stalled - orphan/stall state. Reached from any owned state by the lease timeout
+# (state_timeouts below) or dispatched manually as a review stall.
 [[action]]
 name = "Stall"
 kind = "input"
-from = ["InReview"]
+from = ["Building", "InReview", "Proving", "Merged", "Deploying"]
 to = "Stalled"
 params = ["error_message"]
-hint = "Mark a stalled effort (review stall). 1b adds the lease-timeout entry from the owned states."
+hint = "Mark a stalled effort - the lease-timeout target on the owned states, or a manual review stall."
 
 # Resume - pickup out of Stalled. A later step requires an Adjudication (owner
 # ruling) as the guard; here it records the adjudication ids and resumes Building.
@@ -397,3 +452,44 @@ from = ["Intended", "Specified", "Planned", "Building", "InReview", "Proving", "
 to = "Abandoned"
 params = ["error_message"]
 hint = "Abandon the effort - the explicit give-up terminal (distinct from recoverable Stalled)."
+
+# Ownership lease (ARN-441 1b, ADR-0049/0050): each OWNED state carries a timeout
+# to Stalled that the owner's Heartbeat resets (reset_on). A live owner heartbeats
+# well within the TTL; a dead/silent owner misses it and the state machine moves the
+# Effort to Stalled by itself - orphan detection as a queryable platform property,
+# with pickup (Resume) a governed transition. Pre-attachment states (Intended/
+# Specified/Planned) have NO lease (allow_indefinite) - nothing owns them yet.
+[[state_timeout]]
+state = "Building"
+after_seconds = 1800
+on_timeout = "Stall"
+reset_on = ["Heartbeat"]
+params = { error_message = "Effort owner missed the lease heartbeat while Building." }
+
+[[state_timeout]]
+state = "InReview"
+after_seconds = 1800
+on_timeout = "Stall"
+reset_on = ["Heartbeat"]
+params = { error_message = "Effort owner missed the lease heartbeat while InReview." }
+
+[[state_timeout]]
+state = "Proving"
+after_seconds = 1800
+on_timeout = "Stall"
+reset_on = ["Heartbeat"]
+params = { error_message = "Effort owner missed the lease heartbeat while Proving." }
+
+[[state_timeout]]
+state = "Merged"
+after_seconds = 1800
+on_timeout = "Stall"
+reset_on = ["Heartbeat"]
+params = { error_message = "Effort owner missed the lease heartbeat while Merged." }
+
+[[state_timeout]]
+state = "Deploying"
+after_seconds = 1800
+on_timeout = "Stall"
+reset_on = ["Heartbeat"]
+params = { error_message = "Effort owner missed the lease heartbeat while Deploying." }

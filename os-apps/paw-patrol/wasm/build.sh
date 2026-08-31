@@ -16,7 +16,7 @@ copy_artifact() {
     fi
 }
 
-for module in patrol_request_router signal_router worker_run_lifecycle work_cycle_lifecycle finding_lifecycle review_gate_lifecycle repo_sweep_lifecycle daily_brief_lifecycle patrol_schedule_lifecycle patrol_run_lifecycle release_run_lifecycle record_ingest; do
+for module in patrol_request_router signal_router worker_run_lifecycle work_cycle_lifecycle effort_lifecycle finding_lifecycle review_gate_lifecycle repo_sweep_lifecycle daily_brief_lifecycle patrol_schedule_lifecycle patrol_run_lifecycle release_run_lifecycle record_ingest; do
     echo "Building $module..."
     if [ "$module" = "patrol_request_router" ]; then
         (cd "$SCRIPT_DIR/$module" && cargo build --bin patrol_request_router --target wasm32-unknown-unknown --release)

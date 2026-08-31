@@ -315,3 +315,135 @@ wasm-validated integrity guards (idempotency, non-empty) are the identical patte
 1b's chain-file guards and belong with them, keeping 1a declarative. Pending owner
 adjudication (round 3 residual).
 **Where:** recommendation messaged to team-lead; guards to land in 1b effort_lifecycle wasm.
+
+---
+
+**Decision:** (1b drive, owner ruling A, 2026-08-31) Add a narrow verified-operator
+File-create grant to paw-fs Cedar (CROSS-APP touch) so the shadow SDLC drive can
+create the Ready chain Files the Effort guards require.
+**Came up because:** the chain-file guards (Specify/Plan/Seed) require Ready
+intent.md/spec.md/plan.md paw-fs Files; the verify-temperpaw drive authenticates as
+the verified operator, which paw-fs File Cedar does not let create Files (only
+agent_type "system" or a workspace-matched agent). Because intent.md is validated at
+BIRTH, nearly the whole positive-path drive was blocked.
+**Options:** (A) a narrow verified-operator File-create grant in paw-fs (same
+shadow-authority justification as the accepted Effort lifecycle grant); (B) drive
+File creation as a system principal (no reachable path - "system" never accepted from
+headers); (C) prove only the negative/refusal paths + cascade.
+**Chose (A) because:** the drive identity IS our governed operator, and A unblocks the
+FULL proof (positive path + idempotency block + forced timeout->Stalled), not just the
+refusals. Scoped to the NARROWEST surface (Create + StreamUpdated on File only,
+verified-operator predicate with has-guards). Given up: a cross-app Cedar touch - it
+lives in THIS PR, gets flagged in the panel intent as such, and is FLIP-RELEVANT (at
+the phase-3 flip chain files come from intake/worker principals, not the drive
+operator - revisit/remove this grant then).
+**Where:** os-apps/paw-fs/policies/file.cedar (verified-operator File write permit).
+
+---
+
+**Decision (P0 FINDING, surfaced to owner, 2026-08-31): the #2/#3 cross-entity
+machinery boot-crashes temperpaw; awaiting owner A/B/C ruling before the drive.**
+**Came up because:** booting 1b to drive it, temperpaw stack-overflows at startup
+(`tokio-rt-worker overflowed its stack; fatal runtime error: stack overflow`).
+**Diagnosis (exhaustive):** git-bisect via clean full checkouts, log-verified for
+"stack overflow" (NOT healthz - healthz answers transiently before the crash):
+lease-only (3c533d591) and chain-file-guards (1f9215875) boot STABLE; the #2/#3
+commit (60bb97c9c) crashes. RUST_MIN_STACK=64MB does NOT help -> genuine INFINITE
+recursion (cycle), not depth. The composite cascade PASSES (tolerates cycles); the
+RUNTIME reaction-graph builder does not. The cyclic topology: Intent.Accept/
+RebirthEffort -> Effort.Seed, Effort.Seed -> Intent.LinkEffort (back-ref),
+cross_entity_state guard Intent->Effort, + a wasm trigger on the create-dispatched
+Seed. A real temper gap worth its own issue (verifier accepts cyclic cross-entity
+trigger graphs the runtime cannot build).
+**Options:** (A) ship 1b CORE now - lease + Specify/Plan chain-file guards (both
+boot-stable) + intent.md enforced at Specify (not the create-dispatched Seed);
+defer #2/#3 idempotency to a follow-up once the cyclic-graph issue is fixed. (B)
+redesign #2/#3 acyclic (wasm query-before-create, no back-ref/guard cycle). (C) fix
+the temper reaction-graph recursion first, keep the current design.
+**Recommended:** A. Pending owner ruling; nothing lost (all committed/pushed).
+**Where:** temperpaw #492 (60bb97c9c); boot logs in scratchpad/boot-*.log.
+
+---
+
+**Decision:** (owner ruling A executed, 2026-08-31, successor 2) Strip the #2/#3
+cyclic machinery from 1b and enforce intent.md at the Specify door instead;
+RebirthEffort's idempotency is DEFERRED A SECOND TIME (reason: ARN-448).
+**Came up because:** the P0 finding above - commit 60bb97c9c boot-crashes temperpaw
+via a cyclic cross-entity trigger graph (ARN-448), and the owner ruled A (ship 1b
+core, defer #2/#3).
+**Options:** (A) ship 1b core - lease + Specify/Plan chain-file guards + intent.md
+enforced at Specify (all boot-stable); defer #2/#3 idempotency until ARN-448 is
+fixed. (B) redesign #2/#3 acyclic now (a wasm that query-before-creates, no
+back-ref/guard cycle) - more machinery on an unfixed kernel gap. (C) fix the temper
+reaction-graph recursion first (out of ARN-441 scope, blocks the whole effort).
+**Chose (A) because:** it is the owner ruling, and it lands the honest guarantee
+(an Effort cannot leave Intended without a Ready intent.md) with zero cyclic
+topology - the Specify arm validates BOTH intent_ref and spec_ref. intent.md is an
+at-birth criterion, but the create-dispatched Seed cannot carry a wasm trigger
+without reintroducing the exact cycle that crashes, so the earliest safe door checks
+it. Given up: enforcement at the literal birth instant (an Effort can exist in
+Intended with no intent.md, but it cannot ADVANCE) and RebirthEffort double-birth
+idempotency (a repair action a monitor calls only when no Effort exists; the risk is
+a duplicate Effort if misused, not a crash). Follow-up: the idempotency + effort_id
+back-ref rides AFTER ARN-448 lands; option B (acyclic wasm query-before-create) is
+the fallback design if the kernel fix is far out.
+**Where:** temperpaw f5121cbf0 (reverts 60bb97c9c; effort_lifecycle Specify arm
+checks intent_ref+spec_ref); RebirthEffort back to a plain repair in intent.ioa.toml.
+
+---
+
+**Decision (P0 RE-DIAGNOSIS, surfaced to owner/team-lead, 2026-08-31, successor 2):
+the boot stack-overflow is PRE-EXISTING and cycle-independent - the ARN-448
+"#2/#3 cyclic graph crashes the runtime" root-cause is refuted by base-main
+reproduction.**
+**Came up because:** after executing Ruling A (stripping the #2/#3 cycle, cascade +
+composite green, Effort scope acyclic), temperpaw STILL boot-crashes with the
+identical `tokio-rt-worker overflowed its stack / fatal runtime error: stack
+overflow` signature. So the strip did not fix boot, meaning the cycle was not the
+cause.
+**Bisect (log-verified for "stack overflow", process-alive-to-45s, NOT healthz):**
+- HEAD (the strip, f5121cbf0): overflow ~12s.
+- 1f9215875 (predecessor's claimed "boot-stable" chain-file commit): overflow ~35s.
+- 2b9275ec8 (BASE MAIN, parent of 1a #491, entirely pre-ARN-441): overflow ~29s.
+All exit 134, identical signature. The crash reproduces with ZERO ARN-441
+cross-entity cycles present -> ARN-448's premise is wrong; the predecessor's bisect
+that pinned it on 60bb97c9c was confounded by timing (the crash is probabilistic;
+they caught stable boots on the same commits, this session catches crashes).
+**Crash locus (all three logs):** after all apps reconcile, during the PawFS
+File/FileVersion reconcile cascade over the many ADR/doc Files
+(file_stream_updated_creates_version -> FileVersion.Create ->
+record_newest_version_on_file -> File.RecordVersion), then "actor system shutting
+down", then the tokio-worker overflow. paw-fs base infra, not paw-patrol.
+**Not stack-tunable (decisive):** the tokio worker stack is ALREADY an explicit 16MB
+(crates/temperpaw/src/main.rs TOKIO_WORKER_THREAD_STACK_BYTES, introduced in
+45147ead3 "Implement bounded-history PawFS artifact batches" - the PawFS cascade
+already needed a bigger stack). A local bump to 256MB (16x) did NOT prevent the
+overflow (crash at 37s after ~56k log lines vs ~6.7k at 16MB) - so this is a genuine
+(timing/load-dependent) infinite reaction loop in the base PawFS reconcile, not a
+deep-but-finite recursion. RUST_MIN_STACK is irrelevant because thread_stack_size is
+set explicitly (that is why the predecessor's 64MB "didn't help" - NOT proof of
+infinite recursion by itself). Machine was at load avg 13-19 (16 CPUs, ~16 agents).
+**Options:** (A) keep retrying local boots for a quiet-window stable boot to run the
+1b drive; (B) run the 1b drive on the arni-big universal computer; (C) hold 1b, file
+the PawFS/runtime boot-recursion as its own issue and repoint/correct ARN-448, and
+let the owner decide sequencing. Escalated a/b/c to team-lead; awaiting ruling.
+**Chose escalate-and-hold over grinding/kernel-hacking because:** the fix is a
+temper-runtime/PawFS change, explicitly OUT of ARN-441 scope ("any temper-kernel
+change" is Not-in-scope), and the correct-root-cause matters (ARN-448 + the P0 entry
+above + anything blog-bound must not claim the #2/#3 cycle crashes the kernel). The
+strip itself stands: correct per Ruling A, cascade + composite green, acyclic.
+**Where:** boot logs scratchpad/boot-{A-clean,1f92-bt,basemain,256mb}.log; strip at
+f5121cbf0; finding messaged to team-lead 2026-08-31.
+
+**Refinement (team-lead, 2026-08-31):** frame the ARN-448 correction precisely - the
+cycle theory was right about the MECHANISM (recursive dispatch of a cascading
+reaction graph overflows the worker stack) and wrong about the LOCATION (the suspect
+loop is base paw-fs's File<->FileVersion choreography during boot reconcile, not the
+ARN-441 #2/#3 machinery). The base-main repro removes the EVIDENCE that a cyclic
+cross-entity trigger graph crashes the runtime, but does not disprove it - so "can a
+cyclic cross-entity trigger graph also crash the reaction-graph builder" stays a
+SECONDARY OPEN question in ARN-448, neither proven nor refuted. Ruling A STANDS: the
+#2/#3 machinery is NOT re-landed mid-flight - it is deferred until boots are stable
+and the cycle question is answered deliberately, not on a hunch. The 16MB stack
+constant (45147ead3) is named as a stack-size band-aid over the first instance (the
+no-band-aids rule); the kernel fix is iterative/queued dispatch, not a bigger stack.
