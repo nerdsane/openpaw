@@ -347,6 +347,50 @@ pub fn sandbox_create(
     result
 }
 
+/// Copy a running sandbox via the provider's live-copy API, returning the new
+/// sandbox's handle. The copy reproduces the source exactly (image, logins,
+/// files) — the review panel uses this to spawn a per-review child of arni-big.
+pub fn sandbox_copy(
+    ctx: &Context,
+    provider: &str,
+    source_sandbox_id: &str,
+    ready_timeout_secs: u64,
+) -> Result<SandboxHandle, String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_copy(ctx, &api_key, source_sandbox_id, ready_timeout_secs),
+        other => Err(format!("sandbox_copy unsupported for provider: {other}")),
+    };
+    match &result {
+        Ok(h) => log_sandbox_observability(
+            ctx, provider, "copy", "success", &h.sandbox_id, None, None, source_sandbox_id,
+        ),
+        Err(_) => log_sandbox_observability(
+            ctx, provider, "copy", "error", "", None, None, source_sandbox_id,
+        ),
+    }
+    result
+}
+
+/// Terminate a sandbox (best-effort teardown). Idempotent: an already-gone
+/// sandbox (404) is treated as success, so reaping never fails on a race.
+pub fn sandbox_terminate(ctx: &Context, provider: &str, sandbox_id: &str) -> Result<(), String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_terminate(ctx, &api_key, sandbox_id),
+        other => Err(format!("sandbox_terminate unsupported for provider: {other}")),
+    };
+    match &result {
+        Ok(()) => log_sandbox_observability(
+            ctx, provider, "terminate", "success", sandbox_id, None, None, "",
+        ),
+        Err(_) => log_sandbox_observability(
+            ctx, provider, "terminate", "error", sandbox_id, None, None, "",
+        ),
+    }
+    result
+}
+
 /// Check if a sandbox is ready to accept commands.
 pub fn sandbox_health_check(ctx: &Context, handle: &SandboxHandle) -> Result<bool, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
@@ -826,6 +870,81 @@ fn tensorlake_create(
         sandbox_id,
         provider: "tensorlake".to_string(),
     })
+}
+
+fn tensorlake_copy(
+    ctx: &Context,
+    api_key: &str,
+    source_sandbox_id: &str,
+    ready_timeout_secs: u64,
+) -> Result<SandboxHandle, String> {
+    // Server live-copy API: POST /sandboxes/{source}/copy.
+    let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
+    let headers = bearer_headers_json(api_key);
+    let body = json!({ "times": 1, "timeout_seconds": ready_timeout_secs });
+    let resp = ctx.http_call("POST", &copy_url, &headers, &body.to_string())?;
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "Tensorlake sandbox copy of {source_sandbox_id} failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(500)]
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse Tensorlake copy response: {e}"))?;
+    let sandbox_id = extract_copied_sandbox_id(&parsed).ok_or_else(|| {
+        format!(
+            "Tensorlake copy returned no sandbox id: {}",
+            &resp.body[..resp.body.len().min(300)]
+        )
+    })?;
+    Ok(SandboxHandle {
+        sandbox_url: format!("https://{sandbox_id}.sandbox.tensorlake.ai"),
+        sandbox_id,
+        provider: "tensorlake".to_string(),
+    })
+}
+
+/// Pull the new sandbox id out of a copy response, tolerating shapes: a bare
+/// `{sandbox_id|id}`, or `{sandboxes:[{sandbox_id|id}|"<id>", ...]}` (the batch
+/// form). Returns the first id found.
+fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
+    if let Some(s) = parsed.get("sandbox_id").and_then(|v| v.as_str()) {
+        return Some(s.to_string());
+    }
+    if let Some(s) = parsed.get("id").and_then(|v| v.as_str()) {
+        return Some(s.to_string());
+    }
+    if let Some(arr) = parsed.get("sandboxes").and_then(|v| v.as_array()) {
+        for e in arr {
+            if let Some(s) = e
+                .get("sandbox_id")
+                .or_else(|| e.get("id"))
+                .and_then(|v| v.as_str())
+            {
+                return Some(s.to_string());
+            }
+            if let Some(s) = e.as_str() {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn tensorlake_terminate(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
+    let url = format!("https://api.tensorlake.ai/sandboxes/{sandbox_id}");
+    let resp = ctx.http_call("DELETE", &url, &bearer_headers(api_key), "")?;
+    // 2xx = terminated; 404 = already gone (idempotent success for the reaper).
+    if (resp.status >= 200 && resp.status < 300) || resp.status == 404 {
+        Ok(())
+    } else {
+        Err(format!(
+            "Tensorlake terminate of {sandbox_id} failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ))
+    }
 }
 
 fn tensorlake_health_check(
@@ -1556,4 +1675,14 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn extract_copied_sandbox_id_tolerates_shapes() {
+        use serde_json::json;
+        assert_eq!(extract_copied_sandbox_id(&json!({"sandbox_id":"a1"})).as_deref(), Some("a1"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"id":"b2"})).as_deref(), Some("b2"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"sandboxes":[{"sandbox_id":"c3"}]})).as_deref(), Some("c3"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"sandboxes":["d4"]})).as_deref(), Some("d4"));
+        assert_eq!(extract_copied_sandbox_id(&json!({"nope":1})), None);
+    }
+
 }
