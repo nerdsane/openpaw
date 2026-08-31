@@ -780,9 +780,46 @@ fn unique_run_id(ctx: &Context) -> Result<String, String> {
 /// obtain randomness must abort, not risk crossing another exec's output.
 fn random_u64() -> Result<u64, String> {
     let mut b = [0u8; 8];
-    getrandom::getrandom(&mut b)
-        .map_err(|e| format!("host RNG unavailable (random_get failed: {e})"))?;
+    fill_random(&mut b)?;
     Ok(u64::from_le_bytes(b))
+}
+
+/// Fill `buf` with random bytes.
+///
+/// On wasm this is a RAW WASI `random_get` import — NOT the `getrandom` crate.
+/// The crate's `wasm32-unknown-unknown` support is a hard `compile_error!`, which
+/// broke every wasm-helpers consumer still built for that target (unrelated
+/// paw-agent/foresight/ingest modules) even though they never draw randomness.
+/// A raw import is dead-code-eliminated when unused, so those modules compile
+/// again, and the temper host provides `random_get` for wasip1 modules.
+#[cfg(target_arch = "wasm32")]
+fn fill_random(buf: &mut [u8]) -> Result<(), String> {
+    #[link(wasm_import_module = "wasi_snapshot_preview1")]
+    unsafe extern "C" {
+        fn random_get(buf: *mut u8, buf_len: usize) -> u16;
+    }
+    let rc = unsafe { random_get(buf.as_mut_ptr(), buf.len()) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(format!("host RNG unavailable (random_get errno {rc})"))
+    }
+}
+
+/// Native (unit tests only): a std-seeded fill. `random_u64` is not exercised by
+/// the pure `capture_run_id` tests, so this only needs to be non-panicking.
+#[cfg(not(target_arch = "wasm32"))]
+fn fill_random(buf: &mut [u8]) -> Result<(), String> {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_usize(buf.as_ptr() as usize);
+    let mut v = h.finish();
+    for chunk in buf.chunks_mut(8) {
+        let bytes = v.to_le_bytes();
+        chunk.copy_from_slice(&bytes[..chunk.len()]);
+        v = v.wrapping_mul(6364136223846793005).wrapping_add(1);
+    }
+    Ok(())
 }
 
 /// FNV-1a 32-bit hash — a small, dependency-free digest of the full entity id so
