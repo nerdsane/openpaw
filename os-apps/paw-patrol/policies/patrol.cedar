@@ -623,6 +623,7 @@ permit(
     Action::"Deploy",
     Action::"MarkDeployVerified",
     Action::"Verify",
+    Action::"Heartbeat",
     Action::"Stall",
     Action::"Resume",
     Action::"Abandon"
