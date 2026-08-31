@@ -386,3 +386,18 @@ accepted residuals.
   (relying on the Poll transition's timeout re-arm), or must report a benign
   KeepRunning self-loop. Confirm against the host at first e2e; default to
   KeepRunning if a no-result return is rejected.
+
+## Encodes from the getrandom regression (team-lead requested)
+- **E1 — a dependency added for one module's need must not poison the shared
+  helper crate for targets that don't use it.** wasm-helpers is a shared path dep
+  of many modules; adding `getrandom` (a hard `compile_error!` on
+  wasm32-unknown-unknown) broke consumers that never draw randomness. Shared
+  crates take target-portable dependencies only; a target-specific need uses a
+  cfg'd raw import (DCE'd when unused), not a crate that fails to compile on some
+  targets. Strongest rung available now = this note + the fix; a CI lint that
+  shared wasm crates carry no target-breaking deps would be the durable rung.
+- **E2 — several consumer modules are still wasm32-unknown-unknown against the
+  standing wasip1 rule.** The getrandom break only EXPOSED this; the modules
+  (context_preparer, provider_auth_gate, provider_caller, and others) should be
+  wasip1 per the deploy rule. Team-lead is filing this as its own small issue —
+  NOT C/D scope.

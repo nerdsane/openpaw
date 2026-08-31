@@ -96,7 +96,8 @@ permit(
         Action::"create",
         Action::"read",
         Action::"list",
-        Action::"Exec.Run", Action::"Run"
+        Action::"Exec.Run", Action::"Run",
+        Action::"Exec.Cancel", Action::"Cancel"
     ],
     resource is Exec
 );
@@ -107,7 +108,10 @@ permit(
     principal,
     action in [
         Action::"Exec.RunSucceeded", Action::"RunSucceeded",
-        Action::"Exec.RunFailed", Action::"RunFailed"
+        Action::"Exec.RunFailed", Action::"RunFailed",
+        Action::"Exec.ExecStarted", Action::"ExecStarted",
+        Action::"Exec.KeepRunning", Action::"KeepRunning",
+        Action::"Exec.Poll", Action::"Poll"
     ],
     resource is Exec
 ) when {
@@ -168,6 +172,8 @@ permit(
     resource is HttpEndpoint
 ) when {
     context.module == "computer_exec" ||
+    context.module == "computer_exec_start" ||
+    context.module == "computer_exec_poll" ||
     context.module == "computer_copy" ||
     context.module == "computer_terminate"
 };
@@ -180,6 +186,8 @@ permit(
     resource is Secret
 ) when {
     context.module == "computer_exec" ||
+    context.module == "computer_exec_start" ||
+    context.module == "computer_exec_poll" ||
     context.module == "computer_copy" ||
     context.module == "computer_terminate"
 };

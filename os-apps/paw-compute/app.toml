@@ -7,6 +7,16 @@ dependencies = []
 name = "computer_exec"
 criticality = "app-required"
 startup_loading = "lazy"
+[[wasm_modules]]
+name = "computer_exec_start"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "computer_exec_poll"
+criticality = "app-required"
+startup_loading = "lazy"
+
 
 [[wasm_modules]]
 name = "computer_copy"
