@@ -389,3 +389,48 @@ back-ref rides AFTER ARN-448 lands; option B (acyclic wasm query-before-create) 
 the fallback design if the kernel fix is far out.
 **Where:** temperpaw f5121cbf0 (reverts 60bb97c9c; effort_lifecycle Specify arm
 checks intent_ref+spec_ref); RebirthEffort back to a plain repair in intent.ioa.toml.
+
+---
+
+**Decision (P0 RE-DIAGNOSIS, surfaced to owner/team-lead, 2026-08-31, successor 2):
+the boot stack-overflow is PRE-EXISTING and cycle-independent - the ARN-448
+"#2/#3 cyclic graph crashes the runtime" root-cause is refuted by base-main
+reproduction.**
+**Came up because:** after executing Ruling A (stripping the #2/#3 cycle, cascade +
+composite green, Effort scope acyclic), temperpaw STILL boot-crashes with the
+identical `tokio-rt-worker overflowed its stack / fatal runtime error: stack
+overflow` signature. So the strip did not fix boot, meaning the cycle was not the
+cause.
+**Bisect (log-verified for "stack overflow", process-alive-to-45s, NOT healthz):**
+- HEAD (the strip, f5121cbf0): overflow ~12s.
+- 1f9215875 (predecessor's claimed "boot-stable" chain-file commit): overflow ~35s.
+- 2b9275ec8 (BASE MAIN, parent of 1a #491, entirely pre-ARN-441): overflow ~29s.
+All exit 134, identical signature. The crash reproduces with ZERO ARN-441
+cross-entity cycles present -> ARN-448's premise is wrong; the predecessor's bisect
+that pinned it on 60bb97c9c was confounded by timing (the crash is probabilistic;
+they caught stable boots on the same commits, this session catches crashes).
+**Crash locus (all three logs):** after all apps reconcile, during the PawFS
+File/FileVersion reconcile cascade over the many ADR/doc Files
+(file_stream_updated_creates_version -> FileVersion.Create ->
+record_newest_version_on_file -> File.RecordVersion), then "actor system shutting
+down", then the tokio-worker overflow. paw-fs base infra, not paw-patrol.
+**Not stack-tunable (decisive):** the tokio worker stack is ALREADY an explicit 16MB
+(crates/temperpaw/src/main.rs TOKIO_WORKER_THREAD_STACK_BYTES, introduced in
+45147ead3 "Implement bounded-history PawFS artifact batches" - the PawFS cascade
+already needed a bigger stack). A local bump to 256MB (16x) did NOT prevent the
+overflow (crash at 37s after ~56k log lines vs ~6.7k at 16MB) - so this is a genuine
+(timing/load-dependent) infinite reaction loop in the base PawFS reconcile, not a
+deep-but-finite recursion. RUST_MIN_STACK is irrelevant because thread_stack_size is
+set explicitly (that is why the predecessor's 64MB "didn't help" - NOT proof of
+infinite recursion by itself). Machine was at load avg 13-19 (16 CPUs, ~16 agents).
+**Options:** (A) keep retrying local boots for a quiet-window stable boot to run the
+1b drive; (B) run the 1b drive on the arni-big universal computer; (C) hold 1b, file
+the PawFS/runtime boot-recursion as its own issue and repoint/correct ARN-448, and
+let the owner decide sequencing. Escalated a/b/c to team-lead; awaiting ruling.
+**Chose escalate-and-hold over grinding/kernel-hacking because:** the fix is a
+temper-runtime/PawFS change, explicitly OUT of ARN-441 scope ("any temper-kernel
+change" is Not-in-scope), and the correct-root-cause matters (ARN-448 + the P0 entry
+above + anything blog-bound must not claim the #2/#3 cycle crashes the kernel). The
+strip itself stands: correct per Ruling A, cascade + composite green, acyclic.
+**Where:** boot logs scratchpad/boot-{A-clean,1f92-bt,basemain,256mb}.log; strip at
+f5121cbf0; finding messaged to team-lead 2026-08-31.
