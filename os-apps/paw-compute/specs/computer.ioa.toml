@@ -124,7 +124,11 @@ initial = ""
 # by computer_copy on a child at CopyComplete; empty on a source. Together with
 # the Leased state and the copy's own machine_id this is the governed-child audit
 # trail ("a leased copy of machine <source_machine_id>, running on <machine_id>")
-# — so no separate parent_computer_id / is_copy flag is needed.
+# — so no separate parent_computer_id / is_copy flag is needed. The parent's
+# ENTITY id, on the rare read that wants it, is derivable by query (the Computer
+# whose machine_id == this source_machine_id); we do not precompute it (a
+# query-per-copy loopback in the wasm would be machinery for a nicety). See
+# docs/efforts/ARN-443/decisions.md C2.
 [[state]]
 name = "source_machine_id"
 type = "string"
@@ -192,11 +196,18 @@ to = "Provisioning"
 hint = "Wake the VM from sleep."
 
 # Destroy → Terminating fires computer_terminate to actually tear the sandbox
-# down; the module reports TerminateComplete → Destroyed. NOTE: Provisioning is
-# deliberately NOT a `from` state — during a child's copy the machine_id is still
-# the SOURCE's machine, so terminating from Provisioning would kill the source. A
-# stuck copy is torn down via CopyFailed (no terminate) or, once Leased, by
-# Destroy / lease-timeout (machine_id is then the copy's own).
+# down; the module reports TerminateComplete → Destroyed.
+#
+# PRODUCTION-SAFETY GUARD — Provisioning is deliberately NOT a Destroy `from`
+# state: while a child copy is provisioning, its machine_id field still holds the
+# SOURCE's machine (carried in by the Copy spawn's copy_fields; computer_copy
+# only overwrites it with the copy's machine at CopyComplete). If Destroy were
+# allowed from Provisioning, computer_terminate would run on that source machine
+# id and terminate the SOURCE's sandbox — e.g. destroying a provisioning copy of
+# arni-big would kill arni-big itself. A stuck copy is instead torn down via
+# CopyFailed (which does NOT terminate) or, once Leased (machine_id is the copy's
+# own), by Destroy / the lease timeout. The e2e asserts a Provisioning child
+# refuses Destroy.
 [[action]]
 name = "Destroy"
 kind = "input"
