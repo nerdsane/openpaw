@@ -391,6 +391,51 @@ pub fn sandbox_terminate(ctx: &Context, provider: &str, sandbox_id: &str) -> Res
     result
 }
 
+/// Start a command ASYNCHRONOUSLY (ARN-443 D): POST the process and return the
+/// run_id used to build the `/tmp/.paw-{out,err,rc}-<run_id>` capture files. Does
+/// NOT poll — the caller drives completion via [`sandbox_exec_poll`] across
+/// separate WASM invocations, so a command may outlive a single 120s invocation
+/// (the synchronous [`sandbox_exec`] cannot).
+pub fn sandbox_exec_start(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    command: &str,
+) -> Result<String, String> {
+    let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
+    let result = match handle.provider.as_str() {
+        "tensorlake" => tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command),
+        other => Err(format!("async exec unsupported for provider: {other}")),
+    };
+    let outcome = if result.is_ok() { "started" } else { "error" };
+    log_sandbox_observability(
+        ctx, &handle.provider, "exec_start", outcome, &handle.sandbox_id, None, None, "",
+    );
+    result
+}
+
+/// Poll a command started by [`sandbox_exec_start`]. `Some(result)` once the rc
+/// file exists (the command finished); `None` while it is still running.
+pub fn sandbox_exec_poll(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    run_id: &str,
+) -> Result<Option<ExecResult>, String> {
+    let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
+    match handle.provider.as_str() {
+        "tensorlake" => tensorlake_exec_poll(ctx, &api_key, &handle.sandbox_url, run_id),
+        other => Err(format!("async exec unsupported for provider: {other}")),
+    }
+}
+
+/// The `/tmp/.paw-{out,err,rc}-<run_id>` capture file paths for a run.
+fn paw_capture_files(run_id: &str) -> (String, String, String) {
+    (
+        format!("/tmp/.paw-out-{run_id}"),
+        format!("/tmp/.paw-err-{run_id}"),
+        format!("/tmp/.paw-rc-{run_id}"),
+    )
+}
+
 /// Check if a sandbox is ready to accept commands.
 pub fn sandbox_health_check(ctx: &Context, handle: &SandboxHandle) -> Result<bool, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
@@ -1136,6 +1181,82 @@ fn tensorlake_exec(
         stderr,
         exit_code,
     })
+}
+
+/// Async exec START: POST the process, return its run_id. No poll.
+fn tensorlake_exec_start(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_url: &str,
+    command: &str,
+) -> Result<String, String> {
+    let run_id = unique_run_id(ctx)?;
+    let (out_file, err_file, rc_file) = paw_capture_files(&run_id);
+    let wrapped = format!("({command}) > {out_file} 2> {err_file}; echo $? > {rc_file}");
+    let body = json!({ "command": "/bin/bash", "args": ["-c", &wrapped] });
+    let resp = ctx.http_call(
+        "POST",
+        &format!("{sandbox_url}/api/v1/processes"),
+        &bearer_headers_json(api_key),
+        &body.to_string(),
+    )?;
+    if resp.status >= 400 {
+        return Err(format!("sandbox async start failed: {}", resp.body));
+    }
+    Ok(run_id)
+}
+
+/// Async exec POLL: `Some(result)` once the rc file exists (finished), else
+/// `None` (still running). On completion the capture files are read and removed.
+fn tensorlake_exec_poll(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_url: &str,
+    run_id: &str,
+) -> Result<Option<ExecResult>, String> {
+    let (out_file, err_file, rc_file) = paw_capture_files(run_id);
+    let headers = bearer_headers(api_key);
+    let rc = ctx.http_call(
+        "GET",
+        &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&rc_file)),
+        &headers,
+        "",
+    )?;
+    if rc.status < 200 || rc.status >= 300 {
+        return Ok(None); // rc file not written yet — still running
+    }
+    let exit_code = rc.body.trim().parse::<i64>().unwrap_or(-1);
+    let stdout = ctx
+        .http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&out_file)),
+            &headers,
+            "",
+        )
+        .map(|r| r.body)
+        .unwrap_or_default();
+    let stderr = ctx
+        .http_call(
+            "GET",
+            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(&err_file)),
+            &headers,
+            "",
+        )
+        .map(|r| r.body)
+        .unwrap_or_default();
+    for f in [&out_file, &err_file, &rc_file] {
+        let _ = ctx.http_call(
+            "DELETE",
+            &format!("{sandbox_url}/api/v1/files?path={}", url_encode(f)),
+            &headers,
+            "",
+        );
+    }
+    Ok(Some(ExecResult {
+        stdout,
+        stderr,
+        exit_code,
+    }))
 }
 
 // ===========================================================================
