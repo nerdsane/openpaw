@@ -584,11 +584,9 @@ permit(
   resource is Intent
 );
 
-// Effort lifecycle - the new SDLC actions, driven by the system/patrol surface.
-// (Overlapping actions - AttachWorkerRun, WorkerDone, SubmitForReview,
-// AttachReviewRun, ReportE2e, PassReview, RequestChanges, PassEvaluation,
-// AttachProofPacket, Resume - are already granted to system agents on Effort by
-// the system-agent block above; this block adds the actions unique to Effort.)
+// Effort lifecycle - the full set of SDLC transitions, driven by the
+// system/patrol surface. Self-contained (does not lean on the system-agent block
+// above), so the whole Effort authority reads in one place.
 permit(
   principal,
   action in [
@@ -596,11 +594,21 @@ permit(
     Action::"Specify",
     Action::"Plan",
     Action::"StartBuild",
+    Action::"AttachWorkerRun",
+    Action::"WorkerDone",
+    Action::"SubmitForReview",
+    Action::"AttachReviewRun",
+    Action::"ReportE2e",
+    Action::"PassReview",
+    Action::"RequestChanges",
+    Action::"PassEvaluation",
+    Action::"AttachProofPacket",
     Action::"Merge",
     Action::"Deploy",
     Action::"MarkDeployVerified",
     Action::"Verify",
     Action::"Stall",
+    Action::"Resume",
     Action::"Abandon"
   ],
   resource is Effort
@@ -608,7 +616,14 @@ permit(
   principal is Admin ||
   (principal is Agent && (
     principal.agent_type == "system" ||
-    principal.agent_type == "supervisor"
+    principal.agent_type == "supervisor" ||
+    // The verified operator drives the SHADOW Effort lifecycle - the same
+    // trusted sweep/verification authority ARN-434 grants the S0/S1 record
+    // writes (agent_type "operator" && agentTypeVerified, so a self-declared
+    // header agent never matches). The per-gate authority flips (steps 3-4) put
+    // stricter permits on Merge/Deploy; this operator surface tightens there.
+    (principal has agent_type && principal.agent_type == "operator" &&
+     principal has agentTypeVerified && principal.agentTypeVerified == true)
   ))
 };
 

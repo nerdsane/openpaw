@@ -91,7 +91,7 @@ recorded it as the model for the honest hand-off call.
 
 ---
 
-**Decision (BLOCKER surfaced to owner, 2026-08-31, successor session):** The
+**Decision:** (BLOCKER surfaced to owner, 2026-08-31, successor session) The
 recorded migration premise - "WorkRequest/WorkCycle are NOT the live stage-2
 driver; renamed entities driven synthetically in shadow" - is CONTRADICTED BY
 SOURCE. A pure paw-patrol-only, zero-behavior-change, shadow-safe rename PR is
@@ -121,13 +121,22 @@ come into scope; (B) additive-then-flip - add Effort/Intent as new types for the
 lifecycle, keep WorkCycle/WorkRequest live for worker+dashboard until the phase-3
 flip (same "retire AT the flip" discipline as gate_render/merge-permit/risk_rule),
 no prod breakage, two names coexist only during the shadow window.
-**Recommended:** B (shadow-first, matches the rest of ARN-441). Pending owner ruling.
+**Chose escalate-and-hold over proceeding on the recorded premise because:** the
+premise is prod-breaking if wrong (a clean rename 404s the live worker and blanks
+the dashboard), and the A-vs-B fix is an owner call, not an implementer default;
+the cost was time-to-first-commit, the gain was correctness on a prod-breaking
+scope decision. Recommended B (shadow-first, matches the rest of ARN-441) pending
+the owner ruling.
 **Where:** finding messaged to team-lead 2026-08-31; no code touched yet.
 
 ---
 
-**Decision (OWNER RULING, team-lead 2026-08-31): Option B - additive-then-flip.**
+**Decision:** (OWNER RULING, team-lead 2026-08-31) Option B - additive-then-flip.
 **Came up because:** the source-contradiction blocker above needed an A-vs-B call.
+**Options:** (A) coordinated hard cutover of all three units (paw-patrol app +
+paw-codex-worker + dashboard) in a quiet window - the rejected default of a literal
+rename; (B) additive-then-flip - new Intent/Effort types now, legacy retires at the
+phase-3 flip.
 **Chose B because:** (1) the approved spec's spine is "nothing existing retires until
 its entity twin proves out live" - A (hard 3-unit cutover with a breakage window)
 contradicts the spec Rita approved; B is what the spec implies. (2) Rita's naming
@@ -149,16 +158,20 @@ A flip-time retirement note is added to the RFC Not-in-scope.
 
 ---
 
-**Decision (lead confirm + lease refinement, 2026-08-31):** Effort automaton
+**Decision:** (lead confirm + lease refinement, 2026-08-31) Effort automaton
 approved as proposed; lease timeout applies ONLY to owned states.
 **Came up because:** the lease exists for orphan PICKUP, not death; pre-attachment
 states have no owner, so a timeout there is noise, not orphan detection.
-**Resolution:** state_timeout->Stalled on the owned states Building, InReview,
-Proving, Merged, Deploying. Pre-attachment states Intended/Specified/Planned ->
-`allow_indefinite` (my pick over a long timeout): it is the honest "no owner, no
+**Options:** for the pre-attachment states (Intended/Specified/Planned): (a) a long
+state_timeout -> Stalled (the rejected default of "every state gets a lease"); (b)
+allow_indefinite (no lease at all).
+**Chose (b) allow_indefinite over (a) because:** it is the honest "no owner, no
 lease" model, and the Intent entity's own intake timeouts already cover "nobody
-picked this up." Stalled/Verified/Abandoned are also allow_indefinite (resting
-states). Timeout target is Stalled (recoverable), never Fail/Abandoned.
+picked this up"; given up automatic surfacing of a forgotten spec'd-but-unbuilt
+effort (acceptable - with no owner there is nothing to be orphaned from). The owned
+states Building/InReview/Proving/Merged/Deploying get state_timeout -> Stalled in 1b;
+Stalled/Verified/Abandoned are allow_indefinite resting states. Timeout target is
+Stalled (recoverable), never Fail/Abandoned.
 **WorkCycle AwaitingHuman* pause states (where they went):** NOT dropped - the
 completion-approval pause becomes step 3's Cedar-deny->MCP elicitation; a
 start-approval pause, if still wanted, becomes a guard on StartBuild in a later step.
@@ -168,3 +181,25 @@ Efforts + Cedar + Intent.Accept->Effort birth. PR 1b = chain-file guards +
 effort_lifecycle wasm (generalized) + WorkerRun Heartbeat + state_timeout lease, with
 a forced timeout->Stalled drive as proof. Both additive/create-only.
 **Where:** lead ruling 2026-08-31; building 1a now.
+
+---
+
+**Decision:** (2026-08-31, successor - during the synthetic drive) The Effort
+lifecycle Cedar permit grants the verified operator (agent_type "operator" &&
+agentTypeVerified) the full Effort transition set, alongside Admin/system/supervisor.
+**Came up because:** the verify-temperpaw drive authenticates with Bearer
+TEMPER_API_KEY, which the platform resolves to agent_type "operator" (confirmed in
+the boot log: `Intent.Accept ... agent_type:"operator"`). The first drive 403'd on
+`Effort.Specify` - the initial permit only allowed Admin/system/supervisor.
+**Options:** (a) broaden the permit to the verified operator; (b) find a way to drive
+as a system agent (blocked - temperpaw's bearer path resolves to operator, and
+"system" is never accepted from inbound headers per ADR-0157); (c) weaken to any
+Agent (rejected - too broad).
+**Chose (a) over (b)/(c) because:** the verified operator is the SAME trusted
+sweep/verification authority ARN-434 already grants the S0/S1 record writes
+(`agent_type == "operator" && agentTypeVerified == true`, so a self-declared header
+agent never matches) - it is the legitimate driver of the shadow SDLC entities, and
+(b) is not reachable from the operator credential. The per-gate authority flips
+(steps 3-4) put stricter permits on Merge/Deploy, tightening this surface there.
+Given up: nothing for the shadow phase; the operator surface narrows at the flips.
+**Where:** `os-apps/paw-patrol/policies/patrol.cedar` (Effort lifecycle permit block).
