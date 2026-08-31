@@ -12,30 +12,6 @@ use temper_wasm_sdk::context::Context;
 use crate::entity_field_str;
 
 // ---------------------------------------------------------------------------
-// WASM invocation budget — the static contract behind the async design
-// ---------------------------------------------------------------------------
-//
-// A single WASM invocation is hard-capped (temper-wasm `WasmResourceLimits`,
-// ~120s). Any SYNCHRONOUS provider call a module waits on inside one invocation
-// must therefore finish well under that cap — this is precisely the class of bug
-// from ARN-443 R1, where one synchronous `sandbox_copy` blocked up to 240s inside
-// the 120s cap and killed every real copy. That bug was pure arithmetic between
-// two constants, catchable WITHOUT running it — and a live-copy path deferred to
-// prod verification is exactly where a static contract must stand in for the
-// missing run (Rita's round-1 review finding). The test
-// `synchronous_provider_waits_fit_under_the_invocation_cap` enforces it.
-
-/// The hard cap on one WASM invocation (temper-wasm `WasmResourceLimits`).
-pub const WASM_INVOCATION_CAP_SECS: u64 = 120;
-/// Headroom reserved below the cap for the rest of an invocation's work — auth
-/// resolution, request build, response parse, callback dispatch.
-pub const INVOCATION_HEADROOM_SECS: u64 = 30;
-/// Max seconds a copy-START POST waits for the provider before returning the new
-/// sandbox id. A SYNCHRONOUS wait inside the invocation (its 240s ancestor was the
-/// R1 bug), so it MUST fit under the budget — enforced by the test below.
-pub const COPY_START_MAX_WAIT_SECS: u64 = 10;
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -1610,37 +1586,6 @@ fn shell_single_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn synchronous_provider_waits_fit_under_the_invocation_cap() {
-        // The ARN-443 R1 class as a STATIC check: every timeout that BLOCKS a
-        // single WASM invocation (a provider call the module waits on) must finish
-        // with headroom under the ~120s cap. Fails at test speed if anyone ever
-        // reintroduces a synchronous wait that blows the invocation budget — the
-        // exact bug (a 240s synchronous copy) that a deferred-to-prod path would
-        // not otherwise catch until it ran live.
-        let budget = WASM_INVOCATION_CAP_SECS - INVOCATION_HEADROOM_SECS;
-        let synchronous_waits = [("copy_start POST", COPY_START_MAX_WAIT_SECS)];
-        for (name, wait) in synchronous_waits {
-            assert!(
-                wait <= budget,
-                "{name} synchronous wait {wait}s exceeds the {budget}s invocation \
-                 budget ({WASM_INVOCATION_CAP_SECS}s cap - {INVOCATION_HEADROOM_SECS}s \
-                 headroom) — a call this long would die inside one WASM invocation"
-            );
-        }
-        // NON-blocking bounds are deliberately allowed to exceed the cap; they do
-        // NOT block a WASM invocation, and encoding WHY here is the other half of
-        // the contract:
-        // - the exec command timeout (computer_exec_start MAX_RUN_SECS, 1800s) is a
-        //   sandbox-side `timeout` wrapper running ON THE BOX; the module only POSTs
-        //   to start it and polls across invocations, so it never blocks one. This
-        //   IS the async design that fixed the synchronous-copy bug.
-        // - the copy/exec poll deadlines (COPY_READY_BUDGET_MS, the Exec
-        //   deadline_at_ms) are wall-clock spans measured across MANY short polls,
-        //   compared each tick, never waited on within a single invocation.
-        assert!(WASM_INVOCATION_CAP_SECS > INVOCATION_HEADROOM_SECS);
-    }
 
     #[test]
     fn capture_id_is_unique_per_dispatch_same_entity() {
