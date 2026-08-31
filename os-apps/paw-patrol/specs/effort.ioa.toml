@@ -1,0 +1,399 @@
+[automaton]
+# Effort - the SDLC execution unit, born at intent and carried to a verified
+# deploy. WorkCycle EXTENDED (ARN-441, stage 3 phase 4): the design chain
+# (intent -> spec -> plan) becomes gated states, and merge/deploy become states
+# the later steps put Cedar and the Deployment entity behind. Additive: WorkCycle
+# stays live for the paw-codex-worker + dashboard until the phase-3 flip.
+name = "Effort"
+states = [
+  "Intended", "Specified", "Planned", "Building", "InReview", "Proving",
+  "Merged", "Deploying", "Verified", "Stalled", "Abandoned"
+]
+initial = "Intended"
+
+# Pre-attachment states (Intended/Specified/Planned) have no owner, so no lease -
+# an intent legitimately sits until someone picks it up (the Intent entity's own
+# intake timeouts cover that). Stalled/Verified/Abandoned are resting states. The
+# owned states (Building/InReview/Proving/Merged/Deploying) get state_timeout ->
+# Stalled in step 1b (the ownership lease); none are added here.
+allow_indefinite_states = [
+  "Intended", "Specified", "Planned", "Stalled", "Verified", "Abandoned"
+]
+
+# --- Chain reference fields: everything about effort X starts at its row -------
+[[state]]
+name = "intent_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "factory_case_id"
+type = "string"
+initial = ""
+
+# review_run_ids / proof_packet_ids / adjudication_ids are real list fields
+# (Collection(Edm.String) in CSDL), appended one element at a time via list_append
+# on the attach actions - no JSON-blob-in-a-string for outside code to parse.
+[[state]]
+name = "review_run_ids"
+type = "list"
+initial = "[]"
+
+[[state]]
+name = "proof_packet_ids"
+type = "list"
+initial = "[]"
+
+[[state]]
+name = "adjudication_ids"
+type = "list"
+initial = "[]"
+
+[[state]]
+name = "deployment_id"
+type = "string"
+initial = ""
+
+# --- Design chain files (TemperFS refs) ---------------------------------------
+# intent.md is referenced at birth (seeded from the accepted Intent) so the chain
+# starts complete; spec.md/plan.md attach as the Effort advances.
+[[state]]
+name = "intent_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "spec_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "plan_summary"
+type = "string"
+initial = ""
+
+# --- Task + repo binding ------------------------------------------------------
+[[state]]
+name = "task_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "task_detail"
+type = "string"
+initial = ""
+
+[[state]]
+name = "risk_lane"
+type = "string"
+initial = "L0"
+
+[[state]]
+name = "repo"
+type = "string"
+initial = ""
+
+[[state]]
+name = "branch"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pr_number"
+type = "string"
+initial = ""
+
+[[state]]
+name = "head_sha"
+type = "string"
+initial = ""
+
+# --- Execution attachments ----------------------------------------------------
+[[state]]
+name = "implementer_worker_run_id"
+type = "string"
+initial = ""
+
+# The lease owner: the WorkerRun whose Heartbeat keeps an owned state alive
+# (step 1b wires the state_timeout -> Stalled against a missed heartbeat).
+[[state]]
+name = "owner_worker_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "reviewer_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "evaluation_run_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "proof_packet_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "e2e_summary"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+# --- Gate markers (back the state guards; kernel guards read entity state) -----
+[[state]]
+name = "spec_written"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "plan_written"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "worker_done"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "review_passed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "evaluation_passed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "proof_attached"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "e2e_ok"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "deploy_verified"
+type = "bool"
+initial = "false"
+
+# ============================ Transitions =====================================
+
+# Seed - the birth action. Intent.Accept creates the Effort (Intended) and
+# dispatches Seed with the intent linkage + task fields (declarative entity
+# trigger; see intent.ioa.toml). intent.md is attached to the Effort at birth.
+[[action]]
+name = "Seed"
+kind = "input"
+from = ["Intended"]
+to = "Intended"
+params = ["intent_id", "intent_ref", "factory_case_id", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
+hint = "Seed a new Effort from the accepted Intent: linkage (intent_id), the intent.md reference (intent_ref, guaranteed at birth), task, and repo. pm_issue_id is NOT copied - it is read from the Intent via intent_id (single source; the Intent's LinkPmIssue can set it after birth)."
+
+# Specify - the spec.md door. In 1b a wasm validates spec.md exists on TemperFS
+# and refuses on missing; here the marker is set by effect and the door is open.
+[[action]]
+name = "Specify"
+kind = "input"
+from = ["Intended"]
+to = "Specified"
+params = ["spec_ref"]
+effect = "set spec_written true"
+hint = "Attach the spec (spec.md on TemperFS) and enter Specified. 1b enforces file presence."
+
+[[action]]
+name = "Plan"
+kind = "input"
+from = ["Specified"]
+to = "Planned"
+params = ["plan_ref", "plan_summary"]
+guard = "is_true spec_written"
+effect = "set plan_written true"
+hint = "Attach the plan (plan.md on TemperFS) and enter Planned. 1b enforces file presence."
+
+[[action]]
+name = "StartBuild"
+kind = "input"
+from = ["Planned"]
+to = "Building"
+guard = "is_true plan_written"
+hint = "Begin implementation once a plan exists."
+
+[[action]]
+name = "AttachWorkerRun"
+kind = "input"
+from = ["Building"]
+to = "Building"
+params = ["implementer_worker_run_id", "owner_worker_run_id"]
+hint = "Attach the implementer WorkerRun and record the lease owner."
+
+[[action]]
+name = "WorkerDone"
+kind = "input"
+from = ["Building"]
+to = "Building"
+params = ["implementer_worker_run_id"]
+effect = "set worker_done true"
+hint = "Record implementer completion."
+
+[[action]]
+name = "SubmitForReview"
+kind = "input"
+from = ["Building"]
+to = "InReview"
+guard = "is_true worker_done"
+hint = "Submit the worker output for independent review."
+
+[[action]]
+name = "AttachReviewRun"
+kind = "input"
+from = ["InReview"]
+to = "InReview"
+params = ["reviewer_run_id", "review_run_ids"]
+effect = [{ type = "list_append", var = "review_run_ids" }]
+hint = "Attach a ReviewRun: reviewer_run_id records the current reviewer; review_run_ids is the run id appended to the chain list (a real list, one element per attach)."
+
+[[action]]
+name = "ReportE2e"
+kind = "input"
+from = ["InReview"]
+to = "InReview"
+params = ["e2e_summary"]
+effect = "set e2e_ok true"
+hint = "Record targeted live or end-to-end verification evidence."
+
+[[action]]
+name = "PassReview"
+kind = "input"
+from = ["InReview"]
+to = "InReview"
+params = ["reviewer_run_id"]
+effect = "set review_passed true"
+hint = "Reviewer approved after inspecting diff, proof, and relevant tests."
+
+[[action]]
+name = "RequestChanges"
+kind = "input"
+from = ["InReview"]
+to = "Building"
+params = ["error_message"]
+effect = [
+  { type = "set_bool", var = "review_passed", value = false },
+  { type = "set_bool", var = "worker_done", value = false },
+  { type = "set_bool", var = "evaluation_passed", value = false },
+  { type = "set_bool", var = "proof_attached", value = false },
+  { type = "set_bool", var = "e2e_ok", value = false }
+]
+hint = "Reviewer requests changes; implementation resumes."
+
+[[action]]
+name = "PassEvaluation"
+kind = "input"
+from = ["InReview"]
+to = "Proving"
+params = ["evaluation_run_id"]
+effect = "set evaluation_passed true"
+guard = [
+  { type = "is_true", var = "review_passed" },
+  { type = "is_true", var = "e2e_ok" }
+]
+hint = "Automated gates passed after reviewer approval and recorded E2E evidence."
+
+[[action]]
+name = "AttachProofPacket"
+kind = "input"
+from = ["Proving"]
+to = "Proving"
+params = ["proof_packet_id", "proof_packet_ids"]
+effect = [
+  { type = "set_bool", var = "proof_attached", value = true },
+  { type = "list_append", var = "proof_packet_ids" }
+]
+hint = "Attach the proof packet: proof_packet_id records the current packet; proof_packet_ids is the id appended to the chain list."
+
+# Merge - step 3 puts a Cedar merge permit on this action (records-Recorded + zero
+# open act-ons + risk low). Here the state guard requires the gate markers.
+[[action]]
+name = "Merge"
+kind = "input"
+from = ["Proving"]
+to = "Merged"
+params = ["pr_number", "head_sha"]
+guard = [
+  { type = "is_true", var = "review_passed" },
+  { type = "is_true", var = "evaluation_passed" },
+  { type = "is_true", var = "proof_attached" },
+  { type = "is_true", var = "e2e_ok" }
+]
+hint = "Merge the reviewed, proven PR. Step 3 gates this with a Cedar permit."
+
+# Deploy - step 4 links a Deployment entity (release_run extended) driven
+# Requested -> Swapping -> Verifying -> Verified/RolledBack; MarkDeployVerified is
+# set from the Deployment's Verified transition. Here it is a hand-set marker.
+[[action]]
+name = "Deploy"
+kind = "input"
+from = ["Merged"]
+to = "Deploying"
+params = ["deployment_id"]
+hint = "Begin the deploy. Step 4 drives it as a Deployment entity."
+
+[[action]]
+name = "MarkDeployVerified"
+kind = "input"
+from = ["Deploying"]
+to = "Deploying"
+effect = "set deploy_verified true"
+hint = "Record that the Deployment reached Verified (step 4 sets this from the Deployment entity)."
+
+[[action]]
+name = "Verify"
+kind = "input"
+from = ["Deploying"]
+to = "Verified"
+guard = "is_true deploy_verified"
+hint = "Close the Effort once the deploy is verified live."
+
+# Stalled - orphan/stall state. In 1b the owned states carry state_timeout ->
+# Stalled (the ownership lease). Stall here is the manual/review-stall entry.
+[[action]]
+name = "Stall"
+kind = "input"
+from = ["InReview"]
+to = "Stalled"
+params = ["error_message"]
+hint = "Mark a stalled effort (review stall). 1b adds the lease-timeout entry from the owned states."
+
+# Resume - pickup out of Stalled. A later step requires an Adjudication (owner
+# ruling) as the guard; here it records the adjudication ids and resumes Building.
+[[action]]
+name = "Resume"
+kind = "input"
+from = ["Stalled"]
+to = "Building"
+params = ["adjudication_ids"]
+effect = [{ type = "list_append", var = "adjudication_ids" }]
+hint = "Resume a stalled effort (pickup); adjudication_ids is the owner-ruling id appended to the chain list. A later step guards this on an Adjudication."
+
+[[action]]
+name = "Abandon"
+kind = "input"
+from = ["Intended", "Specified", "Planned", "Building", "InReview", "Proving", "Merged", "Deploying", "Stalled"]
+to = "Abandoned"
+params = ["error_message"]
+hint = "Abandon the effort - the explicit give-up terminal (distinct from recoverable Stalled)."

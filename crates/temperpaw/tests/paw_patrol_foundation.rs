@@ -95,6 +95,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "signal.ioa.toml",
         "factory_case.ioa.toml",
         "work_cycle.ioa.toml",
+        "intent.ioa.toml",
+        "effort.ioa.toml",
         "worker_run.ioa.toml",
         "review_run.ioa.toml",
         "evaluation_run.ioa.toml",
@@ -118,6 +120,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "Signal",
         "FactoryCase",
         "WorkCycle",
+        "Intent",
+        "Effort",
         "WorkerRun",
         "ReviewRun",
         "EvaluationRun",
@@ -132,6 +136,10 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         assert!(
             csdl.contains(&format!("<EntityType Name=\"{entity}\">")),
             "CSDL should expose {entity}"
+        );
+        assert!(
+            csdl.contains(&format!("<EntitySet Name=\"{entity}s\"")),
+            "CSDL should expose the {entity}s entity set"
         );
     }
 }
@@ -242,6 +250,51 @@ fn paw_patrol_renames_human_intake_to_work_request_and_adds_risk_patrol_entities
     ] {
         assert!(app_doc.contains(needle), "APP.md should explain {needle}");
     }
+}
+
+#[test]
+fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
+    // ARN-441: the Accept -> Effort birth is the spine of the entity loop. Assert
+    // the wiring structurally so a refactor cannot silently break the cascade
+    // (the live Accept -> Effort -> Verified drive is the effort's runtime proof).
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+    let intent = read(patrol.join("specs/intent.ioa.toml"));
+    let effort = read(patrol.join("specs/effort.ioa.toml"));
+
+    // Intent.Accept carries the declarative entity trigger that creates the Effort
+    // under the intake-service elevation and dispatches Seed.
+    for needle in [
+        "name = \"intent_accepted_births_effort\"",
+        "kind = \"entity\"",
+        "principal = \"patrol-intake-service\"",
+        "target_entity = \"Effort\"",
+        "target_action = \"Seed\"",
+        "type = \"create\"",
+        "intent_ref = \"intent_ref\"", // intent.md reference guaranteed at birth
+    ] {
+        assert!(
+            intent.contains(needle),
+            "intent.ioa.toml Accept->Effort birth trigger should carry `{needle}`"
+        );
+    }
+    // A failed birth is recoverable, not a dead end.
+    assert!(
+        intent.contains("name = \"RebirthEffort\""),
+        "intent.ioa.toml should carry the RebirthEffort repair action for a failed birth"
+    );
+    // Effort receives Seed in its initial state and references intent.md.
+    for needle in ["name = \"Seed\"", "name = \"intent_ref\""] {
+        assert!(
+            effort.contains(needle),
+            "effort.ioa.toml should carry `{needle}` (birth seeding)"
+        );
+    }
+    // Chain-id collections are real lists, not JSON-blob strings.
+    assert!(
+        effort.contains("name = \"review_run_ids\"\ntype = \"list\""),
+        "effort.ioa.toml review_run_ids must be a real list field, not a JSON string"
+    );
 }
 
 #[test]
@@ -1942,9 +1995,19 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        23,
-        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun and the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict)"
+        25,
+        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun, the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict, and the ARN-441 Intent/Effort entity loop)"
     );
+    for entity in ["Intent", "Effort"] {
+        assert!(
+            bundle
+                .specs
+                .iter()
+                .any(|(entity_type, _)| entity_type == entity),
+            "paw-patrol bundle should include the ARN-441 {entity} spec: {:?}",
+            bundle.specs.iter().map(|(t, _)| t).collect::<Vec<_>>()
+        );
+    }
     assert!(
         bundle
             .specs

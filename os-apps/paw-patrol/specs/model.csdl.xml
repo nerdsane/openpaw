@@ -41,6 +41,30 @@
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Human or manager-agent intent submitted into Patrol as work."/>
       </EntityType>
 
+      <!-- Intent - WorkRequest renamed to the SDLC vocabulary (ARN-441). Accept
+           births an Effort. Additive: WorkRequest stays until the phase-3 flip. -->
+      <EntityType Name="Intent">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Source" Type="Edm.String"/>
+        <Property Name="RequestText" Type="Edm.String"/>
+        <Property Name="RequesterId" Type="Edm.String"/>
+        <Property Name="SignalId" Type="Edm.String"/>
+        <Property Name="FactoryCaseId" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
+        <Property Name="TriageSummary" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="TaskSummary" Type="Edm.String"/>
+        <Property Name="TaskDetail" Type="Edm.String"/>
+        <Property Name="RiskLane" Type="Edm.String"/>
+        <Property Name="Repo" Type="Edm.String"/>
+        <Property Name="Branch" Type="Edm.String"/>
+        <Property Name="IntentRef" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Human or manager-agent intent submitted into Patrol as work; Accept births its Effort."/>
+      </EntityType>
+
       <EntityType Name="Signal">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -112,6 +136,49 @@
         <Property Name="ReleaseConfigured" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Patrol-owned implementation loop with worker, reviewer, evaluator, and proof gates."/>
+      </EntityType>
+
+      <!-- Effort - WorkCycle EXTENDED to the full SDLC lifecycle (ARN-441): born
+           at intent, carried to a verified deploy. Additive: WorkCycle stays live
+           for the paw-codex-worker + dashboard until the phase-3 flip. -->
+      <EntityType Name="Effort">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="IntentId" Type="Edm.String"/>
+        <Property Name="FactoryCaseId" Type="Edm.String"/>
+        <Property Name="ReviewRunIds" Type="Collection(Edm.String)"/>
+        <Property Name="ProofPacketIds" Type="Collection(Edm.String)"/>
+        <Property Name="AdjudicationIds" Type="Collection(Edm.String)"/>
+        <Property Name="DeploymentId" Type="Edm.String"/>
+        <Property Name="IntentRef" Type="Edm.String"/>
+        <Property Name="SpecRef" Type="Edm.String"/>
+        <Property Name="PlanRef" Type="Edm.String"/>
+        <Property Name="PlanSummary" Type="Edm.String"/>
+        <Property Name="TaskSummary" Type="Edm.String"/>
+        <Property Name="TaskDetail" Type="Edm.String"/>
+        <Property Name="RiskLane" Type="Edm.String"/>
+        <Property Name="Repo" Type="Edm.String"/>
+        <Property Name="Branch" Type="Edm.String"/>
+        <Property Name="PrNumber" Type="Edm.String"/>
+        <Property Name="HeadSha" Type="Edm.String"/>
+        <Property Name="ImplementerWorkerRunId" Type="Edm.String"/>
+        <Property Name="OwnerWorkerRunId" Type="Edm.String"/>
+        <Property Name="ReviewerRunId" Type="Edm.String"/>
+        <Property Name="EvaluationRunId" Type="Edm.String"/>
+        <Property Name="ProofPacketId" Type="Edm.String"/>
+        <Property Name="E2eSummary" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Property Name="SpecWritten" Type="Edm.Boolean"/>
+        <Property Name="PlanWritten" Type="Edm.Boolean"/>
+        <Property Name="WorkerDone" Type="Edm.Boolean"/>
+        <Property Name="ReviewPassed" Type="Edm.Boolean"/>
+        <Property Name="EvaluationPassed" Type="Edm.Boolean"/>
+        <Property Name="ProofAttached" Type="Edm.Boolean"/>
+        <Property Name="E2eOk" Type="Edm.Boolean"/>
+        <Property Name="DeployVerified" Type="Edm.Boolean"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="The SDLC execution unit: born at intent, carried through spec/plan/build/review/proof to merge, deploy, and verified."/>
       </EntityType>
 
       <EntityType Name="WorkerRun">
@@ -449,9 +516,11 @@
         <EntitySet Name="ShadowVerdicts" EntityType="TemperPaw.Patrol.ShadowVerdict"/>
         <EntitySet Name="PatrolRequests" EntityType="TemperPaw.Patrol.PatrolRequest"/>
         <EntitySet Name="WorkRequests" EntityType="TemperPaw.Patrol.WorkRequest"/>
+        <EntitySet Name="Intents" EntityType="TemperPaw.Patrol.Intent"/>
         <EntitySet Name="Signals" EntityType="TemperPaw.Patrol.Signal"/>
         <EntitySet Name="FactoryCases" EntityType="TemperPaw.Patrol.FactoryCase"/>
         <EntitySet Name="WorkCycles" EntityType="TemperPaw.Patrol.WorkCycle"/>
+        <EntitySet Name="Efforts" EntityType="TemperPaw.Patrol.Effort"/>
         <EntitySet Name="WorkerRuns" EntityType="TemperPaw.Patrol.WorkerRun"/>
         <EntitySet Name="ReviewRuns" EntityType="TemperPaw.Patrol.ReviewRun"/>
         <EntitySet Name="ReleaseRuns" EntityType="TemperPaw.Patrol.ReleaseRun"/>

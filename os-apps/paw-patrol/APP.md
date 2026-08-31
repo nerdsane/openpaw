@@ -13,6 +13,13 @@ WorkRequest means human or manager-agent intent: "do this work", "clean this
 up", or "investigate this thing." OpenClaw, Discord, or a human dashboard
 submits here instead of writing directly to paw-pm.
 
+### Intent
+Intent is WorkRequest renamed to the SDLC vocabulary (ARN-441, stage 3 phase 4):
+the same intake shape, but `Intent.Accept` births an `Effort`. Triage ("worth
+doing?") is a different lifecycle than execution ("done right?"), so Intent stays
+the intake. Additive during the shadow phase — WorkRequest stays live for the
+paw-codex-worker and dashboard until the phase-3 flip, then retires.
+
 ### PatrolRequest
 Legacy name for request intake. New intake must use WorkRequest; PatrolRequest
 stays readable only for old entity history and compatibility tests.
@@ -46,6 +53,19 @@ runs a read-only Codex Plan Mode pass before implementation. That pass revises
 the WorkCycle plan through `WorkCycle.RevisePlan`, increments
 `plan_revision_count`, and injects the approved plan into the mutating Codex
 run.
+
+### Effort
+Effort is WorkCycle EXTENDED to the full SDLC lifecycle (ARN-441, stage 3 phase
+4): born at intent and carried to a verified deploy. It begins where WorkCycle's
+Planning was absorbed — `Intended` (intent.md attached at birth) — then moves
+`Specified` (spec.md) → `Planned` (plan.md) → `Building` → `InReview` → `Proving`
+→ `Merged` → `Deploying` → `Verified`. `Stalled` is the recoverable orphan state
+(later steps add the ownership lease: the owned states time out to Stalled when
+the owner's WorkerRun stops heartbeating); `Abandoned` is the explicit give-up
+terminal. Every effort references its whole chain from its own row (intent_id,
+review_run_ids, proof_packet_ids, deployment_id, adjudication_ids, pm_issue_id).
+Merge becomes a Cedar decision and Deploy a Deployment entity in later steps.
+Additive during the shadow phase — WorkCycle stays live until the phase-3 flip.
 
 ### WorkerRun
 One execution attempt by a registered worker. The first worker type is the Mac

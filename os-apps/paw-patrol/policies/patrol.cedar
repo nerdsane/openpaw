@@ -5,9 +5,11 @@ permit(
 ) when {
   resource is PatrolRequest ||
   resource is WorkRequest ||
+  resource is Intent ||
   resource is Signal ||
   resource is FactoryCase ||
   resource is WorkCycle ||
+  resource is Effort ||
   resource is WorkerRun ||
   resource is WorkerProvider ||
   resource is WorkerAgent ||
@@ -34,9 +36,11 @@ permit(
 ) when {
   resource is PatrolRequest ||
   resource is WorkRequest ||
+  resource is Intent ||
   resource is Signal ||
   resource is FactoryCase ||
   resource is WorkCycle ||
+  resource is Effort ||
   resource is WorkerRun ||
   resource is WorkerProvider ||
   resource is WorkerAgent ||
@@ -170,6 +174,7 @@ permit(
   (
     resource is PatrolRequest ||
     resource is WorkRequest ||
+    resource is Intent ||
     resource is Signal ||
     resource is FactoryCase ||
     resource is WorkCycle ||
@@ -187,6 +192,10 @@ permit(
     resource is DailyBrief ||
     resource is PatrolSchedule
   )
+  // NB: Effort is intentionally NOT in this generic system-agent list. Effort
+  // lifecycle has its own permit below, and Effort creation is the intake
+  // service's ALONE - granting the generic `create` here was a second birth door
+  // (#491 panel round 2). The forbid below is the belt-and-suspenders guarantee.
 };
 
 permit(
@@ -556,4 +565,112 @@ permit(
   principal.agent_type == "operator" &&
   principal has agentTypeVerified &&
   principal.agentTypeVerified == true
+};
+
+// ============================ ARN-441: the entity loop ========================
+// Intent (WorkRequest renamed) + Effort (WorkCycle EXTENDED). Additive in shadow;
+// WorkRequest/WorkCycle policies above stay live until the phase-3 flip. Intent/
+// Effort are also on the Admin blanket + read/list blanket above.
+
+// Intent intake - open to agents, like the WorkRequest manager surface.
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"Submit",
+    Action::"AttachSignal",
+    Action::"Triage",
+    Action::"Accept",
+    Action::"LinkPmIssue",
+    Action::"Reject"
+  ],
+  resource is Intent
+);
+
+// RebirthEffort re-attempts the Effort birth, so it is the intake service's ALONE
+// (#491 panel round 2) - not any Agent. Same principal as the birth it repeats;
+// the Intent's declarative RebirthEffort trigger already runs under this elevation.
+permit(
+  principal,
+  action == Action::"RebirthEffort",
+  resource is Intent
+) when {
+  principal has agent_type && principal.agent_type == "patrol-intake-service"
+};
+
+// Effort lifecycle - the full set of SDLC transitions, driven by the
+// system/patrol surface. Self-contained (does not lean on the system-agent block
+// above), so the whole Effort authority reads in one place.
+permit(
+  principal,
+  // Lifecycle transitions only - NOT Seed/create (birth is the intake service's
+  // alone; see the birth permit below). Splitting them keeps the birth rule intact:
+  // an Effort is born only by accepting an Intent, never by a lifecycle driver.
+  action in [
+    Action::"Specify",
+    Action::"Plan",
+    Action::"StartBuild",
+    Action::"AttachWorkerRun",
+    Action::"WorkerDone",
+    Action::"SubmitForReview",
+    Action::"AttachReviewRun",
+    Action::"ReportE2e",
+    Action::"PassReview",
+    Action::"RequestChanges",
+    Action::"PassEvaluation",
+    Action::"AttachProofPacket",
+    Action::"Merge",
+    Action::"Deploy",
+    Action::"MarkDeployVerified",
+    Action::"Verify",
+    Action::"Stall",
+    Action::"Resume",
+    Action::"Abandon"
+  ],
+  resource is Effort
+) when {
+  principal is Admin ||
+  // `principal has agent_type` before every == : app Cedar is schema-less, so a
+  // principal missing the attribute must be denied explicitly, not error.
+  (principal is Agent && principal has agent_type && (
+    principal.agent_type == "system" ||
+    principal.agent_type == "supervisor" ||
+    // The verified operator drives the SHADOW Effort lifecycle - the same
+    // trusted sweep/verification authority ARN-434 grants the S0/S1 record
+    // writes (agentTypeVerified, so a self-declared header agent never matches).
+    // The per-gate authority flips (steps 3-4) put stricter permits on
+    // Merge/Deploy; this operator surface tightens there.
+    (principal.agent_type == "operator" &&
+     principal has agentTypeVerified && principal.agentTypeVerified == true)
+  ))
+};
+
+// Effort BIRTH - create + Seed ONLY via the intake service (the elevation the
+// declarative Intent.Accept -> Effort.Seed trigger runs under). No ordinary-Agent
+// create grant, mirroring the ReleaseRun / patrol-release-service pattern: an
+// Effort is born by accepting an Intent, never conjured directly.
+permit(
+  principal,
+  // Only `Seed` (the bare action name the dispatch uses - confirmed in the live
+  // drive log: temper.action "Seed", agent_type "patrol-intake-service"; the
+  // namespaced Effort.Seed hedge is dropped) plus `create`.
+  action in [
+    Action::"create",
+    Action::"Seed"
+  ],
+  resource is Effort
+) when {
+  principal has agent_type && principal.agent_type == "patrol-intake-service"
+};
+
+// Birth rule, enforced (#491 panel round 2): forbid beats permit, so this closes
+// EVERY door to Effort creation except the intake service - the Admin blanket, the
+// generic system-agent permit, a future stray permit, all of them. An Effort is
+// born ONLY by accepting an Intent (the Accept trigger runs as patrol-intake-service).
+forbid(
+  principal,
+  action in [Action::"create", Action::"Seed"],
+  resource is Effort
+) unless {
+  principal has agent_type && principal.agent_type == "patrol-intake-service"
 };
