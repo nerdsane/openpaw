@@ -122,6 +122,13 @@ hint = "Callback from computer_exec_start — the process was launched; the Poll
 state = "Running"
 after_seconds = 10
 on_timeout = "Poll"
+# A self-loop re-arms a state_timeout ONLY via reset_on (kernel state_timeouts.rs:
+# is_reset = !state_changed && reset_on.contains(action); a same-state transition
+# with no reset_on match falls through and does NOT re-arm). So Poll — the on_timeout
+# action, a Running self-loop — must list itself here, or the poll loop would fire
+# exactly once and then stall. This is what keeps the loop alive across the ~120s
+# WASM cap: each fired Poll re-arms the next 10s tick.
+reset_on = ["Poll"]
 
 # Safety: if computer_exec_start never reports ExecStarted, do not hang in
 # Starting.
@@ -136,7 +143,7 @@ name = "Poll"
 kind = "input"
 from = ["Running"]
 to = "Running"
-hint = "Poll the started process once (computer_exec_poll). Self-loop: re-arms the Running lease so the loop continues until completion or deadline."
+hint = "Poll the started process once (computer_exec_poll). Self-loop listed in the Running timeout's reset_on, so each Poll re-arms the next tick. On a not-done poll the module reports success with an EMPTY callback action — the kernel accepts that (engine/mod.rs: callback_action defaults to \"\"; wasm.rs: dispatch is skipped when empty → Ok(None)), so no KeepRunning callback is needed; the loop rides the reset_on re-arm alone."
 effect = [{ type = "trigger", name = "computer_exec_poll" }]
 
 [[action.triggers]]
@@ -151,14 +158,6 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 modal_bridge_url = "{secret:modal_bridge_url}"
-
-# computer_exec_poll's "still running, keep waiting" callback (re-arms the loop).
-[[action]]
-name = "KeepRunning"
-kind = "input"
-from = ["Running"]
-to = "Running"
-hint = "Callback from computer_exec_poll — the command is still running; keep polling."
 
 [[action]]
 name = "RunSucceeded"

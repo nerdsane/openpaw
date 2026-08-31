@@ -401,3 +401,67 @@ accepted residuals.
   (context_preparer, provider_auth_gate, provider_caller, and others) should be
   wasip1 per the deploy rule. Team-lead is filing this as its own small issue —
   NOT C/D scope.
+
+## D-FINAL — poll-loop semantics settled at kernel source (open question closed)
+
+**Decision:** The async-exec poll loop re-arms via an explicit `reset_on = ["Poll"]`
+on the `Running` `state_timeout`, and `computer_exec_poll`'s not-done branch reports
+SUCCESS with an EMPTY callback action (no transition). The `KeepRunning` action is
+DELETED. The same finding forced `reset_on = ["Heartbeat"]` on the `Leased`
+`state_timeout` so a copy's Heartbeat actually renews its lease.
+
+**Came up because:** the D open question ("may a Poll trigger return without a
+result on the not-done branch, or must it report a benign KeepRunning?"). The
+team-lead asked to settle it empirically and prefer the no-result re-arm if the
+kernel accepts a triggered module reporting nothing.
+
+**What the kernel source proves (rev 43f9379, the running build):**
+- A triggered WASM module reporting an EMPTY callback IS accepted: the engine
+  parses `result.callback_action` as `parsed.get("action").unwrap_or("")`
+  (`temper-wasm/src/engine/mod.rs:339`), and the dispatch path runs the callback
+  only `if !callback_action.is_empty()`, otherwise returns `Ok(None)` — no error,
+  no stall (`temper-server/src/state/dispatch/wasm.rs:485`). So the not-done branch
+  should report success with no action. (Reporting NOTHING at all is different:
+  an unset result is read as `success:false` → on_failure=RunFailed. So the module
+  must call `set_success_result("", …)` explicitly.)
+- BUT a self-loop does NOT re-arm a `state_timeout` on its own. Arming
+  (`temper-server/src/state/dispatch/state_timeouts.rs:225-244`) computes
+  `state_changed = pre_state != post_state`; for a self-loop that is `false`, so
+  `is_entry` is false and the timer is re-armed only when
+  `is_reset = !state_changed && reset_on.contains(action)`. Without the action in
+  `reset_on`, the branch `continue`s and the timer is NOT re-armed.
+
+**Two latent bugs this exposed (both in my own committed D/C specs), now fixed:**
+1. The `Running` timeout had no `reset_on`, so the Poll loop would have fired
+   exactly ONCE and then stalled in Running forever. `KeepRunning` did not save it —
+   it is also a self-loop and equally fails to re-arm. Fix: `reset_on = ["Poll"]`
+   on the Running timeout; delete `KeepRunning`; not-done branch reports `("", {})`.
+2. The `Leased` timeout had no `reset_on`, so `Heartbeat` (documented as "renews
+   the lease") was a silent no-op — the lease would have fired 3600s after the copy
+   went live regardless of heartbeats. Fix: `reset_on = ["Heartbeat"]`.
+
+**Options:** (a) keep KeepRunning as the not-done callback — REJECTED: it is pure
+machinery that does not even re-arm (self-loop), so it would have masked bug #1
+without fixing it; (b) no-result return with no set_result — REJECTED: read as
+failure → RunFailed; (c) explicit empty-callback success + reset_on — CHOSEN: the
+kernel-blessed "report nothing" signal, with the re-arm carried by the one
+mechanism that actually re-arms a self-loop.
+
+**Chose (c):** gained a correct, minimal loop (one fewer action, one fewer Cedar
+entry) and a correctly-renewing lease; gave up nothing — the deleted KeepRunning
+never worked as imagined.
+
+**Where:** `os-apps/paw-compute/specs/exec.ioa.toml` (Running `reset_on`, KeepRunning
+removed), `computer.ioa.toml` (Leased `reset_on`), `policies/compute.cedar`
+(KeepRunning removed), `os-apps/paw-compute/wasm/computer_exec_poll/src/lib.rs`
+(not-done → `set_success_result("", …)`). Kernel citations above.
+
+## E3 — self-loop state_timeouts need explicit reset_on (encode)
+A `[[state_timeout]]` on a state that a self-loop action re-enters is NOT re-armed
+by that self-loop unless the action is listed in the timeout's `reset_on`. Any
+keep-alive / poll loop built on a self-loop MUST declare `reset_on = ["<action>"]`,
+or it fires once and stalls. Two specs in this very effort shipped the bug before a
+kernel-source read caught it. Strongest available rung: this note; a spec-lint that
+flags a self-loop action targeting a state whose `state_timeout` lacks it in
+`reset_on` would be the durable rung (candidate for temper-spec's parser, which
+already validates reset_on names).

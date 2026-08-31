@@ -110,7 +110,6 @@ permit(
         Action::"Exec.RunSucceeded", Action::"RunSucceeded",
         Action::"Exec.RunFailed", Action::"RunFailed",
         Action::"Exec.ExecStarted", Action::"ExecStarted",
-        Action::"Exec.KeepRunning", Action::"KeepRunning",
         Action::"Exec.Poll", Action::"Poll"
     ],
     resource is Exec

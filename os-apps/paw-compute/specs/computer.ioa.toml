@@ -311,6 +311,13 @@ hint = "Push the lease forward: re-entering Leased re-arms the lease state_timeo
 state = "Leased"
 after_seconds = 3600
 on_timeout = "Destroy"
+# Heartbeat (a Leased self-loop) renews the lease. A self-loop re-arms a
+# state_timeout ONLY when the action is in reset_on (kernel state_timeouts.rs:
+# is_reset = !state_changed && reset_on.contains(action)); without this line
+# Heartbeat would be a silent no-op and the lease would fire 3600s after the
+# copy went live regardless of renewals. With it, each Heartbeat pushes the
+# reap out another hour; a copy whose owner stops heart-beating is reaped.
+reset_on = ["Heartbeat"]
 
 # Safety: if computer_terminate never reports (host-level failure), force the row
 # to Destroyed rather than hang in Terminating. TerminateComplete is idempotent.

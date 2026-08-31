@@ -4,9 +4,13 @@
 //! Computer, polls the started process via `sandbox_exec_poll(run_id)`:
 //! - finished  → RunSucceeded(exit_code, tails)  (exit 124 from the sandbox
 //!               timeout → RunFailed "exceeded the run limit");
-//! - running   → KeepRunning if before the safety deadline, else RunFailed;
-//! The Poll transition itself re-arms the Running lease, so KeepRunning simply
-//! lets the loop continue.
+//! - running   → report success with an EMPTY callback (no transition) if before
+//!               the safety deadline, else RunFailed. The kernel accepts an empty
+//!               callback_action as "no callback" (Ok(None)); the loop continues
+//!               because the Running state_timeout is re-armed by the Poll
+//!               self-loop's reset_on = ["Poll"] (see exec.ioa.toml). There is no
+//!               KeepRunning action — a self-loop callback would not re-arm the
+//!               timer anyway (only reset_on does), so it was pure machinery.
 //!
 //! (Resolution helpers duplicated from computer_exec_start — DRY follow-up.)
 //!
@@ -53,7 +57,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 if started != 0 && Context::get_time_millis() - started > MAX_RUN_MS {
                     set_failure_result("exec exceeded its deadline without completing");
                 } else {
-                    set_success_result("KeepRunning", &json!({}));
+                    // Still running, before the safety deadline: report success
+                    // with an EMPTY callback action. The kernel treats an empty
+                    // callback_action as "no callback" (engine parses action ->
+                    // "" and wasm.rs skips dispatch, returning Ok(None)) — no
+                    // spurious transition. The loop is carried entirely by the
+                    // Running state_timeout, which the Poll self-loop re-arms via
+                    // its reset_on = ["Poll"]. (An UNSET result would instead be
+                    // read as success:false -> on_failure=RunFailed, so we must
+                    // report explicitly, just with no action.)
+                    set_success_result("", &json!({}));
                 }
             }
         }
