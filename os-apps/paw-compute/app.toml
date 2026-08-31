@@ -1,5 +1,5 @@
 name = "paw-compute"
-description = "Compute provisioning for agent sandboxes via Fly.io"
+description = "Compute provisioning for agent sandboxes via Tensorlake"
 version = "0.1.0"
 dependencies = []
 
