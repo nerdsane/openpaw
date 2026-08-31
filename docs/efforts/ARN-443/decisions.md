@@ -146,3 +146,19 @@ in prod via Genesis, so these fixes ship here BEFORE any future Genesis publish.
   tail, and each stream is individually complete.
 - LatencyDiag's hardcoded Datadog query: noted as tech-debt in the spec comment
   (it was the prototype's learned-tool proof, not a general diagnostic).
+
+## Round 1.1: stderr via a separate stream, not an in-band delimiter (Greptile P1)
+- **Decision:** Route the command's stderr tail to the wrapper's own fd 2 (`>&2`,
+  captured by the provider as result.stderr) instead of emitting it after an
+  `__EXEC_ERR_TAIL` marker in the stdout stream.
+- **Came up because:** Greptile P1 — a command printing a line equal to
+  `__EXEC_ERR_TAIL` would be treated as the delimiter, corrupting the audit tails.
+- **Options:** byte-length-delimit the two tails in stdout / put stderr on a
+  separate stream.
+- **Chose separate stream because:** it removes ALL command-controllable
+  delimiters from the stdout data (the log-path marker stays on a fixed
+  wrapper-emitted line, collision-safe), keeps stdout/stderr separated (the
+  original consider), and is simpler than byte-length parsing. The parse reverts
+  to the collision-safe header form; stderr_tail comes from result.stderr.
+- **Where:** computer_exec/src/lib.rs `wrap_command` / `parse_captured_output` /
+  `success_params`.

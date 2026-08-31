@@ -35,9 +35,8 @@ const EXEC_TIMEOUT_SECS: u64 = 110;
 /// `timeout` exit code when the wall-clock limit is reached (coreutils).
 const TIMEOUT_EXIT_CODE: i64 = 124;
 
-/// Markers separating the wrapper's metadata / stdout tail / stderr tail.
+/// Marker (on a fixed line, wrapper-emitted) announcing the stdout log path.
 const EXEC_LOG_MARKER: &str = "__EXEC_LOG_PATH";
-const EXEC_ERR_MARKER: &str = "__EXEC_ERR_TAIL";
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
@@ -200,10 +199,13 @@ fn sandbox_handle_from_computer(computer: &Value) -> Result<SandboxHandle, Strin
 ///   past `EXEC_TIMEOUT_SECS` (no orphaned process).
 /// - stdout → `<id>.log`, stderr → `<id>.err` (separate streams, not conflated).
 /// - `__rc=$?` preserves the child's exit code (124 = timed out).
-/// - The wrapper prints, to its own stdout: the stdout byte count, a
-///   `__EXEC_LOG_PATH` marker, the stdout tail, an `__EXEC_ERR_TAIL` marker, and
-///   the stderr tail. `exit $__rc` surfaces the true status. The full logs stay
-///   on the computer for follow-up Execs to grep/sed/page.
+/// - The wrapper prints, to its own **stdout**: the stdout byte count, a
+///   `__EXEC_LOG_PATH` marker, and the stdout tail. It writes the stderr tail to
+///   its own **stderr** (`>&2`), which the provider captures as a separate
+///   stream — so no delimiter lives inside the stdout data, and a command that
+///   prints a marker-looking line cannot corrupt the split. `exit $__rc`
+///   surfaces the true status; the full logs stay on the computer for follow-up
+///   Execs to grep/sed/page.
 fn wrap_command(command: &str, exec_id: &str) -> String {
     let id = sanitize_exec_id(exec_id);
     let log = format!("~/.exec-out/{id}.log");
@@ -213,7 +215,7 @@ fn wrap_command(command: &str, exec_id: &str) -> String {
         "mkdir -p ~/.exec-out && \
          timeout -k 5s {EXEC_TIMEOUT_SECS}s bash -c {q} > {log} 2> {err} ; __rc=$? ; \
          wc -c < {log} ; echo \"{EXEC_LOG_MARKER} {log}\" ; tail -c {OUTPUT_TAIL_BYTES} {log} ; \
-         echo ; echo \"{EXEC_ERR_MARKER}\" ; tail -c {OUTPUT_TAIL_BYTES} {err} ; exit $__rc"
+         tail -c {OUTPUT_TAIL_BYTES} {err} >&2 ; exit $__rc"
     )
 }
 
@@ -242,19 +244,21 @@ fn sanitize_exec_id(exec_id: &str) -> String {
     }
 }
 
-/// The stdout byte count, stdout log path, stdout tail, and stderr tail parsed
-/// out of a wrapped command's stdout.
+/// The stdout byte count, stdout log path, and stdout tail parsed out of a
+/// wrapped command's stdout. (stderr arrives on a separate stream — see
+/// [`success_params`].)
 struct CapturedOutput {
     path: Option<String>,
     bytes: Option<u64>,
-    stdout_tail: String,
-    stderr_tail: String,
+    tail: String,
 }
 
-/// Parse the wrapped-command stdout:
-/// `<bytes>\n__EXEC_LOG_PATH <path>\n<stdout tail>\n__EXEC_ERR_TAIL\n<stderr tail>`.
-/// If the markers are absent — e.g. the wrapper never ran (provider error text) —
-/// the raw text is returned as the stdout tail so nothing is silently dropped.
+/// Parse the wrapped-command stdout: `<bytes>\n__EXEC_LOG_PATH <path>\n<tail>`.
+/// The marker sits on a fixed line the wrapper emits, so command output that
+/// happens to contain the marker text stays in the tail and cannot be mistaken
+/// for the delimiter. If the header is absent — e.g. the wrapper never ran
+/// (provider error text) — the raw text is returned as the tail so nothing is
+/// silently dropped.
 fn parse_captured_output(stdout: &str) -> CapturedOutput {
     let mut parts = stdout.splitn(3, '\n');
     let first = parts.next().unwrap_or("");
@@ -270,42 +274,27 @@ fn parse_captured_output(stdout: &str) -> CapturedOutput {
         return CapturedOutput {
             path: None,
             bytes: None,
-            stdout_tail: stdout.to_string(),
-            stderr_tail: String::new(),
+            tail: stdout.to_string(),
         };
     }
-
-    // Split the remainder into the stdout tail and the stderr tail on the err
-    // marker's own line. If it is absent, everything is the stdout tail.
-    let sep = format!("\n{EXEC_ERR_MARKER}\n");
-    let (stdout_tail, stderr_tail) = match rest.split_once(&sep) {
-        Some((out, err)) => (out.to_string(), err.to_string()),
-        None => (rest.to_string(), String::new()),
-    };
 
     CapturedOutput {
         path,
         bytes,
-        stdout_tail,
-        stderr_tail,
+        tail: rest.to_string(),
     }
 }
 
 /// Build the RunSucceeded callback params, truncating each stream to a bounded
 /// tail and surfacing the full-stdout log path/size captured by [`wrap_command`].
+/// stderr comes from the provider's separate stderr capture (the wrapper writes
+/// the stderr tail to its own fd 2), so stdout and stderr never share a stream.
 fn success_params(result: &ExecResult, tail_bytes: usize) -> Value {
     let captured = parse_captured_output(&result.stdout);
-    // Prefer the separated stderr from the wrapper; fall back to any stderr the
-    // provider surfaced directly (e.g. when the wrapper never ran).
-    let stderr = if captured.stderr_tail.is_empty() && !result.stderr.is_empty() {
-        result.stderr.as_str()
-    } else {
-        captured.stderr_tail.as_str()
-    };
     json!({
         "exit_code": result.exit_code.to_string(),
-        "stdout_tail": output_tail(&captured.stdout_tail, tail_bytes),
-        "stderr_tail": output_tail(stderr, tail_bytes),
+        "stdout_tail": output_tail(&captured.tail, tail_bytes),
+        "stderr_tail": output_tail(&result.stderr, tail_bytes),
         "stdout_path": captured.path.unwrap_or_default(),
         "stdout_bytes": captured.bytes.map(|b| b.to_string()).unwrap_or_default(),
     })
@@ -465,12 +454,14 @@ mod tests {
         assert!(wrapped.contains("timeout -k 5s 110s bash -c 'echo hi'"), "{wrapped}");
         // Separate stdout and stderr files (not conflated).
         assert!(wrapped.contains("> ~/.exec-out/exec-1.log 2> ~/.exec-out/exec-1.err"));
-        // Byte count + markers + bounded tails.
+        // stdout metadata + tail go to the wrapper's stdout.
         assert!(wrapped.contains("wc -c < ~/.exec-out/exec-1.log"));
         assert!(wrapped.contains("__EXEC_LOG_PATH ~/.exec-out/exec-1.log"));
         assert!(wrapped.contains("tail -c 262144 ~/.exec-out/exec-1.log"));
-        assert!(wrapped.contains("__EXEC_ERR_TAIL"));
-        assert!(wrapped.contains("tail -c 262144 ~/.exec-out/exec-1.err"));
+        // stderr tail goes to the wrapper's OWN stderr (>&2) — no delimiter in
+        // the stdout stream, so command output can't corrupt the split.
+        assert!(wrapped.contains("tail -c 262144 ~/.exec-out/exec-1.err >&2"));
+        assert!(!wrapped.contains("__EXEC_ERR"));
         // Original exit code preserved through the wrapper's epilogue.
         assert!(wrapped.contains("__rc=$?"));
         assert!(wrapped.trim_end().ends_with("exit $__rc"));
@@ -491,21 +482,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_extracts_bytes_path_stdout_and_stderr() {
-        let stdout = "1234\n__EXEC_LOG_PATH ~/.exec-out/e.log\nhello\nworld\n\n__EXEC_ERR_TAIL\noops\n";
+    fn parse_extracts_bytes_path_and_tail() {
+        let stdout = "1234\n__EXEC_LOG_PATH ~/.exec-out/e.log\nhello\nworld\n";
         let cap = parse_captured_output(stdout);
         assert_eq!(cap.bytes, Some(1234));
         assert_eq!(cap.path.as_deref(), Some("~/.exec-out/e.log"));
-        assert_eq!(cap.stdout_tail, "hello\nworld\n");
-        assert_eq!(cap.stderr_tail, "oops\n");
+        assert_eq!(cap.tail, "hello\nworld\n");
     }
 
     #[test]
-    fn parse_handles_absent_stderr_marker() {
-        let stdout = "3\n__EXEC_LOG_PATH ~/.exec-out/e.log\nonly stdout\n";
+    fn parse_keeps_tail_containing_marker_text() {
+        // A command that prints the marker text on a later line cannot be
+        // mistaken for the header — the marker only counts on line 2.
+        let stdout = "7\n__EXEC_LOG_PATH ~/.exec-out/e.log\n__EXEC_LOG_PATH not-a-marker\n";
         let cap = parse_captured_output(stdout);
-        assert_eq!(cap.stdout_tail, "only stdout\n");
-        assert_eq!(cap.stderr_tail, "");
+        assert_eq!(cap.bytes, Some(7));
+        assert_eq!(cap.tail, "__EXEC_LOG_PATH not-a-marker\n");
     }
 
     #[test]
@@ -514,15 +506,15 @@ mod tests {
         let cap = parse_captured_output(stdout);
         assert_eq!(cap.bytes, None);
         assert_eq!(cap.path, None);
-        assert_eq!(cap.stdout_tail, "some unexpected provider output");
-        assert_eq!(cap.stderr_tail, "");
+        assert_eq!(cap.tail, "some unexpected provider output");
     }
 
     #[test]
     fn success_params_carry_exit_code_stdout_and_stderr() {
+        // stderr comes from the provider's separate stderr capture.
         let result = ExecResult {
-            stdout: "3\n__EXEC_LOG_PATH ~/.exec-out/e.log\nok\n\n__EXEC_ERR_TAIL\nwarn\n".to_string(),
-            stderr: String::new(),
+            stdout: "3\n__EXEC_LOG_PATH ~/.exec-out/e.log\nok\n".to_string(),
+            stderr: "warn\n".to_string(),
             exit_code: 0,
         };
         let params = success_params(&result, 8192);
@@ -531,6 +523,21 @@ mod tests {
         assert_eq!(params["stderr_tail"], "warn\n");
         assert_eq!(params["stdout_path"], "~/.exec-out/e.log");
         assert_eq!(params["stdout_bytes"], "3");
+    }
+
+    #[test]
+    fn success_params_stdout_tail_keeps_marker_lookalike() {
+        // A command printing the marker text stays in the stdout tail intact —
+        // no delimiter in the stdout stream to corrupt it (Greptile P1).
+        let result = ExecResult {
+            stdout: "20\n__EXEC_LOG_PATH ~/.exec-out/e.log\nline1\n__EXEC_ERR_TAIL\nline3\n"
+                .to_string(),
+            stderr: String::new(),
+            exit_code: 0,
+        };
+        let params = success_params(&result, 8192);
+        assert_eq!(params["stdout_tail"], "line1\n__EXEC_ERR_TAIL\nline3\n");
+        assert_eq!(params["stderr_tail"], "");
     }
 
     #[test]
