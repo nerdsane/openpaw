@@ -11,3 +11,7 @@ crate-type = ["rlib"]
 [dependencies]
 temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "43f9379cc51545b9a47b8a28ccb202c31957a0e9" }
 serde_json = "1"
+# Per-dispatch randomness for the exec capture id. On wasm32-wasip1 this uses
+# WASI random_get (the temper host wires wasi_snapshot_preview1); on native
+# (unit tests) it uses the OS RNG.
+getrandom = "0.2"
