@@ -90,14 +90,17 @@ fn fetch_computer(
     bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "computer_exec_start")
 }
 
-/// Build a SandboxHandle from a Computer row. Fails CLOSED: only a Ready computer
-/// with a sandbox_url is exec-able (a Leased copy is not Ready — the D-time gate
-/// widening to accept Leased is a forward pointer noted in computer.ioa.toml).
+/// Build a SandboxHandle from a Computer row. Fails CLOSED: only a live computer
+/// with a sandbox_url is exec-able. "Live" = Ready (a source) OR Leased (a
+/// governed copy) — the panel runs its review exec on the Leased copy, so Leased
+/// must be exec-able (ARN-443 D; this is the gate widening the C spec forward-
+/// pointed to). Every other state (Created/Provisioning/Checkpointing/Sleeping/
+/// Terminating/Destroyed) is refused.
 fn handle_from_computer(computer: &Value) -> Result<SandboxHandle, String> {
     let status = entity_field_str(computer, &["Status", "status"]).unwrap_or("");
-    if status != "Ready" {
+    if status != "Ready" && status != "Leased" {
         let shown = if status.is_empty() { "(no status)" } else { status };
-        return Err(format!("computer is {shown}, not Ready"));
+        return Err(format!("computer is {shown}, not Ready or Leased"));
     }
     let sandbox_url = entity_field_str(computer, &["SandboxUrl", "sandbox_url"])
         .map(str::trim)
@@ -125,11 +128,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn handle_requires_ready() {
-        let c = json!({"Status": "Leased", "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai"}});
-        assert!(handle_from_computer(&c).is_err());
-        let c = json!({"Status": "Ready", "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai", "machine_id": "x"}});
-        assert!(handle_from_computer(&c).is_ok());
+    fn handle_requires_live_computer() {
+        // Ready (a source) and Leased (a governed copy) are both exec-able.
+        let ready = json!({"Status": "Ready", "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai", "machine_id": "x"}});
+        assert!(handle_from_computer(&ready).is_ok());
+        let leased = json!({"Status": "Leased", "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai", "machine_id": "x"}});
+        assert!(handle_from_computer(&leased).is_ok());
+        // Any non-live state fails closed.
+        for st in ["Created", "Provisioning", "Terminating", "Destroyed"] {
+            let c = json!({"Status": st, "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai"}});
+            assert!(handle_from_computer(&c).is_err(), "{st} must not be exec-able");
+        }
     }
 
     #[test]

@@ -14,9 +14,9 @@ name = "Computer"
 # copies without ever touching a source — sources stay in Ready
 # (allow_indefinite) and are structurally unreapable. State carries the "this is
 # a leased copy" semantics; there is no is_copy flag.
-# FORWARD POINTER (ARN-443 D): when panel execs route through Exec rows, the
-# computer_exec Ready-gate must also accept "Leased" so a governed exec can run
-# on a copy. That gate widening is deferred to D.
+# ARN-443 D (DONE): panel execs route through Exec rows, and computer_exec_start's
+# live-gate accepts "Leased" as well as "Ready" so a governed exec runs on a copy
+# (a panel copy lives in Leased, never Ready). See computer_exec_start handle_from_computer.
 states = ["Created", "Provisioning", "Ready", "Checkpointing", "Sleeping", "Leased", "Terminating", "Destroyed"]
 initial = "Created"
 
