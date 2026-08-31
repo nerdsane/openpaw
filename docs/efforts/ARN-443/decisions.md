@@ -315,3 +315,20 @@ accepted residuals.
   the source's sandbox and kill it.
 - **Where:** specs/computer.ioa.toml Destroy; CopyFailed goes straight to Destroyed
   with no terminate.
+
+## C5 — provider CALLS (real copy/terminate) deferred to prod verification, with a hard condition
+- **Decision:** The local e2e proves the state machine, Cedar, the source-safety
+  guard, the failure path, and the reap STATE flow (with stub machines). The two
+  real provider CALLS — a live tensorlake copy and a live terminate — are proved
+  at C's Genesis-publish / prod step, not locally.
+- **Came up because:** `tensorlake_api_key` is a prod Temper secret; it is not in
+  Railway env and the `tl` CLI does not expose the raw key. Prod secrets do not
+  migrate to local boxes for convenience, so a local server cannot make a real
+  tensorlake copy. Team-lead confirmed this posture and that the prod "verify
+  live" step is higher-fidelity anyway.
+- **CONDITION for C = done (must be met at prod verification, not optional):** ONE
+  full real cycle — Copy → the real child sandbox EXISTS (`tl sbx ls` shows it) →
+  Leased → forced/short lease timeout → Destroyed → provider-confirmed TERMINATED
+  (`tl sbx ls` shows it gone). This closes the one gap the local stub cannot.
+- **Where:** local e2e = this effort's proof record; prod cycle = C's Genesis
+  publish + live verification (temperpaw DoD).
