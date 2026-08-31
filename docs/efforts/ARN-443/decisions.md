@@ -557,3 +557,30 @@ the delete, and rc — which signals completion — is written last). The retent
 is noted in `exec.ioa.toml` next to the output fields. This honors the round-1
 "result before delete" ordering while removing the unbounded-growth path. Where:
 `wasm-helpers/src/sandbox.rs`, `specs/exec.ioa.toml`.
+
+## Rita's review finding — a deferred proof path still gets its contracts checked statically
+
+**Decision:** Encode the WASM-invocation budget invariant as a unit test in
+wasm-helpers, with the synchronous-wait constants centralized in one place.
+
+**Came up because:** Rita asked the right question about R1's critical bug — the
+240s call inside the 120s cap was catchable WITHOUT execution (arithmetic between
+two constants), and the copy path is deferred to prod verification (C5), which is
+exactly where a static check must compensate for the missing live run.
+
+**Options:** (a) rely on the prod C5 cycle to catch a re-introduced over-budget
+wait; (b) a static test asserting every synchronous provider wait fits under the
+cap with headroom.
+
+**Chose (b):** `synchronous_provider_waits_fit_under_the_invocation_cap` asserts
+`COPY_START_MAX_WAIT_SECS ≤ WASM_INVOCATION_CAP_SECS − INVOCATION_HEADROOM_SECS`
+(10 ≤ 90) and DOCUMENTS why the non-blocking bounds (the 1800s sandbox-side command
+`timeout`, the cross-invocation poll deadlines) are allowed to exceed the cap — they
+never block one invocation. It fails at test speed if anyone reintroduces the class,
+so the contract is checked on every run, not only at prod verify. Gained: the R1 bug
+class can never silently return via a deferred path; gave up: nothing (one test, one
+constant moved to wasm-helpers).
+
+**Where:** `wasm-helpers/src/sandbox.rs` (consts `WASM_INVOCATION_CAP_SECS`,
+`INVOCATION_HEADROOM_SECS`, `COPY_START_MAX_WAIT_SECS` + the test);
+`wasm/computer_copy_start` now uses the centralized const.
