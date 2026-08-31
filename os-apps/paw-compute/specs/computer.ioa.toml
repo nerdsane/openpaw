@@ -9,7 +9,15 @@
 
 [automaton]
 name = "Computer"
-states = ["Created", "Provisioning", "Ready", "Checkpointing", "Sleeping", "Destroyed"]
+# Leased is the CHILD-COPY lifecycle state (ARN-443 C): a live copy of a source
+# computer lands in Leased (never Ready), so a lease `state_timeout` can reap
+# copies without ever touching a source — sources stay in Ready
+# (allow_indefinite) and are structurally unreapable. State carries the "this is
+# a leased copy" semantics; there is no is_copy flag.
+# FORWARD POINTER (ARN-443 D): when panel execs route through Exec rows, the
+# computer_exec Ready-gate must also accept "Leased" so a governed exec can run
+# on a copy. That gate widening is deferred to D.
+states = ["Created", "Provisioning", "Ready", "Checkpointing", "Sleeping", "Leased", "Terminating", "Destroyed"]
 initial = "Created"
 
 # ADR-0050 migration TODO: each state below needs either a
@@ -112,6 +120,16 @@ name = "project_harness_id"
 type = "string"
 initial = ""
 
+# The source computer's machine id this row is a live copy of (ARN-443 C). Set
+# by computer_copy on a child at CopyComplete; empty on a source. Together with
+# the Leased state and the copy's own machine_id this is the governed-child audit
+# trail ("a leased copy of machine <source_machine_id>, running on <machine_id>")
+# — so no separate parent_computer_id / is_copy flag is needed.
+[[state]]
+name = "source_machine_id"
+type = "string"
+initial = ""
+
 # -- Actions -------------------------------------------------------------------
 
 [[action]]
@@ -173,12 +191,122 @@ from = ["Sleeping"]
 to = "Provisioning"
 hint = "Wake the VM from sleep."
 
+# Destroy → Terminating fires computer_terminate to actually tear the sandbox
+# down; the module reports TerminateComplete → Destroyed. NOTE: Provisioning is
+# deliberately NOT a `from` state — during a child's copy the machine_id is still
+# the SOURCE's machine, so terminating from Provisioning would kill the source. A
+# stuck copy is torn down via CopyFailed (no terminate) or, once Leased, by
+# Destroy / lease-timeout (machine_id is then the copy's own).
 [[action]]
 name = "Destroy"
 kind = "input"
-from = ["Ready", "Sleeping", "Created"]
+from = ["Ready", "Sleeping", "Created", "Leased"]
+to = "Terminating"
+hint = "Tear the VM down: fires computer_terminate on the sandbox (was a bare transition before — the VM was never actually torn down)."
+effect = [{ type = "trigger", name = "computer_terminate" }]
+
+[[action.triggers]]
+name = "computer_terminate"
+kind = "wasm"
+module = "computer_terminate"
+on_failure = "TerminateComplete"
+
+[action.triggers.config]
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_token_secret = "{secret:modal_token_secret}"
+
+# computer_terminate callback. Best-effort: even if the provider terminate
+# errored (on_failure also routes here), the row still reaches Destroyed — a
+# leaked sandbox is caught by the panel's stale-copy reaper. Terminating is not
+# in any `from` for a re-terminate, so it cannot loop.
+[[action]]
+name = "TerminateComplete"
+kind = "input"
+from = ["Terminating"]
 to = "Destroyed"
-hint = "Permanently destroy the VM."
+hint = "Callback from computer_terminate — teardown attempted; the row is destroyed."
+
+# -- Copy lifecycle (ARN-443 C: copies as governed children) -------------------
+
+# On a SOURCE (Ready), spawn a child Computer that is a live copy. The spawn is
+# the kernel's own child-creation primitive; copy_fields carries the source's
+# machine_id (the copy source) + spec into the child's ProvisionFromCopy params.
+# Self-loop: the source stays Ready.
+[[action]]
+name = "Copy"
+kind = "input"
+from = ["Ready"]
+to = "Ready"
+hint = "Spawn a governed child Computer that is a live copy of this one (e.g. a per-review copy of arni-big)."
+effect = [
+  { type = "spawn", entity_type = "Computer", entity_id_source = "{uuid}", initial_action = "ProvisionFromCopy", copy_fields = "machine_id,provider,cpu_cores,memory_gb,storage_gb,base_image,project_harness_id,name,description" },
+]
+
+# On the CHILD: begin the copy. machine_id here is the SOURCE's machine (from
+# copy_fields) — the machine to copy from; computer_copy overwrites it with the
+# new copy's machine at CopyComplete.
+[[action]]
+name = "ProvisionFromCopy"
+kind = "input"
+from = ["Created"]
+to = "Provisioning"
+params = ["machine_id", "provider", "cpu_cores", "memory_gb", "storage_gb", "base_image", "project_harness_id", "name", "description"]
+hint = "Child copy: record the source machine + inherited spec, then run the live copy."
+effect = [{ type = "trigger", name = "computer_copy" }]
+
+[[action.triggers]]
+name = "computer_copy"
+kind = "wasm"
+module = "computer_copy"
+on_failure = "CopyFailed"
+
+[action.triggers.config]
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_token_secret = "{secret:modal_token_secret}"
+
+# computer_copy callback: the copy is live. machine_id/sandbox_url are the NEW
+# copy's; source_machine_id records what it was copied from.
+[[action]]
+name = "CopyComplete"
+kind = "input"
+from = ["Provisioning"]
+to = "Leased"
+params = ["machine_id", "sandbox_url", "source_machine_id"]
+hint = "Callback from computer_copy — the child copy is live and leased."
+
+[[action]]
+name = "CopyFailed"
+kind = "input"
+from = ["Provisioning"]
+to = "Destroyed"
+params = ["error_message"]
+hint = "Callback from computer_copy — the copy failed. Goes straight to Destroyed with NO computer_terminate (machine_id is still the source's here, so terminating would kill the source). A copy sandbox leaked by a partial failure is caught by the panel's stale-copy reaper."
+
+# Keep-alive: a live user (the panel) re-enters Leased to re-arm the lease
+# timeout. A copy whose owner vanished lets the lease lapse and is reaped.
+[[action]]
+name = "Heartbeat"
+kind = "input"
+from = ["Leased"]
+to = "Leased"
+hint = "Push the lease forward: re-entering Leased re-arms the lease state_timeout."
+
+# Orphan reaping: a leased copy not renewed within the lease is auto-Destroyed
+# (which fires computer_terminate). Only Leased has this timeout, so sources
+# (Ready) are never reaped.
+[[state_timeout]]
+state = "Leased"
+after_seconds = 3600
+on_timeout = "Destroy"
+
+# Safety: if computer_terminate never reports (host-level failure), force the row
+# to Destroyed rather than hang in Terminating. TerminateComplete is idempotent.
+[[state_timeout]]
+state = "Terminating"
+after_seconds = 300
+on_timeout = "TerminateComplete"
 
 [[invariant]]
 name = "DestroyedIsFinal"

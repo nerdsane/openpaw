@@ -39,7 +39,9 @@ permit(
     resource is Computer
 );
 
-// Lifecycle: any Agent on this tenant may drive the computer.
+// Lifecycle: any Agent on this tenant may drive the computer. Copy (spawn a
+// governed child copy) and Heartbeat (renew a copy's lease) are agent-driven —
+// the review panel Copies arni-big and Heartbeats its live copy.
 permit(
     principal is Agent,
     action in [
@@ -48,20 +50,28 @@ permit(
         Action::"Computer.Checkpoint", Action::"Checkpoint",
         Action::"Computer.Sleep", Action::"Sleep",
         Action::"Computer.Wake", Action::"Wake",
-        Action::"Computer.Destroy", Action::"Destroy"
+        Action::"Computer.Destroy", Action::"Destroy",
+        Action::"Computer.Copy", Action::"Copy",
+        Action::"Computer.Heartbeat", Action::"Heartbeat"
     ],
     resource is Computer
 );
 
-// Callback actions (ProvisionComplete, ProvisionFailed, CheckpointComplete)
-// are dispatched by WASM integrations running as the system service, or by
-// an admin recording existing metal.
+// Callback actions are dispatched by WASM integrations running as the system
+// service (or by an admin recording existing metal). This also covers the
+// spawn-dispatched ProvisionFromCopy on a child and the state_timeout-fired
+// Destroy (lease reaping / Terminating safety), which run as system.
 permit(
     principal,
     action in [
         Action::"Computer.ProvisionComplete", Action::"ProvisionComplete",
         Action::"Computer.ProvisionFailed", Action::"ProvisionFailed",
-        Action::"Computer.CheckpointComplete", Action::"CheckpointComplete"
+        Action::"Computer.CheckpointComplete", Action::"CheckpointComplete",
+        Action::"Computer.ProvisionFromCopy", Action::"ProvisionFromCopy",
+        Action::"Computer.CopyComplete", Action::"CopyComplete",
+        Action::"Computer.CopyFailed", Action::"CopyFailed",
+        Action::"Computer.TerminateComplete", Action::"TerminateComplete",
+        Action::"Computer.Destroy", Action::"Destroy"
     ],
     resource is Computer
 ) when {
@@ -149,21 +159,27 @@ permit(
     resource is LatencyDiag
 );
 
-// Allow computer_exec to make HTTP calls (Computer row loopback read,
-// sandbox provider data plane).
+// Allow the paw-compute WASM modules to make HTTP calls (Computer row loopback
+// read, sandbox provider control + data plane). computer_copy/computer_terminate
+// call the provider's copy/terminate APIs.
 permit(
     principal is Agent,
     action == Action::"http_call",
     resource is HttpEndpoint
 ) when {
-    context.module == "computer_exec"
+    context.module == "computer_exec" ||
+    context.module == "computer_copy" ||
+    context.module == "computer_terminate"
 };
 
-// Allow computer_exec to access secrets (temper_api_url, sandbox provider keys).
+// Allow the paw-compute WASM modules to access secrets (temper_api_url, sandbox
+// provider keys).
 permit(
     principal is Agent,
     action == Action::"access_secret",
     resource is Secret
 ) when {
-    context.module == "computer_exec"
+    context.module == "computer_exec" ||
+    context.module == "computer_copy" ||
+    context.module == "computer_terminate"
 };

@@ -44,7 +44,7 @@ verify_blob() {
     echo "  -> blob ok: wasi_imports=$wasi wbindgen=0"
 }
 
-for module in computer_exec; do
+for module in computer_exec computer_copy computer_terminate; do
     echo "Building $module..."
     (cd "$SCRIPT_DIR/$module" && cargo build --target "$TARGET" --release)
     src="$SCRIPT_DIR/$module/target/$TARGET/release/${module}.wasm"
