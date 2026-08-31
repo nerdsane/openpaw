@@ -714,14 +714,13 @@ fn bearer_headers_json(api_key: &str) -> Vec<(String, String)> {
 /// A capture id that is unique across concurrent exec invocations.
 ///
 /// The temp files `/tmp/.paw-{out,err,rc}-<id>` must not collide between two
-/// execs running on the same sandbox at once. The old scheme used only a
-/// process-local `AtomicU32` starting at 0 — but every trigger dispatch is a
-/// fresh WASM instance, so the counter reset to 0 each time and every exec
-/// reused `/tmp/.paw-out-00000000`. Two concurrent execs then crossed each
-/// other's stdout (and raced the cleanup delete). Scope the id to the calling
-/// entity — unique per entity, so two different entities' execs never collide —
-/// and add the host clock plus a per-instance counter to separate repeated
-/// execs from the same entity/instance. (ARN-401)
+/// execs running on the same sandbox at once. Earlier schemes could not
+/// guarantee this: a process-local `AtomicU32` reset to 0 on every fresh WASM
+/// instance, and even entity id + host clock + counter collided for two execs
+/// of the SAME entity in the same millisecond (both fresh instances, same clock,
+/// counter 0) — and a long-running exec can overlap another dispatch for the
+/// same entity. So uniqueness comes from a per-dispatch random u64 instead; the
+/// entity id is kept only as a readable label. (ARN-401)
 fn unique_run_id(ctx: &Context) -> String {
     capture_run_id(&ctx.entity_id, random_u64())
 }
