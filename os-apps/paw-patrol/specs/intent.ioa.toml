@@ -148,15 +148,13 @@ type = "create"
 [[action]]
 name = "RebirthEffort"
 kind = "input"
-from = ["Accepted"]
-to = "Accepted"
-hint = "Re-attempt the Effort birth for an Accepted Intent that has no linked Effort (repair path for a failed birth trigger)."
+from = ["Accepted", "Linked"]
+hint = "Re-attempt the Effort birth for an Accepted/Linked Intent that has no linked Effort (repair for a failed birth). Self-loop (no `to`) so it stays in the current state; reachable after LinkPmIssue too. Intake-service only (Cedar)."
 
 [[action.triggers]]
 name = "intent_rebirth_effort"
 kind = "entity"
 principal = "patrol-intake-service"
-to_state = "Accepted"
 target_entity = "Effort"
 target_action = "Seed"
 

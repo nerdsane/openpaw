@@ -178,7 +178,6 @@ permit(
     resource is Signal ||
     resource is FactoryCase ||
     resource is WorkCycle ||
-    resource is Effort ||
     resource is WorkerRun ||
     resource is WorkerProvider ||
     resource is WorkerAgent ||
@@ -193,6 +192,10 @@ permit(
     resource is DailyBrief ||
     resource is PatrolSchedule
   )
+  // NB: Effort is intentionally NOT in this generic system-agent list. Effort
+  // lifecycle has its own permit below, and Effort creation is the intake
+  // service's ALONE - granting the generic `create` here was a second birth door
+  // (#491 panel round 2). The forbid below is the belt-and-suspenders guarantee.
 };
 
 permit(
@@ -578,12 +581,22 @@ permit(
     Action::"AttachSignal",
     Action::"Triage",
     Action::"Accept",
-    Action::"RebirthEffort",
     Action::"LinkPmIssue",
     Action::"Reject"
   ],
   resource is Intent
 );
+
+// RebirthEffort re-attempts the Effort birth, so it is the intake service's ALONE
+// (#491 panel round 2) - not any Agent. Same principal as the birth it repeats;
+// the Intent's declarative RebirthEffort trigger already runs under this elevation.
+permit(
+  principal,
+  action == Action::"RebirthEffort",
+  resource is Intent
+) when {
+  principal has agent_type && principal.agent_type == "patrol-intake-service"
+};
 
 // Effort lifecycle - the full set of SDLC transitions, driven by the
 // system/patrol surface. Self-contained (does not lean on the system-agent block
@@ -647,5 +660,17 @@ permit(
   ],
   resource is Effort
 ) when {
+  principal has agent_type && principal.agent_type == "patrol-intake-service"
+};
+
+// Birth rule, enforced (#491 panel round 2): forbid beats permit, so this closes
+// EVERY door to Effort creation except the intake service - the Admin blanket, the
+// generic system-agent permit, a future stray permit, all of them. An Effort is
+// born ONLY by accepting an Intent (the Accept trigger runs as patrol-intake-service).
+forbid(
+  principal,
+  action in [Action::"create", Action::"Seed"],
+  resource is Effort
+) unless {
   principal has agent_type && principal.agent_type == "patrol-intake-service"
 };

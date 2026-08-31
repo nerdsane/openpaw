@@ -270,3 +270,48 @@ state. Given up: nothing.
 **Where:** intent.ioa.toml (RebirthEffort, intent_ref, AttachSignal self-loop),
 effort.ioa.toml (intent_ref), paw_patrol_foundation.rs (birth-wiring test - the
 "take it" consider).
+
+---
+
+**Decision:** (#491 panel round 2, 2026-08-31) Close the second birth door with a
+Cedar `forbid`, remove Effort from the generic system-agent permit, and restrict
+RebirthEffort to the intake service; widen RebirthEffort to be reachable from Linked.
+**Came up because:** round 2 found (1) the generic system-agent permit granted
+`create` on Effort - a second birth door; (2) RebirthEffort was callable by any
+Agent; (4) RebirthEffort was unreachable after LinkPmIssue->Linked.
+**Options:** (1) narrow the generic permit vs add a forbid - the lead said forbid
+beats permit, use it if the permit can't be narrowed cleanly; (4) widen from-states
+with an explicit `to` (regresses Linked->Accepted) vs a self-loop (no `to`, stays put).
+**Chose:** BOTH narrow AND forbid for (1) - removed Effort from the generic list AND
+added `forbid(create/Seed on Effort) unless patrol-intake-service`, so every door
+(Admin blanket, system, future strays) is closed; verified live (operator POST
+/tdata/Efforts -> 403, birth via Accept still works). (2) moved RebirthEffort into an
+intake-service-only permit. (4) self-loop (dropped `to` and the trigger's optional
+`to_state`) so RebirthEffort stays in Accepted/Linked and is reachable from both.
+Given up: nothing.
+**Where:** patrol.cedar (forbid + permits), intent.ioa.toml (RebirthEffort self-loop).
+
+---
+
+**Decision:** (DESIGN POINT to owner, #491 round 2) The idempotency guard for
+RebirthEffort (#2) and the intent_ref-non-empty enforcement (#3) need the
+wasm-validated-guard pattern; recommend implementing them in 1b's effort_lifecycle
+wasm, not 1a.
+**Came up because:** both fixes hit kernel mechanism limits (verified in source):
+kernel ACTION guards have NO string check (only Always/StateIn/CounterMin,Max/
+BoolTrue,False/ListContains/ListLengthMin/CrossEntityStateIn/And - temper-jit
+table/guard.rs), so "effort_id != ''" / "intent_ref != ''" cannot be a kernel guard;
+and the entity-trigger (resolve_target=create) cannot write the created id back to
+the source (only the `spawn` effect's store_id_in can, but spawn's copy_fields copies
+same-named parent STATE fields and cannot map the Intent's `Id` to Seed's intent_id).
+**Options:** (a) switch birth to `spawn` (gets effort_id back-ref) + solve the
+intent_id mapping somehow; (b) enforce both via a wasm that validates (query-before-
+create for idempotency; non-empty for intent_ref) - the SAME pattern 1b's
+effort_lifecycle wasm already uses for spec.md/plan.md; (c) a kernel change (out of
+scope).
+**Chose (b), recommend to 1b because:** the Cedar/declarative hardening that closes
+the SECURITY-critical open door (#1 forbid, #2 permit, #4) lands in 1a NOW; the
+wasm-validated integrity guards (idempotency, non-empty) are the identical pattern to
+1b's chain-file guards and belong with them, keeping 1a declarative. Pending owner
+adjudication (round 3 residual).
+**Where:** recommendation messaged to team-lead; guards to land in 1b effort_lifecycle wasm.
