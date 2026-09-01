@@ -141,8 +141,13 @@
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
         </Action>
 
+        <Action Name="CopyLockContinue" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
         <Action Name="CopyUnlock" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="reset_polls" Type="Edm.String" />
         </Action>
 
         <Action Name="Heartbeat" IsBound="true">

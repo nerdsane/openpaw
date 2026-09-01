@@ -75,6 +75,7 @@ permit(
         Action::"Computer.CopyFailed", Action::"CopyFailed",
         Action::"Computer.CopyExpired", Action::"CopyExpired",
         Action::"Computer.CopyLockPoll", Action::"CopyLockPoll",
+        Action::"Computer.CopyLockContinue", Action::"CopyLockContinue",
         Action::"Computer.CopyUnlock", Action::"CopyUnlock",
         Action::"Computer.TerminateComplete", Action::"TerminateComplete",
         Action::"Computer.Destroy", Action::"Destroy"

@@ -7,15 +7,19 @@
 //! a read; it never dispatches a transition on another entity (CLAUDE.md: sequencing
 //! belongs to the state machine).
 //!
-//! Release (CopyUnlock -> Ready) when the copy is no longer using the shared
-//! "<source>-copy" name ambiguously — i.e. the child OWNS its own copy machine
-//! (owned_machine) — or the child has failed / vanished, or the liveness cap is hit.
-//! Otherwise report an empty callback so the CopyInFlight timeout re-arms.
+//! Release (CopyUnlock -> Ready) ONLY on a definitive signal: the child OWNS its own
+//! copy machine (owned_machine — discovery done, the shared "<source>-copy" name is no
+//! longer ambiguous), the child is terminal/vanished, or the bounded liveness cap
+//! (copy_lock_polls >= max_lock_polls) is hit. Everything else — still in flight, or a
+//! transient child-read error — reports an empty callback so the CopyInFlight timeout
+//! re-arms and the source STAYS LOCKED.
 //!
-//! Premature release is safe: a second Copy's INITIATE would hit the provider's 409
-//! on the still-present "<source>-copy" name, so a source is never double-copied.
-//! Hence the trigger's on_failure is CopyUnlock (fail OPEN) — a flaky child read
-//! never wedges a source out of Ready.
+//! FAIL-CLOSED (R2 #3): a transient read error must NOT release, because releasing
+//! while the child is still discovering by name would reopen the ambiguity the lock
+//! exists to prevent. The module never set_errors; the trigger's on_failure is
+//! CopyLockContinue (re-arm, stay locked), and the liveness cap is the only bounded
+//! escape. Every release zeroes copy_lock_polls (reset_polls) so the next copy from
+//! this source starts the cap fresh (R2 #1).
 //!
 //! Build: `cargo build --target wasm32-wasip1 --release`.
 
@@ -34,12 +38,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
     // Liveness cap (session_link idiom: the count lives in the spec). Past it, the
-    // source unlocks regardless so the lock can never wedge it out of Ready.
+    // source unlocks regardless so the lock can never wedge it out of Ready — this is
+    // the bounded-deadline release, and it holds even if the child read keeps failing
+    // (the count is incremented by the spec each tick, checked here every run).
     let polls = num_field(&fields, &["copy_lock_polls", "CopyLockPolls"]);
     let max_polls = num_field(&fields, &["max_lock_polls", "MaxLockPolls"]).max(1);
     if polls >= max_polls {
         ctx.log("info", "computer_copy_lock_poll: liveness cap reached — releasing lock");
-        set_success_result("CopyUnlock", &json!({}));
+        unlock();
         return 0;
     }
 
@@ -49,19 +55,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let child_id = match child_id {
         Some(id) => id,
         None => {
-            // No child recorded — nothing to wait for; release.
+            // No child recorded — nothing to wait for; release (definitive).
             ctx.log("info", "computer_copy_lock_poll: no inflight_copy_id — releasing lock");
-            set_success_result("CopyUnlock", &json!({}));
+            unlock();
             return 0;
         }
     };
 
-    // Read the child. A missing / unreadable child surfaces as Err and the trigger's
-    // on_failure (CopyUnlock) fails open — safe, per the module doc.
+    // Read the child. A transient read error is NOT a release signal (that would
+    // reopen the ambiguity the lock prevents): re-arm and let the liveness cap be the
+    // only bounded escape (R2 #3). We never set_error here.
     let child = match read_child(&ctx, &fields, &child_id) {
         Ok(c) => c,
         Err(e) => {
-            set_error_result(&format!("computer_copy_lock_poll: read child {child_id}: {e}"));
+            ctx.log("info", &format!("computer_copy_lock_poll: child {child_id} read failed, staying locked: {e}"));
+            set_success_result("", &json!({})); // transient — re-arm, stay locked
             return 0;
         }
     };
@@ -69,18 +77,24 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let status = entity_field_str(cf, &["status", "Status"]).unwrap_or("");
     let child_owns = bool_field(cf, &["owned_machine", "OwnedMachine"]);
 
-    // Release once the child owns its own machine (discovery done — the shared name
-    // is no longer ambiguous) or the child is terminal.
+    // Release ONLY on a definitive child state: it owns its own machine (discovery
+    // done — the shared name is no longer ambiguous) or it is terminal.
     if child_owns || matches!(status, "Leased" | "Destroyed" | "Terminating") {
         ctx.log(
             "info",
             &format!("computer_copy_lock_poll: child {child_id} settled (status={status}, owned={child_owns}) — releasing lock"),
         );
-        set_success_result("CopyUnlock", &json!({}));
+        unlock();
     } else {
         set_success_result("", &json!({})); // still in flight — re-arm
     }
     0
+}
+
+/// Release the lock (CopyUnlock) and zero the poll counter so the NEXT copy from this
+/// source starts the liveness cap fresh (R2 #1).
+fn unlock() {
+    set_success_result("CopyUnlock", &json!({ "reset_polls": "0" }));
 }
 
 /// GET a single Computer row via the Temper loopback.

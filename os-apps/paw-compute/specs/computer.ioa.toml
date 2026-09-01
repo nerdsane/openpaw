@@ -178,7 +178,9 @@ initial = ""
 # Liveness cap for the CopyInFlight lock poll (session_link idiom: the count lives
 # in the spec, the module reads it). Each CopyLockPoll increments copy_lock_polls;
 # past max_lock_polls the source unlocks regardless, so the lock can never wedge a
-# source out of Ready even if the child row becomes unreadable.
+# source out of Ready even if the child row becomes unreadable. RESET to 0 on
+# CopyUnlock (via reset_polls) so a second copy from the same source does not
+# inherit the first's count (R2 #1).
 [[state]]
 name = "copy_lock_polls"
 type = "counter"
@@ -331,7 +333,7 @@ effect = [
 state = "CopyInFlight"
 after_seconds = 15
 on_timeout = "CopyLockPoll"
-reset_on = ["CopyLockPoll"]
+reset_on = ["CopyLockPoll", "CopyLockContinue"]
 
 [[action]]
 name = "CopyLockPoll"
@@ -348,23 +350,40 @@ effect = [
 name = "computer_copy_lock_poll"
 kind = "wasm"
 module = "computer_copy_lock_poll"
-# On a module failure (e.g. the child row is unreadable) fail OPEN: release the
-# lock. Premature release is backstopped by the provider's 409 on the shared
-# "<source>-copy" name — a second copy's INITIATE would be rejected — so a source
-# is never wedged out of Ready by a flaky loopback read.
-on_failure = "CopyUnlock"
+# FAIL-CLOSED (ARN-443 R2, codex #3): a module failure NEVER releases the lock —
+# on_failure re-arms (CopyLockContinue) and stays in CopyInFlight. Releasing on a
+# bare read error would reopen the ambiguity the lock exists to prevent (a source
+# could be freed to Copy again while its first child is still discovering). The
+# module itself treats a transient child-read error as "still in flight" (empty
+# callback, re-arm); the ONLY releases are a DEFINITIVE child terminal/owned state
+# or the bounded liveness cap (copy_lock_polls >= max_lock_polls).
+on_failure = "CopyLockContinue"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 
-# Release the source copy lock. computer_copy_lock_poll dispatches this (or the poll
-# on_failure / the liveness cap does); the source returns to Ready and may Copy again.
+# Re-arm the lock poll after a module failure without releasing. Self-loop in
+# reset_on; carries no increment so a persistently failing module re-checks every
+# tick rather than tight-looping.
+[[action]]
+name = "CopyLockContinue"
+kind = "input"
+from = ["CopyInFlight"]
+to = "CopyInFlight"
+hint = "Re-arm the CopyInFlight lock poll after a module failure — stays locked (fail-closed); the liveness cap is the only bounded release."
+
+# Release the source copy lock. computer_copy_lock_poll dispatches this ONLY on a
+# definitive child terminal/owned state or the liveness cap; the source returns to
+# Ready and may Copy again. reset_polls zeroes copy_lock_polls so the NEXT copy from
+# this source starts the cap fresh (R2 #1: the counter must not carry across copies).
 [[action]]
 name = "CopyUnlock"
 kind = "input"
 from = ["CopyInFlight"]
 to = "Ready"
-hint = "Release the per-source copy lock — the in-flight child owns its own machine (or failed); the source is free to Copy again."
+params = ["reset_polls"]
+hint = "Release the per-source copy lock — the in-flight child owns its own machine (or failed / cap); the source is free to Copy again."
+effect = [{ type = "set_counter_from_param", var = "copy_lock_polls", param = "reset_polls" }]
 
 # On the CHILD: START the copy (ASYNC), INITIATE ONLY. A live-copy of a real box
 # takes MINUTES — far past the ~120s WASM invocation cap — and the provider copy

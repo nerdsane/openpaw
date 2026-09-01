@@ -25,7 +25,9 @@ use wasm_helpers::sandbox::{self, SandboxHandle, normalize_sandbox_provider};
 use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
 
 /// Max /tdata pages to walk when collecting claimed machine_ids — a hard bound so a
-/// pathological nextLink chain can never spin the invocation.
+/// pathological nextLink chain can never spin the invocation. Hitting it WITHOUT
+/// exhausting nextLink is a fail-CLOSED error (an incomplete claimed set must never be
+/// treated as complete), not a silently-truncated Ok — see live_claimed_machine_ids.
 const MAX_CLAIMED_PAGES: usize = 25;
 
 #[unsafe(no_mangle)]
@@ -190,10 +192,15 @@ fn live_claimed_machine_ids(ctx: &Context, fields: &Value) -> Result<Vec<String>
         }
         match body.get("@odata.nextLink").and_then(|v| v.as_str()) {
             Some(next) if !next.is_empty() => path = next_link_path(next),
-            _ => return Ok(out),
+            _ => return Ok(out), // exhausted all pages — complete set
         }
     }
-    Ok(out)
+    // Hit the page cap while @odata.nextLink STILL remained: the claimed set is
+    // INCOMPLETE. Returning it would silently drop the guard for later pages (the
+    // fail-open the R2 panel flagged), so FAIL CLOSED — refuse discovery this tick.
+    Err(format!(
+        "claimed-id read exceeded {MAX_CLAIMED_PAGES} pages without exhausting @odata.nextLink — refusing discovery (fail-closed)"
+    ))
 }
 
 /// Reduce an @odata.nextLink (absolute URL or relative path) to the path+query the

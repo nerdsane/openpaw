@@ -697,3 +697,61 @@ regression in this effort.
 
 **Where:** filed ARN-450 (high/security, kernel, linked to ARN-443) with the probe
 evidence and the declared-params-only fix; caveat carried in the ARN-443 closing comment.
+
+## R2 panel (2/3) — 3 edges of the new structure
+
+R2 converged 9→3 (codex #4 deduped with fable). All three are edges of the entity-lock
+rework; batched here, R3 is the convergence check.
+
+**Decision:** Reset copy_lock_polls to 0 on CopyUnlock (the module passes reset_polls=0
+in the release callback), not just increment it per tick.
+**Came up because:** both reviewers flagged that copy_lock_polls increments each
+CopyLockPoll but was never reset — a second copy from the same source inherited the
+first's count and could hit the liveness cap early (premature safety-unlock) or misfire
+across many copies.
+**Options:** reset on Copy (entry) or on CopyUnlock (exit). Copy is agent-invoked with
+no params, so a set_counter_from_param there would depend on an absent-param default;
+CopyUnlock is module-dispatched, so the reset value is guaranteed present.
+**Chose** CopyUnlock via a reset_polls param + set_counter_from_param, because every
+exit from CopyInFlight goes through CopyUnlock (the only transition out), so every
+source returning to Ready has copy_lock_polls=0 and the next copy's cap starts fresh —
+deterministic, no reliance on a param default.
+**Where:** `specs/computer.ioa.toml` (CopyUnlock params + set_counter_from_param),
+`wasm/computer_copy_lock_poll/src/lib.rs` (unlock() passes reset_polls=0),
+`specs/model.csdl.xml` (CopyUnlock reset_polls param).
+
+**Decision:** Fail CLOSED when the claimed-id pagination hits its page cap with
+@odata.nextLink still remaining — return an error, never a partial claimed set.
+**Came up because:** codex found the 25-page cap returned Ok(out) while more pages
+remained — the fail-open the R1 rework had just closed, reintroduced at the page limit:
+a tenant with >25 pages of Computers slips claimed machines past the filter with no signal.
+**Options:** raise/remove the cap (unbounded read risk); or keep the cap but treat
+cap-with-more-pages as a hard failure.
+**Chose** the latter: `live_claimed_machine_ids` returns Err when it exhausts
+MAX_CLAIMED_PAGES without exhausting nextLink; the caller then re-arms (or expires past
+the deadline) rather than adopting against an incomplete claimed set — no silent
+truncation (the no-silent-caps rule).
+**Where:** `wasm/computer_copy_poll/src/lib.rs` (`live_claimed_machine_ids`).
+
+**Decision:** The source lock releases ONLY on a definitive child state (owned/terminal)
+or the bounded liveness cap — never on a transient child-read error.
+**Came up because:** codex flagged that the lock-poll set_error'd on any child-read
+failure and the trigger's on_failure released the source (CopyUnlock, fail-open); a
+transient read blip during CopyLockPoll could free the source to Copy again while its
+first child was still discovering by name — reopening the exact ambiguity the lock
+prevents (the provider-409 backstop does not hold before the first child has created its
+sandbox).
+**Options:** keep fail-open (rejected — reopens the window); or fail-closed: treat a
+read error as "still in flight" and never release on it.
+**Chose** fail-closed: the module now returns an empty callback (re-arm, stay locked) on
+a read error and never set_errors, so releases come only from a definitive child
+state or the cap; the trigger's on_failure is CopyLockContinue (re-arm, stay locked),
+not CopyUnlock. The liveness cap remains the single bounded escape and still holds under
+persistent read failure (the count is incremented by the spec each tick and checked every
+run). Given up the fail-open convenience; gained the invariant that a source is never
+freed while its copy is still in flight.
+**Where:** `specs/computer.ioa.toml` (on_failure = CopyLockContinue + new CopyLockContinue
+re-arm action; reset_on includes it), `wasm/computer_copy_lock_poll/src/lib.rs`
+(read error -> re-arm, never set_error), `policies/compute.cedar` (CopyLockContinue
+system-only), `specs/model.csdl.xml`. Local after R2: wasm-helpers 56/56, 7 modules 34/34,
+e2e 29/29.
