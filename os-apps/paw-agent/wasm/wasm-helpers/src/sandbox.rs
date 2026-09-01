@@ -1038,36 +1038,41 @@ fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
     None
 }
 
-/// ASYNC copy — INITIATE only (ARN-443 C5 structural fix). One concern: fire the
-/// copy POST. Discovery is a SEPARATE step (`sandbox_copy_discover`) driven from the
-/// Copying poll, so initiate and discover are distinct transitions.
+/// ASYNC copy — INITIATE and confirm creation (ARN-443 C5; R3 fix). Fires the copy
+/// POST and returns the created copy's handle ONLY on a CLEAN, PROVABLE result:
+///  - 2xx WITH a parseable copy id  => Ok(handle): the create call itself returned the
+///    id, so the copy is unambiguously OURS. The caller records that id and polls it to
+///    readiness — no name-based discovery, ever.
+///  - anything else — 4xx (incl. the provider's 409 on a duplicate `<source>-copy`),
+///    5xx, a gateway/read timeout, a transport error, or a 2xx WITHOUT an id — is
+///    UNPROVABLE and returns Err => CopyFailed (retry-later).
 ///
-/// The tensorlake live-copy API is SYNCHRONOUS — POST /sandboxes/{src}/copy blocks
-/// until the copy is fully provisioned (minutes) then returns — so this cannot wait
-/// for the copy. It fires the POST with a short wait (the copy is created
-/// server-side regardless of whether the response arrives) and returns:
-///  - a 4xx is a DEFINITIVE failure (Err) — including the provider's 409 when a
-///    `<source>-copy` already exists. That 409 is the ORDERING GUARANTEE that makes
-///    discovery safe: a successful initiate means no `<source>-copy` existed before,
-///    so the `<source>-copy` discovered next is unambiguously OURS (this is why the
-///    old creation-time window guard was removed — it was also dead code, as the
-///    provider returns RFC3339 timestamps that parsed to 0).
-///  - a 2xx / 5xx / gateway timeout means the copy is being created — return Ok; the
-///    Copying poll discovers it.
+/// Why fail closed on the ambiguous middle: a 5xx / dropped response / transport error
+/// can MASK a 409 (a raw panel copy already owns `<source>-copy`) or be a failure where
+/// nothing was created. Adopting a sandbox we cannot prove we created is catastrophic —
+/// its lease reaper would later terminate a sandbox another live review still depends on
+/// (a raw panel copy has no Computer row, so no claimed-id check can catch it, and a
+/// before/after id-diff can't distinguish it either: a concurrent panel create looks
+/// "new" too). Leaking a possibly-ours sandbox is recoverable — it carries the fixed
+/// `<source>-copy` name, which the stale-copy reaper / lease sweep already collects. So
+/// we fail toward the leak, never toward the adoption, and use ONLY the id the create
+/// call handed back.
 pub fn sandbox_copy_initiate(
     ctx: &Context,
     provider: &str,
     source_sandbox_id: &str,
     wait_secs: u64,
-) -> Result<(), String> {
+) -> Result<SandboxHandle, String> {
     let api_key = resolve_sandbox_api_key(ctx, provider)?;
     let result = match provider {
         "tensorlake" => tensorlake_copy_initiate(ctx, &api_key, source_sandbox_id, wait_secs),
         other => Err(format!("sandbox_copy_initiate unsupported for provider: {other}")),
     };
-    let outcome = if result.is_ok() { "initiated" } else { "error" };
+    let outcome = if result.is_ok() { "created" } else { "error" };
     log_sandbox_observability(
-        ctx, provider, "copy_initiate", outcome, "", None, None, source_sandbox_id,
+        ctx, provider, "copy_initiate", outcome,
+        result.as_ref().map(|h| h.sandbox_id.as_str()).unwrap_or(""),
+        None, None, source_sandbox_id,
     );
     result
 }
@@ -1077,117 +1082,34 @@ fn tensorlake_copy_initiate(
     api_key: &str,
     source_sandbox_id: &str,
     wait_secs: u64,
-) -> Result<(), String> {
+) -> Result<SandboxHandle, String> {
     let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
     let body = json!({ "times": 1, "timeout_seconds": wait_secs });
-    match ctx.http_call("POST", &copy_url, &bearer_headers_json(api_key), &body.to_string()) {
-        Ok(r) if r.status >= 400 && r.status < 500 => Err(format!(
-            "Tensorlake copy of {source_sandbox_id} rejected (HTTP {}): {}",
-            r.status,
-            &r.body[..r.body.len().min(300)]
-        )),
-        _ => Ok(()), // 2xx (created), 5xx, gateway timeout, or http error: being created
-    }
-}
-
-/// ASYNC copy — DISCOVER the created copy (ARN-443 C5). Driven from the Copying poll
-/// until the copy sandbox appears. The copy carries the provider's fixed single-copy
-/// name `<source>-copy`. Because a successful initiate proves no `<source>-copy`
-/// existed beforehand (the provider 409s a duplicate), the one we find is ours; the
-/// `claimed_ids` filter (machine_ids referenced by live Computer rows, passed by the
-/// caller) is defense-in-depth so discovery can never adopt a sandbox already owned
-/// by another governed row even under a list-propagation race.
-///
-/// Returns Ok(Some(handle)) when found, Ok(None) when the source or copy is not yet
-/// listed (the caller re-arms and retries within the deadline), Err on a hard list
-/// failure.
-pub fn sandbox_copy_discover(
-    ctx: &Context,
-    provider: &str,
-    source_sandbox_id: &str,
-    claimed_ids: &[String],
-) -> Result<Option<SandboxHandle>, String> {
-    let api_key = resolve_sandbox_api_key(ctx, provider)?;
-    match provider {
-        "tensorlake" => tensorlake_copy_discover(ctx, &api_key, source_sandbox_id, claimed_ids),
-        other => Err(format!("sandbox_copy_discover unsupported for provider: {other}")),
-    }
-}
-
-fn tensorlake_copy_discover(
-    ctx: &Context,
-    api_key: &str,
-    source_sandbox_id: &str,
-    claimed_ids: &[String],
-) -> Result<Option<SandboxHandle>, String> {
-    let rows = tensorlake_list_sandboxes(ctx, api_key)?;
-    // The copy is named "<source-name>-copy"; the source must be listed to know it.
-    let source_name = match rows
-        .iter()
-        .find(|r| r.id == source_sandbox_id)
-        .map(|r| r.name.clone())
-        .filter(|n| !n.is_empty())
-    {
-        Some(n) => n,
-        None => return Ok(None), // source not listed yet — retry
-    };
-    let want = format!("{source_name}-copy");
-    let copy = rows.iter().find(|r| {
-        r.name == want
-            && r.id != source_sandbox_id
-            && !is_terminated_status(&r.status)
-            && !claimed_ids.iter().any(|c| c == &r.id)
-    });
-    Ok(copy.map(|r| handle_for(r.id.clone())))
-}
-
-struct SandboxRow {
-    id: String,
-    name: String,
-    status: String,
-}
-
-fn tensorlake_list_sandboxes(ctx: &Context, api_key: &str) -> Result<Vec<SandboxRow>, String> {
-    let resp = ctx.http_call(
-        "GET",
-        "https://api.tensorlake.ai/sandboxes",
-        &bearer_headers(api_key),
-        "",
-    )?;
+    // A transport error is unprovable (the copy may or may not exist): fail closed.
+    let resp = ctx
+        .http_call("POST", &copy_url, &bearer_headers_json(api_key), &body.to_string())
+        .map_err(|e| {
+            format!("Tensorlake copy of {source_sandbox_id}: transport error, unprovable: {e}")
+        })?;
+    // Only a clean 2xx is provable-ours. 4xx (incl. 409), 5xx, and gateway timeouts all
+    // fail closed — the copy, if any, leaks and is reaped by name.
     if resp.status < 200 || resp.status >= 300 {
-        return Err(format!("Tensorlake list sandboxes failed (HTTP {})", resp.status));
+        return Err(format!(
+            "Tensorlake copy of {source_sandbox_id} not a clean 2xx (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ));
     }
     let parsed: Value = serde_json::from_str(&resp.body)
-        .map_err(|e| format!("failed to parse Tensorlake sandbox list: {e}"))?;
-    let arr = parsed
-        .as_array()
-        .or_else(|| parsed.get("sandboxes").and_then(|v| v.as_array()));
-    let mut out = Vec::new();
-    if let Some(arr) = arr {
-        for e in arr {
-            let id = e
-                .get("sandbox_id")
-                .or_else(|| e.get("id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if id.is_empty() {
-                continue;
-            }
-            out.push(SandboxRow {
-                id: id.to_string(),
-                name: e.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                status: e.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            });
-        }
-    }
-    Ok(out)
-}
-
-fn is_terminated_status(status: &str) -> bool {
-    matches!(
-        status.to_ascii_lowercase().as_str(),
-        "terminated" | "destroyed" | "stopped" | "failed" | "deleted"
-    )
+        .map_err(|e| format!("failed to parse Tensorlake copy response: {e}"))?;
+    // A 2xx WITHOUT a created id is not provable-ours either.
+    let sandbox_id = extract_copied_sandbox_id(&parsed).ok_or_else(|| {
+        format!(
+            "Tensorlake copy returned 2xx without a sandbox id (unprovable): {}",
+            &resp.body[..resp.body.len().min(300)]
+        )
+    })?;
+    Ok(handle_for(sandbox_id))
 }
 
 fn handle_for(sandbox_id: String) -> SandboxHandle {

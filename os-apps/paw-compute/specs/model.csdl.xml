@@ -103,23 +103,18 @@
           <Parameter Name="description" Type="Edm.String" />
         </Action>
 
-        <!-- computer_copy_start callback: initiate only; discovery happens in the poll. -->
+        <!-- computer_copy_start callback: clean 2xx with the copy's own id. -->
         <Action Name="CopyStarted" IsBound="true">
-          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
-          <Parameter Name="copy_deadline_at_ms" Type="Edm.String" />
-        </Action>
-
-        <Action Name="CopyPoll" IsBound="true">
-          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
-        </Action>
-
-        <!-- computer_copy_poll callback: the copy sandbox was discovered. -->
-        <Action Name="CopyDiscovered" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
           <Parameter Name="machine_id" Type="Edm.String" />
           <Parameter Name="sandbox_url" Type="Edm.String" />
           <Parameter Name="source_machine_id" Type="Edm.String" />
           <Parameter Name="name" Type="Edm.String" />
+          <Parameter Name="copy_deadline_at_ms" Type="Edm.String" />
+        </Action>
+
+        <Action Name="CopyPoll" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
         </Action>
 
         <Action Name="CopyComplete" IsBound="true">

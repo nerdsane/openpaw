@@ -133,7 +133,7 @@ type = "string"
 initial = ""
 
 # The source computer's machine id this row is a live copy of (ARN-443 C). Set
-# by computer_copy_poll on a child at CopyDiscovered; empty on a source. Together
+# by computer_copy_start on a child at CopyStarted; empty on a source. Together
 # with the Leased state and the copy's own machine_id this is the governed-child
 # audit trail ("a leased copy of machine <source_machine_id>, running on
 # <machine_id>") — so no separate parent_computer_id / is_copy flag is needed. The
@@ -156,9 +156,9 @@ initial = ""
 
 # PROVENANCE (ARN-443 C5): true iff this row's `machine_id` is a sandbox THIS row
 # acquired itself — set at ProvisionComplete (a normally-provisioned computer) or
-# at CopyDiscovered (a child that discovered its OWN copy sandbox). It stays FALSE
-# while a child carries the inherited SOURCE machine_id (Created→Provisioning→
-# Copying-before-discovery). computer_terminate refuses to call the provider unless
+# at CopyStarted (a child copy recording its OWN created sandbox). It stays FALSE
+# while a child carries the inherited SOURCE machine_id (Created→Provisioning,
+# before CopyStarted records the copy's own id). computer_terminate refuses the provider unless
 # this is true, so a teardown can NEVER terminate a source's machine even as
 # defense-in-depth behind the Provisioning-Destroy guard. Not in Copy's copy_fields,
 # so a spawned child starts false regardless of the source's value.
@@ -216,7 +216,7 @@ to = "Ready"
 params = ["machine_id", "sandbox_url", "ssh_host"]
 hint = "Record the provisioned VM details."
 # This row acquired its own machine — mark it owned so computer_terminate may tear
-# it down. (A copy child does NOT come through here; it sets owned at CopyDiscovered.)
+# it down. (A copy child does NOT come through here; it sets owned at CopyStarted.)
 effect = [{ type = "set_bool", var = "owned_machine", value = "true" }]
 
 [[action]]
@@ -270,7 +270,7 @@ hint = "Wake the VM from sleep."
 # down the COPY. The e2e asserts a Provisioning child refuses Destroy.
 # DEFENSE IN DEPTH (ARN-443 C5): even if a teardown reached a row carrying an
 # inherited source machine, computer_terminate now calls the provider ONLY when
-# owned_machine is true (set at ProvisionComplete / CopyDiscovered), so a source's
+# owned_machine is true (set at ProvisionComplete / CopyStarted), so a source's
 # machine can never be terminated through a child row.
 [[action]]
 name = "Destroy"
@@ -385,25 +385,27 @@ params = ["reset_polls"]
 hint = "Release the per-source copy lock — the in-flight child owns its own machine (or failed / cap); the source is free to Copy again."
 effect = [{ type = "set_counter_from_param", var = "copy_lock_polls", param = "reset_polls" }]
 
-# On the CHILD: START the copy (ASYNC), INITIATE ONLY. A live-copy of a real box
-# takes MINUTES — far past the ~120s WASM invocation cap — and the provider copy
-# API is synchronous, so computer_copy_start only FIRES the copy POST (one concern)
-# and reports CopyStarted; discovery of the created sandbox and readiness both
-# happen in the Copying poll loop across invocations. machine_id here is still the
-# SOURCE's machine (from copy_fields) and owned_machine is false.
+# On the CHILD: START the copy. computer_copy_start fires the copy POST and reports
+# CopyStarted ONLY on a clean 2xx that returns the copy's id (a provably-ours id — no
+# name-based discovery). machine_id here is still the SOURCE's machine (from
+# copy_fields) and owned_machine is false until CopyStarted records the copy's own id.
 [[action]]
 name = "ProvisionFromCopy"
 kind = "input"
 from = ["Created"]
 to = "Provisioning"
 params = ["machine_id", "provider", "cpu_cores", "memory_gb", "storage_gb", "base_image", "project_harness_id", "description"]
-hint = "Child copy: record the source machine + inherited spec, then START (initiate) the live copy (async)."
+hint = "Child copy: record the source machine + inherited spec, then START the live copy."
 effect = [{ type = "trigger", name = "computer_copy_start" }]
 
 [[action.triggers]]
 name = "computer_copy_start"
 kind = "wasm"
 module = "computer_copy_start"
+# UNPROVABLE initiate results (4xx incl. 409, 5xx, gateway/read timeout, transport
+# error, or a 2xx without an id) route here — retry-later. Adopting a copy we cannot
+# prove we created is catastrophic (our reaper could kill another review's sandbox);
+# a possibly-created copy instead leaks and is reaped by its "<source>-copy" name.
 on_failure = "CopyFailed"
 
 [action.triggers.config]
@@ -411,35 +413,36 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 
-# computer_copy_start callback: the copy POST was accepted (the sandbox is being
-# created server-side). machine_id is STILL the source's — the copy's own machine is
-# discovered later by computer_copy_poll at CopyDiscovered. copy_deadline_at_ms
-# bounds both the discovery and the readiness poll.
+# computer_copy_start callback: the copy POST returned a clean 2xx WITH the copy's id.
+# machine_id / sandbox_url are now the COPY's own (from the create response);
+# source_machine_id records what it was copied from; name is the child's distinct copy
+# name; copy_deadline_at_ms bounds the readiness poll. owned_machine is set true here —
+# the row now owns a machine the create call proved is ours, so teardown may act on it
+# and the source's lock may release.
 [[action]]
 name = "CopyStarted"
 kind = "input"
 from = ["Provisioning"]
 to = "Copying"
-params = ["copy_deadline_at_ms"]
-hint = "Callback from computer_copy_start — the copy was initiated; discover + poll it from Copying."
+params = ["machine_id", "sandbox_url", "source_machine_id", "name", "copy_deadline_at_ms"]
+hint = "Callback from computer_copy_start — the copy was created (clean 2xx with id); poll it to readiness from Copying."
+effect = [{ type = "set_bool", var = "owned_machine", value = "true" }]
 
 # The copy poll loop: while Copying, fire CopyPoll every 10s. computer_copy_poll
-# first DISCOVERS the created "<source>-copy" sandbox (recording it at
-# CopyDiscovered), then health-checks it (CopyComplete -> Leased); past the deadline
-# or on a hard failure it expires (CopyExpired). Self-loop, re-arms via reset_on;
-# CopyDiscovered is in reset_on so recording the machine keeps the loop alive.
+# health-checks the recorded copy id (CopyComplete -> Leased); past the deadline or on
+# a hard failure it expires (CopyExpired). Self-loop, re-arms ONLY via reset_on.
 [[state_timeout]]
 state = "Copying"
 after_seconds = 10
 on_timeout = "CopyPoll"
-reset_on = ["CopyPoll", "CopyDiscovered"]
+reset_on = ["CopyPoll"]
 
 [[action]]
 name = "CopyPoll"
 kind = "input"
 from = ["Copying"]
 to = "Copying"
-hint = "Poll the copy once (computer_copy_poll): discover-then-readiness. A not-ready / not-yet-listed poll reports an empty callback (no transition) and the loop re-arms."
+hint = "Poll the copy once (computer_copy_poll): health-check the recorded copy id. A not-ready poll reports an empty callback (no transition) and the loop re-arms."
 effect = [{ type = "trigger", name = "computer_copy_poll" }]
 
 [[action.triggers]]
@@ -452,23 +455,9 @@ on_failure = "CopyExpired"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
-temper_api_url = "{secret:temper_api_url}"
 
-# computer_copy_poll callback (discovery): the created "<source>-copy" sandbox was
-# found. Record the COPY's own machine_id / sandbox_url, the source it came from,
-# and a distinct copy name; set owned_machine so teardown may act on it and the
-# source's lock can release. Stays in Copying — the next poll checks readiness.
-[[action]]
-name = "CopyDiscovered"
-kind = "input"
-from = ["Copying"]
-to = "Copying"
-params = ["machine_id", "sandbox_url", "source_machine_id", "name"]
-hint = "Callback from computer_copy_poll — the copy sandbox was discovered; record the copy's own machine and mark it owned."
-effect = [{ type = "set_bool", var = "owned_machine", value = "true" }]
-
-# computer_copy_poll callback (readiness): the copy is ready and leased. Its
-# machine_id / sandbox_url / source_machine_id / name were set at CopyDiscovered.
+# computer_copy_poll callback: the copy is ready and leased. Its machine_id /
+# sandbox_url / source_machine_id / name were set at CopyStarted.
 [[action]]
 name = "CopyComplete"
 kind = "input"

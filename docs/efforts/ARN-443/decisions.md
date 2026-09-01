@@ -755,3 +755,60 @@ re-arm action; reset_on includes it), `wasm/computer_copy_lock_poll/src/lib.rs`
 (read error -> re-arm, never set_error), `policies/compute.cedar` (CopyLockContinue
 system-only), `specs/model.csdl.xml`. Local after R2: wasm-helpers 56/56, 7 modules 34/34,
 e2e 29/29.
+
+## R3 panel (2/3) — convergence close: fail closed on the ambiguous initiate
+
+R3 converged to ONE act-on (codex, security) — the hole in the name-claim-mutex
+argument. This is the convergence close (breaker rule: no round 4; the lead
+diff-verifies and adjudicates).
+
+**Decision:** computer_copy_start reports CopyStarted ONLY on a clean 2xx that returns
+the copy's id, and records THAT id (owned) — there is no name-based discovery anymore.
+Any other initiate result — 4xx (incl. the provider's 409 on a duplicate name), 5xx, a
+gateway/read timeout, a transport error, or a 2xx without an id — routes to CopyFailed
+(retry-later). computer_copy_poll is now readiness-only; sandbox_copy_discover,
+tensorlake_list_sandboxes, live_claimed_machine_ids, the @odata.nextLink pagination,
+and the CopyDiscovered action are all deleted.
+
+**Came up because:** the previous design treated a 5xx/transport error as "created ->
+discover the `<source>-copy` by name." But a 5xx can MASK a fast 409 (a raw panel copy
+already owns `<source>-copy`) or be a transport failure where nothing was created — and
+then discovery adopts a sandbox that is not ours, whose lease reaper later terminates a
+sandbox another live review still depends on. The name-claim mutex only holds on a CLEAN
+result: 2xx-with-id = ours; 4xx = definitively not ours. The ambiguous middle is
+unprovable. A raw panel copy has no Computer row (claimed_ids can't catch it), and a
+before/after list id-diff can't save it either — a concurrent panel create looks "new"
+too. So the only sound proof of ownership is the id the create call itself returns.
+
+**Options:** (a) keep name-discovery but only after a non-4xx initiate (rejected — a 5xx
+that masked a 409 still leads to adopting the panel's copy); (b) fail closed on any
+non-clean-2xx and use only the create call's returned id (chosen). Given up: the async
+"discover a minutes-long copy across invocations" affordance — a copy that does not
+return a clean 2xx-with-id within the POST window now fails-and-retries instead of being
+adopted. Gained: the adoption hazard class is closed by construction (no name-adoption
+path exists), and the code is a net simplification.
+
+**Fail toward the leak, never toward adoption:** a possibly-created copy that we abandon
+carries the fixed `<source>-copy` name and is collected by the stale-copy reaper / lease
+sweep (confirmed: those sweeps key on the `<source>-copy` name, which every abandoned
+copy still carries, so they already cover these ambiguous-leak sandboxes). Adopting a
+copy we cannot prove is ours is unrecoverable (it kills another review). Leak is
+recoverable; adoption is not.
+
+**C5 must confirm the timeout is reachable:** COPY_START_WAIT_SECS is raised 5 -> 90 (under
+the ~120s WASM cap) so a real copy (arni-big, ~1 min per the first C5 log) returns its
+clean 2xx-with-id in one invocation. If the provider's gateway read-timeout is FIXED
+below the copy duration (i.e. the 502 comes regardless of timeout_seconds), no clean 2xx
+is ever reachable and every copy fails-and-retries — in that world the true fix is a
+provider async-create that returns the id immediately (the standing upstream ask), and
+C5 is what tells us which world we are in. Flagged to the lead before the push.
+
+**Where:** `wasm-helpers/src/sandbox.rs` (`sandbox_copy_initiate` returns the handle on a
+clean 2xx-with-id, Err otherwise; deleted `sandbox_copy_discover`,
+`tensorlake_list_sandboxes`, `SandboxRow`, `is_terminated_status`),
+`wasm/computer_copy_start` (records the id at CopyStarted, owned; COPY_START_WAIT_SECS 90),
+`wasm/computer_copy_poll` (readiness-only; deleted discovery + claimed_ids + pagination),
+`specs/computer.ioa.toml` (CopyStarted regains id params + owned effect; CopyDiscovered
+removed; Copying reset_on = [CopyPoll]; poll config drops temper_api_url),
+`policies/compute.cedar` + `specs/model.csdl.xml` (CopyDiscovered removed), `.scratch/e2e.sh`.
+Local: wasm-helpers 56/56, paw-compute 7 modules 32/32, e2e 28/28.

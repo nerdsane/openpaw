@@ -1,20 +1,17 @@
-//! computer_copy_start — INITIATE an async live-copy of a source computer's sandbox
-//! for a CHILD Computer row (ARN-443 C; C5 structural: initiate only).
+//! computer_copy_start — INITIATE a live-copy and record the created copy's id
+//! (ARN-443 C; C5 R3: use only a provably-ours id, no name discovery).
 //!
 //! Fires on the child's ProvisionFromCopy. The child's `machine_id` field holds the
 //! SOURCE's machine (carried by the Copy spawn's copy_fields) — the machine to copy
-//! from. This module has ONE concern: fire the copy POST. Discovery of the created
-//! sandbox and readiness both happen later in the Copying poll (computer_copy_poll)
-//! across invocations — the tensorlake copy API is synchronous and a real copy takes
-//! minutes, far past the ~120s WASM cap, so nothing here waits for the copy.
-//!
-//! On success it reports CopyStarted (recording only the poll deadline; machine_id
-//! stays the source's until CopyDiscovered). A 4xx from the POST — including the
-//! provider's 409 when a `<source>-copy` already exists — is a definitive failure and
-//! the trigger's on_failure routes to CopyFailed (which does NOT terminate; the
-//! machine_id is still the source's here). That 409-on-duplicate is also what makes
-//! discovery unambiguous: a successful initiate proves no `<source>-copy` existed
-//! before, so the one the poll discovers is ours.
+//! from. This fires the copy POST and, ONLY on a clean 2xx that returns a copy id,
+//! reports CopyStarted with the COPY's own id/url and owned_machine=true; the Copying
+//! poll then drives readiness on that id. Any non-clean result — 4xx (incl. the
+//! provider's 409 on a duplicate `<source>-copy`), 5xx, a gateway/read timeout, a
+//! transport error, or a 2xx without an id — is UNPROVABLE and routes to CopyFailed
+//! (retry-later) via the trigger's on_failure. Rationale in `sandbox_copy_initiate`:
+//! adopting a copy we cannot prove we created could make our lease reaper terminate a
+//! sandbox another live review depends on, so we fail toward a (reaper-collected) leak
+//! and never toward adoption.
 //!
 //! Build: `cargo build --target wasm32-wasip1 --release`.
 
@@ -22,15 +19,16 @@ use temper_wasm_sdk::prelude::*;
 use wasm_helpers::entity_field_str;
 use wasm_helpers::sandbox::{self, normalize_sandbox_provider};
 
-// The tensorlake copy API is SYNCHRONOUS (blocks until the copy is fully ready).
-// This short wait just needs the copy created server-side; the Copying poll then
-// discovers it and drives readiness — so the initiate fits well under the ~120s
-// WASM cap (a full synchronous wait was the R1 bug, a too-short wait that failed on
-// the real API was the C5 bug; initiate-then-poll is the fix).
-const COPY_START_WAIT_SECS: u64 = 5;
-/// Wall-clock budget (ms) for the copy to be discovered AND become ready, stamped on
-/// the row so the poll reads a single deadline. A live-copy of a real box takes
-/// minutes.
+// How long the copy POST waits for the (synchronous) copy to complete and return its
+// id. Must be under the ~120s WASM invocation cap. A copy that does not return a clean
+// 2xx-with-id within this window fails closed (CopyFailed, retry-later) rather than
+// being adopted by name — the C5 real-provider drive confirms whether a real copy
+// (e.g. arni-big, ~1 min) returns its id in time; if the provider gateway times out
+// below the copy duration regardless, the true fix is a provider async-create that
+// returns the id immediately (the standing upstream ask).
+const COPY_START_WAIT_SECS: u64 = 90;
+/// Wall-clock budget (ms) for the recorded copy to become READY, stamped on the row so
+/// the readiness poll reads a single deadline.
 const COPY_READY_BUDGET_MS: i64 = 300_000;
 
 #[unsafe(no_mangle)]
@@ -53,19 +51,20 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
 
-        // Fire the copy POST. A 4xx (incl. the provider's 409 on a duplicate
-        // <source>-copy) is a definitive failure -> CopyFailed via on_failure.
-        sandbox::sandbox_copy_initiate(
-            &ctx,
-            &provider,
-            &source_machine_id,
-            COPY_START_WAIT_SECS,
-        )?;
+        // Clean-2xx-with-id or bust. Err -> CopyFailed via on_failure (retry-later).
+        let handle =
+            sandbox::sandbox_copy_initiate(&ctx, &provider, &source_machine_id, COPY_START_WAIT_SECS)?;
 
         let deadline_at_ms = Context::get_time_millis() + COPY_READY_BUDGET_MS;
         set_success_result(
             "CopyStarted",
-            &json!({ "copy_deadline_at_ms": deadline_at_ms.to_string() }),
+            &json!({
+                "machine_id": handle.sandbox_id,
+                "sandbox_url": handle.sandbox_url,
+                "source_machine_id": source_machine_id,
+                "name": copy_name(&ctx.entity_id),
+                "copy_deadline_at_ms": deadline_at_ms.to_string(),
+            }),
         );
         Ok(())
     })();
@@ -74,6 +73,21 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         set_error_result(&e);
     }
     0
+}
+
+/// A distinct name for the child copy — NEVER the source's name (an attach key).
+/// Derived from the child's own entity id, so it is unique per copy and marked.
+fn copy_name(entity_id: &str) -> String {
+    let short: String = entity_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(12)
+        .collect();
+    if short.is_empty() {
+        "copy".to_string()
+    } else {
+        format!("copy-{short}")
+    }
 }
 
 /// The provider recorded on the row, normalized; defaults to tensorlake.
@@ -93,5 +107,12 @@ mod tests {
         assert_eq!(provider_from_fields(&json!({})), "tensorlake");
         assert_eq!(provider_from_fields(&json!({"provider": "tl"})), "tensorlake");
         assert_eq!(provider_from_fields(&json!({"provider": "modal"})), "modal");
+    }
+
+    #[test]
+    fn copy_name_is_distinct_and_never_empty() {
+        assert_eq!(copy_name("abc123def456ghi"), "copy-abc123def456");
+        assert_eq!(copy_name(""), "copy");
+        assert_ne!(copy_name("arni-big"), "arni-big");
     }
 }
