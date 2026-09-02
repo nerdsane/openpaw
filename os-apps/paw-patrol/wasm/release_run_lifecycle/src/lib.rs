@@ -388,9 +388,25 @@ fn merge_command(repo: &str, pr_number: &str, head_sha: &str) -> String {
     )
 }
 
-/// Non-terminal ReleaseRun states — a run in any of these is "in flight" for
-/// per-repo serialization (ARN-397).
+/// Non-terminal ReleaseRun / DsfDeploy states — a run in any of these is
+/// "in flight" for per-repo serialization (ARN-397).
 const ACTIVE_RELEASE_STATES: &[&str] = &["Requested", "Merging", "Watching", "Unhealthy"];
+
+/// Which OData set to scan for an in-flight sibling. ReleaseRun stays the
+/// default so WorkCycle.Complete is unchanged. DsfDeploy sets DsfDeploys.
+fn concurrent_entity_set(ctx: &Context) -> Result<&'static str, String> {
+    concurrent_entity_set_name(ctx.config.get("concurrent_entity_set").map(String::as_str))
+}
+
+fn concurrent_entity_set_name(raw: Option<&str>) -> Result<&'static str, String> {
+    match raw.unwrap_or("ReleaseRuns") {
+        "" | "ReleaseRuns" => Ok("ReleaseRuns"),
+        "DsfDeploys" => Ok("DsfDeploys"),
+        other => Err(format!(
+            "release_run_lifecycle: concurrent_entity_set must be ReleaseRuns or DsfDeploys, got {other:?}"
+        )),
+    }
+}
 
 /// Query other ReleaseRuns for `repo` and return the id of one that is still
 /// active (excluding self), if any. A loopback read; failure surfaces as an
@@ -422,7 +438,8 @@ fn active_release_conflict(
         .map(|s| format!("status eq '{s}'"))
         .collect::<Vec<_>>()
         .join(" or ");
-    let path = format!("/tdata/ReleaseRuns?$filter={status_clause}");
+    let set = concurrent_entity_set(ctx)?;
+    let path = format!("/tdata/{set}?$filter={status_clause}");
     let resp = bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
         .map_err(|e| format!("release_run_lifecycle: could not check for concurrent releases of {repo}: {e}"))?;
     // Fail CLOSED if the result is paginated: a truncated page could hide the
@@ -1444,5 +1461,16 @@ mod tests {
         assert!(sandbox_handle_from_computer(&no_status).is_err());
         let bare = json!({"Status":"Ready","fields":{"sandbox_url":""}});
         assert!(sandbox_handle_from_computer(&bare).err().unwrap().contains("no sandbox_url"));
+    }
+
+    #[test]
+    fn concurrent_entity_set_accepts_only_known_sets() {
+        assert_eq!(concurrent_entity_set_name(None).unwrap(), "ReleaseRuns");
+        assert_eq!(concurrent_entity_set_name(Some("")).unwrap(), "ReleaseRuns");
+        assert_eq!(
+            concurrent_entity_set_name(Some("DsfDeploys")).unwrap(),
+            "DsfDeploys"
+        );
+        assert!(concurrent_entity_set_name(Some("Deploys")).is_err());
     }
 }

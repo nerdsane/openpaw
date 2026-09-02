@@ -20,9 +20,7 @@ flip (like risk_rule and the CI gates).
 Additive, declarative, no wasm change:
 
 - **Intent** (`specs/intent.ioa.toml`) - the WorkRequest shape in SDLC vocabulary.
-  `Accept` births an Effort via a declarative entity trigger (create + Seed) run
-  under the `patrol-intake-service` principal (mirrors the ReleaseRun/
-  patrol-release-service elevation).
+  `Accept` creates an Effort (create + Seed) under `patrol-intake-service`.
 - **Effort** (`specs/effort.ioa.toml`) - WorkCycle EXTENDED to the full lifecycle:
   `Intended (initial) -> Specified -> Planned -> Building -> InReview -> Proving ->
   Merged -> Deploying -> Verified`, with `Stalled` (recoverable) and `Abandoned`
@@ -33,27 +31,42 @@ Additive, declarative, no wasm change:
 - **CSDL** - Intent/Effort EntityTypes + EntitySets Intents/Efforts.
 - **Cedar** - Intent intake for agents; Effort lifecycle for the system/patrol
   surface; Effort birth (create + Seed) locked to `patrol-intake-service`.
+- **GitHub doors** - `intent_ref` / `spec_ref` / `plan_ref` / `decisions_ref`
+  are git paths (`docs/efforts/<issue>/*.md`). Attach* runs
+  `chain_github_ready`. Accept / Specify / Plan / Merge refuse unless that
+  path is a file on GitHub. ReviewRun / ProofPacket attach an HTML or JSON
+  Temper File; those are not committed.
+- **Panel** - one ReviewRun per panel agent. Each run is written with
+  `RecordPanel` (Requested → Recorded). PassReview is called after three
+  attaches. The kernel door is `panel_started` (verifier counter bound is
+  2, so it cannot require count 3).
+- **Merge** - Cedar door. L0/L1 permit; L2+ denies and surfaces as MCP
+  elicitation. Merge does not call GitHub.
+- **Deploy** - Effort.Deploy stores an opaque `deployment_id`. The implementer
+  creates `DsfDeploy` (DSF merge+watch+revert) or `TemperDeploy` (GHCR
+  IMAGE_TAG → Railway → /paw/version). Child Healthy → Effort.Verified;
+  RolledBack → Merged; Failed → Stall. Live ReleaseRun / DeployRun rows
+  are not renamed. No ConfigureRelease on Effort.
 
-## PR 1b scope (next, on top of this)
+## Not required to use
 
-Chain-file guards (Specify/Plan refuse without spec.md/plan.md on TemperFS, enforced
-by a generalized `effort_lifecycle` wasm), WorkerRun `Heartbeat`, and the ownership
-lease (state_timeout -> Stalled on the owned states), proven by a synthetic drive
-including a forced timeout -> Stalled and a missing-spec.md refusal.
+A WorkerRun heartbeat lease on Effort. The implementer is the harness; #492
+stays unmerged.
 
 ## Deferred (recorded, not dropped)
 
-- WorkCycle's `AwaitingHuman*` pause states: completion-approval becomes step 3's
-  Cedar-deny -> MCP elicitation; a start-approval pause, if wanted, becomes a
+- WorkCycle's `AwaitingHuman*` pause states: completion-approval is Cedar-deny
+  -> MCP elicitation on Merge; a start-approval pause, if wanted, becomes a
   StartBuild guard in a later step.
 - `Resume` out of Stalled will require an Adjudication guard (a later step).
 - Intake routing for Intent (the new-type equivalent of patrol_request_router)
   generalizes in a later step; the Effort is born at Accept without it.
-- Merge as a Cedar permit (step 3); Deployment entity linkage (step 4).
+- github_mirror, gate_render-to-GitHub, kernel entity namespacing (ARN-28).
+  ARN-28 is blocked until this SDLC is proven in use.
 
 ## Acceptance (this PR)
 
 L0-L3 cascade + composite cross-entity verification pass with Intent/Effort; all
 wasm still build; the app boots on an isolated TURSO_URL; one synthetic Effort is
-hand-driven Intent.Accept -> Effort born (Intended) -> ... -> Verified, read back via
+hand-driven Intent.Accept -> Effort created (Intended) -> ... -> Verified, read back via
 OData at each step. Genesis publish -> install after merge.

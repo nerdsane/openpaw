@@ -42,7 +42,7 @@
       </EntityType>
 
       <!-- Intent - WorkRequest renamed to the SDLC vocabulary (ARN-441). Accept
-           births an Effort. Additive: WorkRequest stays until the phase-3 flip. -->
+           creates an Effort. Additive: WorkRequest stays until the phase-3 flip. -->
       <EntityType Name="Intent">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -61,8 +61,9 @@
         <Property Name="Repo" Type="Edm.String"/>
         <Property Name="Branch" Type="Edm.String"/>
         <Property Name="IntentRef" Type="Edm.String"/>
+        <Property Name="IntentFileReady" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Human or manager-agent intent submitted into Patrol as work; Accept births its Effort."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Human or manager-agent intent submitted into Patrol as work; Accept creates its Effort."/>
       </EntityType>
 
       <EntityType Name="Signal">
@@ -138,9 +139,8 @@
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Patrol-owned implementation loop with worker, reviewer, evaluator, and proof gates."/>
       </EntityType>
 
-      <!-- Effort - WorkCycle EXTENDED to the full SDLC lifecycle (ARN-441): born
-           at intent, carried to a verified deploy. Additive: WorkCycle stays live
-           for the paw-codex-worker + dashboard until the phase-3 flip. -->
+      <!-- Effort - SDLC execution record (ARN-441). Implementer works via
+           Computer/Exec and writes this row. Additive until the phase-3 flip. -->
       <EntityType Name="Effort">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
@@ -154,6 +154,8 @@
         <Property Name="IntentRef" Type="Edm.String"/>
         <Property Name="SpecRef" Type="Edm.String"/>
         <Property Name="PlanRef" Type="Edm.String"/>
+        <Property Name="DecisionsRef" Type="Edm.String"/>
+        <Property Name="PmIssueId" Type="Edm.String"/>
         <Property Name="PlanSummary" Type="Edm.String"/>
         <Property Name="TaskSummary" Type="Edm.String"/>
         <Property Name="TaskDetail" Type="Edm.String"/>
@@ -162,8 +164,6 @@
         <Property Name="Branch" Type="Edm.String"/>
         <Property Name="PrNumber" Type="Edm.String"/>
         <Property Name="HeadSha" Type="Edm.String"/>
-        <Property Name="ImplementerWorkerRunId" Type="Edm.String"/>
-        <Property Name="OwnerWorkerRunId" Type="Edm.String"/>
         <Property Name="ReviewerRunId" Type="Edm.String"/>
         <Property Name="EvaluationRunId" Type="Edm.String"/>
         <Property Name="ProofPacketId" Type="Edm.String"/>
@@ -171,6 +171,11 @@
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Property Name="SpecWritten" Type="Edm.Boolean"/>
         <Property Name="PlanWritten" Type="Edm.Boolean"/>
+        <Property Name="SpecFileReady" Type="Edm.Boolean"/>
+        <Property Name="PlanFileReady" Type="Edm.Boolean"/>
+        <Property Name="DecisionsFileReady" Type="Edm.Boolean"/>
+        <Property Name="PanelCount" Type="Edm.Int32"/>
+        <Property Name="PanelStarted" Type="Edm.Boolean"/>
         <Property Name="WorkerDone" Type="Edm.Boolean"/>
         <Property Name="ReviewPassed" Type="Edm.Boolean"/>
         <Property Name="EvaluationPassed" Type="Edm.Boolean"/>
@@ -178,7 +183,7 @@
         <Property Name="E2eOk" Type="Edm.Boolean"/>
         <Property Name="DeployVerified" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="The SDLC execution unit: born at intent, carried through spec/plan/build/review/proof to merge, deploy, and verified."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="The SDLC execution unit. intent/spec/plan/decisions are git paths on GitHub. Review and proof are Temper Files. Deploy records a DsfDeploy or TemperDeploy id."/>
       </EntityType>
 
       <EntityType Name="WorkerRun">
@@ -209,6 +214,7 @@
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="EffortId" Type="Edm.String"/>
         <Property Name="WorkerRunId" Type="Edm.String"/>
         <Property Name="ReviewerId" Type="Edm.String"/>
         <Property Name="ReviewSummary" Type="Edm.String"/>
@@ -221,8 +227,10 @@
         <Property Name="Risk" Type="Edm.String"/>
         <Property Name="OpenActOnCount" Type="Edm.String"/>
         <Property Name="RecordPresent" Type="Edm.Boolean"/>
+        <Property Name="ArtifactRef" Type="Edm.String"/>
+        <Property Name="ArtifactFileReady" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Independent reviewer pass over implementation, proof, tests, and live evidence; carries the decoded review record (commit, reviewers, findings, risk) once ingested."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="One panel agent's pass. artifact_ref is a Temper File (HTML/JSON); GitHub comments are not the record."/>
       </EntityType>
 
       <EntityType Name="ReleaseRun">
@@ -246,7 +254,49 @@
         <Property Name="Reason" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Governed release of one merged WorkCycle: merge the PR on the computer, watch the rollout until the deployed git sha matches, and git-revert through the computer if it never becomes healthy."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Legacy WorkCycle release (live rows kept). New DSF efforts use DsfDeploy."/>
+      </EntityType>
+
+      <EntityType Name="DsfDeploy">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="EffortId" Type="Edm.String"/>
+        <Property Name="Repo" Type="Edm.String"/>
+        <Property Name="PrNumber" Type="Edm.String"/>
+        <Property Name="ComputerId" Type="Edm.String"/>
+        <Property Name="HealthUrl" Type="Edm.String"/>
+        <Property Name="MaxChecks" Type="Edm.String"/>
+        <Property Name="MergeSha" Type="Edm.String"/>
+        <Property Name="ObservedSha" Type="Edm.String"/>
+        <Property Name="CheckCount" Type="Edm.Int32"/>
+        <Property Name="DegradedStreak" Type="Edm.Int32"/>
+        <Property Name="BaseBranch" Type="Edm.String"/>
+        <Property Name="ExpectedHeadSha" Type="Edm.String"/>
+        <Property Name="HeadSha" Type="Edm.String"/>
+        <Property Name="RevertSha" Type="Edm.String"/>
+        <Property Name="Reason" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Deep Sci-Fi deploy tool: merge+watch+revert on the computer. Reports back to Effort."/>
+      </EntityType>
+
+      <EntityType Name="TemperDeploy">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="EffortId" Type="Edm.String"/>
+        <Property Name="ImageTag" Type="Edm.String"/>
+        <Property Name="ExpectedSha" Type="Edm.String"/>
+        <Property Name="PreviousTag" Type="Edm.String"/>
+        <Property Name="PreviousSha" Type="Edm.String"/>
+        <Property Name="ObservedSha" Type="Edm.String"/>
+        <Property Name="MaxChecks" Type="Edm.String"/>
+        <Property Name="CheckCount" Type="Edm.Int32"/>
+        <Property Name="Reason" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="TemperPaw image deploy tool: GHCR tag → Railway IMAGE_TAG → /paw/version. Reports back to Effort."/>
       </EntityType>
 
       <EntityType Name="EvaluationRun">
@@ -269,6 +319,7 @@
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
         <Property Name="WorkCycleId" Type="Edm.String"/>
+        <Property Name="EffortId" Type="Edm.String"/>
         <Property Name="WorkerRunId" Type="Edm.String"/>
         <Property Name="ReviewRunId" Type="Edm.String"/>
         <Property Name="EvaluationRunId" Type="Edm.String"/>
@@ -286,8 +337,10 @@
         <Property Name="Tests" Type="Edm.String"/>
         <Property Name="IndependentVerifier" Type="Edm.String"/>
         <Property Name="RecordPresent" Type="Edm.Boolean"/>
+        <Property Name="ArtifactRef" Type="Edm.String"/>
+        <Property Name="ArtifactFileReady" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="Visual and machine-readable evidence package for one work cycle; carries the decoded proof.json record (commit, changed surface, blast radius, features, tests, independent verifier) once ingested."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Proof artifact: Temper File (HTML/JSON via $value) plus decoded fields. Vercel/GitHub are not the record."/>
       </EntityType>
 
       <EntityType Name="RiskRule">
@@ -524,6 +577,8 @@
         <EntitySet Name="WorkerRuns" EntityType="TemperPaw.Patrol.WorkerRun"/>
         <EntitySet Name="ReviewRuns" EntityType="TemperPaw.Patrol.ReviewRun"/>
         <EntitySet Name="ReleaseRuns" EntityType="TemperPaw.Patrol.ReleaseRun"/>
+        <EntitySet Name="DsfDeploys" EntityType="TemperPaw.Patrol.DsfDeploy"/>
+        <EntitySet Name="TemperDeploys" EntityType="TemperPaw.Patrol.TemperDeploy"/>
         <EntitySet Name="EvaluationRuns" EntityType="TemperPaw.Patrol.EvaluationRun"/>
         <EntitySet Name="ProofPackets" EntityType="TemperPaw.Patrol.ProofPacket"/>
         <EntitySet Name="RiskRules" EntityType="TemperPaw.Patrol.RiskRule"/>

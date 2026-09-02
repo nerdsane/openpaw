@@ -3,7 +3,8 @@
 # deploy. WorkCycle EXTENDED (ARN-441, stage 3 phase 4): the design chain
 # (intent -> spec -> plan) becomes gated states, and merge/deploy become states
 # the later steps put Cedar and the Deployment entity behind. Additive: WorkCycle
-# stays live for the paw-codex-worker + dashboard until the phase-3 flip.
+# stays until the phase-3 flip. The implementer is a harness Agent: work goes
+# through Computer/Exec; this row is the record.
 name = "Effort"
 states = [
   "Intended", "Specified", "Planned", "Building", "InReview", "Proving",
@@ -14,8 +15,8 @@ initial = "Intended"
 # Pre-attachment states (Intended/Specified/Planned) have no owner, so no lease -
 # an intent legitimately sits until someone picks it up (the Intent entity's own
 # intake timeouts cover that). Stalled/Verified/Abandoned are resting states. The
-# owned states (Building/InReview/Proving/Merged/Deploying) get state_timeout ->
-# Stalled in step 1b (the ownership lease); none are added here.
+# owned states (Building/InReview/Proving/Merged/Deploying) stay here until
+# someone is on them; no WorkerRun lease.
 allow_indefinite_states = [
   "Intended", "Specified", "Planned", "Stalled", "Verified", "Abandoned"
 ]
@@ -73,6 +74,16 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "decisions_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "pm_issue_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "plan_summary"
 type = "string"
 initial = ""
@@ -114,18 +125,6 @@ type = "string"
 initial = ""
 
 # --- Execution attachments ----------------------------------------------------
-[[state]]
-name = "implementer_worker_run_id"
-type = "string"
-initial = ""
-
-# The lease owner: the WorkerRun whose Heartbeat keeps an owned state alive
-# (step 1b wires the state_timeout -> Stalled against a missed heartbeat).
-[[state]]
-name = "owner_worker_run_id"
-type = "string"
-initial = ""
-
 [[state]]
 name = "reviewer_run_id"
 type = "string"
@@ -192,39 +191,162 @@ name = "deploy_verified"
 type = "bool"
 initial = "false"
 
+# GitHub doors: Attach* writes a git path. chain_github_ready retracts the
+# bool if that path is not a file on repo@branch. Specify/Plan require the bool.
+# Temper Files stay on ReviewRun / ProofPacket only.
+[[state]]
+name = "spec_file_ready"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "plan_file_ready"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "decisions_file_ready"
+type = "bool"
+initial = "false"
+
+# panel_count is the human-visible attach tally. The verifier's default
+# counter bound is 2, so PassReview cannot require >= 3 in L1. panel_started
+# is the kernel door (at least one attach). Three ReviewRuns stay the rule
+# the implementer follows.
+[[state]]
+name = "panel_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "panel_started"
+type = "bool"
+initial = "false"
+
 # ============================ Transitions =====================================
 
-# Seed - the birth action. Intent.Accept creates the Effort (Intended) and
-# dispatches Seed with the intent linkage + task fields (declarative entity
-# trigger; see intent.ioa.toml). intent.md is attached to the Effort at birth.
+# Seed - Accept creates the Effort and fills these fields.
 [[action]]
 name = "Seed"
 kind = "input"
 from = ["Intended"]
 to = "Intended"
 params = ["intent_id", "intent_ref", "factory_case_id", "task_summary", "task_detail", "risk_lane", "repo", "branch"]
-hint = "Seed a new Effort from the accepted Intent: linkage (intent_id), the intent.md reference (intent_ref, guaranteed at birth), task, and repo. pm_issue_id is NOT copied - it is read from the Intent via intent_id (single source; the Intent's LinkPmIssue can set it after birth)."
+hint = "Copy linkage, intent.md ref, task, and repo from the accepted Intent."
 
-# Specify - the spec.md door. In 1b a wasm validates spec.md exists on TemperFS
-# and refuses on missing; here the marker is set by effect and the door is open.
+[[action]]
+name = "AttachSpec"
+kind = "input"
+from = ["Intended"]
+to = "Intended"
+params = ["spec_ref"]
+effect = "set spec_file_ready true"
+hint = "Name the git path docs/efforts/<issue>/spec.md. chain_github_ready retracts if it is not on GitHub."
+
+[[action.triggers]]
+name = "specify_checks_spec_github"
+kind = "wasm"
+module = "chain_github_ready"
+on_failure = "RetractSpecFile"
+
+[action.triggers.config]
+path_field = "spec_ref"
+repo_field = "repo"
+branch_field = "branch"
+github_token = "{secret:github_token}"
+
+[[action]]
+name = "RetractSpecFile"
+kind = "input"
+from = ["Intended"]
+to = "Intended"
+effect = "set spec_file_ready false"
+hint = "Callback: spec.md is not on GitHub at repo/branch/path."
+
 [[action]]
 name = "Specify"
 kind = "input"
 from = ["Intended"]
 to = "Specified"
-params = ["spec_ref"]
+guard = "is_true spec_file_ready"
 effect = "set spec_written true"
-hint = "Attach the spec (spec.md on TemperFS) and enter Specified. 1b enforces file presence."
+hint = "Enter Specified only when spec.md is on GitHub."
+
+[[action]]
+name = "AttachPlan"
+kind = "input"
+from = ["Specified"]
+to = "Specified"
+params = ["plan_ref"]
+effect = "set plan_file_ready true"
+hint = "Name the git path docs/efforts/<issue>/plan.md. chain_github_ready retracts if it is not on GitHub."
+
+[[action.triggers]]
+name = "plan_checks_plan_github"
+kind = "wasm"
+module = "chain_github_ready"
+on_failure = "RetractPlanFile"
+
+[action.triggers.config]
+path_field = "plan_ref"
+repo_field = "repo"
+branch_field = "branch"
+github_token = "{secret:github_token}"
+
+[[action]]
+name = "RetractPlanFile"
+kind = "input"
+from = ["Specified"]
+to = "Specified"
+effect = "set plan_file_ready false"
+hint = "Callback: plan.md is not on GitHub at repo/branch/path."
 
 [[action]]
 name = "Plan"
 kind = "input"
 from = ["Specified"]
 to = "Planned"
-params = ["plan_ref", "plan_summary"]
-guard = "is_true spec_written"
+params = ["plan_summary"]
+guard = [
+  { type = "is_true", var = "spec_written" },
+  { type = "is_true", var = "plan_file_ready" }
+]
 effect = "set plan_written true"
-hint = "Attach the plan (plan.md on TemperFS) and enter Planned. 1b enforces file presence."
+hint = "Enter Planned only when plan.md is on GitHub."
+
+[[action]]
+name = "AttachDecisions"
+kind = "input"
+from = ["Intended", "Specified", "Planned", "Building", "InReview", "Proving", "Merged", "Deploying"]
+params = ["decisions_ref"]
+effect = "set decisions_file_ready true"
+hint = "Name the git path docs/efforts/<issue>/decisions.md. chain_github_ready retracts if it is not on GitHub."
+
+[[action.triggers]]
+name = "effort_checks_decisions_github"
+kind = "wasm"
+module = "chain_github_ready"
+on_failure = "RetractDecisionsFile"
+
+[action.triggers.config]
+path_field = "decisions_ref"
+repo_field = "repo"
+branch_field = "branch"
+github_token = "{secret:github_token}"
+
+[[action]]
+name = "RetractDecisionsFile"
+kind = "input"
+from = ["Intended", "Specified", "Planned", "Building", "InReview", "Proving", "Merged", "Deploying"]
+effect = "set decisions_file_ready false"
+hint = "Callback: decisions.md is not on GitHub at repo/branch/path."
+
+[[action]]
+name = "LinkPmIssue"
+kind = "input"
+from = ["Intended", "Specified", "Planned", "Building", "InReview", "Proving", "Merged", "Deploying", "Verified", "Stalled"]
+params = ["pm_issue_id"]
+hint = "Record the Linear (paw-pm) issue that mirrors this Effort."
 
 [[action]]
 name = "StartBuild"
@@ -232,24 +354,15 @@ kind = "input"
 from = ["Planned"]
 to = "Building"
 guard = "is_true plan_written"
-hint = "Begin implementation once a plan exists."
-
-[[action]]
-name = "AttachWorkerRun"
-kind = "input"
-from = ["Building"]
-to = "Building"
-params = ["implementer_worker_run_id", "owner_worker_run_id"]
-hint = "Attach the implementer WorkerRun and record the lease owner."
+hint = "Implementer records that implementation has started."
 
 [[action]]
 name = "WorkerDone"
 kind = "input"
 from = ["Building"]
 to = "Building"
-params = ["implementer_worker_run_id"]
 effect = "set worker_done true"
-hint = "Record implementer completion."
+hint = "Implementer records that this implementation slice is done."
 
 [[action]]
 name = "SubmitForReview"
@@ -257,7 +370,7 @@ kind = "input"
 from = ["Building"]
 to = "InReview"
 guard = "is_true worker_done"
-hint = "Submit the worker output for independent review."
+hint = "Submit for independent review."
 
 [[action]]
 name = "AttachReviewRun"
@@ -265,8 +378,12 @@ kind = "input"
 from = ["InReview"]
 to = "InReview"
 params = ["reviewer_run_id", "review_run_ids"]
-effect = [{ type = "list_append", var = "review_run_ids" }]
-hint = "Attach a ReviewRun: reviewer_run_id records the current reviewer; review_run_ids is the run id appended to the chain list (a real list, one element per attach)."
+effect = [
+  { type = "list_append", var = "review_run_ids" },
+  { type = "increment", var = "panel_count" },
+  { type = "set_bool", var = "panel_started", value = true }
+]
+hint = "Attach one agent's ReviewRun. One run per panel agent (Grok, Codex, Claude). review_run_ids appends that id."
 
 [[action]]
 name = "ReportE2e"
@@ -283,8 +400,9 @@ kind = "input"
 from = ["InReview"]
 to = "InReview"
 params = ["reviewer_run_id"]
+guard = "is_true panel_started"
 effect = "set review_passed true"
-hint = "Reviewer approved after inspecting diff, proof, and relevant tests."
+hint = "Panel complete after at least one ReviewRun is attached. Attach three (one per panel agent); the verifier cannot require count 3 (counter bound 2)."
 
 [[action]]
 name = "RequestChanges"
@@ -326,8 +444,9 @@ effect = [
 ]
 hint = "Attach the proof packet: proof_packet_id records the current packet; proof_packet_ids is the id appended to the chain list."
 
-# Merge - step 3 puts a Cedar merge permit on this action (records-Recorded + zero
-# open act-ons + risk low). Here the state guard requires the gate markers.
+# Merge is the Cedar door (records present). It does not call GitHub.
+# Deploy records the project tool the implementer already started
+# (DsfDeploy or TemperDeploy). Those tools report back.
 [[action]]
 name = "Merge"
 kind = "input"
@@ -338,46 +457,41 @@ guard = [
   { type = "is_true", var = "review_passed" },
   { type = "is_true", var = "evaluation_passed" },
   { type = "is_true", var = "proof_attached" },
-  { type = "is_true", var = "e2e_ok" }
+  { type = "is_true", var = "e2e_ok" },
+  { type = "is_true", var = "decisions_file_ready" }
 ]
-hint = "Merge the reviewed, proven PR. Step 3 gates this with a Cedar permit."
+hint = "Authorize merge. decisions.md must be on GitHub. The project deploy tool does the ship."
 
-# Deploy - step 4 links a Deployment entity (release_run extended) driven
-# Requested -> Swapping -> Verifying -> Verified/RolledBack; MarkDeployVerified is
-# set from the Deployment's Verified transition. Here it is a hand-set marker.
 [[action]]
 name = "Deploy"
 kind = "input"
 from = ["Merged"]
 to = "Deploying"
 params = ["deployment_id"]
-hint = "Begin the deploy. Step 4 drives it as a Deployment entity."
+hint = "Record a DsfDeploy or TemperDeploy id (create the child first). Then Request the child. The child reports Healthy / RolledBack / Failed."
 
 [[action]]
 name = "MarkDeployVerified"
 kind = "input"
 from = ["Deploying"]
-to = "Deploying"
+to = "Verified"
 effect = "set deploy_verified true"
-hint = "Record that the Deployment reached Verified (step 4 sets this from the Deployment entity)."
+hint = "Callback from the project deploy tool when it is Healthy."
 
 [[action]]
-name = "Verify"
+name = "MarkDeployRolledBack"
 kind = "input"
 from = ["Deploying"]
-to = "Verified"
-guard = "is_true deploy_verified"
-hint = "Close the Effort once the deploy is verified live."
+to = "Merged"
+hint = "Callback: the project deploy tool rolled production back. Retry Deploy with a new child."
 
-# Stalled - orphan/stall state. In 1b the owned states carry state_timeout ->
-# Stalled (the ownership lease). Stall here is the manual/review-stall entry.
 [[action]]
 name = "Stall"
 kind = "input"
-from = ["InReview"]
+from = ["InReview", "Deploying"]
 to = "Stalled"
 params = ["error_message"]
-hint = "Mark a stalled effort (review stall). 1b adds the lease-timeout entry from the owned states."
+hint = "Review stall, or a deploy tool Failed (rollback did not finish). A clean RolledBack returns to Merged."
 
 # Resume - pickup out of Stalled. A later step requires an Adjudication (owner
 # ruling) as the guard; here it records the adjudication ids and resumes Building.

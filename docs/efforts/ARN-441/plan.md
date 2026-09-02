@@ -14,25 +14,27 @@ the domain vocabulary from birth so no NEW machinery hardcodes the legacy names.
 
 ## Expected end state
 
-- `Intent` entity (the renamed WorkRequest shape) accepts intake and, on `Accept`,
-  births an `Effort` (entity-trigger create, principal-elevated) seeded with
-  `intent_id` + intent.md attached.
+- `Intent` entity (the renamed WorkRequest shape) accepts intake. `Accept`
+  creates an `Effort` (entity-trigger, principal-elevated) seeded with
+  `intent_id` + intent.md.
 - `Effort` entity drives `Intended → Specified → Planned → Building → InReview →
   Proving → Merged → Deploying → Verified`, with `Stalled` reachable from the active
   states (lease timeout) and from InReview, and `Abandoned` as the failure terminal.
-- Design-chain doors: `Specify` refuses without spec.md on TemperFS; `Plan` refuses
-  without plan.md. (WASM validates file presence and errors → the machine refuses;
-  kernel guards cannot read files/params — ARN-430 constraint.)
+- Design-chain doors: `Specify` refuses unless spec.md is on GitHub;
+  `Plan` refuses without plan.md; `Accept` refuses without intent.md;
+  `Merge` refuses without decisions.md. `chain_github_ready` retracts the
+  ready bool if the git path is missing. Review/proof stay Temper Files.
 - Chain reference fields on Effort: `intent_id`, `review_run_ids`,
   `proof_packet_ids`, `deployment_id`, `adjudication_ids`, `pm_issue_id`.
-- Ownership lease: Effort active states carry `state_timeout → Stalled`; the owning
-  `WorkerRun` gains a `Heartbeat` action; a missed TTL moves the Effort to Stalled by
-  the state machine (ADR-0049/0050 machinery, already used by WorkCycle for →Fail).
-- `effort_lifecycle` wasm — work_cycle_lifecycle logic GENERALIZED (not moved),
-  dispatching against the `Efforts` set for the new type.
-- CSDL: `Intent`/`Effort` EntityTypes + EntitySets `Intents`/`Efforts`. Cedar permits
-  for the new surfaces. Genesis publish → install; one synthetic Effort hand-driven
-  through every state (transcript pair).
+- No WorkerRun lease on Effort. The implementer is the harness (Computer/Exec).
+- One ReviewRun per panel agent, written with `RecordPanel` (Requested →
+  Recorded) plus a Temper File. PassReview after three attaches; kernel
+  door is `panel_started`.
+- Merge is Cedar (L0/L1 permit; L2+ elicitation). Deploy records a `DsfDeploy`
+  or `TemperDeploy` id; those tools report Healthy / RolledBack / Failed.
+- CSDL: Intent/Effort + DsfDeploy/TemperDeploy EntityTypes and sets. Cedar
+  permits for the new surfaces. Genesis publish → install; one synthetic Effort
+  hand-driven through the states.
 
 ## Proposed Effort automaton (for lead confirmation before build)
 
@@ -52,12 +54,10 @@ States (initial `Intended`; terminals `Verified`, `Abandoned`):
 | Stalled | owner missed lease TTL, or review stall | state_timeout(active) / Stall | Resume needs an Adjudication (step later) |
 | Abandoned | given up — failure terminal | Abandon (from any active) | — |
 
-Design-chain reference fields, lease fields (`owner_worker_run_id`,
-`last_heartbeat_at` mirror), and the six chain-file/bool markers (`has_spec`,
-`has_plan`, `worker_done`, `review_passed`, `proof_attached`, `deploy_verified`)
-back the guards. `state_timeout` on Intended/Specified/Planned/Building/InReview/
-Proving → Stalled (not Fail — Stalled is recoverable; Abandoned is the explicit
-give-up).
+Design-chain refs and the bool markers (`spec_written`, `plan_written`,
+`worker_done`, `review_passed`, `proof_attached`, `deploy_verified`) back the
+guards. The implementer is a harness Agent: work is Computer/Exec; this row is
+the record. No WorkerRun lease.
 
 ## Diff-size recommendation (lead's call, deferred to me)
 

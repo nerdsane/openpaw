@@ -26,7 +26,9 @@ permit(
   resource is PatrolSchedule ||
   resource is Adjudication ||
   resource is StandingDecision ||
-  resource is ShadowVerdict
+  resource is ShadowVerdict ||
+  resource is DsfDeploy ||
+  resource is TemperDeploy
 };
 
 permit(
@@ -57,7 +59,9 @@ permit(
   resource is PatrolSchedule ||
   resource is Adjudication ||
   resource is StandingDecision ||
-  resource is ShadowVerdict
+  resource is ShadowVerdict ||
+  resource is DsfDeploy ||
+  resource is TemperDeploy
 };
 
 permit(
@@ -65,7 +69,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle"].contains(context.module)
+  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle", "chain_file_ready", "chain_github_ready", "temper_deploy_lifecycle"].contains(context.module)
 };
 
 // Manager surfaces such as OpenClaw may submit requests and route approvals, but
@@ -264,6 +268,8 @@ permit(
     Action::"OpenWorkCycle",
     Action::"AttachWorkerRun",
     Action::"AttachDraft",
+    Action::"AttachProofFile",
+    Action::"RetractProofFile",
     Action::"MarkReady"
   ],
   resource
@@ -374,13 +380,29 @@ permit(
 permit(
   principal is Agent,
   action in [
+    Action::"create",
     Action::"Request",
-    Action::"Claim"
+    Action::"Claim",
+    Action::"AttachReviewFile",
+    Action::"RetractReviewFile",
+    Action::"RecordPanel"
   ],
   resource is ReviewRun
 ) when {
   ["agent", "worker", "system", "supervisor", "human"].contains(principal.agent_type)
 };
+
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"AttachDraft",
+    Action::"AttachProofFile",
+    Action::"RetractProofFile",
+    Action::"MarkReady"
+  ],
+  resource is ProofPacket
+);
 
 permit(
   principal is Agent,
@@ -517,7 +539,10 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  context.module == "release_run_lifecycle"
+  context.module == "release_run_lifecycle" ||
+  context.module == "temper_deploy_lifecycle" ||
+  context.module == "chain_file_ready" ||
+  context.module == "chain_github_ready"
 };
 
 permit(
@@ -525,7 +550,54 @@ permit(
   action == Action::"access_secret",
   resource is Secret
 ) when {
-  context.module == "release_run_lifecycle"
+  context.module == "release_run_lifecycle" ||
+  context.module == "temper_deploy_lifecycle" ||
+  context.module == "chain_file_ready" ||
+  context.module == "chain_github_ready"
+};
+
+// DsfDeploy / TemperDeploy: implementer creates and Request's the project
+// tool. Callbacks + Check are service/system. Not the same type as ReleaseRun.
+permit(
+  principal is Admin,
+  action,
+  resource is DsfDeploy
+);
+
+permit(
+  principal is Admin,
+  action,
+  resource is TemperDeploy
+);
+
+permit(
+  principal,
+  action in [Action::"create", Action::"Request", Action::"DsfDeploy.Request", Action::"TemperDeploy.Request"],
+  resource
+) when {
+  (resource is DsfDeploy || resource is TemperDeploy) &&
+  (principal is Admin || principal is Agent)
+};
+
+permit(
+  principal,
+  action in [
+    Action::"MergeSucceeded",
+    Action::"Check",
+    Action::"CheckPending",
+    Action::"CheckHealthy",
+    Action::"CheckUnhealthy",
+    Action::"SwapSucceeded",
+    Action::"RollbackPushed",
+    Action::"Fail"
+  ],
+  resource
+) when {
+  (resource is DsfDeploy || resource is TemperDeploy) &&
+  (principal has agent_type && (
+    principal.agent_type == "system" ||
+    principal.agent_type == "patrol-release-service"
+  ))
 };
 
 // ARN-434: the S1 shadow sweep runs as the verified operator credential and must
@@ -580,6 +652,8 @@ permit(
     Action::"Submit",
     Action::"AttachSignal",
     Action::"Triage",
+    Action::"AttachIntentFile",
+    Action::"RetractIntentFile",
     Action::"Accept",
     Action::"LinkPmIssue",
     Action::"Reject"
@@ -587,30 +661,18 @@ permit(
   resource is Intent
 );
 
-// RebirthEffort re-attempts the Effort birth, so it is the intake service's ALONE
-// (#491 panel round 2) - not any Agent. Same principal as the birth it repeats;
-// the Intent's declarative RebirthEffort trigger already runs under this elevation.
+// Effort record - any tenant Agent (the implementer harness) may write it.
+// create/Seed stay intake-only (the Accept trigger). Merge/Deploy tighten later.
 permit(
   principal,
-  action == Action::"RebirthEffort",
-  resource is Intent
-) when {
-  principal has agent_type && principal.agent_type == "patrol-intake-service"
-};
-
-// Effort lifecycle - the full set of SDLC transitions, driven by the
-// system/patrol surface. Self-contained (does not lean on the system-agent block
-// above), so the whole Effort authority reads in one place.
-permit(
-  principal,
-  // Lifecycle transitions only - NOT Seed/create (birth is the intake service's
-  // alone; see the birth permit below). Splitting them keeps the birth rule intact:
-  // an Effort is born only by accepting an Intent, never by a lifecycle driver.
   action in [
+    Action::"AttachSpec",
+    Action::"RetractSpecFile",
     Action::"Specify",
+    Action::"AttachPlan",
+    Action::"RetractPlanFile",
     Action::"Plan",
     Action::"StartBuild",
-    Action::"AttachWorkerRun",
     Action::"WorkerDone",
     Action::"SubmitForReview",
     Action::"AttachReviewRun",
@@ -619,30 +681,41 @@ permit(
     Action::"RequestChanges",
     Action::"PassEvaluation",
     Action::"AttachProofPacket",
-    Action::"Merge",
+    Action::"AttachDecisions",
+    Action::"RetractDecisionsFile",
+    Action::"LinkPmIssue",
     Action::"Deploy",
-    Action::"MarkDeployVerified",
-    Action::"Verify",
     Action::"Stall",
     Action::"Resume",
     Action::"Abandon"
   ],
   resource is Effort
 ) when {
-  principal is Admin ||
-  // `principal has agent_type` before every == : app Cedar is schema-less, so a
-  // principal missing the attribute must be denied explicitly, not error.
-  (principal is Agent && principal has agent_type && (
-    principal.agent_type == "system" ||
-    principal.agent_type == "supervisor" ||
-    // The verified operator drives the SHADOW Effort lifecycle - the same
-    // trusted sweep/verification authority ARN-434 grants the S0/S1 record
-    // writes (agentTypeVerified, so a self-declared header agent never matches).
-    // The per-gate authority flips (steps 3-4) put stricter permits on
-    // Merge/Deploy; this operator surface tightens there.
-    (principal.agent_type == "operator" &&
-     principal has agentTypeVerified && principal.agentTypeVerified == true)
-  ))
+  principal is Admin || principal is Agent
+};
+
+// Project deploy tools report back as patrol-release-service. Agents do not
+// mark verified or rolled back by hand. Fail (rollback did not finish) Stalls.
+permit(
+  principal,
+  action in [
+    Action::"MarkDeployVerified",
+    Action::"MarkDeployRolledBack",
+    Action::"Stall"
+  ],
+  resource is Effort
+) when {
+  principal has agent_type && principal.agent_type == "patrol-release-service"
+};
+
+// Effort.Merge: L0/L1 permit; L2+ denies and surfaces as MCP elicitation.
+permit(
+  principal is Agent,
+  action in [Action::"Merge", Action::"Effort.Merge"],
+  resource is Effort
+) when {
+  (resource has risk_lane && (resource.risk_lane == "L0" || resource.risk_lane == "L1")) ||
+  (resource has RiskLane && (resource.RiskLane == "L0" || resource.RiskLane == "L1"))
 };
 
 // Effort BIRTH - create + Seed ONLY via the intake service (the elevation the

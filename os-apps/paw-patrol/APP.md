@@ -15,7 +15,7 @@ submits here instead of writing directly to paw-pm.
 
 ### Intent
 Intent is WorkRequest renamed to the SDLC vocabulary (ARN-441, stage 3 phase 4):
-the same intake shape, but `Intent.Accept` births an `Effort`. Triage ("worth
+the same intake shape. `Accept` creates an `Effort`. Triage ("worth
 doing?") is a different lifecycle than execution ("done right?"), so Intent stays
 the intake. Additive during the shadow phase — WorkRequest stays live for the
 paw-codex-worker and dashboard until the phase-3 flip, then retires.
@@ -56,16 +56,33 @@ run.
 
 ### Effort
 Effort is WorkCycle EXTENDED to the full SDLC lifecycle (ARN-441, stage 3 phase
-4): born at intent and carried to a verified deploy. It begins where WorkCycle's
-Planning was absorbed — `Intended` (intent.md attached at birth) — then moves
-`Specified` (spec.md) → `Planned` (plan.md) → `Building` → `InReview` → `Proving`
-→ `Merged` → `Deploying` → `Verified`. `Stalled` is the recoverable orphan state
-(later steps add the ownership lease: the owned states time out to Stalled when
-the owner's WorkerRun stops heartbeating); `Abandoned` is the explicit give-up
-terminal. Every effort references its whole chain from its own row (intent_id,
-review_run_ids, proof_packet_ids, deployment_id, adjudication_ids, pm_issue_id).
-Merge becomes a Cedar decision and Deploy a Deployment entity in later steps.
-Additive during the shadow phase — WorkCycle stays live until the phase-3 flip.
+4): born at intent and carried to a verified deploy. The implementer is a
+harness Agent: edits are native, recorded acts go through Temper MCP, machine
+work is Computer.Exec. It begins `Intended` → `Specified` → `Planned` →
+`Building` → `InReview` → `Proving` → `Merged` → `Deploying` → `Verified`.
+`Stalled` is recoverable; `Abandoned` is the give-up terminal. The row holds
+the chain (intent_id, review_run_ids, proof_packet_ids, deployment_id,
+adjudication_ids, pm_issue_id). `spec_ref` / `plan_ref` / `intent_ref` /
+`decisions_ref` are git paths (`docs/efforts/<issue>/*.md`). AttachSpec /
+AttachPlan / AttachDecisions / AttachIntentFile run `chain_github_ready`
+(the path must be a file on GitHub at repo@branch). Review and proof stay
+Temper Files. `Merge` is the Cedar door (L0/L1 permit; L2+ denies and surfaces as
+MCP elicitation). `Deploy` records the id of a project tool — create `DsfDeploy` or
+`TemperDeploy`, `Effort.Deploy` with that id, then `Request` the child.
+Those tools report back:
+Healthy → `MarkDeployVerified` → Verified; RolledBack → Merged; Failed →
+Stall only if rollback did not finish. Additive until the phase-3 flip —
+WorkCycle stays live until then.
+
+### DsfDeploy
+Deep Sci-Fi deploy tool. Merge the PR on the named computer, watch
+`health_url` for the merge sha, git-revert if it never becomes healthy.
+Reuses `release_run_lifecycle`. Live `ReleaseRun` rows are not renamed.
+
+### TemperDeploy
+TemperPaw image deploy tool. Upsert Railway `IMAGE_TAG`, redeploy, poll
+`/paw/version` until the live sha matches, restore the previous tag on
+rollback. Railway project/service ids are pinned in the trigger config.
 
 ### WorkerRun
 One execution attempt by a registered worker. The first worker type is the Mac
@@ -73,10 +90,18 @@ mini local Codex worker. It claims queued work from Railway Temper over SSE,
 starts local Codex with ChatGPT auth, and self-reports results.
 
 ### ReviewRun
-Independent reviewer pass over the implementer's diff and proof. The reviewer
-must inspect the implementation, rerun relevant checks, and run live or E2E
-verification when the touched surface requires it. The reviewer returns one of
-three meaningful verdicts: approve, request changes, or escalate.
+One panel agent's pass (Grok, Codex, or Claude), not the whole panel. Each
+agent writes their own ReviewRun. `Effort.review_run_ids` lists them.
+`PassReview` is called after three ReviewRuns are attached (one per panel
+agent). Each run is written with `RecordPanel` (Requested → Recorded) and
+may hang a Temper File. `Approve` still fans into WorkCycle for the old
+loop and is not the Effort path. The kernel door is `panel_started` (at
+least one attach); three Recorded runs is the implementer rule. The
+reviewer
+inspects the diff and proof, reruns relevant checks, and returns approve,
+request changes, or escalate. Findings live on the ReviewRun row. A Temper
+File (HTML or JSON) can hang off the run as the readable artifact; GitHub
+comments are not the record.
 
 ### EvaluationRun
 Automated gate execution and result capture for tests, proof requirements,
@@ -85,10 +110,11 @@ an evaluation fails while the WorkCycle is in review, Patrol treats it like
 requested rework and queues the implementer again with the failing evidence.
 
 ### ProofPacket
-Human-readable and machine-readable proof. The human view should include a
-visual one-page summary, state-transition diagram, changed-files map, test
-matrix, reviewer verdict, residual risks, PR links, entity links, and trace/log
-links.
+Human-readable and machine-readable proof. The record is the Temper row plus
+an optional Temper File (HTML or JSON via `$value`). Vercel and GitHub are
+not the source. The human view should include a visual one-page summary,
+state-transition diagram, changed-files map, test matrix, reviewer verdict,
+residual risks, PR links, entity links, and trace/log links.
 
 ### RiskRule
 Explicit rule that sets a minimum risk lane from concrete evidence. Agents may
@@ -218,6 +244,50 @@ Complete
 Use these OData action paths when an agent, OpenClaw, Discord bridge, script, or
 human operator submits work directly to Temper. The examples omit auth headers;
 callers still need a valid bearer token and principal headers that Cedar allows.
+
+### SDLC Intent (ARN-441)
+
+Create an Intent, commit intent.md, name its git path, triage, accept.
+Accept creates the Effort. Then commit spec.md / plan.md / decisions.md,
+name those git paths, and walk Specify → Plan → StartBuild → … → Merge →
+Deploy (record a DsfDeploy or TemperDeploy id).
+
+```http
+POST /tdata/Intents
+{}
+
+POST /tdata/Intents('<id>')/TemperPaw.Patrol.Submit
+{
+  "source": "harness",
+  "request_text": "Ship the locked Stage 3 walk.",
+  "requester_id": "cursor"
+}
+
+POST /tdata/Intents('<id>')/TemperPaw.Patrol.AttachIntentFile
+{
+  "intent_ref": "docs/efforts/ARN-441/intent.md"
+}
+
+POST /tdata/Intents('<id>')/TemperPaw.Patrol.Triage
+{
+  "triage_summary": "worth doing",
+  "task_summary": "Stage 3 walk",
+  "task_detail": "",
+  "risk_lane": "L0",
+  "repo": "nerdsane/temperpaw",
+  "branch": "cursor/arn-441-stage3",
+  "intent_ref": "docs/efforts/ARN-441/intent.md"
+}
+
+POST /tdata/Intents('<id>')/TemperPaw.Patrol.Accept
+{
+  "factory_case_id": ""
+}
+```
+
+Expected result: Intent is Accepted. An Effort exists in Intended, seeded
+with the intent.md git path. WorkRequest stays the live worker/dashboard path
+until the phase-3 flip.
 
 ### Human or manager-agent task
 
@@ -382,6 +452,13 @@ server hosts Temper and triggers, but these modules own the workflow decisions:
   by creating repo sweeps and daily briefs from schedule transitions.
 - `daily_brief_lifecycle`: queues the local Codex DailyBrief WorkerRun from
   finished proof packets, findings, and open risks.
+- `chain_github_ready`: GET GitHub contents for `docs/efforts/<id>/*.md`.
+  Fired by AttachIntentFile / AttachSpec / AttachPlan / AttachDecisions.
+- `chain_file_ready`: GET a Temper File and require Ready/Locked. Fired by
+  AttachReviewFile / AttachProofFile.
+- `temper_deploy_lifecycle`: one side effect per TemperDeploy trigger
+  (IMAGE_TAG swap, /paw/version poll, restore previous tag).
+- `release_run_lifecycle`: also runs DsfDeploy merge / watch / revert.
 
 ## Default Schedule
 

@@ -86,6 +86,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "paw-pm Issues",
         "Mac mini",
         "resource-bound ownership",
+        "DsfDeploy",
+        "TemperDeploy",
     ] {
         assert!(app_doc.contains(needle), "APP.md should mention {needle}");
     }
@@ -97,6 +99,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "work_cycle.ioa.toml",
         "intent.ioa.toml",
         "effort.ioa.toml",
+        "dsf_deploy.ioa.toml",
+        "temper_deploy.ioa.toml",
         "worker_run.ioa.toml",
         "review_run.ioa.toml",
         "evaluation_run.ioa.toml",
@@ -122,6 +126,8 @@ fn paw_patrol_owns_the_dark_factory_entities_without_extra_factory_apps() {
         "WorkCycle",
         "Intent",
         "Effort",
+        "DsfDeploy",
+        "TemperDeploy",
         "WorkerRun",
         "ReviewRun",
         "EvaluationRun",
@@ -262,38 +268,159 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
     let intent = read(patrol.join("specs/intent.ioa.toml"));
     let effort = read(patrol.join("specs/effort.ioa.toml"));
 
-    // Intent.Accept carries the declarative entity trigger that creates the Effort
-    // under the intake-service elevation and dispatches Seed.
+    // Accept creates the Effort. No handshake, no repair action.
     for needle in [
-        "name = \"intent_accepted_births_effort\"",
+        "name = \"intent_accepted_creates_effort\"",
         "kind = \"entity\"",
         "principal = \"patrol-intake-service\"",
         "target_entity = \"Effort\"",
         "target_action = \"Seed\"",
         "type = \"create\"",
-        "intent_ref = \"intent_ref\"", // intent.md reference guaranteed at birth
+        "to = \"Accepted\"",
+        "intent_ref = \"intent_ref\"",
     ] {
         assert!(
             intent.contains(needle),
-            "intent.ioa.toml Accept->Effort birth trigger should carry `{needle}`"
+            "intent.ioa.toml Accept->Effort trigger should carry `{needle}`"
         );
     }
-    // A failed birth is recoverable, not a dead end.
-    assert!(
-        intent.contains("name = \"RebirthEffort\""),
-        "intent.ioa.toml should carry the RebirthEffort repair action for a failed birth"
-    );
-    // Effort receives Seed in its initial state and references intent.md.
-    for needle in ["name = \"Seed\"", "name = \"intent_ref\""] {
+    for gone in ["RebirthEffort", "ConfirmBirth", "BirthTimedOut", "Accepting"] {
+        assert!(
+            !intent.contains(&format!("name = \"{gone}\"")),
+            "{gone} must not exist on Intent"
+        );
+    }
+    for needle in [
+        "name = \"Seed\"",
+        "name = \"intent_ref\"",
+        "name = \"AttachSpec\"",
+        "name = \"AttachPlan\"",
+        "name = \"AttachDecisions\"",
+        "name = \"LinkPmIssue\"",
+        "name = \"MarkDeployRolledBack\"",
+        "module = \"chain_github_ready\"",
+        "on_failure = \"RetractSpecFile\"",
+        "docs/efforts/",
+        "name = \"panel_started\"",
+        "name = \"panel_count\"",
+    ] {
         assert!(
             effort.contains(needle),
-            "effort.ioa.toml should carry `{needle}` (birth seeding)"
+            "effort.ioa.toml should carry `{needle}`"
         );
     }
+    for gone in [
+        "ConfigureRelease",
+        "effort_deployed_requests_release",
+        "target_entity = \"ReleaseRun\"",
+        "release_configured",
+    ] {
+        assert!(
+            !effort.contains(gone),
+            "Effort must not hardcode ReleaseRun or ConfigureRelease ({gone})"
+        );
+    }
+    assert!(
+        intent.contains("name = \"AttachIntentFile\""),
+        "intent.ioa.toml must AttachIntentFile before Accept"
+    );
+    assert!(
+        intent.contains("module = \"chain_github_ready\""),
+        "Intent.Accept must require intent.md on GitHub"
+    );
+    assert!(
+        !intent.contains("entity_type = \"File\""),
+        "Intent must not gate on a Temper File"
+    );
     // Chain-id collections are real lists, not JSON-blob strings.
     assert!(
         effort.contains("name = \"review_run_ids\"\ntype = \"list\""),
         "effort.ioa.toml review_run_ids must be a real list field, not a JSON string"
+    );
+}
+
+#[test]
+fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
+    let root = repo_root();
+    let patrol = root.join("os-apps/paw-patrol");
+    let dsf = read(patrol.join("specs/dsf_deploy.ioa.toml"));
+    let temper = read(patrol.join("specs/temper_deploy.ioa.toml"));
+    let effort = read(patrol.join("specs/effort.ioa.toml"));
+    let cedar = read(patrol.join("policies/patrol.cedar"));
+    let csdl = read(patrol.join("specs/model.csdl.xml"));
+    let manifest = read(patrol.join("app.toml"));
+
+    for needle in [
+        "name = \"DsfDeploy\"",
+        "module = \"release_run_lifecycle\"",
+        "concurrent_entity_set = \"DsfDeploys\"",
+        "target_action = \"MarkDeployVerified\"",
+        "target_action = \"MarkDeployRolledBack\"",
+        "target_action = \"Stall\"",
+        "field = \"effort_id\"",
+    ] {
+        assert!(dsf.contains(needle), "dsf_deploy.ioa.toml should carry `{needle}`");
+    }
+    for needle in [
+        "name = \"TemperDeploy\"",
+        "module = \"temper_deploy_lifecycle\"",
+        "target_action = \"MarkDeployVerified\"",
+        "target_action = \"MarkDeployRolledBack\"",
+        "target_action = \"Stall\"",
+        "field = \"effort_id\"",
+    ] {
+        assert!(
+            temper.contains(needle),
+            "temper_deploy.ioa.toml should carry `{needle}`"
+        );
+    }
+    assert!(
+        effort.contains("name = \"MarkDeployVerified\"")
+            && effort.contains("to = \"Verified\"")
+            && effort.contains("name = \"MarkDeployRolledBack\"")
+            && effort.contains("to = \"Merged\""),
+        "Effort callbacks: Healthy→Verified, RolledBack→Merged"
+    );
+    for needle in [
+        "resource is DsfDeploy",
+        "resource is TemperDeploy",
+        "Action::\"MarkDeployRolledBack\"",
+        "resource.risk_lane == \"L0\"",
+        "resource.risk_lane == \"L1\"",
+    ] {
+        assert!(cedar.contains(needle), "patrol.cedar should carry `{needle}`");
+    }
+    for needle in [
+        "<EntityType Name=\"DsfDeploy\">",
+        "<EntityType Name=\"TemperDeploy\">",
+        "<EntitySet Name=\"DsfDeploys\"",
+        "<EntitySet Name=\"TemperDeploys\"",
+        "<Property Name=\"DecisionsFileReady\"",
+        "<Property Name=\"ArtifactFileReady\"",
+    ] {
+        assert!(csdl.contains(needle), "CSDL should carry `{needle}`");
+    }
+    assert!(
+        manifest.contains("name = \"temper_deploy_lifecycle\""),
+        "app.toml should register temper_deploy_lifecycle"
+    );
+    assert!(
+        read(patrol.join("wasm/build.sh")).contains("temper_deploy_lifecycle"),
+        "build.sh should build temper_deploy_lifecycle"
+    );
+    let deploy = read(patrol.join("specs/temper_deploy.ioa.toml"));
+    assert!(
+        deploy.contains("ready_path = \"/healthz\""),
+        "TemperDeploy must poll /healthz (ARN-432); /readyz is 503 when Discord is down"
+    );
+    assert!(
+        !deploy.contains("ready_path = \"/readyz\""),
+        "TemperDeploy must not poll /readyz"
+    );
+    let app_doc = read(patrol.join("APP.md"));
+    assert!(
+        !app_doc.contains("Deploy` creates the existing `ReleaseRun"),
+        "APP.md must not say Effort.Deploy creates ReleaseRun"
     );
 }
 
@@ -1995,27 +2122,19 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        25,
-        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun, the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict, and the ARN-441 Intent/Effort entity loop)"
+        27,
+        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun, DsfDeploy, TemperDeploy, the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict, and the ARN-441 Intent/Effort entity loop)"
     );
-    for entity in ["Intent", "Effort"] {
+    for entity in ["Intent", "Effort", "DsfDeploy", "TemperDeploy", "ReleaseRun"] {
         assert!(
             bundle
                 .specs
                 .iter()
                 .any(|(entity_type, _)| entity_type == entity),
-            "paw-patrol bundle should include the ARN-441 {entity} spec: {:?}",
+            "paw-patrol bundle should include the {entity} spec: {:?}",
             bundle.specs.iter().map(|(t, _)| t).collect::<Vec<_>>()
         );
     }
-    assert!(
-        bundle
-            .specs
-            .iter()
-            .any(|(entity_type, _)| entity_type == "ReleaseRun"),
-        "paw-patrol bundle should include the ReleaseRun spec: {:?}",
-        bundle.specs.iter().map(|(t, _)| t).collect::<Vec<_>>()
-    );
     assert!(
         bundle
             .csdl
@@ -3381,9 +3500,12 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "\"Recorded\"",
         "\"Superseded\"",
         "IngestRecord",
+        "RecordPanel",
+        "name = \"effort_id\"",
         "record_present",
         "RecordedHasRecord",
         "Requested",
+        "AttachReviewFile",
     ] {
         assert!(
             review.contains(needle),
@@ -3394,10 +3516,12 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     for needle in [
         "\"Recorded\"",
         "IngestProof",
+        "name = \"effort_id\"",
         "changed_surface",
         "independent_verifier",
         "ProofRecorded",
         "Drafting",
+        "AttachProofFile",
     ] {
         assert!(
             proof.contains(needle),
@@ -3456,6 +3580,42 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         assert!(
             lib.contains(needle),
             "record_ingest lib.rs should contain {needle}"
+        );
+    }
+
+    assert!(
+        manifest.contains("name = \"chain_github_ready\""),
+        "app.toml should register chain_github_ready"
+    );
+    assert!(
+        read(patrol.join("wasm/build.sh")).contains("chain_github_ready"),
+        "build.sh should build chain_github_ready"
+    );
+    assert!(
+        manifest.contains("name = \"chain_file_ready\""),
+        "app.toml should register chain_file_ready"
+    );
+    assert!(
+        read(patrol.join("wasm/build.sh")).contains("chain_file_ready"),
+        "build.sh should build chain_file_ready"
+    );
+    let chain = read(patrol.join("wasm/chain_file_ready/src/lib.rs"));
+    for needle in ["fn file_is_ready", "Files('", "Ready", "Locked"] {
+        assert!(
+            chain.contains(needle),
+            "chain_file_ready lib.rs should contain {needle}"
+        );
+    }
+    for prop in [
+        "SpecFileReady",
+        "PlanFileReady",
+        "IntentFileReady",
+        "DecisionsFileReady",
+        "ArtifactFileReady",
+    ] {
+        assert!(
+            csdl.contains(&format!("<Property Name=\"{prop}\"")),
+            "CSDL should carry {prop}"
         );
     }
 
@@ -3550,4 +3710,43 @@ fn verified_operator_may_write_shadow_records_narrowly() {
             "a self-declared (unverified) operator must NOT write {resource}.{action}: {d:?}"
         );
     }
+}
+
+#[test]
+fn effort_merge_permits_l0_l1_and_denies_l2() {
+    let root = repo_root();
+    let policy = read(root.join("os-apps/paw-patrol/policies/patrol.cedar"));
+    let engine = AuthzEngine::new(&policy).expect("patrol.cedar should parse");
+    let agent = agent_context("cursor", "agent");
+
+    for lane in ["L0", "L1"] {
+        let attrs = resource_attrs(&[("risk_lane", serde_json::json!(lane))]);
+        let d = engine.authorize(&agent, "Merge", "Effort", &attrs);
+        assert!(d.is_allowed(), "agent should Merge Effort at {lane}: {d:?}");
+    }
+    let l2 = resource_attrs(&[("risk_lane", serde_json::json!("L2"))]);
+    assert!(
+        !engine.authorize(&agent, "Merge", "Effort", &l2).is_allowed(),
+        "L2 Merge must deny so it surfaces as MCP elicitation"
+    );
+
+    let deploy_attrs = resource_attrs(&[("id", serde_json::json!("d1"))]);
+    assert!(
+        engine
+            .authorize(&agent, "create", "DsfDeploy", &deploy_attrs)
+            .is_allowed(),
+        "implementer must be able to create DsfDeploy"
+    );
+    assert!(
+        engine
+            .authorize(&agent, "create", "TemperDeploy", &deploy_attrs)
+            .is_allowed(),
+        "implementer must be able to create TemperDeploy"
+    );
+    assert!(
+        !engine
+            .authorize(&agent, "MarkDeployVerified", "Effort", &l2)
+            .is_allowed(),
+        "agents must not mark deploy verified by hand"
+    );
 }
