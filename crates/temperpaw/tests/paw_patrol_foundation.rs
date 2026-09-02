@@ -353,6 +353,7 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     for needle in [
         "name = \"DsfDeploy\"",
         "module = \"release_run_lifecycle\"",
+        "github_token = \"{secret:github_token}\"",
         "concurrent_entity_set = \"DsfDeploys\"",
         "target_action = \"MarkDeployVerified\"",
         "target_action = \"MarkDeployRolledBack\"",

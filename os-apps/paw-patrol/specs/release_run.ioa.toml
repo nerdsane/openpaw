@@ -148,6 +148,7 @@ on_failure = "Fail"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+github_token = "{secret:github_token}"
 
 # Safety cap: if the merge side effect never reports back (lost callback),
 # fail visibly instead of sitting in Merging forever.
@@ -205,6 +206,7 @@ on_failure = "Fail"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+github_token = "{secret:github_token}"
 
 [[action]]
 name = "CheckPending"
@@ -243,6 +245,7 @@ on_failure = "Fail"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
+github_token = "{secret:github_token}"
 
 # Safety cap: if the revert side effect never reports back, fail visibly.
 [[state_timeout]]

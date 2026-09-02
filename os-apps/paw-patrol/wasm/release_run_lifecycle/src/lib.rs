@@ -5,11 +5,11 @@
 //! dispatches actions on other entities and never loops; the automaton and
 //! the kernel `state_timeout` own the orchestration (see release_run.ioa.toml).
 //!
-//! | trigger action | side effect on the computer                              | reports |
+//! | trigger action | side effect                                              | reports |
 //! |----------------|----------------------------------------------------------|---------|
-//! | Request        | preflight the PR (base==main), merge via GitHub API      | MergeSucceeded |
-//! | Check          | one `curl` of health_url                                 | CheckHealthy / CheckPending / CheckUnhealthy |
-//! | CheckUnhealthy | `git revert -m 1 <merge_sha>` + push to the base branch  | RollbackPushed |
+//! | Request        | preflight + merge via GitHub API (`github_token` secret) | MergeSucceeded |
+//! | Check          | one `curl` of health_url on the computer                 | CheckHealthy / CheckPending / CheckUnhealthy |
+//! | CheckUnhealthy | `git revert -m 1` + push on the computer (same token)    | RollbackPushed |
 //!
 //! Any error surfaces through `set_error_result`, which the spec routes to
 //! `Fail` (on_failure) so nothing fails silently.
@@ -58,7 +58,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             .map_err(|e| format!("release_run_lifecycle: computer {}: {e}", release.computer_id))?;
 
         let (action, params) = match ctx.trigger_action.as_str() {
-            "Request" => merge(&ctx, &handle, &release, &temper_api_url, &fields)?,
+            "Request" => merge(&ctx, &release, &temper_api_url, &fields)?,
             "Check" => check(&ctx, &handle, &release)?,
             "CheckUnhealthy" => rollback(&ctx, &handle, &release)?,
             other => return Err(format!("release_run_lifecycle: unsupported trigger {other}")),
@@ -133,7 +133,6 @@ fn parse_max_checks(raw: &str) -> Result<u64, String> {
 
 fn merge(
     ctx: &Context,
-    handle: &SandboxHandle,
     release: &ReleaseFields,
     temper_api_url: &str,
     fields: &Value,
@@ -156,7 +155,7 @@ fn merge(
     }
 
     // Preflight: read the PR's base branch, head commit, and merge state.
-    let pr = read_pr(ctx, handle, &release.repo, &release.pr_number)?;
+    let pr = read_pr(ctx, &release.repo, &release.pr_number)?;
     if pr.base_ref != RELEASE_BASE_BRANCH {
         return Err(format!(
             "release_run_lifecycle: PR {}#{} targets base {:?}, only {RELEASE_BASE_BRANCH} is releasable",
@@ -182,11 +181,11 @@ fn merge(
         return confirm_merged_pr(&pr, release, None);
     }
 
-    // Do the merge, pinning the head sha we just read: GitHub refuses (405/409)
-    // if the head moved since, closing the read→PUT TOCTOU (commit-binding).
-    let command = merge_command(&release.repo, &release.pr_number, &pr.head_sha);
-    let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
-    let merge_diag = parse_merge_sha(&result.stdout).err();
+    // Do the merge from the host with the tenant github_token. The computer's
+    // ~/.git-credentials is not the token (a stale first line there is what
+    // produced live "Bad credentials"). GitHub refuses (405/409) if the head
+    // moved since, closing the read→PUT TOCTOU (commit-binding).
+    let merge_diag = put_merge(ctx, &release.repo, &release.pr_number, &pr.head_sha).err();
 
     // Authoritative post-merge confirm: re-read the PR and require it is NOW
     // merged into `main` at the head we pinned, with a valid merge sha. GitHub's
@@ -196,12 +195,12 @@ fn merge(
     // a transient GET blip or GitHub read-after-write lag does not strand an
     // actually-merged release as Failed (Fable R5 P3-2); it also reconciles an
     // ambiguous PUT whose connection dropped after the merge landed.
-    let final_pr = read_pr_confirm(ctx, handle, &release.repo, &release.pr_number, CONFIRM_READ_ATTEMPTS)?;
+    let final_pr = read_pr_confirm(ctx, &release.repo, &release.pr_number, CONFIRM_READ_ATTEMPTS)?;
     if !final_pr.merged {
         let diag = merge_diag.unwrap_or_else(|| "PR is still open after the merge attempt".to_string());
         return Err(format!(
-            "release_run_lifecycle: merge of {}#{} did not complete: {diag} (exit {}, stderr: {})",
-            release.repo, release.pr_number, result.exit_code, excerpt(&result.stderr)
+            "release_run_lifecycle: merge of {}#{} did not complete: {diag}",
+            release.repo, release.pr_number
         ));
     }
     ctx.log("info", &format!("release_run_lifecycle: merged {}#{} (confirmed on re-read)", release.repo, release.pr_number));
@@ -224,7 +223,6 @@ const CONFIRM_READ_ATTEMPTS: u32 = 3;
 /// so the caller Fails on a genuinely-unmerged PR.
 fn read_pr_confirm(
     ctx: &Context,
-    handle: &SandboxHandle,
     repo: &str,
     pr_number: &str,
     attempts: u32,
@@ -232,7 +230,7 @@ fn read_pr_confirm(
     let mut last: Result<PrInfo, String> =
         Err("release_run_lifecycle: no confirmation read attempted".to_string());
     for _ in 0..attempts.max(1) {
-        match read_pr(ctx, handle, repo, pr_number) {
+        match read_pr(ctx, repo, pr_number) {
             Ok(pr) if pr.merged => return Ok(pr),
             other => last = other,
         }
@@ -305,19 +303,86 @@ struct PrInfo {
 }
 
 /// GET the PR and parse base branch + merge state.
-fn read_pr(
-    ctx: &Context,
-    handle: &SandboxHandle,
-    repo: &str,
-    pr_number: &str,
-) -> Result<PrInfo, String> {
-    let command = pr_get_command(repo, pr_number);
-    let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
-    parse_pr(&result.stdout).map_err(|e| {
+fn read_pr(ctx: &Context, repo: &str, pr_number: &str) -> Result<PrInfo, String> {
+    let url = github_pr_url(repo, pr_number);
+    let body = github_json(ctx, "GET", &url, "")?;
+    parse_pr(&body.to_string()).map_err(|e| {
+        format!("release_run_lifecycle: could not read PR {repo}#{pr_number}: {e}")
+    })
+}
+
+fn put_merge(ctx: &Context, repo: &str, pr_number: &str, head_sha: &str) -> Result<String, String> {
+    let url = github_merge_url(repo, pr_number);
+    let body = format!(r#"{{"sha":"{head_sha}","merge_method":"merge"}}"#);
+    let resp = github_json(ctx, "PUT", &url, &body)?;
+    parse_merge_sha(&resp.to_string())
+}
+
+fn github_pr_url(repo: &str, pr_number: &str) -> String {
+    format!("https://api.github.com/repos/{repo}/pulls/{pr_number}")
+}
+
+fn github_merge_url(repo: &str, pr_number: &str) -> String {
+    format!("https://api.github.com/repos/{repo}/pulls/{pr_number}/merge")
+}
+
+fn github_token(ctx: &Context) -> Result<String, String> {
+    let raw = ctx
+        .config
+        .get("github_token")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .unwrap_or_default();
+    validate_github_token(&raw)?;
+    Ok(raw)
+}
+
+fn validate_github_token(token: &str) -> Result<(), String> {
+    if token.is_empty() {
+        return Err(
+            "release_run_lifecycle: github_token is not configured (tenant secret github_token)"
+                .to_string(),
+        );
+    }
+    if token.len() < 8 || token.len() > 256 {
+        return Err("release_run_lifecycle: github_token length is not a token".to_string());
+    }
+    if !token
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err("release_run_lifecycle: github_token has unexpected characters".to_string());
+    }
+    Ok(())
+}
+
+fn github_json(ctx: &Context, method: &str, url: &str, body: &str) -> Result<Value, String> {
+    let token = github_token(ctx)?;
+    let headers = vec![
+        ("authorization".to_string(), format!("Bearer {token}")),
+        ("accept".to_string(), "application/vnd.github+json".to_string()),
+        (
+            "user-agent".to_string(),
+            "temperpaw-release-run-lifecycle".to_string(),
+        ),
+    ];
+    let resp = ctx.http_call(method, url, &headers, body)?;
+    if resp.status == 401 || resp.status == 403 {
+        return Err(format!(
+            "release_run_lifecycle: GitHub {method} HTTP {} (token rejected)",
+            resp.status
+        ));
+    }
+    if resp.status >= 400 {
+        return Err(format!(
+            "release_run_lifecycle: GitHub {method} HTTP {}",
+            resp.status
+        ));
+    }
+    serde_json::from_str(resp.body.trim()).map_err(|_| {
         format!(
-            "release_run_lifecycle: could not read PR {repo}#{pr_number}: {e} (exit {}, stderr: {})",
-            result.exit_code,
-            excerpt(&result.stderr)
+            "release_run_lifecycle: unexpected GitHub response: {}",
+            excerpt(&resp.body)
         )
     })
 }
@@ -353,39 +418,6 @@ fn parse_pr(stdout: &str) -> Result<PrInfo, String> {
             .filter(|s| !s.is_empty())
             .map(str::to_string),
     })
-}
-
-/// The GitHub token, read as the password field of the first `github.com`
-/// credential line in `~/.git-credentials`. The match is host-scoped to
-/// `github.com` (so it skips credential lines for other hosts), which is the
-/// reliable path on the sandbox — `git credential fill` depends on a
-/// configured `credential.helper` and hangs/returns empty when one is not set.
-/// Assigned into `$TOK`.
-const TOKEN_PRELUDE: &str =
-    "TOK=$(sed -nE 's#https://[^:]+:([^@]+)@github\\.com.*#\\1#p' ~/.git-credentials | head -1); ";
-
-/// GET the PR as JSON (base branch, merge state).
-fn pr_get_command(repo: &str, pr_number: &str) -> String {
-    format!(
-        "{TOKEN_PRELUDE}\
-         curl -sS -m 30 \"https://api.github.com/repos/{repo}/pulls/{pr_number}\" \
-         -H \"Authorization: token $TOK\" -H \"Accept: application/vnd.github+json\""
-    )
-}
-
-/// Merge the PR through the GitHub API from the computer, using the token that
-/// matches github.com. The `sha` field pins the expected PR head — GitHub
-/// refuses (405/409 "Head branch was modified") if the head moved since we read
-/// it, closing the read→PUT TOCTOU (commit-binding, ARN-394). `head_sha` is a
-/// validated 40-hex sha, safe to interpolate. Prints the API response so the
-/// merge sha can be read.
-fn merge_command(repo: &str, pr_number: &str, head_sha: &str) -> String {
-    format!(
-        "{TOKEN_PRELUDE}\
-         curl -sS -m 60 -X PUT \"https://api.github.com/repos/{repo}/pulls/{pr_number}/merge\" \
-         -H \"Authorization: token $TOK\" -H \"Accept: application/vnd.github+json\" \
-         -d '{{\"sha\":\"{head_sha}\",\"merge_method\":\"merge\"}}'"
-    )
 }
 
 /// Non-terminal ReleaseRun / DsfDeploy states — a run in any of these is
@@ -676,7 +708,8 @@ fn rollback(
 ) -> Result<(&'static str, Value), String> {
     validate_repo(&release.repo)?;
     validate_sha(&release.merge_sha)?;
-    let command = rollback_command(&release.repo, &release.merge_sha);
+    let token = github_token(ctx)?;
+    let command = rollback_command(&release.repo, &release.merge_sha, &token);
     let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
     if result.exit_code != 0 {
         return Err(format!(
@@ -724,14 +757,13 @@ fn rollback(
 ///   merge, else revert and push.
 /// Prints the resulting head sha on the last line. `repo`/`merge_sha` are
 /// pre-validated (owner/name, 40-hex) so they are safe to interpolate.
-fn rollback_command(repo: &str, merge_sha: &str) -> String {
+fn rollback_command(repo: &str, merge_sha: &str, token: &str) -> String {
     let b = RELEASE_BASE_BRANCH;
-    // Credential is passed per-command via an Authorization header ($AUTH, a
-    // runtime var) rather than baked into the remote URL — so the token is never
-    // written into $DIR/.git/config (which would survive a SIGKILL before the
-    // EXIT-trap cleanup). URL stays a clean https://github.com/<repo>.git.
+    // Token is the tenant github_token (already charset-validated). It is
+    // assigned into $TOK for this command only — never written into the remote
+    // URL or $DIR/.git/config.
     format!(
-        "{TOKEN_PRELUDE}\
+        "TOK='{token}'; \
          set -e; export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null; \
          AUTH=$(printf 'x-access-token:%s' \"$TOK\" | base64 | tr -d '\\n'); \
          HDR=\"http.extraHeader=Authorization: Basic $AUTH\"; \
@@ -1008,12 +1040,24 @@ mod tests {
     // -- PR preflight / reconcile ---------------------------------------------
 
     #[test]
-    fn pr_get_command_reads_the_pr_with_the_matched_token() {
-        let cmd = pr_get_command("arni-labs/deep-sci-fi", "109");
-        assert!(cmd.contains("~/.git-credentials"));
-        assert!(cmd.contains("@github"));
-        assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/109"));
-        assert!(!cmd.contains("/merge"));
+    fn github_urls_target_the_pr() {
+        assert_eq!(
+            github_pr_url("arni-labs/deep-sci-fi", "109"),
+            "https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/109"
+        );
+        assert_eq!(
+            github_merge_url("arni-labs/deep-sci-fi", "106"),
+            "https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/106/merge"
+        );
+    }
+
+    #[test]
+    fn github_token_rejects_empty_and_shell_metacharacters() {
+        assert!(validate_github_token("").is_err());
+        assert!(validate_github_token("ghp_oktoken12").is_ok());
+        assert!(validate_github_token("bad token").is_err());
+        assert!(validate_github_token("x';curl").is_err());
+        assert!(validate_github_token("{secret:github_token}").is_err());
     }
 
     #[test]
@@ -1049,14 +1093,10 @@ mod tests {
     // -- merge ----------------------------------------------------------------
 
     #[test]
-    fn merge_command_targets_the_pr_and_pins_the_head_sha() {
-        let cmd = merge_command("arni-labs/deep-sci-fi", "106", SHA);
-        assert!(cmd.contains("https://api.github.com/repos/arni-labs/deep-sci-fi/pulls/106/merge"));
-        assert!(cmd.contains("~/.git-credentials"));
-        assert!(cmd.contains("\"merge_method\":\"merge\""));
-        assert!(cmd.contains("-X PUT"));
-        // Pins the reviewed head so GitHub refuses if the head moved (TOCTOU).
-        assert!(cmd.contains(&format!("\"sha\":\"{SHA}\"")), "{cmd}");
+    fn merge_body_pins_the_head_sha() {
+        let body = format!(r#"{{"sha":"{SHA}","merge_method":"merge"}}"#);
+        assert!(body.contains(&format!("\"sha\":\"{SHA}\"")));
+        assert!(body.contains("\"merge_method\":\"merge\""));
     }
 
     #[test]
@@ -1305,7 +1345,7 @@ mod tests {
 
     #[test]
     fn rollback_is_freshly_isolated_and_idempotent() {
-        let cmd = rollback_command("arni-labs/deep-sci-fi", SHA);
+        let cmd = rollback_command("arni-labs/deep-sci-fi", SHA, "ghp_testdummytoken12");
         assert!(cmd.contains("GIT_TERMINAL_PROMPT=0"));
         // Fresh per-attempt checkout, cleaned up — no reuse of a poisonable dir.
         assert!(cmd.contains("mktemp -d"), "{cmd}");
@@ -1318,7 +1358,8 @@ mod tests {
         assert!(cmd.contains("commit.gpgsign false"), "{cmd}");
         // Token supplied via an Authorization header ($AUTH/$TOK runtime vars),
         // NOT baked into the remote URL — so it never lands in $DIR/.git/config.
-        assert!(cmd.contains("~/.git-credentials"), "{cmd}");
+        assert!(cmd.contains("TOK='ghp_testdummytoken12'"), "{cmd}");
+        assert!(!cmd.contains("~/.git-credentials"), "{cmd}");
         assert!(cmd.contains("http.extraHeader=Authorization: Basic $AUTH"), "{cmd}");
         assert!(cmd.contains("URL=\"https://github.com/arni-labs/deep-sci-fi.git\""), "{cmd}");
         assert!(!cmd.contains("x-access-token:$TOK@github.com"), "no token in URL: {cmd}");

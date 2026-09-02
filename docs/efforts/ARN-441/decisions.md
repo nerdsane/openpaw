@@ -681,3 +681,19 @@ Tenant secret names are not listable (403). Missing
 `railway_token` / ids would Fail on the first swap with that string in
 error_message.
 **Where:** this entry; live `/paw/version`, `/readyz`, ReleaseRuns.
+
+---
+
+**Decision:** (2026-09-01) DsfDeploy/ReleaseRun merge uses the tenant
+`github_token` secret via host `http_call`, not `~/.git-credentials` on
+the computer.
+**Came up because:** Rita asked to fix DsfDeploy. A live ReleaseRun
+Failed with GitHub Bad credentials. The WASM took the first
+`github.com` line from the computer's credential file.
+**Options:** (1) rotate the computer file; (2) use the same tenant
+secret `cicd_merger` already uses.
+**Chose (2) because:** it is the class. A stale first line on one
+sandbox cannot fail every merge. Rollback still runs on the computer
+but with that same token, not the file. What we gave up: merge now
+depends on the vault secret being present and valid.
+**Where:** release_run_lifecycle; dsf_deploy.ioa.toml; release_run.ioa.toml.
