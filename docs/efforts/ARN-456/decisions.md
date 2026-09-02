@@ -46,8 +46,8 @@
 
 ---
 
-**Decision:** `chain_github_ready` probes `GET /repos/{owner}/{name}` before contents, and the temper-agent skill tells the implementer to re-get the row after Attach*.
-**Came up because:** ARN-455 Intent `intent-arn-455-aya-ui-redesign` stayed Triaged. The file exists on `arni-labs/aya@claude/aya-redesign` (rita-aga can read it). Production retracted with `is not on GitHub` because GitHub returns 404 when the tenant `github_token` cannot see a private repo. Claude Code treated AttachIntentFile success as the door.
-**Options:** (1) leave the 404 wording and tell agents in prose; (2) distinguish visibility vs missing path, and write the retract/re-get rule in stack `temper-agent`.
-**Chose (2) because:** (1) keeps the next agent diagnosing a missing file. The credential fix (grant production `github_token` access to `arni-labs/aya`) is still required for Accept to pass.
+**Decision:** `chain_github_ready` fails if tenant `github_token` is missing, then probes the repo before contents. temper-agent does not teach the SDLC or this door.
+**Came up because:** Rita asked what I had encoded in temper-agent, and whether the file-ready miss was a missing file or a missing Temper token. Production vault has no `github_token`. Railway `openpaw` has no `GITHUB_TOKEN`. The check was anonymous GitHub. `arni-labs/aya` is private (404). `nerdsane/temperpaw` is public (works). The agent's `gh` is a different token.
+**Options:** (1) teach the door in temper-agent; (2) fail with an honest WASM error and put a token in the Temper vault.
+**Chose (2) because:** temper-agent is how to use Temper. The factory order stays in AGENTS.md. Agents stumble when the error lies.
 **Where:** `os-apps/paw-patrol/wasm/chain_github_ready/src/lib.rs`; stack `skills/temper-agent/SKILL.md`.

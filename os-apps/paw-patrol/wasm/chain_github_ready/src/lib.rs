@@ -44,9 +44,13 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
             ("user-agent".to_string(), "temperpaw-chain-github-ready".to_string()),
         ];
-        if !token.is_empty() {
-            headers.push(("authorization".to_string(), format!("Bearer {token}")));
+        if token.is_empty() {
+            return Err(
+                "chain_github_ready: tenant secret github_token is not configured"
+                    .to_string(),
+            );
         }
+        headers.push(("authorization".to_string(), format!("Bearer {token}")));
         // Private repos the token cannot read also return 404 on contents.
         // Probe the repo first so a visibility miss is not reported as a missing file.
         let repo_url = repo_url(&repo);
