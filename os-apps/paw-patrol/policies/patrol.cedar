@@ -24,7 +24,7 @@ permit(
   resource is ObservabilityFinding ||
   resource is DailyBrief ||
   resource is PatrolSchedule ||
-  resource is Adjudication ||
+  resource is Ask ||
   resource is StandingDecision ||
   resource is ShadowVerdict ||
   resource is DsfDeploy ||
@@ -57,7 +57,7 @@ permit(
   resource is ObservabilityFinding ||
   resource is DailyBrief ||
   resource is PatrolSchedule ||
-  resource is Adjudication ||
+  resource is Ask ||
   resource is StandingDecision ||
   resource is ShadowVerdict ||
   resource is DsfDeploy ||
@@ -388,6 +388,18 @@ permit(
     Action::"RecordPanel"
   ],
   resource is ReviewRun
+);
+
+permit(
+  principal is Agent,
+  action in [
+    Action::"create",
+    Action::"Raise",
+    Action::"RecordFyi",
+    Action::"Answer",
+    Action::"Withdraw"
+  ],
+  resource is Ask
 ) when {
   ["agent", "worker", "system", "supervisor", "human"].contains(principal.agent_type)
 };
@@ -676,6 +688,10 @@ permit(
     Action::"WorkerDone",
     Action::"SubmitForReview",
     Action::"AttachReviewRun",
+    Action::"AttachAsk",
+    Action::"MarkFixItClear",
+    Action::"MarkRiskClear",
+    Action::"ConfirmMerge",
     Action::"ReportE2e",
     Action::"PassReview",
     Action::"RequestChanges",

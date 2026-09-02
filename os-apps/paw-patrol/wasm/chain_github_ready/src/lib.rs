@@ -31,7 +31,6 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let branch = field_or_param(&ctx, &fields, branch_field)?;
         let path = git_path(&path)?;
         let repo = github_repo(&repo)?;
-        let url = contents_url(&repo, &path, &branch);
         let token = ctx
             .config
             .get("github_token")
@@ -48,6 +47,22 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         if !token.is_empty() {
             headers.push(("authorization".to_string(), format!("Bearer {token}")));
         }
+        // Private repos the token cannot read also return 404 on contents.
+        // Probe the repo first so a visibility miss is not reported as a missing file.
+        let repo_url = repo_url(&repo);
+        let repo_resp = ctx.http_call("GET", &repo_url, &headers, "")?;
+        if repo_resp.status == 404 {
+            return Err(format!(
+                "chain_github_ready: tenant github_token cannot see {repo} (missing, or private and this token has no access)"
+            ));
+        }
+        if repo_resp.status >= 400 {
+            return Err(format!(
+                "chain_github_ready: GET {repo_url} HTTP {}",
+                repo_resp.status
+            ));
+        }
+        let url = contents_url(&repo, &path, &branch);
         let resp = ctx.http_call("GET", &url, &headers, "")?;
         if resp.status == 404 {
             return Err(format!(
@@ -154,6 +169,10 @@ fn github_repo(repo: &str) -> Result<String, String> {
     Ok(format!("{owner}/{name}"))
 }
 
+fn repo_url(repo: &str) -> String {
+    format!("https://api.github.com/repos/{repo}")
+}
+
 fn contents_url(repo: &str, path: &str, branch: &str) -> String {
     let encoded_path = path
         .split('/')
@@ -212,6 +231,10 @@ mod tests {
         assert_eq!(
             url,
             "https://api.github.com/repos/nerdsane/temperpaw/contents/docs/efforts/ARN-441/spec.md?ref=main"
+        );
+        assert_eq!(
+            repo_url("arni-labs/aya"),
+            "https://api.github.com/repos/arni-labs/aya"
         );
     }
 

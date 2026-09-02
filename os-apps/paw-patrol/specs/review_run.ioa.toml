@@ -1,7 +1,7 @@
 [automaton]
 # One ReviewRun is one panel agent's pass (Grok, Codex, or Claude), not the
-# whole panel. Effort.review_run_ids holds every agent's run; PassReview
-# requires three, each Approved or Recorded.
+# whole panel. Effort.review_run_ids holds every agent's run. Attach three
+# Recorded runs; L1 cannot require count 3.
 name = "ReviewRun"
 states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed", "Recorded", "Superseded"]
 initial = "Requested"
@@ -77,6 +77,21 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "rubrics"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "fix_it_failed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "risk_flags"
+type = "string"
+initial = "[]"
+
+[[state]]
 name = "open_act_on_count"
 type = "string"
 initial = "0"
@@ -128,9 +143,9 @@ name = "RecordPanel"
 kind = "input"
 from = ["Requested", "Claimed", "Reviewing"]
 to = "Recorded"
-params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings"]
+params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "fix_it_failed", "risk_flags"]
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]
-hint = "Write this panel agent's verdict. One ReviewRun per agent. Temper File via AttachReviewFile. GitHub comments are not the record."
+hint = "Write this panel agent's rubric JSON. One ReviewRun per agent. GitHub comments are not the record."
 
 [[action]]
 name = "Request"

@@ -149,7 +149,9 @@
         <Property Name="FactoryCaseId" Type="Edm.String"/>
         <Property Name="ReviewRunIds" Type="Collection(Edm.String)"/>
         <Property Name="ProofPacketIds" Type="Collection(Edm.String)"/>
-        <Property Name="AdjudicationIds" Type="Collection(Edm.String)"/>
+        <Property Name="AskIds" Type="Collection(Edm.String)"/>
+        <Property Name="ReviewFixItClear" Type="Edm.Boolean"/>
+        <Property Name="MergeRiskClear" Type="Edm.Boolean"/>
         <Property Name="DeploymentId" Type="Edm.String"/>
         <Property Name="IntentRef" Type="Edm.String"/>
         <Property Name="SpecRef" Type="Edm.String"/>
@@ -183,7 +185,7 @@
         <Property Name="E2eOk" Type="Edm.Boolean"/>
         <Property Name="DeployVerified" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="The SDLC execution unit. intent/spec/plan/decisions are git paths on GitHub. Review and proof are Temper Files. Deploy records a DsfDeploy or TemperDeploy id."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="The SDLC execution unit. Ask is the inbox. intent/spec/plan/decisions are git paths. Review and proof are Temper Files."/>
       </EntityType>
 
       <EntityType Name="WorkerRun">
@@ -225,6 +227,9 @@
         <Property Name="ReviewersRan" Type="Edm.String"/>
         <Property Name="Findings" Type="Edm.String"/>
         <Property Name="Risk" Type="Edm.String"/>
+        <Property Name="Rubrics" Type="Edm.String"/>
+        <Property Name="FixItFailed" Type="Edm.Boolean"/>
+        <Property Name="RiskFlags" Type="Edm.String"/>
         <Property Name="OpenActOnCount" Type="Edm.String"/>
         <Property Name="RecordPresent" Type="Edm.Boolean"/>
         <Property Name="ArtifactRef" Type="Edm.String"/>
@@ -528,16 +533,22 @@
         <Annotation Term="Paw.Vocab.Agent.Hint" String="Recurring Patrol schedule that creates repo sweeps and daily briefs using Temper state transitions."/>
       </EntityType>
 
-      <EntityType Name="Adjudication">
+      <EntityType Name="Ask">
         <Key><PropertyRef Name="Id"/></Key>
         <Property Name="Id" Type="Edm.String" Nullable="false"/>
         <Property Name="Status" Type="Edm.String"/>
-        <Property Name="Scope" Type="Edm.String"/>
-        <Property Name="Ruling" Type="Edm.String"/>
-        <Property Name="Source" Type="Edm.String"/>
-        <Property Name="EffortRef" Type="Edm.String"/>
+        <Property Name="EffortId" Type="Edm.String"/>
+        <Property Name="Kind" Type="Edm.String"/>
+        <Property Name="Need" Type="Edm.String"/>
+        <Property Name="Options" Type="Edm.String"/>
+        <Property Name="Act" Type="Edm.String"/>
+        <Property Name="Chose" Type="Edm.String"/>
+        <Property Name="Why" Type="Edm.String"/>
+        <Property Name="Who" Type="Edm.String"/>
+        <Property Name="Stalls" Type="Edm.Boolean"/>
+        <Property Name="PrUrl" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="An owner ruling scoped to a file:line or a class of finding for an effort."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="Inbox row: decide, do, or fyi. Same record when Rita answers or the agent records an FYI."/>
       </EntityType>
 
       <EntityType Name="StandingDecision">
@@ -564,7 +575,7 @@
       </EntityType>
 
       <EntityContainer Name="Service">
-        <EntitySet Name="Adjudications" EntityType="TemperPaw.Patrol.Adjudication"/>
+        <EntitySet Name="Asks" EntityType="TemperPaw.Patrol.Ask"/>
         <EntitySet Name="StandingDecisions" EntityType="TemperPaw.Patrol.StandingDecision"/>
         <EntitySet Name="ShadowVerdicts" EntityType="TemperPaw.Patrol.ShadowVerdict"/>
         <EntitySet Name="PatrolRequests" EntityType="TemperPaw.Patrol.PatrolRequest"/>

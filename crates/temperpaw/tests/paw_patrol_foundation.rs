@@ -303,6 +303,14 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
         "docs/efforts/",
         "name = \"panel_started\"",
         "name = \"panel_count\"",
+        "name = \"AttachAsk\"",
+        "name = \"ask_ids\"",
+        "name = \"MarkFixItClear\"",
+        "name = \"MarkRiskClear\"",
+        "name = \"ConfirmMerge\"",
+        "name = \"review_fix_it_clear\"",
+        "name = \"merge_risk_clear\"",
+        "from = [\"Building\", \"InReview\", \"Proving\", \"Deploying\"]",
     ] {
         assert!(
             effort.contains(needle),
@@ -2124,9 +2132,9 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
     assert_eq!(
         bundle.specs.len(),
         27,
-        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun, DsfDeploy, TemperDeploy, the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict, and the ARN-441 Intent/Effort entity loop)"
+        "paw-patrol should expose all Patrol entity specs (incl. Ask, ReleaseRun, DsfDeploy, TemperDeploy, StandingDecision/ShadowVerdict, and the Intent/Effort loop)"
     );
-    for entity in ["Intent", "Effort", "DsfDeploy", "TemperDeploy", "ReleaseRun"] {
+    for entity in ["Intent", "Effort", "Ask", "DsfDeploy", "TemperDeploy", "ReleaseRun"] {
         assert!(
             bundle
                 .specs
@@ -3483,7 +3491,7 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
 
     // The three new entities have specs.
     for spec in [
-        "adjudication.ioa.toml",
+        "ask.ioa.toml",
         "standing_decision.ioa.toml",
         "shadow_verdict.ioa.toml",
     ] {
@@ -3502,6 +3510,9 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "\"Superseded\"",
         "IngestRecord",
         "RecordPanel",
+        "name = \"rubrics\"",
+        "name = \"fix_it_failed\"",
+        "name = \"risk_flags\"",
         "name = \"effort_id\"",
         "record_present",
         "RecordedHasRecord",
@@ -3532,7 +3543,7 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
 
     // CSDL exposes the new entity types and the new properties.
     let csdl = read(patrol.join("specs/model.csdl.xml"));
-    for entity in ["Adjudication", "StandingDecision", "ShadowVerdict"] {
+    for entity in ["Ask", "StandingDecision", "ShadowVerdict"] {
         assert!(
             csdl.contains(&format!("<EntityType Name=\"{entity}\">")),
             "CSDL should expose {entity}"
@@ -3592,6 +3603,17 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         read(patrol.join("wasm/build.sh")).contains("chain_github_ready"),
         "build.sh should build chain_github_ready"
     );
+    let github_ready = read(patrol.join("wasm/chain_github_ready/src/lib.rs"));
+    for needle in [
+        "cannot see {repo}",
+        "api.github.com/repos/{repo}",
+        "is not on GitHub",
+    ] {
+        assert!(
+            github_ready.contains(needle),
+            "chain_github_ready should distinguish token visibility from a missing path ({needle})"
+        );
+    }
     assert!(
         manifest.contains("name = \"chain_file_ready\""),
         "app.toml should register chain_file_ready"
@@ -3623,7 +3645,7 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     // The new entities are governed under the existing Admin permit.
     let policy = read(patrol.join("policies/patrol.cedar"));
     for needle in [
-        "resource is Adjudication",
+        "resource is Ask",
         "resource is StandingDecision",
         "resource is ShadowVerdict",
     ] {

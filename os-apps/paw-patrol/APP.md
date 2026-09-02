@@ -61,8 +61,8 @@ harness Agent: edits are native, recorded acts go through Temper MCP, machine
 work is Computer.Exec. It begins `Intended` → `Specified` → `Planned` →
 `Building` → `InReview` → `Proving` → `Merged` → `Deploying` → `Verified`.
 `Stalled` is recoverable; `Abandoned` is the give-up terminal. The row holds
-the chain (intent_id, review_run_ids, proof_packet_ids, deployment_id,
-adjudication_ids, pm_issue_id). `spec_ref` / `plan_ref` / `intent_ref` /
+the chain (intent_id, review_run_ids, proof_packet_ids, ask_ids, deployment_id,
+pm_issue_id). Ask is the inbox (decide / do / fyi). `spec_ref` / `plan_ref` / `intent_ref` /
 `decisions_ref` are git paths (`docs/efforts/<issue>/*.md`). AttachSpec /
 AttachPlan / AttachDecisions / AttachIntentFile run `chain_github_ready`
 (the path must be a file on GitHub at repo@branch). Review and proof stay
@@ -452,8 +452,10 @@ server hosts Temper and triggers, but these modules own the workflow decisions:
   by creating repo sweeps and daily briefs from schedule transitions.
 - `daily_brief_lifecycle`: queues the local Codex DailyBrief WorkerRun from
   finished proof packets, findings, and open risks.
-- `chain_github_ready`: GET GitHub contents for `docs/efforts/<id>/*.md`.
-  Fired by AttachIntentFile / AttachSpec / AttachPlan / AttachDecisions.
+- `chain_github_ready`: GET the repo (tenant `github_token` must be able to
+  see it), then GET contents for `docs/efforts/<id>/*.md`. Fired by
+  AttachIntentFile / AttachSpec / AttachPlan / AttachDecisions. A 404 on the
+  repo is "token cannot see this repo", not a missing file.
 - `chain_file_ready`: GET a Temper File and require Ready/Locked. Fired by
   AttachReviewFile / AttachProofFile.
 - `temper_deploy_lifecycle`: one side effect per TemperDeploy trigger
