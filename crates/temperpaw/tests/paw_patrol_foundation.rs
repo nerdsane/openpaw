@@ -284,7 +284,12 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
             "intent.ioa.toml Accept->Effort trigger should carry `{needle}`"
         );
     }
-    for gone in ["RebirthEffort", "ConfirmBirth", "BirthTimedOut", "Accepting"] {
+    for gone in [
+        "RebirthEffort",
+        "ConfirmBirth",
+        "BirthTimedOut",
+        "Accepting",
+    ] {
         assert!(
             !intent.contains(&format!("name = \"{gone}\"")),
             "{gone} must not exist on Intent"
@@ -368,7 +373,10 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         "target_action = \"Stall\"",
         "field = \"effort_id\"",
     ] {
-        assert!(dsf.contains(needle), "dsf_deploy.ioa.toml should carry `{needle}`");
+        assert!(
+            dsf.contains(needle),
+            "dsf_deploy.ioa.toml should carry `{needle}`"
+        );
     }
     for needle in [
         "name = \"TemperDeploy\"",
@@ -397,7 +405,10 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         "resource.risk_lane == \"L0\"",
         "resource.risk_lane == \"L1\"",
     ] {
-        assert!(cedar.contains(needle), "patrol.cedar should carry `{needle}`");
+        assert!(
+            cedar.contains(needle),
+            "patrol.cedar should carry `{needle}`"
+        );
     }
     for needle in [
         "<EntityType Name=\"DsfDeploy\">",
@@ -2134,7 +2145,14 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         27,
         "paw-patrol should expose all Patrol entity specs (incl. Ask, ReleaseRun, DsfDeploy, TemperDeploy, StandingDecision/ShadowVerdict, and the Intent/Effort loop)"
     );
-    for entity in ["Intent", "Effort", "Ask", "DsfDeploy", "TemperDeploy", "ReleaseRun"] {
+    for entity in [
+        "Intent",
+        "Effort",
+        "Ask",
+        "DsfDeploy",
+        "TemperDeploy",
+        "ReleaseRun",
+    ] {
         assert!(
             bundle
                 .specs
@@ -3749,7 +3767,9 @@ fn effort_merge_permits_l0_l1_and_denies_l2() {
     }
     let l2 = resource_attrs(&[("risk_lane", serde_json::json!("L2"))]);
     assert!(
-        !engine.authorize(&agent, "Merge", "Effort", &l2).is_allowed(),
+        !engine
+            .authorize(&agent, "Merge", "Effort", &l2)
+            .is_allowed(),
         "L2 Merge must deny so it surfaces as MCP elicitation"
     );
 

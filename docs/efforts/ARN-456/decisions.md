@@ -35,13 +35,15 @@
 **Decision:** Cedar is a project risk flag, not a global one.
 **Came up because:** Cedar is TemperPaw.
 **Options:** (1) global REVIEW.md; (2) repo REVIEW.md.
-**Chose (2).
+**Chose (2) because:** Cedar only exists in TemperPaw. A global flag would fail every other repo.
 **Where:** os-apps is not the home; temperpaw REVIEW.md.
 
 ---
 
 **Decision:** The stuck-loop prompt is ASSESS-REVIEW-SPIRAL.md. Always an agent. Harness list in panel.json, Fable 5.1 first.
 **Came up because:** "Arbiter" hid the job. File-count fallback was a no-agent path.
+**Options:** (1) no-agent file-count fallback; (2) always run an agent from panel.json spiral, Fable 5.1 first.
+**Chose (2) because:** a spiral with no agent is another empty review. The prompt name is the job.
 **Where:** stack ASSESS-REVIEW-SPIRAL.md; review/panel.json.
 
 ---
@@ -51,3 +53,11 @@
 **Options:** (1) teach the door in temper-agent; (2) fail with an honest WASM error and put a token in the Temper vault.
 **Chose (2) because:** temper-agent is how to use Temper. The factory order stays in AGENTS.md. Agents stumble when the error lies.
 **Where:** `os-apps/paw-patrol/wasm/chain_github_ready/src/lib.rs`; stack `skills/temper-agent/SKILL.md`.
+
+---
+
+**Decision:** Production Cedar is patched in place for Ask. A dedicated contents token goes in the vault, not the rita-aga login session.
+**Came up because:** Live GET Ask was authorization_denied. Vault had no github_token. Railway openpaw had no GITHUB_TOKEN. Rita forbade putting her personal login in the vault.
+**Options:** (1) replace the whole 447k tenant policy with patrol.cedar; (2) add Ask to the live patrol blankets and Effort actions; (3) put the rita-aga gh session token in the vault; (4) mint a dedicated repo-scoped factory PAT (or GitHub App installation token, which expires in an hour).
+**Chose (2) and (4) because:** (1) would wipe every other app's permits. (3) is the login she refused. WASM wants a non-expiring Bearer.
+**Where:** PUT /api/tenants/default/policies; POST /paw/setup/secrets github_token.
