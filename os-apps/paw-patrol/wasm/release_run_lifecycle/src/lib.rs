@@ -331,19 +331,25 @@ fn github_token(ctx: &Context, repo: &str) -> Result<String, String> {
     github_app::github_bearer(ctx, repo)
 }
 
+/// Charset + length check before the token is interpolated into `TOK='…'` on
+/// the rollback command. Merge HTTP does not use this. GitHub App installation
+/// tokens since the 2026 stateless rollout are `ghs_<appid>_<jwt>` (~520 chars,
+/// two dots). Classic opaque `ghs_` / `ghp_` tokens stay accepted.
 fn validate_github_token(token: &str) -> Result<(), String> {
+    const MIN: usize = 8;
+    const MAX: usize = 1024;
     if token.is_empty() {
         return Err(
             "release_run_lifecycle: github token is empty (App install or tenant github_token)"
                 .to_string(),
         );
     }
-    if token.len() < 8 || token.len() > 256 {
+    if token.len() < MIN || token.len() > MAX {
         return Err("release_run_lifecycle: github token length is not a token".to_string());
     }
     if !token
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     {
         return Err("release_run_lifecycle: github token has unexpected characters".to_string());
     }
@@ -1070,6 +1076,22 @@ mod tests {
         assert!(validate_github_token("bad token").is_err());
         assert!(validate_github_token("x';curl").is_err());
         assert!(validate_github_token("{secret:github_token}").is_err());
+    }
+
+    #[test]
+    fn github_token_accepts_stateless_app_installation_jwt() {
+        // GitHub changelog 2026-04-24 / 2026-05-15: ghs_<appid>_<jwt>, ~520 chars, two dots.
+        let token = format!(
+            "ghs_123456_{}.{}.{}",
+            "A".repeat(180),
+            "B".repeat(180),
+            "C".repeat(140)
+        );
+        assert!(token.len() > 256);
+        assert!(token.contains('.'));
+        assert!(validate_github_token(&token).is_ok());
+        assert!(validate_github_token(&format!("ghs_{}", "x".repeat(1021))).is_err());
+        assert!(validate_github_token("ghs_foo.bar;curl").is_err());
     }
 
     #[test]

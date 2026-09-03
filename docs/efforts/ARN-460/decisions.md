@@ -29,3 +29,11 @@
 **Options:** (1) leave it (Rita would have to press); (2) kernel change so WASM callbacks always elevate to a service; (3) widen Cedar on the project tools only, including the principals the kernel actually uses.
 **Chose (3) over (1) and (2) because:** (1) is the bug. (2) is Temper, not this repo. Widening only DsfDeploy / TemperDeploy keeps ReleaseRun closed. What we gave up: an Agent can name MergeSucceeded without the WASM having merged — same class as Request already being open to any Agent; the row still has to be in Merging.
 **Where:** `os-apps/paw-patrol/policies/patrol.cedar`; `paw_patrol_foundation.rs` `effort_merge_permits_l0_l1_and_denies_l2`.
+
+---
+
+**Decision:** (2026-09-03) Rollback charset check accepts the 2026 stateless App installation token (`ghs_<appid>_<jwt>`, dots, up to 1024 chars).
+**Came up because:** The ARN-460 panel (Grok) found `validate_github_token` still capped at 256 chars and rejected `.`. Merge HTTP does not call it. Rollback interpolates the minted token into `TOK='…'` after this check. GitHub’s April–June 2026 rollout issues ~520-char JWTs with two dots.
+**Options:** (1) merge with the finding open; (2) skip charset check on App tokens; (3) allow `.` and raise the cap to 1024, keep rejecting shell metacharacters.
+**Chose (3) over (1) and (2) because:** (1) is the bug this effort exists to close. (2) would put an unchecked string into a sandbox shell. What we gave up: a token longer than 1024 still fails (GitHub documents ~520).
+**Where:** `os-apps/paw-patrol/wasm/release_run_lifecycle/src/lib.rs` `validate_github_token`.
