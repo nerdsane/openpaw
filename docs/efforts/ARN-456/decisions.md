@@ -85,3 +85,19 @@
 **Options:** (1) keep Resume as a state change only; (2) reset the RequestChanges bools on Resume; (3) Resume to the stall source stage.
 **Chose (2) because:** the lock is Resume to Building. Walking the doors again only happens if the bools are false.
 **Where:** effort.ioa.toml Resume.
+
+---
+
+**Decision:** RaiseBlocking sets stalls. RecordPanelFixItFailed sets fix_it_failed. Bool params do not write.
+**Came up because:** Grok and Codex showed Raise(stalls=true) and RecordPanel(fix_it_failed=true) leave the bool store false. ShadowVerdict already documents this: booleans are set_bool, not params.
+**Options:** (1) keep bool params and hope the kernel learns them; (2) one action per bool value, like MarkAgree/MarkDisagree.
+**Chose (2) because:** that is the house pattern and it works today.
+**Where:** ask.ioa.toml RaiseBlocking; review_run.ioa.toml RecordPanelFixItFailed.
+
+---
+
+**Decision:** The ReviewRun write permit keeps the agent_type when clause. Ask has its own copy.
+**Came up because:** Fable showed the when clause moved from ReviewRun onto Ask, so any Agent type could RecordPanel.
+**Options:** (1) leave ReviewRun open; (2) restore the same when on ReviewRun and keep it on Ask.
+**Chose (2) because:** RecordPanel is the row PassReview reads. Widening it was not a recorded call.
+**Where:** patrol.cedar ReviewRun permit.

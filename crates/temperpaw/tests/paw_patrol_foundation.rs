@@ -382,12 +382,17 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
         "var = \"evaluation_passed\"",
         "var = \"proof_attached\"",
         "var = \"e2e_ok\"",
+        "var = \"panel_started\"",
     ] {
         assert!(
             resume.contains(needle),
             "Resume must reset {needle} so Stall cannot skip a new review"
         );
     }
+    assert!(
+        reopen.contains("intent_file_ready"),
+        "Intent.Reopen must clear intent_file_ready"
+    );
     // Chain-id collections are real lists, not JSON-blob strings.
     assert!(
         effort.contains("name = \"review_run_ids\"\ntype = \"list\""),
@@ -3550,6 +3555,22 @@ fn paw_patrol_wasm_modules_have_startup_build_script() {
 fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     let patrol = repo_root().join("os-apps/paw-patrol");
 
+    let ask = read(patrol.join("specs/ask.ioa.toml"));
+    for needle in [
+        "name = \"RaiseBlocking\"",
+        "var = \"stalls\"",
+        "name = \"RecordFyi\"",
+        "params = [\"effort_id\", \"kind\", \"need\", \"options\", \"chose\", \"why\", \"who\"]",
+    ] {
+        assert!(ask.contains(needle), "ask.ioa.toml should contain {needle}");
+    }
+    assert!(
+        !ask.contains(
+            "params = [\"effort_id\", \"kind\", \"need\", \"options\", \"act\", \"stalls\""
+        ),
+        "Ask.Raise must not take stalls as a param; booleans use set_bool"
+    );
+
     // The three new entities have specs.
     for spec in [
         "ask.ioa.toml",
@@ -3574,6 +3595,7 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "name = \"rubrics\"",
         "name = \"fix_it_failed\"",
         "name = \"risk_flags\"",
+        "name = \"RecordPanelFixItFailed\"",
         "name = \"effort_id\"",
         "record_present",
         "RecordedHasRecord",
@@ -3670,6 +3692,8 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "api.github.com/repos/{repo}",
         "is not on GitHub",
         "get_time_millis",
+        "per_page=100",
+        "GitHub App installation cannot see",
     ] {
         assert!(
             github_ready.contains(needle),
@@ -3714,6 +3738,8 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "resource is Ask",
         "resource is StandingDecision",
         "resource is ShadowVerdict",
+        "Action::\"RaiseBlocking\"",
+        "Action::\"RecordPanelFixItFailed\"",
     ] {
         assert!(
             policy.contains(needle),

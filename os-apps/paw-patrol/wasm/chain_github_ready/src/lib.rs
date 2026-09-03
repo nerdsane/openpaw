@@ -41,22 +41,16 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 "temperpaw-chain-github-ready".to_string(),
             ),
         ];
-        match bearer_for_repo(&ctx, &repo)? {
-            Some(token) => {
-                headers.push(("authorization".to_string(), format!("Bearer {token}")));
-            }
-            None => {
-                // Public repos: no installation on that owner. Private ones 404 below.
-            }
+        let cred = bearer_for_repo(&ctx, &repo)?;
+        if let Some(token) = cred.token.as_deref() {
+            headers.push(("authorization".to_string(), format!("Bearer {token}")));
         }
         // Private repos the token cannot read also return 404 on contents.
         // Probe the repo first so a visibility miss is not reported as a missing file.
         let repo_url = repo_url(&repo);
         let repo_resp = ctx.http_call("GET", &repo_url, &headers, "")?;
         if repo_resp.status == 404 {
-            return Err(format!(
-                "chain_github_ready: tenant github_token cannot see {repo} (missing, or private and this token has no access)"
-            ));
+            return Err(cannot_see(&repo, cred.label));
         }
         if repo_resp.status >= 400 {
             return Err(format!(
@@ -104,22 +98,50 @@ fn secret(ctx: &Context, key: &str) -> Option<String> {
         .cloned()
 }
 
-fn bearer_for_repo(ctx: &Context, repo: &str) -> Result<Option<String>, String> {
+struct GitHubCred {
+    token: Option<String>,
+    label: &'static str,
+}
+
+fn cannot_see(repo: &str, label: &str) -> String {
+    match label {
+        "app" => format!(
+            "chain_github_ready: GitHub App installation cannot see {repo} (no install on this owner, or the install cannot read it)"
+        ),
+        "github_token" => format!(
+            "chain_github_ready: tenant github_token cannot see {repo} (missing, or private and this token has no access)"
+        ),
+        _ => format!(
+            "chain_github_ready: GitHub has no public repo {repo} (no App install on this owner and no github_token)"
+        ),
+    }
+}
+
+fn bearer_for_repo(ctx: &Context, repo: &str) -> Result<GitHubCred, String> {
     let owner = repo.split('/').next().unwrap_or("");
     let app_id = secret(ctx, "github_app_id");
     let pem = secret(ctx, "github_app_private_key");
     match (app_id, pem) {
         (Some(app_id), Some(pem)) => {
             if let Some(token) = installation_token(ctx, &app_id, &pem, owner)? {
-                return Ok(Some(token));
+                return Ok(GitHubCred {
+                    token: Some(token),
+                    label: "app",
+                });
             }
             // App is the factory credential. This owner has no install — try public.
-            return Ok(None);
+            return Ok(GitHubCred {
+                token: None,
+                label: "anonymous",
+            });
         }
         _ => {}
     }
     if let Some(token) = secret(ctx, "github_token") {
-        return Ok(Some(token));
+        return Ok(GitHubCred {
+            token: Some(token),
+            label: "github_token",
+        });
     }
     Err("chain_github_ready: tenant GitHub App (github_app_id + github_app_private_key) is not configured".to_string())
 }
@@ -142,7 +164,12 @@ fn installation_token(
         ),
         ("authorization".to_string(), format!("Bearer {jwt}")),
     ];
-    let resp = ctx.http_call("GET", "https://api.github.com/app/installations", &auth, "")?;
+    let resp = ctx.http_call(
+        "GET",
+        "https://api.github.com/app/installations?per_page=100",
+        &auth,
+        "",
+    )?;
     if resp.status >= 400 {
         return Err(format!(
             "chain_github_ready: list installations HTTP {}",

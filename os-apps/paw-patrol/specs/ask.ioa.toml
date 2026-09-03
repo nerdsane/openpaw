@@ -68,16 +68,25 @@ name = "Raise"
 kind = "input"
 from = ["Open"]
 to = "Open"
-params = ["effort_id", "kind", "need", "options", "act", "stalls", "pr_url"]
-hint = "Open a decide or do Ask. kind is decide or do. stalls is true only when the Effort has nothing left it can do."
+params = ["effort_id", "kind", "need", "options", "act", "pr_url"]
+hint = "Open a decide or do Ask. kind is decide or do. stalls stays false. Booleans are set_bool, not params."
+
+[[action]]
+name = "RaiseBlocking"
+kind = "input"
+from = ["Open"]
+to = "Open"
+params = ["effort_id", "kind", "need", "options", "act", "pr_url"]
+effect = [{ type = "set_bool", var = "stalls", value = true }]
+hint = "Open the stall Ask. stalls becomes true. The agent also fires Effort.Stall."
 
 [[action]]
 name = "RecordFyi"
 kind = "input"
 from = ["Open"]
 to = "Answered"
-params = ["effort_id", "need", "options", "chose", "why", "who"]
-hint = "Record a decision the agent was allowed to make. Born closed. who is the agent."
+params = ["effort_id", "kind", "need", "options", "chose", "why", "who"]
+hint = "Record a decision the agent was allowed to make. Born closed. kind is fyi. who is the agent."
 
 [[action]]
 name = "Answer"

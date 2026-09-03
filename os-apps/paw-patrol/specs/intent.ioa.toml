@@ -191,7 +191,8 @@ name = "Reopen"
 kind = "input"
 from = ["Rejected"]
 to = "Triaged"
-hint = "Return a Rejected intent to Triaged so Attach + Accept can run again. Timeouts are not a human reject."
+effect = "set intent_file_ready false"
+hint = "Return a Rejected intent to Triaged so Attach + Accept can run again. Timeouts are not a human reject. Clears intent_file_ready so Accept cannot ride a stale file check."
 
 [[state_timeout]]
 state = "Submitted"

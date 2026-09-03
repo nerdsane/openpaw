@@ -385,16 +385,20 @@ permit(
     Action::"Claim",
     Action::"AttachReviewFile",
     Action::"RetractReviewFile",
-    Action::"RecordPanel"
+    Action::"RecordPanel",
+    Action::"RecordPanelFixItFailed"
   ],
   resource is ReviewRun
-);
+) when {
+  ["agent", "worker", "system", "supervisor", "human"].contains(principal.agent_type)
+};
 
 permit(
   principal is Agent,
   action in [
     Action::"create",
     Action::"Raise",
+    Action::"RaiseBlocking",
     Action::"RecordFyi",
     Action::"Answer",
     Action::"Withdraw"
