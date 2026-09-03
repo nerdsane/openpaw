@@ -130,6 +130,8 @@ path_field = "intent_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractIntentFile"
@@ -183,6 +185,14 @@ from = ["Triaged", "Submitted"]
 to = "Rejected"
 params = ["triage_summary"]
 hint = "Reject an intent that should not become work."
+
+[[action]]
+name = "Reopen"
+kind = "input"
+from = ["Rejected"]
+to = "Triaged"
+effect = "set intent_file_ready false"
+hint = "Return a Rejected intent to Triaged so Attach + Accept can run again. Timeouts are not a human reject. Clears intent_file_ready so Accept cannot ride a stale file check."
 
 [[state_timeout]]
 state = "Submitted"

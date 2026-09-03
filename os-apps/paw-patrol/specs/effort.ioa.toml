@@ -32,7 +32,7 @@ name = "factory_case_id"
 type = "string"
 initial = ""
 
-# review_run_ids / proof_packet_ids / adjudication_ids are real list fields
+# review_run_ids / proof_packet_ids / ask_ids are real list fields
 # (Collection(Edm.String) in CSDL), appended one element at a time via list_append
 # on the attach actions - no JSON-blob-in-a-string for outside code to parse.
 [[state]]
@@ -46,7 +46,7 @@ type = "list"
 initial = "[]"
 
 [[state]]
-name = "adjudication_ids"
+name = "ask_ids"
 type = "list"
 initial = "[]"
 
@@ -172,6 +172,16 @@ type = "bool"
 initial = "false"
 
 [[state]]
+name = "review_fix_it_clear"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "merge_risk_clear"
+type = "bool"
+initial = "false"
+
+[[state]]
 name = "evaluation_passed"
 type = "bool"
 initial = "false"
@@ -254,6 +264,8 @@ path_field = "spec_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractSpecFile"
@@ -292,6 +304,8 @@ path_field = "plan_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractPlanFile"
@@ -333,6 +347,8 @@ path_field = "decisions_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractDecisionsFile"
@@ -381,9 +397,12 @@ params = ["reviewer_run_id", "review_run_ids"]
 effect = [
   { type = "list_append", var = "review_run_ids" },
   { type = "increment", var = "panel_count" },
-  { type = "set_bool", var = "panel_started", value = true }
+  { type = "set_bool", var = "panel_started", value = true },
+  { type = "set_bool", var = "review_fix_it_clear", value = false },
+  { type = "set_bool", var = "merge_risk_clear", value = false },
+  { type = "set_bool", var = "review_passed", value = false }
 ]
-hint = "Attach one agent's ReviewRun. One run per panel agent (Grok, Codex, Claude). review_run_ids appends that id."
+hint = "Attach one agent's ReviewRun. Clears prior review_fix_it_clear, merge_risk_clear, and review_passed so a later failing panel cannot ride an old clearance. review_run_ids appends that id."
 
 [[action]]
 name = "ReportE2e"
@@ -395,14 +414,41 @@ effect = "set e2e_ok true"
 hint = "Record targeted live or end-to-end verification evidence."
 
 [[action]]
+name = "AttachAsk"
+kind = "input"
+from = ["Intended", "Specified", "Planned", "Building", "InReview", "Proving", "Merged", "Deploying", "Stalled"]
+params = ["ask_id", "ask_ids"]
+effect = [{ type = "list_append", var = "ask_ids" }]
+hint = "Hang an Ask on this Effort. Self-loop. Does not Stall."
+
+[[action]]
+name = "MarkFixItClear"
+kind = "input"
+from = ["InReview"]
+to = "InReview"
+effect = "set review_fix_it_clear true"
+hint = "Every attached ReviewRun has fix-it rubrics clear. If any failed, RequestChanges instead."
+
+[[action]]
+name = "MarkRiskClear"
+kind = "input"
+from = ["InReview"]
+to = "InReview"
+effect = "set merge_risk_clear true"
+hint = "No risk flags on the panel rubrics. If any flag is set, raise a do Ask with pr_url and wait for ConfirmMerge."
+
+[[action]]
 name = "PassReview"
 kind = "input"
 from = ["InReview"]
 to = "InReview"
 params = ["reviewer_run_id"]
-guard = "is_true panel_started"
+guard = [
+  { type = "is_true", var = "panel_started" },
+  { type = "is_true", var = "review_fix_it_clear" }
+]
 effect = "set review_passed true"
-hint = "Panel complete after at least one ReviewRun is attached. Attach three (one per panel agent); the verifier cannot require count 3 (counter bound 2)."
+hint = "Panel recorded and fix-it rubrics clear. Attach three ReviewRuns (one per panel agent); L1 cannot require count 3."
 
 [[action]]
 name = "RequestChanges"
@@ -412,6 +458,8 @@ to = "Building"
 params = ["error_message"]
 effect = [
   { type = "set_bool", var = "review_passed", value = false },
+  { type = "set_bool", var = "review_fix_it_clear", value = false },
+  { type = "set_bool", var = "merge_risk_clear", value = false },
   { type = "set_bool", var = "worker_done", value = false },
   { type = "set_bool", var = "evaluation_passed", value = false },
   { type = "set_bool", var = "proof_attached", value = false },
@@ -458,9 +506,10 @@ guard = [
   { type = "is_true", var = "evaluation_passed" },
   { type = "is_true", var = "proof_attached" },
   { type = "is_true", var = "e2e_ok" },
-  { type = "is_true", var = "decisions_file_ready" }
+  { type = "is_true", var = "decisions_file_ready" },
+  { type = "is_true", var = "merge_risk_clear" }
 ]
-hint = "Authorize merge. decisions.md must be on GitHub. The project deploy tool does the ship."
+hint = "Authorize merge when risk flags are empty. If any risk flag is set, ConfirmMerge after the do Ask, which sets merge_risk_clear."
 
 [[action]]
 name = "Deploy"
@@ -486,23 +535,38 @@ to = "Merged"
 hint = "Callback: the project deploy tool rolled production back. Retry Deploy with a new child."
 
 [[action]]
+name = "ConfirmMerge"
+kind = "input"
+from = ["Proving"]
+to = "Proving"
+effect = "set merge_risk_clear true"
+hint = "Rita answered the merge do Ask. Sets merge_risk_clear so Merge can proceed."
+
+[[action]]
 name = "Stall"
 kind = "input"
-from = ["InReview", "Deploying"]
+from = ["Building", "InReview", "Proving", "Deploying"]
 to = "Stalled"
 params = ["error_message"]
-hint = "Review stall, or a deploy tool Failed (rollback did not finish). A clean RolledBack returns to Merged."
+hint = "The agent has nothing left it can do. Attach the stall Ask first or right after. Not 'want to continue'."
 
-# Resume - pickup out of Stalled. A later step requires an Adjudication (owner
-# ruling) as the guard; here it records the adjudication ids and resumes Building.
 [[action]]
 name = "Resume"
 kind = "input"
 from = ["Stalled"]
 to = "Building"
-params = ["adjudication_ids"]
-effect = [{ type = "list_append", var = "adjudication_ids" }]
-hint = "Resume a stalled effort (pickup); adjudication_ids is the owner-ruling id appended to the chain list. A later step guards this on an Adjudication."
+params = ["ask_id"]
+effect = [
+  { type = "set_bool", var = "review_passed", value = false },
+  { type = "set_bool", var = "review_fix_it_clear", value = false },
+  { type = "set_bool", var = "merge_risk_clear", value = false },
+  { type = "set_bool", var = "worker_done", value = false },
+  { type = "set_bool", var = "evaluation_passed", value = false },
+  { type = "set_bool", var = "proof_attached", value = false },
+  { type = "set_bool", var = "e2e_ok", value = false },
+  { type = "set_bool", var = "panel_started", value = false }
+]
+hint = "Rita answered the stall Ask. ask_id is that Ask. Clears the same review and proof gates as RequestChanges, plus panel_started, so Stall cannot skip a new review."
 
 [[action]]
 name = "Abandon"

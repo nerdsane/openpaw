@@ -284,7 +284,12 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
             "intent.ioa.toml Accept->Effort trigger should carry `{needle}`"
         );
     }
-    for gone in ["RebirthEffort", "ConfirmBirth", "BirthTimedOut", "Accepting"] {
+    for gone in [
+        "RebirthEffort",
+        "ConfirmBirth",
+        "BirthTimedOut",
+        "Accepting",
+    ] {
         assert!(
             !intent.contains(&format!("name = \"{gone}\"")),
             "{gone} must not exist on Intent"
@@ -303,6 +308,14 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
         "docs/efforts/",
         "name = \"panel_started\"",
         "name = \"panel_count\"",
+        "name = \"AttachAsk\"",
+        "name = \"ask_ids\"",
+        "name = \"MarkFixItClear\"",
+        "name = \"MarkRiskClear\"",
+        "name = \"ConfirmMerge\"",
+        "name = \"review_fix_it_clear\"",
+        "name = \"merge_risk_clear\"",
+        "from = [\"Building\", \"InReview\", \"Proving\", \"Deploying\"]",
     ] {
         assert!(
             effort.contains(needle),
@@ -332,6 +345,54 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
         !intent.contains("entity_type = \"File\""),
         "Intent must not gate on a Temper File"
     );
+    let reopen = intent
+        .split("name = \"Reopen\"")
+        .nth(1)
+        .expect("Intent.Reopen must exist");
+    let reopen = reopen.split("[[action]]").next().unwrap();
+    assert!(
+        reopen.contains("from = [\"Rejected\"]") && reopen.contains("to = \"Triaged\""),
+        "Intent.Reopen must take Rejected back to Triaged"
+    );
+    let attach_review = effort
+        .split("name = \"AttachReviewRun\"")
+        .nth(1)
+        .expect("Effort.AttachReviewRun must exist");
+    let attach_review = attach_review.split("[[action]]").next().unwrap();
+    for needle in [
+        "var = \"review_fix_it_clear\"",
+        "var = \"merge_risk_clear\"",
+        "var = \"review_passed\"",
+    ] {
+        assert!(
+            attach_review.contains(needle),
+            "AttachReviewRun must reset {needle} so a later panel cannot ride an old clearance"
+        );
+    }
+    let resume = effort
+        .split("name = \"Resume\"")
+        .nth(1)
+        .expect("Effort.Resume must exist");
+    let resume = resume.split("[[action]]").next().unwrap();
+    for needle in [
+        "var = \"review_passed\"",
+        "var = \"review_fix_it_clear\"",
+        "var = \"merge_risk_clear\"",
+        "var = \"worker_done\"",
+        "var = \"evaluation_passed\"",
+        "var = \"proof_attached\"",
+        "var = \"e2e_ok\"",
+        "var = \"panel_started\"",
+    ] {
+        assert!(
+            resume.contains(needle),
+            "Resume must reset {needle} so Stall cannot skip a new review"
+        );
+    }
+    assert!(
+        reopen.contains("intent_file_ready"),
+        "Intent.Reopen must clear intent_file_ready"
+    );
     // Chain-id collections are real lists, not JSON-blob strings.
     assert!(
         effort.contains("name = \"review_run_ids\"\ntype = \"list\""),
@@ -360,7 +421,10 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         "target_action = \"Stall\"",
         "field = \"effort_id\"",
     ] {
-        assert!(dsf.contains(needle), "dsf_deploy.ioa.toml should carry `{needle}`");
+        assert!(
+            dsf.contains(needle),
+            "dsf_deploy.ioa.toml should carry `{needle}`"
+        );
     }
     for needle in [
         "name = \"TemperDeploy\"",
@@ -389,7 +453,10 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         "resource.risk_lane == \"L0\"",
         "resource.risk_lane == \"L1\"",
     ] {
-        assert!(cedar.contains(needle), "patrol.cedar should carry `{needle}`");
+        assert!(
+            cedar.contains(needle),
+            "patrol.cedar should carry `{needle}`"
+        );
     }
     for needle in [
         "<EntityType Name=\"DsfDeploy\">",
@@ -2124,9 +2191,16 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
     assert_eq!(
         bundle.specs.len(),
         27,
-        "paw-patrol should expose all Patrol entity specs (incl. ReleaseRun, DsfDeploy, TemperDeploy, the stage-3 S0 Adjudication/StandingDecision/ShadowVerdict, and the ARN-441 Intent/Effort entity loop)"
+        "paw-patrol should expose all Patrol entity specs (incl. Ask, ReleaseRun, DsfDeploy, TemperDeploy, StandingDecision/ShadowVerdict, and the Intent/Effort loop)"
     );
-    for entity in ["Intent", "Effort", "DsfDeploy", "TemperDeploy", "ReleaseRun"] {
+    for entity in [
+        "Intent",
+        "Effort",
+        "Ask",
+        "DsfDeploy",
+        "TemperDeploy",
+        "ReleaseRun",
+    ] {
         assert!(
             bundle
                 .specs
@@ -3481,9 +3555,25 @@ fn paw_patrol_wasm_modules_have_startup_build_script() {
 fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     let patrol = repo_root().join("os-apps/paw-patrol");
 
+    let ask = read(patrol.join("specs/ask.ioa.toml"));
+    for needle in [
+        "name = \"RaiseBlocking\"",
+        "var = \"stalls\"",
+        "name = \"RecordFyi\"",
+        "params = [\"effort_id\", \"kind\", \"need\", \"options\", \"chose\", \"why\", \"who\"]",
+    ] {
+        assert!(ask.contains(needle), "ask.ioa.toml should contain {needle}");
+    }
+    assert!(
+        !ask.contains(
+            "params = [\"effort_id\", \"kind\", \"need\", \"options\", \"act\", \"stalls\""
+        ),
+        "Ask.Raise must not take stalls as a param; booleans use set_bool"
+    );
+
     // The three new entities have specs.
     for spec in [
-        "adjudication.ioa.toml",
+        "ask.ioa.toml",
         "standing_decision.ioa.toml",
         "shadow_verdict.ioa.toml",
     ] {
@@ -3502,6 +3592,10 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "\"Superseded\"",
         "IngestRecord",
         "RecordPanel",
+        "name = \"rubrics\"",
+        "name = \"fix_it_failed\"",
+        "name = \"risk_flags\"",
+        "name = \"RecordPanelFixItFailed\"",
         "name = \"effort_id\"",
         "record_present",
         "RecordedHasRecord",
@@ -3532,7 +3626,7 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
 
     // CSDL exposes the new entity types and the new properties.
     let csdl = read(patrol.join("specs/model.csdl.xml"));
-    for entity in ["Adjudication", "StandingDecision", "ShadowVerdict"] {
+    for entity in ["Ask", "StandingDecision", "ShadowVerdict"] {
         assert!(
             csdl.contains(&format!("<EntityType Name=\"{entity}\">")),
             "CSDL should expose {entity}"
@@ -3592,6 +3686,24 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         read(patrol.join("wasm/build.sh")).contains("chain_github_ready"),
         "build.sh should build chain_github_ready"
     );
+    let github_ready = read(patrol.join("wasm/chain_github_ready/src/lib.rs"));
+    for needle in [
+        "cannot see {repo}",
+        "api.github.com/repos/{repo}",
+        "is not on GitHub",
+        "get_time_millis",
+        "per_page=100",
+        "GitHub App installation cannot see",
+    ] {
+        assert!(
+            github_ready.contains(needle),
+            "chain_github_ready should distinguish token visibility from a missing path ({needle})"
+        );
+    }
+    assert!(
+        !github_ready.contains("SystemTime"),
+        "chain_github_ready must use Context::get_time_millis, not std SystemTime"
+    );
     assert!(
         manifest.contains("name = \"chain_file_ready\""),
         "app.toml should register chain_file_ready"
@@ -3623,9 +3735,11 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     // The new entities are governed under the existing Admin permit.
     let policy = read(patrol.join("policies/patrol.cedar"));
     for needle in [
-        "resource is Adjudication",
+        "resource is Ask",
         "resource is StandingDecision",
         "resource is ShadowVerdict",
+        "Action::\"RaiseBlocking\"",
+        "Action::\"RecordPanelFixItFailed\"",
     ] {
         assert!(
             policy.contains(needle),
@@ -3727,7 +3841,9 @@ fn effort_merge_permits_l0_l1_and_denies_l2() {
     }
     let l2 = resource_attrs(&[("risk_lane", serde_json::json!("L2"))]);
     assert!(
-        !engine.authorize(&agent, "Merge", "Effort", &l2).is_allowed(),
+        !engine
+            .authorize(&agent, "Merge", "Effort", &l2)
+            .is_allowed(),
         "L2 Merge must deny so it surfaces as MCP elicitation"
     );
 
