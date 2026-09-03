@@ -414,6 +414,7 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     let root = repo_root();
     let patrol = root.join("os-apps/paw-patrol");
     let dsf = read(patrol.join("specs/dsf_deploy.ioa.toml"));
+    let release_run = read(patrol.join("specs/release_run.ioa.toml"));
     let temper = read(patrol.join("specs/temper_deploy.ioa.toml"));
     let effort = read(patrol.join("specs/effort.ioa.toml"));
     let cedar = read(patrol.join("policies/patrol.cedar"));
@@ -424,6 +425,8 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         "name = \"DsfDeploy\"",
         "module = \"release_run_lifecycle\"",
         "github_token = \"{secret:github_token}\"",
+        "github_app_id = \"{secret:github_app_id}\"",
+        "github_app_private_key = \"{secret:github_app_private_key}\"",
         "concurrent_entity_set = \"DsfDeploys\"",
         "target_action = \"MarkDeployVerified\"",
         "target_action = \"MarkDeployRolledBack\"",
@@ -433,6 +436,15 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         assert!(
             dsf.contains(needle),
             "dsf_deploy.ioa.toml should carry `{needle}`"
+        );
+    }
+    for needle in [
+        "github_app_id = \"{secret:github_app_id}\"",
+        "github_app_private_key = \"{secret:github_app_private_key}\"",
+    ] {
+        assert!(
+            release_run.contains(needle),
+            "release_run.ioa.toml should carry `{needle}`"
         );
     }
     for needle in [
@@ -458,6 +470,7 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     for needle in [
         "resource is DsfDeploy",
         "resource is TemperDeploy",
+        "principal.agent_type == \"wasm-runtime\"",
         "Action::\"MarkDeployRolledBack\"",
         "resource.risk_lane == \"L0\"",
         "resource.risk_lane == \"L1\"",
@@ -498,6 +511,27 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     assert!(
         !app_doc.contains("Deploy` creates the existing `ReleaseRun"),
         "APP.md must not say Effort.Deploy creates ReleaseRun"
+    );
+    let merge_src = read(patrol.join("wasm/release_run_lifecycle/src/lib.rs"));
+    let app_src = read(patrol.join("wasm/release_run_lifecycle/src/github_app.rs"));
+    assert!(
+        app_src.contains("fn installation_token") && app_src.contains("github_app_jwt"),
+        "release_run_lifecycle must mint a GitHub App installation token"
+    );
+    assert!(
+        merge_src.contains("github_app::github_bearer"),
+        "merge/rollback must use the App bearer, not only github_token"
+    );
+    let wasm = fs::read(patrol.join("wasm/release_run_lifecycle/release_run_lifecycle.wasm"))
+        .expect("committed release_run_lifecycle.wasm");
+    let wasm_text = String::from_utf8_lossy(&wasm);
+    assert!(
+        wasm_text.contains("github_app_id") && wasm_text.contains("installation token"),
+        "committed wasm must mint an App installation token"
+    );
+    assert!(
+        !wasm_text.contains(".git-credentials"),
+        "committed wasm must not read ~/.git-credentials"
     );
 }
 
@@ -3874,5 +3908,50 @@ fn effort_merge_permits_l0_l1_and_denies_l2() {
             .authorize(&agent, "MarkDeployVerified", "Effort", &l2)
             .is_allowed(),
         "agents must not mark deploy verified by hand"
+    );
+
+    for action in [
+        "Request",
+        "MergeSucceeded",
+        "Check",
+        "CheckPending",
+        "CheckHealthy",
+        "CheckUnhealthy",
+        "Fail",
+        "RollbackPushed",
+    ] {
+        assert!(
+            engine
+                .authorize(&agent, action, "DsfDeploy", &deploy_attrs)
+                .is_allowed(),
+            "implementer Agent must complete DsfDeploy.{action}: {:?}",
+            engine.authorize(&agent, action, "DsfDeploy", &deploy_attrs)
+        );
+    }
+    assert!(
+        engine
+            .authorize(&agent, "SwapSucceeded", "TemperDeploy", &deploy_attrs)
+            .is_allowed(),
+        "implementer Agent must complete TemperDeploy.SwapSucceeded"
+    );
+    let wasm_runtime = agent_context("service:wasm-runtime", "wasm-runtime");
+    assert!(
+        engine
+            .authorize(&wasm_runtime, "MergeSucceeded", "DsfDeploy", &deploy_attrs)
+            .is_allowed(),
+        "background WASM callback principal must land MergeSucceeded"
+    );
+    let timeout = agent_context("service:timeout-scheduler", "timeout-scheduler");
+    assert!(
+        engine
+            .authorize(&timeout, "Check", "DsfDeploy", &deploy_attrs)
+            .is_allowed(),
+        "timer principal must fire DsfDeploy.Check"
+    );
+    assert!(
+        !engine
+            .authorize(&agent, "MergeSucceeded", "ReleaseRun", &deploy_attrs)
+            .is_allowed(),
+        "ordinary Agent must not drive ReleaseRun callbacks"
     );
 }

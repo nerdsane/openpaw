@@ -7,7 +7,7 @@
 //!
 //! | trigger action | side effect                                              | reports |
 //! |----------------|----------------------------------------------------------|---------|
-//! | Request        | preflight + merge via GitHub API (`github_token` secret) | MergeSucceeded |
+//! | Request        | preflight + merge via GitHub API (App install token, else `github_token`) | MergeSucceeded |
 //! | Check          | one `curl` of health_url on the computer                 | CheckHealthy / CheckPending / CheckUnhealthy |
 //! | CheckUnhealthy | `git revert -m 1` + push on the computer (same token)    | RollbackPushed |
 //!
@@ -19,6 +19,8 @@
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::sandbox::{self, SandboxHandle, normalize_sandbox_provider};
 use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
+
+mod github_app;
 
 /// Marker separating the probe body from the HTTP status on the last line.
 const HTTP_STATUS_MARKER: &str = "__HTTP_STATUS";
@@ -181,10 +183,9 @@ fn merge(
         return confirm_merged_pr(&pr, release, None);
     }
 
-    // Do the merge from the host with the tenant github_token. The computer's
-    // ~/.git-credentials is not the token (a stale first line there is what
-    // produced live "Bad credentials"). GitHub refuses (405/409) if the head
-    // moved since, closing the read→PUT TOCTOU (commit-binding).
+    // Do the merge from the host with a GitHub App installation token (same
+    // Apps as the factory door). Tenant github_token is fallback only. The
+    // computer's ~/.git-credentials is not the token.
     let merge_diag = put_merge(ctx, &release.repo, &release.pr_number, &pr.head_sha).err();
 
     // Authoritative post-merge confirm: re-read the PR and require it is NOW
@@ -305,7 +306,7 @@ struct PrInfo {
 /// GET the PR and parse base branch + merge state.
 fn read_pr(ctx: &Context, repo: &str, pr_number: &str) -> Result<PrInfo, String> {
     let url = github_pr_url(repo, pr_number);
-    let body = github_json(ctx, "GET", &url, "")?;
+    let body = github_json(ctx, repo, "GET", &url, "")?;
     parse_pr(&body.to_string()).map_err(|e| {
         format!("release_run_lifecycle: could not read PR {repo}#{pr_number}: {e}")
     })
@@ -314,7 +315,7 @@ fn read_pr(ctx: &Context, repo: &str, pr_number: &str) -> Result<PrInfo, String>
 fn put_merge(ctx: &Context, repo: &str, pr_number: &str, head_sha: &str) -> Result<String, String> {
     let url = github_merge_url(repo, pr_number);
     let body = format!(r#"{{"sha":"{head_sha}","merge_method":"merge"}}"#);
-    let resp = github_json(ctx, "PUT", &url, &body)?;
+    let resp = github_json(ctx, repo, "PUT", &url, &body)?;
     parse_merge_sha(&resp.to_string())
 }
 
@@ -326,38 +327,43 @@ fn github_merge_url(repo: &str, pr_number: &str) -> String {
     format!("https://api.github.com/repos/{repo}/pulls/{pr_number}/merge")
 }
 
-fn github_token(ctx: &Context) -> Result<String, String> {
-    let raw = ctx
-        .config
-        .get("github_token")
-        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
-        .cloned()
-        .unwrap_or_default();
-    validate_github_token(&raw)?;
-    Ok(raw)
+fn github_token(ctx: &Context, repo: &str) -> Result<String, String> {
+    github_app::github_bearer(ctx, repo)
 }
 
+/// Charset + length check before the token is interpolated into `TOK='…'` on
+/// the rollback command. Merge HTTP does not use this. GitHub App installation
+/// tokens since the 2026 stateless rollout are `ghs_<appid>_<jwt>` (~520 chars,
+/// two dots). Classic opaque `ghs_` / `ghp_` tokens stay accepted.
 fn validate_github_token(token: &str) -> Result<(), String> {
+    const MIN: usize = 8;
+    const MAX: usize = 1024;
     if token.is_empty() {
         return Err(
-            "release_run_lifecycle: github_token is not configured (tenant secret github_token)"
+            "release_run_lifecycle: github token is empty (App install or tenant github_token)"
                 .to_string(),
         );
     }
-    if token.len() < 8 || token.len() > 256 {
-        return Err("release_run_lifecycle: github_token length is not a token".to_string());
+    if token.len() < MIN || token.len() > MAX {
+        return Err("release_run_lifecycle: github token length is not a token".to_string());
     }
     if !token
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     {
-        return Err("release_run_lifecycle: github_token has unexpected characters".to_string());
+        return Err("release_run_lifecycle: github token has unexpected characters".to_string());
     }
     Ok(())
 }
 
-fn github_json(ctx: &Context, method: &str, url: &str, body: &str) -> Result<Value, String> {
-    let token = github_token(ctx)?;
+fn github_json(
+    ctx: &Context,
+    repo: &str,
+    method: &str,
+    url: &str,
+    body: &str,
+) -> Result<Value, String> {
+    let token = github_token(ctx, repo)?;
     let headers = vec![
         ("authorization".to_string(), format!("Bearer {token}")),
         ("accept".to_string(), "application/vnd.github+json".to_string()),
@@ -718,7 +724,8 @@ fn rollback(
 ) -> Result<(&'static str, Value), String> {
     validate_repo(&release.repo)?;
     validate_sha(&release.merge_sha)?;
-    let token = github_token(ctx)?;
+    let token = github_token(ctx, &release.repo)?;
+    validate_github_token(&token)?;
     let command = rollback_command(&release.repo, &release.merge_sha, &token);
     let result = sandbox::sandbox_exec(ctx, handle, &command, "/")?;
     if result.exit_code != 0 {
@@ -769,9 +776,9 @@ fn rollback(
 /// pre-validated (owner/name, 40-hex) so they are safe to interpolate.
 fn rollback_command(repo: &str, merge_sha: &str, token: &str) -> String {
     let b = RELEASE_BASE_BRANCH;
-    // Token is the tenant github_token (already charset-validated). It is
-    // assigned into $TOK for this command only — never written into the remote
-    // URL or $DIR/.git/config.
+    // Token is an App installation token or the tenant github_token (charset-
+    // validated before interpolation). Assigned into $TOK for this command
+    // only — never written into the remote URL or $DIR/.git/config.
     format!(
         "TOK='{token}'; \
          set -e; export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null; \
@@ -1065,9 +1072,26 @@ mod tests {
     fn github_token_rejects_empty_and_shell_metacharacters() {
         assert!(validate_github_token("").is_err());
         assert!(validate_github_token("ghp_oktoken12").is_ok());
+        assert!(validate_github_token("ghs_installtoken12").is_ok());
         assert!(validate_github_token("bad token").is_err());
         assert!(validate_github_token("x';curl").is_err());
         assert!(validate_github_token("{secret:github_token}").is_err());
+    }
+
+    #[test]
+    fn github_token_accepts_stateless_app_installation_jwt() {
+        // GitHub changelog 2026-04-24 / 2026-05-15: ghs_<appid>_<jwt>, ~520 chars, two dots.
+        let token = format!(
+            "ghs_123456_{}.{}.{}",
+            "A".repeat(180),
+            "B".repeat(180),
+            "C".repeat(140)
+        );
+        assert!(token.len() > 256);
+        assert!(token.contains('.'));
+        assert!(validate_github_token(&token).is_ok());
+        assert!(validate_github_token(&format!("ghs_{}", "x".repeat(1021))).is_err());
+        assert!(validate_github_token("ghs_foo.bar;curl").is_err());
     }
 
     #[test]

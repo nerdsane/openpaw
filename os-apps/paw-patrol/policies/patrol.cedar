@@ -572,8 +572,12 @@ permit(
   context.module == "chain_github_ready"
 };
 
-// DsfDeploy / TemperDeploy: implementer creates and Request's the project
-// tool. Callbacks + Check are service/system. Not the same type as ReleaseRun.
+// DsfDeploy / TemperDeploy: the implementer Agent creates and Request's the
+// project tool. Rita does not press these. The same Agent (inline WASM
+// callback) plus the kernel principals that actually apply the next step
+// (wasm-runtime on background WASM, timeout-scheduler / system on timers,
+// patrol-release-service on elevated hops) must be able to land
+// MergeSucceeded / Check / Fail / …. ReleaseRun stays service-only.
 permit(
   principal is Admin,
   action,
@@ -610,10 +614,16 @@ permit(
   resource
 ) when {
   (resource is DsfDeploy || resource is TemperDeploy) &&
-  (principal has agent_type && (
-    principal.agent_type == "system" ||
-    principal.agent_type == "patrol-release-service"
-  ))
+  (
+    principal is Admin ||
+    principal is Agent ||
+    (principal has agent_type && (
+      principal.agent_type == "system" ||
+      principal.agent_type == "patrol-release-service" ||
+      principal.agent_type == "wasm-runtime" ||
+      principal.agent_type == "timeout-scheduler"
+    ))
+  )
 };
 
 // ARN-434: the S1 shadow sweep runs as the verified operator credential and must

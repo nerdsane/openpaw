@@ -4,8 +4,9 @@
 # by id. Storage key is DsfDeploy until Temper app-qualifies types (ARN-28).
 # Live WorkCycle ReleaseRun rows are not renamed.
 #
-# Side effects reuse release_run_lifecycle (merge via tenant github_token,
-# watch health_url git_sha on the computer, git-revert). This automaton owns
+# Side effects reuse release_run_lifecycle (merge via GitHub App install
+# token, tenant github_token only as fallback; watch health_url git_sha on
+# the computer, git-revert). This automaton owns
 # Effort callbacks:
 #   Healthy    → Effort.MarkDeployVerified
 #   RolledBack → Effort.MarkDeployRolledBack
@@ -115,6 +116,8 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 concurrent_entity_set = "DsfDeploys"
 
 [[state_timeout]]
@@ -164,6 +167,8 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 concurrent_entity_set = "DsfDeploys"
 
 [[action]]
@@ -213,6 +218,8 @@ on_failure = "Fail"
 temper_api_url = "{secret:temper_api_url}"
 tensorlake_api_key = "{secret:tensorlake_api_key}"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 concurrent_entity_set = "DsfDeploys"
 
 [[state_timeout]]
