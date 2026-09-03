@@ -452,15 +452,18 @@ server hosts Temper and triggers, but these modules own the workflow decisions:
   by creating repo sweeps and daily briefs from schedule transitions.
 - `daily_brief_lifecycle`: queues the local Codex DailyBrief WorkerRun from
   finished proof packets, findings, and open risks.
-- `chain_github_ready`: GET the repo (tenant `github_token` must be able to
-  see it), then GET contents for `docs/efforts/<id>/*.md`. Fired by
+- `chain_github_ready`: GET the repo with a GitHub App installation token
+  (tenant `github_app_id` + `github_app_private_key`), falling back to
+  `github_token`, then GET contents for `docs/efforts/<id>/*.md`. Fired by
   AttachIntentFile / AttachSpec / AttachPlan / AttachDecisions. A 404 on the
-  repo is "token cannot see this repo", not a missing file.
+  repo is "this credential cannot see this repo", not a missing file.
+- `release_run_lifecycle`: DsfDeploy / ReleaseRun merge, watch, and revert.
+  Merge uses the same GitHub App as the door. `github_token` is fallback
+  only. Do not put a PAT in the vault when the App is installed.
 - `chain_file_ready`: GET a Temper File and require Ready/Locked. Fired by
   AttachReviewFile / AttachProofFile.
 - `temper_deploy_lifecycle`: one side effect per TemperDeploy trigger
   (IMAGE_TAG swap, /paw/version poll, restore previous tag).
-- `release_run_lifecycle`: also runs DsfDeploy merge / watch / revert.
 
 ## Default Schedule
 
