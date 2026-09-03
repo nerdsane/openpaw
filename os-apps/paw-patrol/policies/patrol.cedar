@@ -668,7 +668,8 @@ permit(
     Action::"RetractIntentFile",
     Action::"Accept",
     Action::"LinkPmIssue",
-    Action::"Reject"
+    Action::"Reject",
+    Action::"Reopen"
   ],
   resource is Intent
 );

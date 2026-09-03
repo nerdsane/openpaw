@@ -345,6 +345,30 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
         !intent.contains("entity_type = \"File\""),
         "Intent must not gate on a Temper File"
     );
+    let reopen = intent
+        .split("name = \"Reopen\"")
+        .nth(1)
+        .expect("Intent.Reopen must exist");
+    let reopen = reopen.split("[[action]]").next().unwrap();
+    assert!(
+        reopen.contains("from = [\"Rejected\"]") && reopen.contains("to = \"Triaged\""),
+        "Intent.Reopen must take Rejected back to Triaged"
+    );
+    let attach_review = effort
+        .split("name = \"AttachReviewRun\"")
+        .nth(1)
+        .expect("Effort.AttachReviewRun must exist");
+    let attach_review = attach_review.split("[[action]]").next().unwrap();
+    for needle in [
+        "var = \"review_fix_it_clear\"",
+        "var = \"merge_risk_clear\"",
+        "var = \"review_passed\"",
+    ] {
+        assert!(
+            attach_review.contains(needle),
+            "AttachReviewRun must reset {needle} so a later panel cannot ride an old clearance"
+        );
+    }
     // Chain-id collections are real lists, not JSON-blob strings.
     assert!(
         effort.contains("name = \"review_run_ids\"\ntype = \"list\""),

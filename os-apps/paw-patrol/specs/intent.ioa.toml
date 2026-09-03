@@ -186,6 +186,13 @@ to = "Rejected"
 params = ["triage_summary"]
 hint = "Reject an intent that should not become work."
 
+[[action]]
+name = "Reopen"
+kind = "input"
+from = ["Rejected"]
+to = "Triaged"
+hint = "Return a Rejected intent to Triaged so Attach + Accept can run again. Timeouts are not a human reject."
+
 [[state_timeout]]
 state = "Submitted"
 after_seconds = 86400

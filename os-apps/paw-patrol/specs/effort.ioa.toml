@@ -397,9 +397,12 @@ params = ["reviewer_run_id", "review_run_ids"]
 effect = [
   { type = "list_append", var = "review_run_ids" },
   { type = "increment", var = "panel_count" },
-  { type = "set_bool", var = "panel_started", value = true }
+  { type = "set_bool", var = "panel_started", value = true },
+  { type = "set_bool", var = "review_fix_it_clear", value = false },
+  { type = "set_bool", var = "merge_risk_clear", value = false },
+  { type = "set_bool", var = "review_passed", value = false }
 ]
-hint = "Attach one agent's ReviewRun. One run per panel agent (Grok, Codex, Claude). review_run_ids appends that id."
+hint = "Attach one agent's ReviewRun. Clears prior review_fix_it_clear, merge_risk_clear, and review_passed so a later failing panel cannot ride an old clearance. review_run_ids appends that id."
 
 [[action]]
 name = "ReportE2e"

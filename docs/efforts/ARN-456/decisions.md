@@ -61,3 +61,19 @@
 **Options:** (1) replace the whole 447k tenant policy with patrol.cedar; (2) add Ask to the live patrol blankets and Effort actions; (3) put the rita-aga gh session token in the vault; (4) a classic/fine-grained PAT (one owner, or her identity); (5) a GitHub App owned by arni-labs that mints an installation token per repo owner.
 **Chose (2) and (5) because:** (1) would wipe every other app's permits. (3) is the login she refused. (4) is either one-org or still a person. The App is the factory. WASM mints; public repos with no install stay anonymous.
 **Where:** PUT /api/tenants/default/policies; vault `github_app_id` + `github_app_private_key`; `chain_github_ready`.
+
+---
+
+**Decision:** Intent.Reopen takes Rejected back to Triaged.
+**Came up because:** `intent-arn-455-aya-ui-redesign` sat in Triaged 24h waiting for a production GitHub credential and the state_timeout Rejected it. There was no way back.
+**Options:** (1) create a new Intent id; (2) Reopen to Triaged on the same row.
+**Chose (2) because:** the work is the same Intent. A timeout is not a human reject.
+**Where:** intent.ioa.toml Reopen; patrol.cedar.
+
+---
+
+**Decision:** AttachReviewRun clears review_fix_it_clear, merge_risk_clear, and review_passed. Resume still goes to Building.
+**Came up because:** Greptile said an old clearance can authorize Merge after a later failing run, and Resume from Proving or Deploying always returns to Building.
+**Options:** (1) leave both; (2) reset clearance on AttachReviewRun and keep Resume to Building; (3) store the stall source stage and Resume there.
+**Chose (2) because:** (1) lets PassReview stay true after a new failing ReviewRun. (3) fights the lock: Resume names the stall Ask and returns to Building so the implementer walks the doors again.
+**Where:** effort.ioa.toml AttachReviewRun; effort.ioa.toml Resume.
