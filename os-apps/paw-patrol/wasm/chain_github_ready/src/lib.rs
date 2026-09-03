@@ -237,11 +237,7 @@ fn b64url(bytes: &[u8]) -> String {
 }
 
 fn now_secs() -> Result<u64, String> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .map_err(|_| "chain_github_ready: clock".to_string())
+    Ok((Context::get_time_millis() / 1000) as u64)
 }
 
 fn cfg<'a>(ctx: &'a Context, key: &str) -> Result<&'a str, String> {

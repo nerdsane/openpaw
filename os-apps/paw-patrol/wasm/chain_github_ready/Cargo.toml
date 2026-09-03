@@ -11,4 +11,3 @@ crate-type = ["cdylib"]
 [dependencies]
 temper-wasm-sdk = { git = "https://github.com/nerdsane/temper.git", rev = "43f9379cc51545b9a47b8a28ccb202c31957a0e9" }
 rsa = { version = "0.9", default-features = false, features = ["pem", "sha2", "std"] }
-sha2 = { version = "0.10", default-features = false }

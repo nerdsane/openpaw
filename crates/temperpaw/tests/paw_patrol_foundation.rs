@@ -369,6 +369,25 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
             "AttachReviewRun must reset {needle} so a later panel cannot ride an old clearance"
         );
     }
+    let resume = effort
+        .split("name = \"Resume\"")
+        .nth(1)
+        .expect("Effort.Resume must exist");
+    let resume = resume.split("[[action]]").next().unwrap();
+    for needle in [
+        "var = \"review_passed\"",
+        "var = \"review_fix_it_clear\"",
+        "var = \"merge_risk_clear\"",
+        "var = \"worker_done\"",
+        "var = \"evaluation_passed\"",
+        "var = \"proof_attached\"",
+        "var = \"e2e_ok\"",
+    ] {
+        assert!(
+            resume.contains(needle),
+            "Resume must reset {needle} so Stall cannot skip a new review"
+        );
+    }
     // Chain-id collections are real lists, not JSON-blob strings.
     assert!(
         effort.contains("name = \"review_run_ids\"\ntype = \"list\""),
@@ -3650,12 +3669,17 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
         "cannot see {repo}",
         "api.github.com/repos/{repo}",
         "is not on GitHub",
+        "get_time_millis",
     ] {
         assert!(
             github_ready.contains(needle),
             "chain_github_ready should distinguish token visibility from a missing path ({needle})"
         );
     }
+    assert!(
+        !github_ready.contains("SystemTime"),
+        "chain_github_ready must use Context::get_time_millis, not std SystemTime"
+    );
     assert!(
         manifest.contains("name = \"chain_file_ready\""),
         "app.toml should register chain_file_ready"

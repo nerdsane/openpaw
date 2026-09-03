@@ -556,7 +556,16 @@ kind = "input"
 from = ["Stalled"]
 to = "Building"
 params = ["ask_id"]
-hint = "Rita answered the stall Ask. ask_id is that Ask. Adjudication is gone."
+effect = [
+  { type = "set_bool", var = "review_passed", value = false },
+  { type = "set_bool", var = "review_fix_it_clear", value = false },
+  { type = "set_bool", var = "merge_risk_clear", value = false },
+  { type = "set_bool", var = "worker_done", value = false },
+  { type = "set_bool", var = "evaluation_passed", value = false },
+  { type = "set_bool", var = "proof_attached", value = false },
+  { type = "set_bool", var = "e2e_ok", value = false }
+]
+hint = "Rita answered the stall Ask. ask_id is that Ask. Clears the same review and proof gates as RequestChanges so Stall cannot skip a new review."
 
 [[action]]
 name = "Abandon"

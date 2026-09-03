@@ -77,3 +77,11 @@
 **Options:** (1) leave both; (2) reset clearance on AttachReviewRun and keep Resume to Building; (3) store the stall source stage and Resume there.
 **Chose (2) because:** (1) lets PassReview stay true after a new failing ReviewRun. (3) fights the lock: Resume names the stall Ask and returns to Building so the implementer walks the doors again.
 **Where:** effort.ioa.toml AttachReviewRun; effort.ioa.toml Resume.
+
+---
+
+**Decision:** Resume clears the same review and proof gates as RequestChanges.
+**Came up because:** Fable showed Stall from Proving, then Resume to Building, then SubmitForReview / PassEvaluation / Merge with every guard still true and no new ReviewRun.
+**Options:** (1) keep Resume as a state change only; (2) reset the RequestChanges bools on Resume; (3) Resume to the stall source stage.
+**Chose (2) because:** the lock is Resume to Building. Walking the doors again only happens if the bools are false.
+**Where:** effort.ioa.toml Resume.
