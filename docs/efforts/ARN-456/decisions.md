@@ -101,3 +101,11 @@
 **Options:** (1) leave ReviewRun open; (2) restore the same when on ReviewRun and keep it on Ask.
 **Chose (2) because:** RecordPanel is the row PassReview reads. Widening it was not a recorded call.
 **Where:** patrol.cedar ReviewRun permit.
+
+---
+
+**Decision:** RequestChanges clears panel_started, same as Resume.
+**Came up because:** Fable and Codex showed RequestChanges resets the review bools but leaves panel_started true, so PassReview can succeed on the rework path with no new ReviewRun.
+**Options:** (1) leave it; (2) reset panel_started on RequestChanges; (3) require a new ReviewRun count in L1.
+**Chose (2) because:** Resume already does this for the stall path. (3) fights the lock that L1 cannot require three ReviewRuns.
+**Where:** effort.ioa.toml RequestChanges.

@@ -697,3 +697,19 @@ sandbox cannot fail every merge. Rollback still runs on the computer
 but with that same token, not the file. What we gave up: merge now
 depends on the vault secret being present and valid.
 **Where:** release_run_lifecycle; dsf_deploy.ioa.toml; release_run.ioa.toml.
+
+---
+
+**Decision:** (2026-09-03) Commit the rebuilt release_run_lifecycle.wasm. The source already uses tenant github_token and a concurrent-set scan; the bundled artifact on stage3 was still the 2026-08-25 build that reads ~/.git-credentials.
+**Came up because:** Fable strings on the committed blob found ~/.git-credentials and no github_token / concurrent_entity_set. The rebuilt artifact sat dirty in the worktree and was not committed.
+**Options:** (1) merge 497 with the old blob; (2) commit the rebuilt module so DsfDeploy.Request matches the source and the recorded decision.
+**Chose (2) because:** (1) ships the exact Bad credentials failure the 2026-09-01 decision said this change fixes.
+**Where:** os-apps/paw-patrol/wasm/release_run_lifecycle/release_run_lifecycle.wasm.
+
+---
+
+**Decision:** (2026-09-03) Per-repo merge serialization scans ReleaseRuns and DsfDeploys on every Request. concurrent_entity_set still names this row's set (typos fail closed).
+**Came up because:** Grok, Codex, and Fable showed a DsfDeploy-only scan cannot see an in-flight ReleaseRun for the same repo, and the reverse. Either watch can revert the other's merge.
+**Options:** (1) keep one set per caller; (2) always read both sets; (3) a new per-repo lane entity.
+**Chose (2) because:** ARN-397 already fails closed on a paginated page. (3) is the stronger form already tracked. (1) is the hole.
+**Where:** release_run_lifecycle active_release_conflict.

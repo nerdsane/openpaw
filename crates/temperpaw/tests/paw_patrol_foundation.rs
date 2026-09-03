@@ -389,6 +389,15 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
             "Resume must reset {needle} so Stall cannot skip a new review"
         );
     }
+    let request_changes = effort
+        .split("name = \"RequestChanges\"")
+        .nth(1)
+        .expect("Effort.RequestChanges must exist");
+    let request_changes = request_changes.split("[[action]]").next().unwrap();
+    assert!(
+        request_changes.contains("var = \"panel_started\""),
+        "RequestChanges must reset panel_started so PassReview cannot ride the rejected panel"
+    );
     assert!(
         reopen.contains("intent_file_ready"),
         "Intent.Reopen must clear intent_file_ready"

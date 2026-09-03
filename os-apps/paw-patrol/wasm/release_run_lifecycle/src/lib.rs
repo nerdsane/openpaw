@@ -424,8 +424,13 @@ fn parse_pr(stdout: &str) -> Result<PrInfo, String> {
 /// "in flight" for per-repo serialization (ARN-397).
 const ACTIVE_RELEASE_STATES: &[&str] = &["Requested", "Merging", "Watching", "Unhealthy"];
 
-/// Which OData set to scan for an in-flight sibling. ReleaseRun stays the
-/// default so WorkCycle.Complete is unchanged. DsfDeploy sets DsfDeploys.
+/// Both live merge types. A DsfDeploy-only or ReleaseRun-only scan lets the
+/// other type merge the same repo (ARN-397). Config still names this row's set
+/// so a typo fails closed; the conflict read always covers both.
+const CONCURRENT_SCAN_SETS: &[&str] = &["ReleaseRuns", "DsfDeploys"];
+
+/// Which OData set this row belongs to. ReleaseRun stays the default so
+/// WorkCycle.Complete is unchanged. DsfDeploy sets DsfDeploys.
 fn concurrent_entity_set(ctx: &Context) -> Result<&'static str, String> {
     concurrent_entity_set_name(ctx.config.get("concurrent_entity_set").map(String::as_str))
 }
@@ -470,18 +475,23 @@ fn active_release_conflict(
         .map(|s| format!("status eq '{s}'"))
         .collect::<Vec<_>>()
         .join(" or ");
-    let set = concurrent_entity_set(ctx)?;
-    let path = format!("/tdata/{set}?$filter={status_clause}");
-    let resp = bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
-        .map_err(|e| format!("release_run_lifecycle: could not check for concurrent releases of {repo}: {e}"))?;
-    // Fail CLOSED if the result is paginated: a truncated page could hide the
-    // conflicting run, so refuse rather than risk running two releases at once.
-    if resp.get("@odata.nextLink").is_some() {
-        return Err(format!(
-            "release_run_lifecycle: too many active ReleaseRuns to check safely (paginated); refusing to start (ARN-397)"
-        ));
+    let _ = concurrent_entity_set(ctx)?;
+    let mut runs = Vec::new();
+    for set in CONCURRENT_SCAN_SETS {
+        let path = format!("/tdata/{set}?$filter={status_clause}");
+        let resp = bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "release_run_lifecycle")
+            .map_err(|e| {
+                format!("release_run_lifecycle: could not check {set} for concurrent releases of {repo}: {e}")
+            })?;
+        // Fail CLOSED if the result is paginated: a truncated page could hide the
+        // conflicting run, so refuse rather than risk running two releases at once.
+        if resp.get("@odata.nextLink").is_some() {
+            return Err(format!(
+                "release_run_lifecycle: too many active {set} rows to check safely (paginated); refusing to start (ARN-397)"
+            ));
+        }
+        runs.extend(parse_release_runs(&resp)?);
     }
-    let runs = parse_release_runs(&resp)?;
     Ok(conflicting_active_release(&runs, &ctx.entity_id, repo).map(str::to_string))
 }
 
@@ -1513,5 +1523,10 @@ mod tests {
             "DsfDeploys"
         );
         assert!(concurrent_entity_set_name(Some("Deploys")).is_err());
+    }
+
+    #[test]
+    fn concurrent_scan_covers_release_run_and_dsf_deploy() {
+        assert_eq!(CONCURRENT_SCAN_SETS, ["ReleaseRuns", "DsfDeploys"]);
     }
 }

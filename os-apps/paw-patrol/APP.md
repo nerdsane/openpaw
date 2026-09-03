@@ -263,11 +263,6 @@ POST /tdata/Intents('<id>')/TemperPaw.Patrol.Submit
   "requester_id": "cursor"
 }
 
-POST /tdata/Intents('<id>')/TemperPaw.Patrol.AttachIntentFile
-{
-  "intent_ref": "docs/efforts/ARN-441/intent.md"
-}
-
 POST /tdata/Intents('<id>')/TemperPaw.Patrol.Triage
 {
   "triage_summary": "worth doing",
@@ -276,6 +271,11 @@ POST /tdata/Intents('<id>')/TemperPaw.Patrol.Triage
   "risk_lane": "L0",
   "repo": "nerdsane/temperpaw",
   "branch": "cursor/arn-441-stage3",
+  "intent_ref": "docs/efforts/ARN-441/intent.md"
+}
+
+POST /tdata/Intents('<id>')/TemperPaw.Patrol.AttachIntentFile
+{
   "intent_ref": "docs/efforts/ARN-441/intent.md"
 }
 
