@@ -11,6 +11,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "effort_id"
+type = "string"
+initial = ""
+
+[[state]]
 name = "worker_run_id"
 type = "string"
 initial = ""
@@ -101,12 +106,47 @@ name = "record_present"
 type = "bool"
 initial = "false"
 
+[[state]]
+name = "artifact_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "artifact_file_ready"
+type = "bool"
+initial = "false"
+
+[[action]]
+name = "AttachProofFile"
+kind = "input"
+from = ["Drafting", "Ready", "Recorded"]
+params = ["artifact_ref"]
+effect = "set artifact_file_ready true"
+hint = "Name the Temper File (HTML or JSON via $value) that is this proof artifact. Vercel/GitHub are not the record."
+
+[[action.triggers]]
+name = "proof_checks_artifact_file"
+kind = "wasm"
+module = "chain_file_ready"
+on_failure = "RetractProofFile"
+
+[action.triggers.config]
+file_id_field = "artifact_ref"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RetractProofFile"
+kind = "input"
+from = ["Drafting", "Ready", "Recorded"]
+effect = "set artifact_file_ready false"
+hint = "Callback: the named proof File was missing or not Ready."
+
 [[action]]
 name = "AttachDraft"
 kind = "input"
 from = ["Drafting"]
 to = "Drafting"
-params = ["work_cycle_id", "worker_run_id", "review_run_id", "evaluation_run_id", "summary_markdown", "proof_json", "visual_summary_url", "state_diagram_mermaid", "changed_files_map", "reviewer_verdict", "residual_risks"]
+params = ["work_cycle_id", "effort_id", "worker_run_id", "review_run_id", "evaluation_run_id", "summary_markdown", "proof_json", "visual_summary_url", "state_diagram_mermaid", "changed_files_map", "reviewer_verdict", "residual_risks"]
 hint = "Attach or update the structured and visual proof draft."
 
 [[action]]

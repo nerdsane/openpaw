@@ -1,4 +1,7 @@
 [automaton]
+# One ReviewRun is one panel agent's pass (Grok, Codex, or Claude), not the
+# whole panel. Effort.review_run_ids holds every agent's run. Attach three
+# Recorded runs; L1 cannot require count 3.
 name = "ReviewRun"
 states = ["Requested", "Claimed", "Reviewing", "ChangesRequested", "Approved", "Escalated", "Failed", "Recorded", "Superseded"]
 initial = "Requested"
@@ -7,6 +10,11 @@ allow_indefinite_states = ["ChangesRequested", "Approved", "Escalated", "Failed"
 
 [[state]]
 name = "work_cycle_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "effort_id"
 type = "string"
 initial = ""
 
@@ -69,6 +77,21 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "rubrics"
+type = "string"
+initial = "{}"
+
+[[state]]
+name = "fix_it_failed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "risk_flags"
+type = "string"
+initial = "[]"
+
+[[state]]
 name = "open_act_on_count"
 type = "string"
 initial = "0"
@@ -78,13 +101,71 @@ name = "record_present"
 type = "bool"
 initial = "false"
 
+[[state]]
+name = "artifact_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "artifact_file_ready"
+type = "bool"
+initial = "false"
+
+[[action]]
+name = "AttachReviewFile"
+kind = "input"
+from = ["Requested", "Claimed", "Reviewing", "Approved", "Recorded"]
+params = ["artifact_ref"]
+effect = "set artifact_file_ready true"
+hint = "Name the Temper File (HTML or JSON) that is this agent's review artifact. GitHub comments are not the record."
+
+[[action.triggers]]
+name = "review_checks_artifact_file"
+kind = "wasm"
+module = "chain_file_ready"
+on_failure = "RetractReviewFile"
+
+[action.triggers.config]
+file_id_field = "artifact_ref"
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RetractReviewFile"
+kind = "input"
+from = ["Requested", "Claimed", "Reviewing", "Approved", "Recorded"]
+effect = "set artifact_file_ready false"
+hint = "Callback: the named review File was missing or not Ready."
+
+# Panel path: write this agent's verdict onto the row. Does not fan into
+# WorkCycle (review_gate_lifecycle stays on Approve for the old loop).
+[[action]]
+name = "RecordPanel"
+kind = "input"
+from = ["Requested", "Claimed", "Reviewing"]
+to = "Recorded"
+params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "risk_flags"]
+effect = [{ type = "set_bool", var = "record_present", value = "true" }]
+hint = "Write this panel agent's rubric JSON when fix-it passed. fix_it_failed stays false. Use RecordPanelFixItFailed when it did not."
+
+[[action]]
+name = "RecordPanelFixItFailed"
+kind = "input"
+from = ["Requested", "Claimed", "Reviewing"]
+to = "Recorded"
+params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "risk_flags"]
+effect = [
+  { type = "set_bool", var = "record_present", value = "true" },
+  { type = "set_bool", var = "fix_it_failed", value = "true" }
+]
+hint = "Write this panel agent's rubric JSON when fix-it failed. Booleans are set_bool, not params."
+
 [[action]]
 name = "Request"
 kind = "input"
 from = ["Requested"]
 to = "Requested"
-params = ["work_cycle_id", "worker_run_id", "proof_packet_id"]
-hint = "Request independent review for a completed WorkerRun."
+params = ["work_cycle_id", "effort_id", "worker_run_id", "proof_packet_id"]
+hint = "Request independent review for a completed WorkerRun, or bind this run to an Effort."
 
 [[action]]
 name = "Claim"

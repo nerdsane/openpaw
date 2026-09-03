@@ -1,0 +1,263 @@
+# TemperDeploy — TemperPaw image deploy tool (ARN-441).
+#
+# Same class as DsfDeploy. GHCR tag → Railway IMAGE_TAG → poll /paw/version
+# → restore the previous tag. Railway project/service ids are pinned in the
+# trigger config (not caller-writable). image_tag + expected_sha are the run.
+#
+#   Request → swap IMAGE_TAG + redeploy
+#   Polling → kernel Check every 30s until live sha == expected_sha
+#   Unhealthy → restore previous_tag
+#   Healthy / RolledBack / Failed → Effort callbacks
+
+[automaton]
+name = "TemperDeploy"
+states = ["Requested", "Swapping", "Polling", "Healthy", "Unhealthy", "RolledBack", "Failed"]
+initial = "Requested"
+
+[[state]]
+name = "effort_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "image_tag"
+type = "string"
+initial = ""
+
+[[state]]
+name = "expected_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "previous_tag"
+type = "string"
+initial = ""
+
+[[state]]
+name = "previous_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "observed_sha"
+type = "string"
+initial = ""
+
+[[state]]
+name = "max_checks"
+type = "string"
+initial = "60"
+
+[[state]]
+name = "check_count"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "reason"
+type = "string"
+initial = ""
+
+[[state]]
+name = "error_message"
+type = "string"
+initial = ""
+
+[[action]]
+name = "Request"
+kind = "input"
+from = ["Requested"]
+to = "Swapping"
+params = ["effort_id", "image_tag", "expected_sha", "max_checks"]
+effect = [{ type = "trigger", name = "temper_deploy_swap" }]
+hint = "Capture the live IMAGE_TAG, set the new tag, redeploy."
+
+[[action.triggers]]
+name = "temper_deploy_swap"
+kind = "wasm"
+module = "temper_deploy_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+railway_graphql_url = "https://backboard.railway.com/graphql/v2"
+railway_token = "{secret:railway_token}"
+railway_project_id = "{secret:railway_project_id}"
+railway_environment_id = "{secret:railway_environment_id}"
+railway_service_id = "{secret:railway_service_id}"
+base_url = "{secret:temperpaw_base_url}"
+version_path = "/paw/version"
+ready_path = "/healthz"
+version_field = "sha"
+temper_api_key = "{secret:temper_api_key}"
+
+[[state_timeout]]
+state = "Swapping"
+after_seconds = 600
+on_timeout = "Fail"
+params = { error_message = "TemperDeploy stayed Swapping for 10m (swap callback lost)." }
+
+[[state_timeout]]
+state = "Requested"
+after_seconds = 86400
+on_timeout = "Fail"
+params = { error_message = "TemperDeploy was not Requested within 24h." }
+
+[[action]]
+name = "SwapSucceeded"
+kind = "input"
+from = ["Swapping"]
+to = "Polling"
+params = ["previous_tag", "previous_sha"]
+hint = "IMAGE_TAG set and redeploy issued. Watch /paw/version."
+
+[[state_timeout]]
+state = "Polling"
+after_seconds = 30
+on_timeout = "Check"
+reset_on = ["Check", "CheckPending"]
+
+[[action]]
+name = "Check"
+kind = "input"
+from = ["Polling"]
+to = "Polling"
+effect = [
+  { type = "increment", var = "check_count" },
+  { type = "trigger", name = "temper_deploy_poll" }
+]
+hint = "One probe of /healthz and /paw/version."
+
+[[action.triggers]]
+name = "temper_deploy_poll"
+kind = "wasm"
+module = "temper_deploy_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+railway_graphql_url = "https://backboard.railway.com/graphql/v2"
+railway_token = "{secret:railway_token}"
+railway_project_id = "{secret:railway_project_id}"
+railway_environment_id = "{secret:railway_environment_id}"
+railway_service_id = "{secret:railway_service_id}"
+base_url = "{secret:temperpaw_base_url}"
+version_path = "/paw/version"
+ready_path = "/healthz"
+version_field = "sha"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "CheckPending"
+kind = "input"
+from = ["Polling"]
+to = "Polling"
+params = ["observed_sha"]
+hint = "Live sha is not yet expected_sha."
+
+[[action]]
+name = "CheckHealthy"
+kind = "input"
+from = ["Polling"]
+to = "Healthy"
+params = ["observed_sha"]
+hint = "Live sha matches expected_sha. Reports the Effort verified."
+
+[[action.triggers]]
+name = "temper_healthy_marks_effort"
+kind = "entity"
+principal = "patrol-release-service"
+target_entity = "Effort"
+target_action = "MarkDeployVerified"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "effort_id"
+
+[[action]]
+name = "CheckUnhealthy"
+kind = "input"
+from = ["Polling"]
+to = "Unhealthy"
+params = ["reason", "observed_sha"]
+effect = [{ type = "trigger", name = "temper_deploy_rollback" }]
+hint = "Probe budget spent. Restore previous_tag."
+
+[[action.triggers]]
+name = "temper_deploy_rollback"
+kind = "wasm"
+module = "temper_deploy_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+railway_graphql_url = "https://backboard.railway.com/graphql/v2"
+railway_token = "{secret:railway_token}"
+railway_project_id = "{secret:railway_project_id}"
+railway_environment_id = "{secret:railway_environment_id}"
+railway_service_id = "{secret:railway_service_id}"
+base_url = "{secret:temperpaw_base_url}"
+version_path = "/paw/version"
+ready_path = "/healthz"
+version_field = "sha"
+temper_api_key = "{secret:temper_api_key}"
+
+[[state_timeout]]
+state = "Unhealthy"
+after_seconds = 600
+on_timeout = "Fail"
+params = { error_message = "TemperDeploy stayed Unhealthy for 10m (rollback callback lost)." }
+
+[[action]]
+name = "RollbackPushed"
+kind = "input"
+from = ["Unhealthy"]
+to = "RolledBack"
+params = ["previous_tag"]
+hint = "Previous IMAGE_TAG restored. Effort returns to Merged."
+
+[[action.triggers]]
+name = "temper_rolled_back_returns_effort"
+kind = "entity"
+principal = "patrol-release-service"
+target_entity = "Effort"
+target_action = "MarkDeployRolledBack"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "effort_id"
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Requested", "Swapping", "Polling", "Unhealthy"]
+to = "Failed"
+params = ["error_message"]
+hint = "Step could not run. Effort Stalls."
+
+[[action.triggers]]
+name = "temper_failed_stalls_effort"
+kind = "entity"
+principal = "patrol-release-service"
+target_entity = "Effort"
+target_action = "Stall"
+
+[action.triggers.params_from]
+error_message = "error_message"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "effort_id"
+
+[[invariant]]
+name = "HealthyIsFinal"
+when = ["Healthy"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RolledBackIsFinal"
+when = ["RolledBack"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
