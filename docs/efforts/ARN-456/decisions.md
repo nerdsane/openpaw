@@ -56,8 +56,8 @@
 
 ---
 
-**Decision:** Production Cedar is patched in place for Ask. A dedicated contents token goes in the vault, not the rita-aga login session.
-**Came up because:** Live GET Ask was authorization_denied. Vault had no github_token. Railway openpaw had no GITHUB_TOKEN. Rita forbade putting her personal login in the vault.
-**Options:** (1) replace the whole 447k tenant policy with patrol.cedar; (2) add Ask to the live patrol blankets and Effort actions; (3) put the rita-aga gh session token in the vault; (4) mint a dedicated repo-scoped factory PAT (or GitHub App installation token, which expires in an hour).
-**Chose (2) and (4) because:** (1) would wipe every other app's permits. (3) is the login she refused. WASM wants a non-expiring Bearer.
-**Where:** PUT /api/tenants/default/policies; POST /paw/setup/secrets github_token.
+**Decision:** Production Cedar is patched in place for Ask. GitHub access is an arni-labs GitHub App, not a personal PAT.
+**Came up because:** Live GET Ask was authorization_denied. Vault had no github_token. Rita asked for the durable credential that can see every factory repo, and forbade putting her login in the vault.
+**Options:** (1) replace the whole 447k tenant policy with patrol.cedar; (2) add Ask to the live patrol blankets and Effort actions; (3) put the rita-aga gh session token in the vault; (4) a classic/fine-grained PAT (one owner, or her identity); (5) a GitHub App owned by arni-labs that mints an installation token per repo owner.
+**Chose (2) and (5) because:** (1) would wipe every other app's permits. (3) is the login she refused. (4) is either one-org or still a person. The App is the factory. WASM mints; public repos with no install stay anonymous.
+**Where:** PUT /api/tenants/default/policies; vault `github_app_id` + `github_app_private_key`; `chain_github_ready`.

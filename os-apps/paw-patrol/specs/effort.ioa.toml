@@ -264,6 +264,8 @@ path_field = "spec_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractSpecFile"
@@ -302,6 +304,8 @@ path_field = "plan_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractPlanFile"
@@ -343,6 +347,8 @@ path_field = "decisions_ref"
 repo_field = "repo"
 branch_field = "branch"
 github_token = "{secret:github_token}"
+github_app_id = "{secret:github_app_id}"
+github_app_private_key = "{secret:github_app_private_key}"
 
 [[action]]
 name = "RetractDecisionsFile"
