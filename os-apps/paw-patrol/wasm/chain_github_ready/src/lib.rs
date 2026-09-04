@@ -8,6 +8,14 @@
 
 use temper_wasm_sdk::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
+getrandom::register_custom_getrandom!(unsupported_random);
+
+#[cfg(target_arch = "wasm32")]
+fn unsupported_random(_buf: &mut [u8]) -> Result<(), getrandom::Error> {
+    Err(getrandom::Error::UNSUPPORTED)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
     let result = (|| -> Result<(), String> {
@@ -215,11 +223,11 @@ fn install_id_for_owner(installs: &Value, owner: &str) -> Option<u64> {
 }
 
 fn github_app_jwt(app_id: &str, pem: &str) -> Result<String, String> {
+    use rsa::RsaPrivateKey;
     use rsa::pkcs1::DecodeRsaPrivateKey;
     use rsa::pkcs1v15::Pkcs1v15Sign;
     use rsa::pkcs8::DecodePrivateKey;
     use rsa::sha2::{Digest, Sha256};
-    use rsa::RsaPrivateKey;
 
     let now = now_secs()?;
     let header = b64url(br#"{"alg":"RS256","typ":"JWT"}"#);

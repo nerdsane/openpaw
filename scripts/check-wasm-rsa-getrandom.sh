@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# rsa 0.9 pulls getrandom 0.2, which compile_error!s on wasm32-unknown-unknown
+# unless features = ["custom"]. The "js" feature is forbidden (wasm-bindgen).
+# Do not put getrandom on wasm-helpers (ARN-443). Each rsa crate must declare
+# the custom backend itself. PR checks run this so a new rsa crate cannot
+# skip the stub the way chain_github_ready did on #500/#501.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+fail=0
+
+while IFS= read -r toml; do
+    if awk '
+        /^\[/ {
+            in_deps = ($0 ~ /^\[dependencies\]/ || $0 ~ /^\[target\.[^]]+\.dependencies\]/)
+        }
+        in_deps && $0 ~ /^rsa[[:space:]]*=/ { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "$toml"; then
+        if ! grep -Eq '^getrandom[[:space:]]*=' "$toml" \
+            || ! grep -Fq 'features = ["custom"]' "$toml"; then
+            echo "FAIL: $toml depends on rsa but does not enable getrandom 0.2 custom for wasm32-unknown-unknown" >&2
+            fail=1
+        fi
+    fi
+done < <(find "$root/os-apps" -name Cargo.toml -print | sort)
+
+if [ "$fail" -ne 0 ]; then
+    exit 1
+fi
+
+echo "ok: every os-app rsa crate enables getrandom custom"
