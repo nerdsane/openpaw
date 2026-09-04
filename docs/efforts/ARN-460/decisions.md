@@ -37,3 +37,19 @@
 **Options:** (1) merge with the finding open; (2) skip charset check on App tokens; (3) allow `.` and raise the cap to 1024, keep rejecting shell metacharacters.
 **Chose (3) over (1) and (2) because:** (1) is the bug this effort exists to close. (2) would put an unchecked string into a sandbox shell. What we gave up: a token longer than 1024 still fails (GitHub documents ~520).
 **Where:** `os-apps/paw-patrol/wasm/release_run_lifecycle/src/lib.rs` `validate_github_token`.
+
+---
+
+**Decision:** (2026-09-03) Production `release_run_lifecycle` is the App-mint blob. Uploaded the local bytes; did not guess from `/paw/version`.
+**Came up because:** Observe GET `/observe/wasm/modules` is 403 (`read_wasm`) for agent and approver. Image sha `63db71e7` is the container. Last Datadog install line for this module was 2026-08-29 (PAT-only).
+**Options:** (1) treat 403 as missing; (2) wait for a Railway rebuild; (3) POST the raw wasm and read the returned sha256.
+**Chose (3) over (1) and (2) because:** POST compiles and persists. The returned hash `4b814c71c1343b22514ca25330d4bee9f989febad8ebde7388efa80fbbf4d927` matches the local App-mint file (583,089 bytes). (1) was the miss. (2) would leave PAT-only live. What we gave up: observe still cannot read the hash back until `read_wasm` is granted.
+**Where:** live `POST /api/wasm/modules/release_run_lifecycle`; Linear ARN-460 comment.
+
+---
+
+**Decision:** (2026-09-03) Shrink live Cedar by rewriting `primary` to blocks no other row has, then disable exact-duplicate rows. Do not PUT one rewritten tenant blob.
+**Came up because:** concatenated policy_text was 651,048 chars. The “30 copies of patrol.cedar” size ratio was a coincidence. `patrol.cedar` (21,704) appeared once. `primary` was 449,197 because `handle_add_policy_rule` persists the full concat into that id. 117 extra rows shared an identical text hash.
+**Options:** (1) PUT a block-deduped 232k file as `primary`; (2) disable `primary` entirely; (3) rewrite `primary` to its unique-to-other-rows blocks, disable the 117 extras, leave named os-app rows.
+**Chose (3) over (1) and (2) because:** (1) collapses 383 tracked rows and decision ids. (2) drops 272 blocks that exist only in `primary`. After: 272,895 chars, 936 blocks, 266 enabled. Rita permit, Effort.Merge, katagami still present. What we gave up: the next approval or load-inline will append again until ARN-286 / ARN-399 land.
+**Where:** live PATCH `/api/tenants/default/policies/entry/*`; backup `/tmp/arn460-primary-backup.cedar`; Linear ARN-286 comment.
