@@ -315,6 +315,12 @@ fn paw_patrol_intent_accept_births_an_effort_via_a_declarative_trigger() {
         "name = \"ConfirmMerge\"",
         "name = \"review_fix_it_clear\"",
         "name = \"merge_risk_clear\"",
+        "module = \"chain_review_ready\"",
+        "module = \"chain_proof_ready\"",
+        "module = \"chain_merge_ready\"",
+        "on_failure = \"RetractReviewPassed\"",
+        "on_failure = \"RetractProofAttached\"",
+        "on_failure = \"RetractMerge\"",
         "from = [\"Building\", \"InReview\", \"Proving\", \"Deploying\"]",
     ] {
         assert!(
@@ -3746,6 +3752,76 @@ fn paw_patrol_carries_the_stage3_s0_record_entities_and_ingest_module() {
     assert!(
         !github_ready.contains("SystemTime"),
         "chain_github_ready must use Context::get_time_millis, not std SystemTime"
+    );
+    for module in [
+        "chain_review_ready",
+        "chain_proof_ready",
+        "chain_merge_ready",
+    ] {
+        assert!(
+            manifest.contains(&format!("name = \"{module}\"")),
+            "app.toml should register {module}"
+        );
+        assert!(
+            read(patrol.join("wasm/build.sh")).contains(module),
+            "build.sh should build {module}"
+        );
+        assert!(
+            patrol.join(format!("wasm/{module}/src/lib.rs")).is_file(),
+            "{module} should have source"
+        );
+        assert!(
+            patrol
+                .join(format!("wasm/{module}/{module}.wasm"))
+                .is_file(),
+            "{module} should have a committed .wasm binary"
+        );
+    }
+    let review_ready = read(patrol.join("wasm/chain_review_ready/src/lib.rs"));
+    for needle in [
+        "fn review_panel_holds",
+        "open act-on",
+        "\"ReviewRuns\"",
+        "/tdata/{set}('{id}')",
+        "set_error_result",
+    ] {
+        assert!(
+            review_ready.contains(needle),
+            "chain_review_ready should contain {needle}"
+        );
+    }
+    assert!(
+        !review_ready.contains("set_success_result(\"PassReview\""),
+        "chain_review_ready must not dispatch"
+    );
+    let cedar = read(patrol.join("policies/patrol.cedar"));
+    for module in [
+        "chain_review_ready",
+        "chain_proof_ready",
+        "chain_merge_ready",
+    ] {
+        assert!(
+            cedar.contains(&format!("context.module == \"{module}\"")),
+            "patrol.cedar must allow http_call for {module}"
+        );
+    }
+    let review_yml = read(repo_root().join(".github/workflows/sdlc-review.yml"));
+    assert!(
+        review_yml.contains("/tdata/ReviewRuns"),
+        "sdlc-review.yml must ask Temper ReviewRuns"
+    );
+    assert!(
+        !review_yml.contains("sdlc-review-record-b64"),
+        "sdlc-review.yml must not scrape a hidden review comment"
+    );
+    let proof_yml = read(repo_root().join(".github/workflows/sdlc-verification.yml"));
+    assert!(
+        proof_yml.contains("/tdata/ProofPackets"),
+        "sdlc-verification.yml must ask Temper ProofPackets"
+    );
+    assert!(
+        !proof_yml.contains("sdlc-proof-record-b64"),
+        "sdlc-verification.yml must not scrape a hidden proof comment"
     );
     assert!(
         manifest.contains("name = \"chain_file_ready\""),

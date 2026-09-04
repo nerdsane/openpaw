@@ -92,11 +92,13 @@ starts local Codex with ChatGPT auth, and self-reports results.
 ### ReviewRun
 One panel agent's pass (Grok, Codex, or Claude), not the whole panel. Each
 agent writes their own ReviewRun. `Effort.review_run_ids` lists them.
-`PassReview` is called after three ReviewRuns are attached (one per panel
-agent). Each run is written with `RecordPanel` (Requested → Recorded) and
-may hang a Temper File. `Approve` still fans into WorkCycle for the old
-loop and is not the Effort path. The kernel door is `panel_started` (at
-least one attach); three Recorded runs is the implementer rule. The
+`PassReview` sets `review_passed`. `chain_review_ready` retracts unless
+the attached ReviewRuns are Recorded and pass the same rules as
+`validate.py` (panel, no open act-on, shared commit). `AttachProofPacket`
+and `Merge` do the same for the ProofPacket and the merge `head_sha`.
+The implementer still fires the verbs; the rows are the book. `Approve`
+still fans into WorkCycle for the old loop and is not the Effort path.
+The
 reviewer
 inspects the diff and proof, reruns relevant checks, and returns approve,
 request changes, or escalate. Findings live on the ReviewRun row. A Temper

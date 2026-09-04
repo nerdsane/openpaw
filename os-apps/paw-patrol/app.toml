@@ -119,6 +119,31 @@ startup_loading = "lazy"
 provenance = "bundled-artifact"
 import_class = "temper-host"
 
+# Review/proof/merge doors: GET sibling rows and retract the ready bool.
+[[wasm_modules]]
+name = "chain_review_ready"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "chain_proof_ready"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
+[[wasm_modules]]
+name = "chain_merge_ready"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
 # Stage 3 S0 shadow bridge (ARN-430): parses b64 comment records into entity
 # fields. Temporary - retired at S3.
 [[wasm_modules]]

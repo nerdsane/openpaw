@@ -143,21 +143,21 @@ name = "RecordPanel"
 kind = "input"
 from = ["Requested", "Claimed", "Reviewing"]
 to = "Recorded"
-params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "risk_flags"]
+params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "risk_flags", "commit", "reviewers_ran", "risk"]
 effect = [{ type = "set_bool", var = "record_present", value = "true" }]
-hint = "Write this panel agent's rubric JSON when fix-it passed. fix_it_failed stays false. Use RecordPanelFixItFailed when it did not."
+hint = "Write this panel agent's record (commit, reviewers, findings, risk) when fix-it passed. Use RecordPanelFixItFailed when it did not."
 
 [[action]]
 name = "RecordPanelFixItFailed"
 kind = "input"
 from = ["Requested", "Claimed", "Reviewing"]
 to = "Recorded"
-params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "risk_flags"]
+params = ["effort_id", "reviewer_id", "review_summary", "verdict", "findings", "rubrics", "risk_flags", "commit", "reviewers_ran", "risk"]
 effect = [
   { type = "set_bool", var = "record_present", value = "true" },
   { type = "set_bool", var = "fix_it_failed", value = "true" }
 ]
-hint = "Write this panel agent's rubric JSON when fix-it failed. Booleans are set_bool, not params."
+hint = "Write this panel agent's record when fix-it failed. PassReview will retract."
 
 [[action]]
 name = "Request"

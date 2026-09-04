@@ -69,7 +69,7 @@ permit(
   action == Action::"http_call",
   resource is HttpEndpoint
 ) when {
-  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle", "chain_file_ready", "chain_github_ready", "temper_deploy_lifecycle"].contains(context.module)
+  ["patrol_request_router", "signal_router", "worker_run_lifecycle", "work_cycle_lifecycle", "finding_lifecycle", "review_gate_lifecycle", "repo_sweep_lifecycle", "daily_brief_lifecycle", "patrol_schedule_lifecycle", "patrol_run_lifecycle", "chain_file_ready", "chain_github_ready", "chain_review_ready", "chain_proof_ready", "chain_merge_ready", "temper_deploy_lifecycle"].contains(context.module)
 };
 
 // Manager surfaces such as OpenClaw may submit requests and route approvals, but
@@ -558,7 +558,10 @@ permit(
   context.module == "release_run_lifecycle" ||
   context.module == "temper_deploy_lifecycle" ||
   context.module == "chain_file_ready" ||
-  context.module == "chain_github_ready"
+  context.module == "chain_github_ready" ||
+  context.module == "chain_review_ready" ||
+  context.module == "chain_proof_ready" ||
+  context.module == "chain_merge_ready"
 };
 
 permit(
@@ -569,7 +572,10 @@ permit(
   context.module == "release_run_lifecycle" ||
   context.module == "temper_deploy_lifecycle" ||
   context.module == "chain_file_ready" ||
-  context.module == "chain_github_ready"
+  context.module == "chain_github_ready" ||
+  context.module == "chain_review_ready" ||
+  context.module == "chain_proof_ready" ||
+  context.module == "chain_merge_ready"
 };
 
 // DsfDeploy / TemperDeploy: the implementer Agent creates and Request's the
@@ -709,9 +715,12 @@ permit(
     Action::"ConfirmMerge",
     Action::"ReportE2e",
     Action::"PassReview",
+    Action::"RetractReviewPassed",
     Action::"RequestChanges",
     Action::"PassEvaluation",
     Action::"AttachProofPacket",
+    Action::"RetractProofAttached",
+    Action::"RetractMerge",
     Action::"AttachDecisions",
     Action::"RetractDecisionsFile",
     Action::"LinkPmIssue",
