@@ -448,7 +448,24 @@ guard = [
   { type = "is_true", var = "review_fix_it_clear" }
 ]
 effect = "set review_passed true"
-hint = "Panel recorded and fix-it rubrics clear. Attach three ReviewRuns (one per panel agent); L1 cannot require count 3."
+hint = "Sets review_passed. chain_review_ready retracts unless attached ReviewRuns are Recorded and pass validate.py."
+
+[[action.triggers]]
+name = "pass_review_checks_runs"
+kind = "wasm"
+module = "chain_review_ready"
+on_failure = "RetractReviewPassed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RetractReviewPassed"
+kind = "input"
+from = ["InReview"]
+to = "InReview"
+effect = "set review_passed false"
+hint = "Callback: attached ReviewRuns are missing, not Recorded, or fail validate.py."
 
 [[action]]
 name = "RequestChanges"
@@ -491,7 +508,24 @@ effect = [
   { type = "set_bool", var = "proof_attached", value = true },
   { type = "list_append", var = "proof_packet_ids" }
 ]
-hint = "Attach the proof packet: proof_packet_id records the current packet; proof_packet_ids is the id appended to the chain list."
+hint = "Attach the proof packet. chain_proof_ready retracts unless that packet is Recorded and passes validate.py."
+
+[[action.triggers]]
+name = "attach_proof_checks_packet"
+kind = "wasm"
+module = "chain_proof_ready"
+on_failure = "RetractProofAttached"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RetractProofAttached"
+kind = "input"
+from = ["Proving"]
+to = "Proving"
+effect = "set proof_attached false"
+hint = "Callback: the attached ProofPacket is missing, not Recorded, or fails validate.py."
 
 # Merge is the Cedar door (records present). It does not call GitHub.
 # Deploy records the project tool the implementer already started
@@ -510,7 +544,27 @@ guard = [
   { type = "is_true", var = "decisions_file_ready" },
   { type = "is_true", var = "merge_risk_clear" }
 ]
-hint = "Authorize merge when risk flags are empty. If any risk flag is set, ConfirmMerge after the do Ask, which sets merge_risk_clear."
+hint = "Authorize merge. chain_merge_ready retracts to Proving unless Recorded rows pass validate.py and match head_sha."
+
+[[action.triggers]]
+name = "merge_checks_records"
+kind = "wasm"
+module = "chain_merge_ready"
+on_failure = "RetractMerge"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+[[action]]
+name = "RetractMerge"
+kind = "input"
+from = ["Merged"]
+to = "Proving"
+effect = [
+  { type = "set_bool", var = "review_passed", value = false },
+  { type = "set_bool", var = "proof_attached", value = false }
+]
+hint = "Callback: Merge head_sha does not match Recorded ReviewRuns and ProofPacket."
 
 [[action]]
 name = "Deploy"

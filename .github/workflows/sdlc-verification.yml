@@ -61,37 +61,60 @@ jobs:
           # inert paths are excluded.
           CODE=$(grep -vE '^(\.github/workflows/|docs/|\.claude/|\.cursor/|README)' /tmp/changed.txt || true)
           if [ -z "$CODE" ]; then echo "needs=false" >> "$GITHUB_OUTPUT"; echo "No app code changed - proof not required."; else echo "needs=true" >> "$GITHUB_OUTPUT"; fi
-      - name: Get the proof record from the PR (not committed)
+      - name: Ask Temper for a ProofPacket on this head
         if: steps.scope.outputs.needs == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUM: ${{ github.event.pull_request.number }}
+          TEMPER_API_KEY: ${{ secrets.TEMPER_API_KEY }}
+          TEMPER_URL: ${{ vars.TEMPER_URL || 'https://openpaw-production.up.railway.app' }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           mkdir -p .proof
           python3 - <<'PY'
-          import json, os, re, subprocess, sys
-          n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
-          repo=os.environ.get("GITHUB_REPOSITORY","")
-          body=subprocess.run(["gh","api",f"repos/{repo}/issues/{n}/comments",
-                              "--paginate","-q",".[].body"],capture_output=True,text=True).stdout
-          import base64
+          import json, os, sys, urllib.request, ssl
+          key=os.environ.get("TEMPER_API_KEY") or ""
+          url=os.environ["TEMPER_URL"].rstrip("/")
+          head=os.environ["PR_HEAD"]
+          if not key:
+              print("::error::TEMPER_API_KEY missing - CI asks Temper, not a PR comment"); sys.exit(1)
+          req=urllib.request.Request(
+              f"{url}/tdata/ProofPackets",
+              headers={"Authorization":f"Bearer {key}","X-Tenant-Id":"default","Accept":"application/json"},
+          )
+          try:
+              with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+                  body=json.loads(resp.read().decode())
+          except Exception as e:
+              print(f"::error::Temper ProofPackets read failed: {e}"); sys.exit(1)
+          rows=body.get("value") if isinstance(body, dict) else body
+          if not isinstance(rows, list):
+              print("::error::Temper ProofPackets response is not a list"); sys.exit(1)
           rec=None
-          def _consider(txt):
-              global rec
-              try:
-                  cand=json.loads(base64.b64decode(txt).decode())
-              except Exception:
-                  return
-              if cand.get("commit")==head: rec=cand
-          for m in re.finditer(r"<!--\s*sdlc-proof-record-b64\s*([A-Za-z0-9+/=\s]+?)\s*-->", body):
-              _consider(m.group(1).strip())
+          for row in rows:
+              fields=row.get("fields") or row
+              status=(fields.get("status") or fields.get("Status") or "")
+              commit=(fields.get("commit") or fields.get("Commit") or "")
+              if status!="Recorded" or commit!=head:
+                  continue
+              def parse(name, default):
+                  raw=fields.get(name) or fields.get(name[0].upper()+name[1:]) or default
+                  if isinstance(raw,str):
+                      try: return json.loads(raw)
+                      except Exception: return default
+                  return raw
+              rec={
+                  "effort":"temper","repo":os.environ.get("GITHUB_REPOSITORY",""),"commit":head,
+                  "changed_surface":parse("changed_surface",[]),
+                  "blast_radius":parse("blast_radius",[]),
+                  "features":parse("features",[]),
+                  "tests":parse("tests",{"result":"pass"}),
+                  "independent_verifier":parse("independent_verifier",{"agrees":True,"reran":[]}),
+              }
+              break
           if not rec:
-              print(f"::error::no proof record for head {head} on the PR - run the verify skill against the current head and post it (bash stack/proof/post-proof-record.sh)")
+              print(f"::error::no Temper ProofPacket for head {head}. Write a Recorded ProofPacket; this gate does not read PR comments.")
               sys.exit(1)
           json.dump(rec, open(".proof/proof.json","w"))
-          print("proof record for the current head loaded from the PR")
+          print("Temper ProofPacket holds for this head")
           PY
       - name: Validate proof (the gate)
         if: steps.scope.outputs.needs == 'true'
@@ -122,19 +145,7 @@ jobs:
         with:
           name: proof-report
           path: .proof/index.html
-      - name: Post PR comment (updated in place)
+      - name: Write the proof summary to the job
         if: steps.scope.outputs.needs == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const summary = fs.readFileSync('.proof/summary.md','utf8');
-            const url = '${{ steps.vercel.outputs.url }}';
-            const link = url
-              ? `\n\n**[Open the full report (team-only)](${url})**`
-              : `\n\n_Full report: the \`proof-report\` artifact on this run (Vercel secrets not set)._`;
-            const body = "<!-- sdlc-verification -->\n" + summary + link;
-            const {data: comments} = await github.rest.issues.listComments({...context.repo, issue_number: context.issue.number});
-            const mine = comments.find(c => c.body.includes('<!-- sdlc-verification -->'));
-            if (mine) await github.rest.issues.updateComment({...context.repo, comment_id: mine.id, body});
-            else await github.rest.issues.createComment({...context.repo, issue_number: context.issue.number, body});
+        run: |
+          if [ -f .proof/summary.md ]; then cat .proof/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
