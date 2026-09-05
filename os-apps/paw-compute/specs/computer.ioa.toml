@@ -17,13 +17,25 @@ name = "Computer"
 # ARN-443 D (DONE): panel execs route through Exec rows, and computer_exec_start's
 # live-gate accepts "Leased" as well as "Ready" so a governed exec runs on a copy
 # (a panel copy lives in Leased, never Ready). See computer_exec_start handle_from_computer.
-states = ["Created", "Provisioning", "Copying", "Ready", "Checkpointing", "Sleeping", "Leased", "Terminating", "Destroyed"]
+#
+# ARN-443 C5 (async copy, structural): a copy of a SOURCE is serialized at the
+# ENTITY level. Copy moves the source Ready -> CopyInFlight (a self-lock); while
+# CopyInFlight the source is not Ready, so a second Copy cannot fire — the state
+# machine GUARANTEES at most one governed copy per source in flight (no provider-
+# list race to detect concurrency after the fact). The lock releases (CopyInFlight
+# -> Ready) as soon as the in-flight child OWNS its own copy machine (or has
+# failed), watched by the source itself (computer_copy_lock_poll on a CopyInFlight
+# self-loop — the source sequences its own unlock from a read; the module never
+# dispatches cross-entity). See docs/efforts/ARN-443/decisions.md.
+states = ["Created", "Provisioning", "Copying", "CopyInFlight", "Ready", "Checkpointing", "Sleeping", "Leased", "Terminating", "Destroyed"]
 initial = "Created"
 
 # ADR-0050 migration TODO: each state below needs either a
 # [[state_timeout]] declaration or a domain-specific justification
 # for being indefinite. Added as a migration allowlist to unblock
 # TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
+# (CopyInFlight is NOT indefinite — it carries a [[state_timeout]] poll loop that
+# releases the lock, so it never needs the allowlist.)
 allow_indefinite_states = ["Created", "Provisioning", "Ready", "Checkpointing", "Sleeping"]
 
 # -- State variables ----------------------------------------------------------
@@ -121,12 +133,12 @@ type = "string"
 initial = ""
 
 # The source computer's machine id this row is a live copy of (ARN-443 C). Set
-# by computer_copy_start on a child at CopyStarted; empty on a source. Together with
-# the Leased state and the copy's own machine_id this is the governed-child audit
-# trail ("a leased copy of machine <source_machine_id>, running on <machine_id>")
-# — so no separate parent_computer_id / is_copy flag is needed. The parent's
-# ENTITY id, on the rare read that wants it, is derivable by query (the Computer
-# whose machine_id == this source_machine_id); we do not precompute it (a
+# by computer_copy_start on a child at CopyStarted; empty on a source. Together
+# with the Leased state and the copy's own machine_id this is the governed-child
+# audit trail ("a leased copy of machine <source_machine_id>, running on
+# <machine_id>") — so no separate parent_computer_id / is_copy flag is needed. The
+# parent's ENTITY id, on the rare read that wants it, is derivable by query (the
+# Computer whose machine_id == this source_machine_id); we do not precompute it (a
 # query-per-copy loopback in the wasm would be machinery for a nicety). See
 # docs/efforts/ARN-443/decisions.md C2.
 [[state]]
@@ -141,6 +153,43 @@ initial = ""
 name = "copy_deadline_at_ms"
 type = "string"
 initial = ""
+
+# PROVENANCE (ARN-443 C5): true iff this row's `machine_id` is a sandbox THIS row
+# acquired itself — set at ProvisionComplete (a normally-provisioned computer) or
+# at CopyStarted (a child copy recording its OWN created sandbox). It stays FALSE
+# while a child carries the inherited SOURCE machine_id (Created→Provisioning,
+# before CopyStarted records the copy's own id). computer_terminate refuses the provider unless
+# this is true, so a teardown can NEVER terminate a source's machine even as
+# defense-in-depth behind the Provisioning-Destroy guard. Not in Copy's copy_fields,
+# so a spawned child starts false regardless of the source's value.
+[[state]]
+name = "owned_machine"
+type = "bool"
+initial = "false"
+
+# SOURCE-side copy lock (ARN-443 C5). The entity id of the child spawned by Copy,
+# stored by the spawn effect; computer_copy_lock_poll reads that child to decide
+# when to release the source's CopyInFlight lock. Empty on a non-source / idle row.
+[[state]]
+name = "inflight_copy_id"
+type = "string"
+initial = ""
+
+# Liveness cap for the CopyInFlight lock poll (session_link idiom: the count lives
+# in the spec, the module reads it). Each CopyLockPoll increments copy_lock_polls;
+# past max_lock_polls the source unlocks regardless, so the lock can never wedge a
+# source out of Ready even if the child row becomes unreadable. RESET to 0 on
+# CopyUnlock (via reset_polls) so a second copy from the same source does not
+# inherit the first's count (R2 #1).
+[[state]]
+name = "copy_lock_polls"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "max_lock_polls"
+type = "string"
+initial = "40"
 
 # -- Actions -------------------------------------------------------------------
 
@@ -166,6 +215,9 @@ from = ["Provisioning"]
 to = "Ready"
 params = ["machine_id", "sandbox_url", "ssh_host"]
 hint = "Record the provisioned VM details."
+# This row acquired its own machine — mark it owned so computer_terminate may tear
+# it down. (A copy child does NOT come through here; it sets owned at CopyStarted.)
+effect = [{ type = "set_bool", var = "owned_machine", value = "true" }]
 
 [[action]]
 name = "ProvisionFailed"
@@ -216,6 +268,10 @@ hint = "Wake the VM from sleep."
 # CopyFailed (which does NOT terminate). Once past CopyStarted (Copying/Leased)
 # machine_id is the copy's own, so Destroy / CopyExpired / the lease timeout tear
 # down the COPY. The e2e asserts a Provisioning child refuses Destroy.
+# DEFENSE IN DEPTH (ARN-443 C5): even if a teardown reached a row carrying an
+# inherited source machine, computer_terminate now calls the provider ONLY when
+# owned_machine is true (set at ProvisionComplete / CopyStarted), so a source's
+# machine can never be terminated through a child row.
 [[action]]
 name = "Destroy"
 kind = "input"
@@ -246,44 +302,110 @@ from = ["Terminating"]
 to = "Destroyed"
 hint = "Callback from computer_terminate — teardown attempted; the row is destroyed."
 
-# -- Copy lifecycle (ARN-443 C: copies as governed children) -------------------
+# -- Copy lifecycle (ARN-443 C: copies as governed children; C5: entity-serialized)
 
-# On a SOURCE (Ready), spawn a child Computer that is a live copy. copy_fields
-# carries the source's machine_id (the copy source) + spec into the child's
-# ProvisionFromCopy params. It deliberately does NOT carry `name`: a child must
-# not inherit the source's name, which is an attach/resolution key (a copy named
-# "arni-big" would collide with the source on attach-by-name and in box_resolve).
-# computer_copy_start sets a distinct "…-copy-…" name on the child. Self-loop:
-# the source stays Ready.
+# On a SOURCE (Ready), TAKE THE COPY LOCK (Ready -> CopyInFlight) and spawn a child
+# Computer that is a live copy. Because the source leaves Ready, a second Copy
+# cannot fire until the lock releases — the state machine serializes copies of one
+# source atomically, with no provider-list race. copy_fields carries the source's
+# machine_id (the copy source) + spec into the child's ProvisionFromCopy; it does
+# NOT carry `name` (an attach/resolution key — a copy named "arni-big" would
+# collide with the source) nor `owned_machine` (the child must start un-owned so
+# computer_terminate can never tear down the inherited source machine). The spawned
+# child's id is stored in inflight_copy_id so the source can watch it.
 [[action]]
 name = "Copy"
 kind = "input"
 from = ["Ready"]
-to = "Ready"
-hint = "Spawn a governed child Computer that is a live copy of this one (e.g. a per-review copy of arni-big)."
+to = "CopyInFlight"
+hint = "Spawn a governed child Computer that is a live copy of this one (e.g. a per-review copy of arni-big), taking the per-source copy lock."
 effect = [
-  { type = "spawn", entity_type = "Computer", entity_id_source = "{uuid}", initial_action = "ProvisionFromCopy", copy_fields = "machine_id,provider,cpu_cores,memory_gb,storage_gb,base_image,project_harness_id,description" },
+  { type = "spawn", entity_type = "Computer", entity_id_source = "{uuid}", initial_action = "ProvisionFromCopy", store_id_in = "inflight_copy_id", copy_fields = "machine_id,provider,cpu_cores,memory_gb,storage_gb,base_image,project_harness_id,description" },
 ]
 
-# On the CHILD: START the copy (ASYNC). A live-copy of a real box takes MINUTES —
-# far past the ~120s WASM invocation cap — so a single synchronous copy would die
-# mid-invocation every time. computer_copy_start only KICKS OFF the copy (a
-# short-timeout POST that returns the new sandbox id) and reports CopyStarted; a
-# Copying state_timeout then polls readiness across invocations, exactly like the
-# async Exec. machine_id here is the SOURCE's machine (from copy_fields).
+# SOURCE lock-release poll: while CopyInFlight, fire CopyLockPoll every 15s.
+# computer_copy_lock_poll reads the in-flight child (inflight_copy_id) and releases
+# the lock (CopyUnlock -> Ready) once the child OWNS its own copy machine
+# (owned_machine, i.e. discovery is done and the shared "<source>-copy" name is no
+# longer ambiguous) or the child has failed / vanished; otherwise it re-arms. A
+# self-loop, so it re-arms ONLY via reset_on.
+[[state_timeout]]
+state = "CopyInFlight"
+after_seconds = 15
+on_timeout = "CopyLockPoll"
+reset_on = ["CopyLockPoll", "CopyLockContinue"]
+
+[[action]]
+name = "CopyLockPoll"
+kind = "input"
+from = ["CopyInFlight"]
+to = "CopyInFlight"
+hint = "Poll the in-flight copy child once (computer_copy_lock_poll). Self-loop in reset_on so each poll re-arms; increments copy_lock_polls for the liveness cap."
+effect = [
+  { type = "increment", var = "copy_lock_polls" },
+  { type = "trigger", name = "computer_copy_lock_poll" },
+]
+
+[[action.triggers]]
+name = "computer_copy_lock_poll"
+kind = "wasm"
+module = "computer_copy_lock_poll"
+# FAIL-CLOSED (ARN-443 R2, codex #3): a module failure NEVER releases the lock —
+# on_failure re-arms (CopyLockContinue) and stays in CopyInFlight. Releasing on a
+# bare read error would reopen the ambiguity the lock exists to prevent (a source
+# could be freed to Copy again while its first child is still discovering). The
+# module itself treats a transient child-read error as "still in flight" (empty
+# callback, re-arm); the ONLY releases are a DEFINITIVE child terminal/owned state
+# or the bounded liveness cap (copy_lock_polls >= max_lock_polls).
+on_failure = "CopyLockContinue"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+
+# Re-arm the lock poll after a module failure without releasing. Self-loop in
+# reset_on; carries no increment so a persistently failing module re-checks every
+# tick rather than tight-looping.
+[[action]]
+name = "CopyLockContinue"
+kind = "input"
+from = ["CopyInFlight"]
+to = "CopyInFlight"
+hint = "Re-arm the CopyInFlight lock poll after a module failure — stays locked (fail-closed); the liveness cap is the only bounded release."
+
+# Release the source copy lock. computer_copy_lock_poll dispatches this ONLY on a
+# definitive child terminal/owned state or the liveness cap; the source returns to
+# Ready and may Copy again. reset_polls zeroes copy_lock_polls so the NEXT copy from
+# this source starts the cap fresh (R2 #1: the counter must not carry across copies).
+[[action]]
+name = "CopyUnlock"
+kind = "input"
+from = ["CopyInFlight"]
+to = "Ready"
+params = ["reset_polls"]
+hint = "Release the per-source copy lock — the in-flight child owns its own machine (or failed / cap); the source is free to Copy again."
+effect = [{ type = "set_counter_from_param", var = "copy_lock_polls", param = "reset_polls" }]
+
+# On the CHILD: START the copy. computer_copy_start fires the copy POST and reports
+# CopyStarted ONLY on a clean 2xx that returns the copy's id (a provably-ours id — no
+# name-based discovery). machine_id here is still the SOURCE's machine (from
+# copy_fields) and owned_machine is false until CopyStarted records the copy's own id.
 [[action]]
 name = "ProvisionFromCopy"
 kind = "input"
 from = ["Created"]
 to = "Provisioning"
 params = ["machine_id", "provider", "cpu_cores", "memory_gb", "storage_gb", "base_image", "project_harness_id", "description"]
-hint = "Child copy: record the source machine + inherited spec, then START the live copy (async)."
+hint = "Child copy: record the source machine + inherited spec, then START the live copy."
 effect = [{ type = "trigger", name = "computer_copy_start" }]
 
 [[action.triggers]]
 name = "computer_copy_start"
 kind = "wasm"
 module = "computer_copy_start"
+# UNPROVABLE initiate results (4xx incl. 409, 5xx, gateway/read timeout, transport
+# error, or a 2xx without an id) route here — retry-later. Adopting a copy we cannot
+# prove we created is catastrophic (our reaper could kill another review's sandbox);
+# a possibly-created copy instead leaks and is reaped by its "<source>-copy" name.
 on_failure = "CopyFailed"
 
 [action.triggers.config]
@@ -291,20 +413,24 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 
-# computer_copy_start callback: the copy sandbox exists (still booting). machine_id
-# is now the COPY's own; source_machine_id records what it was copied from; name is
-# the child's distinct copy name; copy_deadline_at_ms bounds the readiness poll.
+# computer_copy_start callback: the copy POST returned a clean 2xx WITH the copy's id.
+# machine_id / sandbox_url are now the COPY's own (from the create response);
+# source_machine_id records what it was copied from; name is the child's distinct copy
+# name; copy_deadline_at_ms bounds the readiness poll. owned_machine is set true here —
+# the row now owns a machine the create call proved is ours, so teardown may act on it
+# and the source's lock may release.
 [[action]]
 name = "CopyStarted"
 kind = "input"
 from = ["Provisioning"]
 to = "Copying"
 params = ["machine_id", "sandbox_url", "source_machine_id", "name", "copy_deadline_at_ms"]
-hint = "Callback from computer_copy_start — the copy sandbox was created; poll it to readiness from Copying."
+hint = "Callback from computer_copy_start — the copy was created (clean 2xx with id); poll it to readiness from Copying."
+effect = [{ type = "set_bool", var = "owned_machine", value = "true" }]
 
-# The copy poll loop: while Copying, fire CopyPoll every 10s until the copy is
-# ready (CopyComplete -> Leased) or its deadline passes (CopyExpired). Self-loop,
-# so it re-arms ONLY via reset_on (kernel state_timeouts.rs).
+# The copy poll loop: while Copying, fire CopyPoll every 10s. computer_copy_poll
+# health-checks the recorded copy id (CopyComplete -> Leased); past the deadline or on
+# a hard failure it expires (CopyExpired). Self-loop, re-arms ONLY via reset_on.
 [[state_timeout]]
 state = "Copying"
 after_seconds = 10
@@ -316,7 +442,7 @@ name = "CopyPoll"
 kind = "input"
 from = ["Copying"]
 to = "Copying"
-hint = "Poll the copy once (computer_copy_poll). Self-loop in reset_on so each poll re-arms the next tick; a not-ready poll reports an empty callback (no transition)."
+hint = "Poll the copy once (computer_copy_poll): health-check the recorded copy id. A not-ready poll reports an empty callback (no transition) and the loop re-arms."
 effect = [{ type = "trigger", name = "computer_copy_poll" }]
 
 [[action.triggers]]
@@ -331,7 +457,7 @@ modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 
 # computer_copy_poll callback: the copy is ready and leased. Its machine_id /
-# sandbox_url / source_machine_id / name were all set at CopyStarted.
+# sandbox_url / source_machine_id / name were set at CopyStarted.
 [[action]]
 name = "CopyComplete"
 kind = "input"
@@ -339,26 +465,27 @@ from = ["Copying"]
 to = "Leased"
 hint = "Callback from computer_copy_poll — the copy is ready; the child is live and leased."
 
-# CopyFailed: the START failed (still Provisioning) — machine_id is still the
-# SOURCE's, so go straight to Destroyed with NO computer_terminate (terminating
-# would kill the SOURCE's sandbox). A leaked copy is caught by the panel's reaper.
+# CopyFailed: the INITIATE failed (still Provisioning) — machine_id is still the
+# SOURCE's and owned_machine is false, so go straight to Destroyed with NO
+# computer_terminate. A leaked copy is caught by the panel's reaper.
 [[action]]
 name = "CopyFailed"
 kind = "input"
 from = ["Provisioning"]
 to = "Destroyed"
 params = ["error_message"]
-hint = "Callback from computer_copy_start — the copy could not be started. Straight to Destroyed with NO terminate (machine_id is still the source's here)."
+hint = "Callback from computer_copy_start — the copy could not be initiated. Straight to Destroyed with NO terminate (machine_id is still the source's here)."
 
-# CopyExpired: the copy started but never became ready by its deadline, OR the
-# poll module failed (on_failure). machine_id is the COPY's here, so tear the
-# leaked copy sandbox down through Terminating.
+# CopyExpired: the copy was never discovered or never became ready by its deadline,
+# OR the poll module failed (on_failure). computer_terminate acts only on an OWNED
+# machine, so this tears down a discovered copy (owned_machine true) and is a safe
+# no-op before discovery (owned_machine false, machine_id still the source's).
 [[action]]
 name = "CopyExpired"
 kind = "input"
 from = ["Copying"]
 to = "Terminating"
-hint = "The copy never became ready — terminate the leaked copy sandbox (machine_id is the copy's, not the source's)."
+hint = "The copy never became ready — terminate the leaked copy sandbox if one was discovered (owned_machine gates the provider call)."
 effect = [{ type = "trigger", name = "computer_terminate" }]
 
 [[action.triggers]]

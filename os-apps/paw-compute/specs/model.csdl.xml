@@ -29,6 +29,10 @@
         <Property Name="ProjectHarnessId" Type="Edm.String" />
         <Property Name="SourceMachineId" Type="Edm.String" />
         <Property Name="CopyDeadlineAtMs" Type="Edm.String" />
+        <Property Name="OwnedMachine" Type="Edm.Boolean" />
+        <Property Name="InflightCopyId" Type="Edm.String" />
+        <Property Name="CopyLockPolls" Type="Edm.Int32" />
+        <Property Name="MaxLockPolls" Type="Edm.String" />
 
         <Action Name="Configure" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
@@ -99,6 +103,7 @@
           <Parameter Name="description" Type="Edm.String" />
         </Action>
 
+        <!-- computer_copy_start callback: clean 2xx with the copy's own id. -->
         <Action Name="CopyStarted" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
           <Parameter Name="machine_id" Type="Edm.String" />
@@ -123,6 +128,21 @@
 
         <Action Name="CopyExpired" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <!-- Source-side copy lock (ARN-443 C5): CopyLockPoll watches the in-flight
+             child; CopyUnlock releases the source (CopyInFlight -> Ready). -->
+        <Action Name="CopyLockPoll" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="CopyLockContinue" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="CopyUnlock" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="reset_polls" Type="Edm.String" />
         </Action>
 
         <Action Name="Heartbeat" IsBound="true">

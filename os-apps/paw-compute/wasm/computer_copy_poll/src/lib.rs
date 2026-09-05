@@ -1,12 +1,13 @@
-//! computer_copy_poll — poll an async live-copy for readiness (ARN-443 C).
+//! computer_copy_poll — poll a live-copy for readiness (ARN-443 C; C5 R3).
 //!
-//! Fires on Copy.CopyPoll (driven by the Copying state_timeout). The copy sandbox
-//! already exists (computer_copy_start recorded its machine_id/sandbox_url); this
-//! health-checks it:
+//! Fires on Copy.CopyPoll (driven by the Copying state_timeout). The copy's own
+//! machine_id / sandbox_url were recorded at CopyStarted from the create call's
+//! response (a provably-ours id — there is no name-based discovery), so this only
+//! health-checks that sandbox:
 //! - ready               → CopyComplete (Copying → Leased);
-//! - not ready, in budget → report success with an EMPTY callback (no transition);
-//!                          the Copying state_timeout (reset_on = ["CopyPoll"])
-//!                          re-arms and we poll again;
+//! - not ready, in budget → report success with an EMPTY callback (no transition); the
+//!                          Copying state_timeout (reset_on = ["CopyPoll"]) re-arms and
+//!                          we poll again;
 //! - past the deadline    → set_failure → on_failure = CopyExpired (terminate the
 //!                          leaked copy). A transient health-check error before the
 //!                          deadline is treated as "not ready yet" (re-arm), so a
@@ -70,7 +71,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 }
 
 /// Build the copy's sandbox handle from the row (machine_id + sandbox_url are the
-/// COPY's, set by computer_copy_start at CopyStarted).
+/// COPY's, set at CopyStarted from the create call's response).
 fn handle_from_fields(fields: &Value) -> Result<SandboxHandle, String> {
     let sandbox_url = entity_field_str(fields, &["sandbox_url", "SandboxUrl"])
         .map(str::trim)

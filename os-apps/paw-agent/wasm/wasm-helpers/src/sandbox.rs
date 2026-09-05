@@ -1038,6 +1038,88 @@ fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
     None
 }
 
+/// ASYNC copy — INITIATE and confirm creation (ARN-443 C5; R3 fix). Fires the copy
+/// POST and returns the created copy's handle ONLY on a CLEAN, PROVABLE result:
+///  - 2xx WITH a parseable copy id  => Ok(handle): the create call itself returned the
+///    id, so the copy is unambiguously OURS. The caller records that id and polls it to
+///    readiness — no name-based discovery, ever.
+///  - anything else — 4xx (incl. the provider's 409 on a duplicate `<source>-copy`),
+///    5xx, a gateway/read timeout, a transport error, or a 2xx WITHOUT an id — is
+///    UNPROVABLE and returns Err => CopyFailed (retry-later).
+///
+/// Why fail closed on the ambiguous middle: a 5xx / dropped response / transport error
+/// can MASK a 409 (a raw panel copy already owns `<source>-copy`) or be a failure where
+/// nothing was created. Adopting a sandbox we cannot prove we created is catastrophic —
+/// its lease reaper would later terminate a sandbox another live review still depends on
+/// (a raw panel copy has no Computer row, so no claimed-id check can catch it, and a
+/// before/after id-diff can't distinguish it either: a concurrent panel create looks
+/// "new" too). Leaking a possibly-ours sandbox is recoverable — it carries the fixed
+/// `<source>-copy` name, which the stale-copy reaper / lease sweep already collects. So
+/// we fail toward the leak, never toward the adoption, and use ONLY the id the create
+/// call handed back.
+pub fn sandbox_copy_initiate(
+    ctx: &Context,
+    provider: &str,
+    source_sandbox_id: &str,
+    wait_secs: u64,
+) -> Result<SandboxHandle, String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_copy_initiate(ctx, &api_key, source_sandbox_id, wait_secs),
+        other => Err(format!("sandbox_copy_initiate unsupported for provider: {other}")),
+    };
+    let outcome = if result.is_ok() { "created" } else { "error" };
+    log_sandbox_observability(
+        ctx, provider, "copy_initiate", outcome,
+        result.as_ref().map(|h| h.sandbox_id.as_str()).unwrap_or(""),
+        None, None, source_sandbox_id,
+    );
+    result
+}
+
+fn tensorlake_copy_initiate(
+    ctx: &Context,
+    api_key: &str,
+    source_sandbox_id: &str,
+    wait_secs: u64,
+) -> Result<SandboxHandle, String> {
+    let copy_url = format!("https://api.tensorlake.ai/sandboxes/{source_sandbox_id}/copy");
+    let body = json!({ "times": 1, "timeout_seconds": wait_secs });
+    // A transport error is unprovable (the copy may or may not exist): fail closed.
+    let resp = ctx
+        .http_call("POST", &copy_url, &bearer_headers_json(api_key), &body.to_string())
+        .map_err(|e| {
+            format!("Tensorlake copy of {source_sandbox_id}: transport error, unprovable: {e}")
+        })?;
+    // Only a clean 2xx is provable-ours. 4xx (incl. 409), 5xx, and gateway timeouts all
+    // fail closed — the copy, if any, leaks and is reaped by name.
+    if resp.status < 200 || resp.status >= 300 {
+        return Err(format!(
+            "Tensorlake copy of {source_sandbox_id} not a clean 2xx (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("failed to parse Tensorlake copy response: {e}"))?;
+    // A 2xx WITHOUT a created id is not provable-ours either.
+    let sandbox_id = extract_copied_sandbox_id(&parsed).ok_or_else(|| {
+        format!(
+            "Tensorlake copy returned 2xx without a sandbox id (unprovable): {}",
+            &resp.body[..resp.body.len().min(300)]
+        )
+    })?;
+    Ok(handle_for(sandbox_id))
+}
+
+fn handle_for(sandbox_id: String) -> SandboxHandle {
+    SandboxHandle {
+        sandbox_url: format!("https://{sandbox_id}.sandbox.tensorlake.ai"),
+        sandbox_id,
+        provider: "tensorlake".to_string(),
+    }
+}
+
 fn tensorlake_terminate(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
     let url = format!("https://api.tensorlake.ai/sandboxes/{sandbox_id}");
     let resp = ctx.http_call("DELETE", &url, &bearer_headers(api_key), "")?;
