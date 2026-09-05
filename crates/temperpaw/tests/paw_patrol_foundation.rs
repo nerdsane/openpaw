@@ -514,7 +514,8 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     assert!(
         manifest.contains("name = \"contract_probe\"")
             && read(patrol.join("wasm/build.sh")).contains("contract_probe")
-            && read(patrol.join("specs/contract_probe.ioa.toml")).contains("name = \"ContractProbe\"")
+            && read(patrol.join("specs/contract_probe.ioa.toml"))
+                .contains("name = \"ContractProbe\"")
             && read(patrol.join("specs/contract_probe.ioa.toml")).contains("state = \"Failed\"")
             && read(patrol.join("seed-data/contract_probes.toml")).contains("mcp-455-lists"),
         "ContractProbe spec, wasm, seed, and app.toml must travel together"
