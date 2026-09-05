@@ -5,7 +5,7 @@
 //! entity field → config → error. No dynamic dispatch (`dyn Trait`),
 //! WASM-compatible throughout.
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 use temper_wasm_sdk::context::Context;
 
@@ -363,11 +363,88 @@ pub fn sandbox_copy(
     };
     match &result {
         Ok(h) => log_sandbox_observability(
-            ctx, provider, "copy", "success", &h.sandbox_id, None, None, source_sandbox_id,
+            ctx,
+            provider,
+            "copy",
+            "success",
+            &h.sandbox_id,
+            None,
+            None,
+            source_sandbox_id,
         ),
         Err(_) => log_sandbox_observability(
-            ctx, provider, "copy", "error", "", None, None, source_sandbox_id,
+            ctx,
+            provider,
+            "copy",
+            "error",
+            "",
+            None,
+            None,
+            source_sandbox_id,
         ),
+    }
+    result
+}
+
+/// True when Tensorlake accepted a suspend/resume: 200 already in that
+/// state, 202 the request was accepted.
+pub fn tensorlake_control_accepted(status: u16) -> bool {
+    status == 200 || status == 202
+}
+
+/// A Computer that can run a command: a source (Ready), a leased copy
+/// (Leased), or a source that Temper has slept (Sleeping — resume first).
+pub fn computer_is_runnable(status: &str) -> bool {
+    matches!(status, "Ready" | "Leased" | "Sleeping")
+}
+
+/// Resume a Sleeping computer's sandbox so a command can run. No-op when
+/// the row is already Ready or Leased.
+pub fn ensure_sandbox_awake(
+    ctx: &Context,
+    handle: &SandboxHandle,
+    computer_status: &str,
+) -> Result<(), String> {
+    if computer_status != "Sleeping" {
+        return Ok(());
+    }
+    sandbox_resume(ctx, &handle.provider, &handle.sandbox_id)
+}
+
+/// Suspend a named sandbox (stop compute, keep the disk so it can resume).
+/// Tensorlake: POST /sandboxes/{id}/suspend. 200 already suspended, 202 started.
+pub fn sandbox_suspend(ctx: &Context, provider: &str, sandbox_id: &str) -> Result<(), String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_suspend(ctx, &api_key, sandbox_id),
+        other => Err(format!("sandbox_suspend unsupported for provider: {other}")),
+    };
+    match &result {
+        Ok(()) => log_sandbox_observability(
+            ctx, provider, "suspend", "success", sandbox_id, None, None, "",
+        ),
+        Err(_) => log_sandbox_observability(
+            ctx, provider, "suspend", "error", sandbox_id, None, None, "",
+        ),
+    }
+    result
+}
+
+/// Resume a named suspended sandbox. Tensorlake: POST /sandboxes/{id}/resume.
+/// 200 already running, 202 started (~1s).
+pub fn sandbox_resume(ctx: &Context, provider: &str, sandbox_id: &str) -> Result<(), String> {
+    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+    let result = match provider {
+        "tensorlake" => tensorlake_resume(ctx, &api_key, sandbox_id),
+        other => Err(format!("sandbox_resume unsupported for provider: {other}")),
+    };
+    match &result {
+        Ok(()) => log_sandbox_observability(
+            ctx, provider, "resume", "success", sandbox_id, None, None, "",
+        ),
+        Err(_) => {
+            log_sandbox_observability(ctx, provider, "resume", "error", sandbox_id, None, None, "")
+        }
     }
     result
 }
@@ -378,14 +455,30 @@ pub fn sandbox_terminate(ctx: &Context, provider: &str, sandbox_id: &str) -> Res
     let api_key = resolve_sandbox_api_key(ctx, provider)?;
     let result = match provider {
         "tensorlake" => tensorlake_terminate(ctx, &api_key, sandbox_id),
-        other => Err(format!("sandbox_terminate unsupported for provider: {other}")),
+        other => Err(format!(
+            "sandbox_terminate unsupported for provider: {other}"
+        )),
     };
     match &result {
         Ok(()) => log_sandbox_observability(
-            ctx, provider, "terminate", "success", sandbox_id, None, None, "",
+            ctx,
+            provider,
+            "terminate",
+            "success",
+            sandbox_id,
+            None,
+            None,
+            "",
         ),
         Err(_) => log_sandbox_observability(
-            ctx, provider, "terminate", "error", sandbox_id, None, None, "",
+            ctx,
+            provider,
+            "terminate",
+            "error",
+            sandbox_id,
+            None,
+            None,
+            "",
         ),
     }
     result
@@ -410,14 +503,26 @@ pub fn sandbox_exec_start(
 ) -> Result<(), String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
     let result = match handle.provider.as_str() {
-        "tensorlake" => {
-            tensorlake_exec_start(ctx, &api_key, &handle.sandbox_url, command, run_id, tail_bytes)
-        }
+        "tensorlake" => tensorlake_exec_start(
+            ctx,
+            &api_key,
+            &handle.sandbox_url,
+            command,
+            run_id,
+            tail_bytes,
+        ),
         other => Err(format!("async exec unsupported for provider: {other}")),
     };
     let outcome = if result.is_ok() { "started" } else { "error" };
     log_sandbox_observability(
-        ctx, &handle.provider, "exec_start", outcome, &handle.sandbox_id, None, None, "",
+        ctx,
+        &handle.provider,
+        "exec_start",
+        outcome,
+        &handle.sandbox_id,
+        None,
+        None,
+        "",
     );
     result
 }
@@ -446,7 +551,9 @@ pub fn sandbox_exec_poll(
 ) -> Result<Option<ExecResult>, String> {
     let api_key = resolve_sandbox_api_key(ctx, &handle.provider)?;
     match handle.provider.as_str() {
-        "tensorlake" => tensorlake_exec_poll(ctx, &api_key, &handle.sandbox_url, run_id, tail_bytes),
+        "tensorlake" => {
+            tensorlake_exec_poll(ctx, &api_key, &handle.sandbox_url, run_id, tail_bytes)
+        }
         other => Err(format!("async exec unsupported for provider: {other}")),
     }
 }
@@ -1038,6 +1145,33 @@ fn extract_copied_sandbox_id(parsed: &Value) -> Option<String> {
     None
 }
 
+fn tensorlake_control(
+    ctx: &Context,
+    api_key: &str,
+    sandbox_id: &str,
+    verb: &str,
+) -> Result<(), String> {
+    let url = format!("https://api.tensorlake.ai/sandboxes/{sandbox_id}/{verb}");
+    let resp = ctx.http_call("POST", &url, &bearer_headers(api_key), "")?;
+    if tensorlake_control_accepted(resp.status) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Tensorlake {verb} of {sandbox_id} failed (HTTP {}): {}",
+            resp.status,
+            &resp.body[..resp.body.len().min(300)]
+        ))
+    }
+}
+
+fn tensorlake_suspend(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
+    tensorlake_control(ctx, api_key, sandbox_id, "suspend")
+}
+
+fn tensorlake_resume(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
+    tensorlake_control(ctx, api_key, sandbox_id, "resume")
+}
+
 fn tensorlake_terminate(ctx: &Context, api_key: &str, sandbox_id: &str) -> Result<(), String> {
     let url = format!("https://api.tensorlake.ai/sandboxes/{sandbox_id}");
     let resp = ctx.http_call("DELETE", &url, &bearer_headers(api_key), "")?;
@@ -1276,8 +1410,20 @@ fn tensorlake_exec_poll(
     let exit_code = rc.body.trim().parse::<i64>().unwrap_or(-1);
     // Read only the bounded `.tail` files the wrapper produced (≤ tail_bytes each),
     // so output is capped at the SOURCE — no full-body read, no OOM.
-    let stdout = read_capture_tail(ctx, api_key, sandbox_url, &format!("{out_file}.tail"), tail_bytes);
-    let stderr = read_capture_tail(ctx, api_key, sandbox_url, &format!("{err_file}.tail"), tail_bytes);
+    let stdout = read_capture_tail(
+        ctx,
+        api_key,
+        sandbox_url,
+        &format!("{out_file}.tail"),
+        tail_bytes,
+    );
+    let stderr = read_capture_tail(
+        ctx,
+        api_key,
+        sandbox_url,
+        &format!("{err_file}.tail"),
+        tail_bytes,
+    );
     Ok(Some(ExecResult {
         stdout,
         stderr,
@@ -1647,8 +1793,38 @@ mod tests {
         let b = "y".repeat(40) + "B";
         assert_ne!(capture_run_id(&a, 1), capture_run_id(&b, 1));
         // Empty id cannot alias a real id: it encodes to just the "e" prefix.
-        assert!(capture_run_id("", 1).starts_with("e-"), "{}", capture_run_id("", 1));
+        assert!(
+            capture_run_id("", 1).starts_with("e-"),
+            "{}",
+            capture_run_id("", 1)
+        );
         assert_ne!(capture_run_id("", 1), capture_run_id("e", 1));
+    }
+
+    #[test]
+    fn tensorlake_control_accepts_200_and_202() {
+        assert!(tensorlake_control_accepted(200));
+        assert!(tensorlake_control_accepted(202));
+        assert!(!tensorlake_control_accepted(404));
+        assert!(!tensorlake_control_accepted(409));
+        assert!(!tensorlake_control_accepted(500));
+    }
+
+    #[test]
+    fn computer_is_runnable_includes_sleeping() {
+        assert!(computer_is_runnable("Ready"));
+        assert!(computer_is_runnable("Leased"));
+        assert!(computer_is_runnable("Sleeping"));
+        for st in [
+            "Created",
+            "Provisioning",
+            "Copying",
+            "Terminating",
+            "Destroyed",
+            "",
+        ] {
+            assert!(!computer_is_runnable(st), "{st} must not be runnable");
+        }
     }
 
     #[test]
@@ -1897,11 +2073,22 @@ mod tests {
     #[test]
     fn extract_copied_sandbox_id_tolerates_shapes() {
         use serde_json::json;
-        assert_eq!(extract_copied_sandbox_id(&json!({"sandbox_id":"a1"})).as_deref(), Some("a1"));
-        assert_eq!(extract_copied_sandbox_id(&json!({"id":"b2"})).as_deref(), Some("b2"));
-        assert_eq!(extract_copied_sandbox_id(&json!({"sandboxes":[{"sandbox_id":"c3"}]})).as_deref(), Some("c3"));
-        assert_eq!(extract_copied_sandbox_id(&json!({"sandboxes":["d4"]})).as_deref(), Some("d4"));
+        assert_eq!(
+            extract_copied_sandbox_id(&json!({"sandbox_id":"a1"})).as_deref(),
+            Some("a1")
+        );
+        assert_eq!(
+            extract_copied_sandbox_id(&json!({"id":"b2"})).as_deref(),
+            Some("b2")
+        );
+        assert_eq!(
+            extract_copied_sandbox_id(&json!({"sandboxes":[{"sandbox_id":"c3"}]})).as_deref(),
+            Some("c3")
+        );
+        assert_eq!(
+            extract_copied_sandbox_id(&json!({"sandboxes":["d4"]})).as_deref(),
+            Some("d4")
+        );
         assert_eq!(extract_copied_sandbox_id(&json!({"nope":1})), None);
     }
-
 }

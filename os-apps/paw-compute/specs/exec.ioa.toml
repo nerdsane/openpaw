@@ -104,7 +104,7 @@ kind = "input"
 from = ["Created"]
 to = "Starting"
 params = ["computer_id", "command"]
-hint = "Start the command on the named computer's sandbox (must be Ready). Returns immediately; completion is driven by the Poll loop."
+hint = "Start the command on the named computer's sandbox (Ready, Leased, or Sleeping — Sleeping resumes first). Returns immediately; completion is driven by the Poll loop."
 effect = [{ type = "trigger", name = "computer_exec_start" }]
 
 [[action.triggers]]
@@ -121,6 +121,8 @@ modal_token_secret = "{secret:modal_token_secret}"
 modal_bridge_url = "{secret:modal_bridge_url}"
 
 # computer_exec_start callback: the process is running; record run_id + start time.
+# Wake the Computer so a Sleeping source becomes Ready and the 180s idle
+# clock starts from this activity (ARN-466). Wake from Ready is a self-loop.
 [[action]]
 name = "ExecStarted"
 kind = "input"
@@ -128,6 +130,18 @@ from = ["Starting"]
 to = "Running"
 params = ["run_id", "started_at_ms", "deadline_at_ms"]
 hint = "Callback from computer_exec_start — the process was launched; the Poll loop now drives it to completion."
+
+[[action.triggers]]
+name = "exec_started_wakes_computer"
+kind = "entity"
+principal = "system"
+to_state = "Running"
+target_entity = "Computer"
+target_action = "Wake"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "computer_id"
 
 # The poll loop: while Running, fire Poll every N seconds; each Poll re-enters
 # Running, re-arming this timeout.
@@ -159,6 +173,19 @@ to = "Running"
 hint = "Poll the started process once (computer_exec_poll). Self-loop listed in the Running timeout's reset_on, so each Poll re-arms the next tick. On a not-done poll the module reports success with an EMPTY callback action — the kernel accepts that (engine/mod.rs: callback_action defaults to \"\"; wasm.rs: dispatch is skipped when empty → Ok(None)), so no KeepRunning callback is needed; the loop rides the reset_on re-arm alone."
 effect = [{ type = "trigger", name = "computer_exec_poll" }]
 
+# A long exec must keep the source's 180s Sleep clock from firing mid-run.
+[[action.triggers]]
+name = "exec_poll_heartbeats_computer"
+kind = "entity"
+principal = "system"
+to_state = "Running"
+target_entity = "Computer"
+target_action = "Heartbeat"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "computer_id"
+
 [[action.triggers]]
 name = "computer_exec_poll"
 kind = "wasm"
@@ -180,6 +207,18 @@ to = "Succeeded"
 params = ["exit_code", "stdout_tail", "stderr_tail", "stdout_path", "stdout_bytes"]
 hint = "Callback from computer_exec_poll — the command finished; record exit code and output tails."
 
+[[action.triggers]]
+name = "exec_succeeded_heartbeats_computer"
+kind = "entity"
+principal = "system"
+to_state = "Succeeded"
+target_entity = "Computer"
+target_action = "Heartbeat"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "computer_id"
+
 [[action]]
 name = "RunFailed"
 kind = "input"
@@ -187,6 +226,18 @@ from = ["Running", "Starting"]
 to = "Failed"
 params = ["error", "exit_code", "stdout_tail", "stderr_tail"]
 hint = "Execution failed (start error, poll error, or deadline). Result fields cleared so a failure never leaves stale output."
+
+[[action.triggers]]
+name = "exec_failed_heartbeats_computer"
+kind = "entity"
+principal = "system"
+to_state = "Failed"
+target_entity = "Computer"
+target_action = "Heartbeat"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "computer_id"
 
 [[action]]
 name = "Cancel"

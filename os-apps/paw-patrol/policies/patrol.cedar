@@ -780,6 +780,7 @@ permit(
     Action::"AttachDecisions",
     Action::"RetractDecisionsFile",
     Action::"LinkPmIssue",
+    Action::"ConfigureDeploy",
     Action::"Deploy",
     Action::"Stall",
     Action::"Resume",

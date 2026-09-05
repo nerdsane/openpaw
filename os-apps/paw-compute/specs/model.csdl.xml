@@ -74,7 +74,15 @@
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
         </Action>
 
+        <Action Name="SleepFailed" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
         <Action Name="Wake" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+        </Action>
+
+        <Action Name="WakeFailed" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
         </Action>
 

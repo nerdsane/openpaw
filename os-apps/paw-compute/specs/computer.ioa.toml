@@ -15,16 +15,15 @@ name = "Computer"
 # (allow_indefinite) and are structurally unreapable. State carries the "this is
 # a leased copy" semantics; there is no is_copy flag.
 # ARN-443 D (DONE): panel execs route through Exec rows, and computer_exec_start's
-# live-gate accepts "Leased" as well as "Ready" so a governed exec runs on a copy
-# (a panel copy lives in Leased, never Ready). See computer_exec_start handle_from_computer.
+# live-gate accepts Ready, Leased, and Sleeping (Sleeping resumes first).
+# ARN-466: Ready is not indefinite — 180s idle → Sleep, which actually
+# suspends Tensorlake. Sleeping is indefinite (suspended, not billing).
 states = ["Created", "Provisioning", "Copying", "Ready", "Checkpointing", "Sleeping", "Leased", "Terminating", "Destroyed"]
 initial = "Created"
 
-# ADR-0050 migration TODO: each state below needs either a
-# [[state_timeout]] declaration or a domain-specific justification
-# for being indefinite. Added as a migration allowlist to unblock
-# TEMPER_LIVENESS_ENFORCE=true; revisit and tune per state.
-allow_indefinite_states = ["Created", "Provisioning", "Ready", "Checkpointing", "Sleeping"]
+# ADR-0050 migration TODO: Created / Provisioning / Checkpointing still need
+# a timeout or a tighter justification. Ready is no longer on this list.
+allow_indefinite_states = ["Created", "Provisioning", "Checkpointing", "Sleeping"]
 
 # -- State variables ----------------------------------------------------------
 
@@ -189,19 +188,71 @@ from = ["Checkpointing"]
 to = "Ready"
 hint = "Checkpoint completed."
 
+# Sleep actually suspends the sandbox (computer_sleep → Tensorlake
+# /suspend). The 180s Ready timeout fires this. on_failure returns the
+# row to Ready so Temper never says Sleeping while the box is still up.
 [[action]]
 name = "Sleep"
 kind = "input"
 from = ["Ready"]
 to = "Sleeping"
-hint = "Put the VM to sleep."
+hint = "Suspend the VM. Tensorlake stops compute; the disk stays so Wake can resume."
+effect = [{ type = "trigger", name = "computer_sleep" }]
 
+[[action.triggers]]
+name = "computer_sleep"
+kind = "wasm"
+module = "computer_sleep"
+on_failure = "SleepFailed"
+
+[action.triggers.config]
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_token_secret = "{secret:modal_token_secret}"
+
+[[action]]
+name = "SleepFailed"
+kind = "input"
+from = ["Sleeping"]
+to = "Ready"
+hint = "Callback: suspend failed. The box is still up; stay Ready."
+
+# Wake actually resumes the sandbox (computer_wake → Tensorlake /resume).
+# Allowed from Ready as well as Sleeping so ExecStarted can fire it on a
+# warm box (idempotent 200) and reset the 180s idle clock.
 [[action]]
 name = "Wake"
 kind = "input"
-from = ["Sleeping"]
-to = "Provisioning"
-hint = "Wake the VM from sleep."
+from = ["Sleeping", "Ready"]
+to = "Ready"
+hint = "Resume the VM. ~1s if it was suspended; no-op if it is already running."
+effect = [{ type = "trigger", name = "computer_wake" }]
+
+[[action.triggers]]
+name = "computer_wake"
+kind = "wasm"
+module = "computer_wake"
+on_failure = "WakeFailed"
+
+[action.triggers.config]
+tensorlake_api_key = "{secret:tensorlake_api_key}"
+modal_token_id = "{secret:modal_token_id}"
+modal_token_secret = "{secret:modal_token_secret}"
+
+[[action]]
+name = "WakeFailed"
+kind = "input"
+from = ["Ready"]
+to = "Sleeping"
+hint = "Callback: resume failed. Do not claim Ready while the box is still suspended."
+
+# Idle source: 180s with no Heartbeat / Wake / Copy → Sleep (real suspend).
+# A self-loop re-arms only via reset_on.
+[[state_timeout]]
+state = "Ready"
+after_seconds = 180
+on_timeout = "Sleep"
+reset_on = ["Heartbeat", "Wake", "Copy"]
 
 # Destroy → Terminating fires computer_terminate to actually tear the sandbox
 # down; the module reports TerminateComplete → Destroyed.
@@ -372,14 +423,14 @@ tensorlake_api_key = "{secret:tensorlake_api_key}"
 modal_token_id = "{secret:modal_token_id}"
 modal_token_secret = "{secret:modal_token_secret}"
 
-# Keep-alive: a live user (the panel) re-enters Leased to re-arm the lease
-# timeout. A copy whose owner vanished lets the lease lapse and is reaped.
+# Keep-alive. On a leased copy this renews the hour lease. On a Ready
+# source this resets the 180s idle Sleep clock. No WASM — the clock is
+# the transition.
 [[action]]
 name = "Heartbeat"
 kind = "input"
-from = ["Leased"]
-to = "Leased"
-hint = "Push the lease forward: re-entering Leased re-arms the lease state_timeout."
+from = ["Leased", "Ready"]
+hint = "Reset the idle / lease clock. Leased stays Leased; Ready stays Ready."
 
 # Orphan reaping: a leased copy not renewed within the lease is auto-Destroyed
 # (which fires computer_terminate). Only Leased has this timeout, so sources

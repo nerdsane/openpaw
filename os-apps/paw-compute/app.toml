@@ -32,3 +32,13 @@ startup_loading = "lazy"
 name = "computer_terminate"
 criticality = "app-required"
 startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "computer_sleep"
+criticality = "app-required"
+startup_loading = "lazy"
+
+[[wasm_modules]]
+name = "computer_wake"
+criticality = "app-required"
+startup_loading = "lazy"
