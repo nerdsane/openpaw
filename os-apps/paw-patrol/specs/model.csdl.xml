@@ -298,10 +298,27 @@
         <Property Name="ObservedSha" Type="Edm.String"/>
         <Property Name="MaxChecks" Type="Edm.String"/>
         <Property Name="CheckCount" Type="Edm.Int32"/>
+        <Property Name="ImageCheckCount" Type="Edm.Int32"/>
+        <Property Name="ProbeId" Type="Edm.String"/>
         <Property Name="Reason" Type="Edm.String"/>
         <Property Name="ErrorMessage" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
-        <Annotation Term="Paw.Vocab.Agent.Hint" String="TemperPaw image deploy tool: GHCR tag → Railway IMAGE_TAG → /paw/version. Reports back to Effort."/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="TemperPaw image deploy tool: wait for GHCR tag, then Railway IMAGE_TAG, then /paw/version. Reports back to Effort. Runs ContractProbe on Healthy."/>
+      </EntityType>
+
+      <EntityType Name="ContractProbe">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String"/>
+        <Property Name="Path" Type="Edm.String"/>
+        <Property Name="Filter" Type="Edm.String"/>
+        <Property Name="MaxMs" Type="Edm.String"/>
+        <Property Name="LatencyMs" Type="Edm.String"/>
+        <Property Name="RowCount" Type="Edm.String"/>
+        <Property Name="Passed" Type="Edm.String"/>
+        <Property Name="ErrorMessage" Type="Edm.String"/>
+        <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
+        <Annotation Term="Paw.Vocab.Agent.Hint" String="LatencyDiag-class HTTP probe. RunScan takes no parameters. Path, filter, and max_ms are set at create. Re-runs from Ready on a 6h timeout."/>
       </EntityType>
 
       <EntityType Name="EvaluationRun">
@@ -590,6 +607,7 @@
         <EntitySet Name="ReleaseRuns" EntityType="TemperPaw.Patrol.ReleaseRun"/>
         <EntitySet Name="DsfDeploys" EntityType="TemperPaw.Patrol.DsfDeploy"/>
         <EntitySet Name="TemperDeploys" EntityType="TemperPaw.Patrol.TemperDeploy"/>
+        <EntitySet Name="ContractProbes" EntityType="TemperPaw.Patrol.ContractProbe"/>
         <EntitySet Name="EvaluationRuns" EntityType="TemperPaw.Patrol.EvaluationRun"/>
         <EntitySet Name="ProofPackets" EntityType="TemperPaw.Patrol.ProofPacket"/>
         <EntitySet Name="RiskRules" EntityType="TemperPaw.Patrol.RiskRule"/>

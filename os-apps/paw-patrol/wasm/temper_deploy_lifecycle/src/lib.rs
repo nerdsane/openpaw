@@ -2,7 +2,8 @@
 //!
 //! | trigger        | side effect                                      | reports |
 //! |----------------|--------------------------------------------------|---------|
-//! | Request        | read IMAGE_TAG, upsert new tag, redeploy         | SwapSucceeded |
+//! | Request / CheckImage | one GHCR manifest probe for image_tag      | ImageReady / ImagePending / Fail |
+//! | ImageReady     | read IMAGE_TAG, upsert new tag, redeploy         | SwapSucceeded |
 //! | Check          | one /healthz + /paw/version probe                | CheckHealthy / CheckPending / CheckUnhealthy |
 //! | CheckUnhealthy | restore previous_tag, redeploy                   | RollbackPushed |
 //!
@@ -27,7 +28,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
             ),
         );
         let (action, params) = match ctx.trigger_action.as_str() {
-            "Request" => swap(&ctx, &run)?,
+            "Request" | "CheckImage" => wait_image(&ctx, &run)?,
+            "ImageReady" => swap(&ctx, &run)?,
             "Check" => poll(&ctx, &run)?,
             "CheckUnhealthy" => rollback(&ctx, &run)?,
             other => {
@@ -51,6 +53,7 @@ struct DeployFields {
     previous_tag: String,
     max_checks: u64,
     check_count: u64,
+    image_check_count: u64,
 }
 
 impl DeployFields {
@@ -63,8 +66,109 @@ impl DeployFields {
                 &param_or_field(ctx, fields, "max_checks").unwrap_or_else(|| "60".into()),
             )?,
             check_count: counter_field(fields, "check_count"),
+            image_check_count: counter_field(fields, "image_check_count"),
         })
     }
+}
+
+fn wait_image(ctx: &Context, run: &DeployFields) -> Result<(&'static str, Value), String> {
+    validate_image_tag(&run.image_tag)?;
+    validate_sha(&run.expected_sha)?;
+    if run.image_check_count >= run.max_checks {
+        return Err(format!(
+            "temper_deploy_lifecycle: GHCR still missing {} after {} checks",
+            run.image_tag, run.image_check_count
+        ));
+    }
+    if ghcr_has_tag(ctx, &run.image_tag)? {
+        Ok(("ImageReady", json!({})))
+    } else {
+        Ok(("ImagePending", json!({})))
+    }
+}
+
+fn ghcr_has_tag(ctx: &Context, image_tag: &str) -> Result<bool, String> {
+    let github_token = ctx
+        .config
+        .get("github_token")
+        .filter(|s| !s.is_empty() && !s.contains("{secret:"))
+        .cloned()
+        .ok_or_else(|| "temper_deploy_lifecycle: missing config github_token".to_string())?;
+    let name = ctx
+        .config
+        .get("ghcr_name")
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "nerdsane/temperpaw".into());
+    let pull_token = ghcr_pull_token(ctx, &name, &github_token)?;
+    let url = ghcr_manifest_url(&name, image_tag)?;
+    let headers = vec![
+        (
+            "accept".into(),
+            "application/vnd.oci.image.index.v1+json".into(),
+        ),
+        ("authorization".into(), format!("Bearer {pull_token}")),
+    ];
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    match resp.status {
+        200 => Ok(true),
+        404 => Ok(false),
+        other => Err(format!(
+            "temper_deploy_lifecycle: GHCR manifest HTTP {other} for {image_tag}"
+        )),
+    }
+}
+
+fn ghcr_pull_token(ctx: &Context, name: &str, github_token: &str) -> Result<String, String> {
+    let url = ghcr_token_url(name)?;
+    let headers = vec![
+        ("accept".into(), "application/json".into()),
+        ("authorization".into(), format!("Bearer {github_token}")),
+    ];
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Err(format!(
+            "temper_deploy_lifecycle: GHCR token HTTP {} for {name}",
+            resp.status
+        ));
+    }
+    let v: Value = serde_json::from_str(&resp.body)
+        .map_err(|_| "temper_deploy_lifecycle: GHCR token body is not JSON".to_string())?;
+    v.get("token")
+        .or_else(|| v.get("access_token"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "temper_deploy_lifecycle: GHCR token body has no token".into())
+}
+
+fn ghcr_token_url(name: &str) -> Result<String, String> {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '-' || c == '_')
+        || !name.contains('/')
+    {
+        return Err(format!(
+            "temper_deploy_lifecycle: ghcr_name must be owner/name, got {name:?}"
+        ));
+    }
+    Ok(format!(
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:{name}:pull"
+    ))
+}
+
+fn ghcr_manifest_url(name: &str, image_tag: &str) -> Result<String, String> {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '-' || c == '_')
+        || !name.contains('/')
+    {
+        return Err(format!(
+            "temper_deploy_lifecycle: ghcr_name must be owner/name, got {name:?}"
+        ));
+    }
+    validate_image_tag(image_tag)?;
+    Ok(format!("https://ghcr.io/v2/{name}/manifests/{image_tag}"))
 }
 
 fn swap(ctx: &Context, run: &DeployFields) -> Result<(&'static str, Value), String> {
@@ -98,10 +202,7 @@ fn poll(ctx: &Context, run: &DeployFields) -> Result<(&'static str, Value), Stri
         ));
     }
     if !readyz_ok(ctx, &cfg) {
-        return Ok((
-            "CheckPending",
-            json!({ "observed_sha": "" }),
-        ));
+        return Ok(("CheckPending", json!({ "observed_sha": "" })));
     }
     let observed = live_sha(ctx, &cfg).unwrap_or_default();
     if observed == run.expected_sha {
@@ -216,8 +317,7 @@ fn gql(ctx: &Context, cfg: &RailwayConfig, body: &str) -> Result<Value, String> 
 fn railway_image_tag(ctx: &Context, cfg: &RailwayConfig) -> Result<String, String> {
     let body = variables_query(&cfg.project_id, &cfg.environment_id, &cfg.service_id);
     let v = gql(ctx, cfg, &body)?;
-    Ok(v
-        .pointer("/data/variables/IMAGE_TAG")
+    Ok(v.pointer("/data/variables/IMAGE_TAG")
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string())
@@ -351,10 +451,9 @@ fn pascal(field: &str) -> String {
 }
 
 fn parse_max_checks(raw: &str) -> Result<u64, String> {
-    let n: u64 = raw
-        .trim()
-        .parse()
-        .map_err(|_| format!("temper_deploy_lifecycle: max_checks must be a number, got {raw:?}"))?;
+    let n: u64 = raw.trim().parse().map_err(|_| {
+        format!("temper_deploy_lifecycle: max_checks must be a number, got {raw:?}")
+    })?;
     if n == 0 {
         return Err("temper_deploy_lifecycle: max_checks must be > 0".into());
     }
@@ -477,6 +576,21 @@ mod tests {
         assert_eq!(parse_max_checks("999").unwrap(), MAX_CHECKS_CEILING);
         assert!(parse_max_checks("0").is_err());
         assert!(parse_max_checks("nope").is_err());
+    }
+
+    #[test]
+    fn ghcr_url_is_owner_name_and_tag() {
+        assert_eq!(
+            ghcr_manifest_url("nerdsane/temperpaw", "sha-deadbeef").unwrap(),
+            "https://ghcr.io/v2/nerdsane/temperpaw/manifests/sha-deadbeef"
+        );
+        assert_eq!(
+            ghcr_token_url("nerdsane/temperpaw").unwrap(),
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:nerdsane/temperpaw:pull"
+        );
+        assert!(ghcr_manifest_url("no-slash", "sha-ab").is_err());
+        assert!(ghcr_token_url("no-slash").is_err());
+        assert!(ghcr_manifest_url("nerdsane/temperpaw", "v1").is_err());
     }
 
     #[test]

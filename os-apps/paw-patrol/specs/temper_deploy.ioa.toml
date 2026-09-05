@@ -1,17 +1,19 @@
-# TemperDeploy — TemperPaw image deploy tool (ARN-441).
+# TemperDeploy — TemperPaw image deploy tool (ARN-441 / ARN-462).
 #
-# Same class as DsfDeploy. GHCR tag → Railway IMAGE_TAG → poll /paw/version
-# → restore the previous tag. Railway project/service ids are pinned in the
-# trigger config (not caller-writable). image_tag + expected_sha are the run.
+# Same class as DsfDeploy. Wait for the GHCR tag, then Railway IMAGE_TAG,
+# then poll /paw/version, then restore the previous tag. Railway
+# project/service ids are pinned in the trigger config (not caller-writable).
+# image_tag + expected_sha are the run.
 #
-#   Request → swap IMAGE_TAG + redeploy
+#   Request → WaitingForImage (GHCR manifest for image_tag)
+#   ImageReady → swap IMAGE_TAG + redeploy
 #   Polling → kernel Check every 30s until live sha == expected_sha
+#   Healthy → Effort MarkDeployVerified + ContractProbe.RunScan
 #   Unhealthy → restore previous_tag
-#   Healthy / RolledBack / Failed → Effort callbacks
 
 [automaton]
 name = "TemperDeploy"
-states = ["Requested", "Swapping", "Polling", "Healthy", "Unhealthy", "RolledBack", "Failed"]
+states = ["Requested", "WaitingForImage", "Swapping", "Polling", "Healthy", "Unhealthy", "RolledBack", "Failed"]
 initial = "Requested"
 
 [[state]]
@@ -64,14 +66,96 @@ name = "error_message"
 type = "string"
 initial = ""
 
+[[state]]
+name = "probe_id"
+type = "string"
+initial = "mcp-455-lists"
+
+[[state]]
+name = "image_check_count"
+type = "counter"
+initial = "0"
+
 [[action]]
 name = "Request"
 kind = "input"
 from = ["Requested"]
+to = "WaitingForImage"
+params = ["effort_id", "image_tag", "expected_sha", "max_checks", "probe_id"]
+effect = [{ type = "trigger", name = "temper_deploy_wait_image" }]
+hint = "Record the tag and sha. Do not write Railway until GHCR has the tag."
+
+[[action.triggers]]
+name = "temper_deploy_wait_image"
+kind = "wasm"
+module = "temper_deploy_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+railway_graphql_url = "https://backboard.railway.com/graphql/v2"
+railway_token = "{secret:railway_token}"
+railway_project_id = "{secret:railway_project_id}"
+railway_environment_id = "{secret:railway_environment_id}"
+railway_service_id = "{secret:railway_service_id}"
+base_url = "{secret:temperpaw_base_url}"
+version_path = "/paw/version"
+ready_path = "/healthz"
+version_field = "sha"
+temper_api_key = "{secret:temper_api_key}"
+github_token = "{secret:github_token}"
+ghcr_name = "nerdsane/temperpaw"
+
+[[state_timeout]]
+state = "WaitingForImage"
+after_seconds = 30
+on_timeout = "CheckImage"
+reset_on = ["CheckImage", "ImagePending"]
+
+[[action]]
+name = "CheckImage"
+kind = "input"
+from = ["WaitingForImage"]
+to = "WaitingForImage"
+effect = [
+  { type = "increment", var = "image_check_count" },
+  { type = "trigger", name = "temper_deploy_wait_image_again" }
+]
+hint = "One GHCR manifest probe for image_tag."
+
+[[action.triggers]]
+name = "temper_deploy_wait_image_again"
+kind = "wasm"
+module = "temper_deploy_lifecycle"
+on_failure = "Fail"
+
+[action.triggers.config]
+railway_graphql_url = "https://backboard.railway.com/graphql/v2"
+railway_token = "{secret:railway_token}"
+railway_project_id = "{secret:railway_project_id}"
+railway_environment_id = "{secret:railway_environment_id}"
+railway_service_id = "{secret:railway_service_id}"
+base_url = "{secret:temperpaw_base_url}"
+version_path = "/paw/version"
+ready_path = "/healthz"
+version_field = "sha"
+temper_api_key = "{secret:temper_api_key}"
+github_token = "{secret:github_token}"
+ghcr_name = "nerdsane/temperpaw"
+
+[[action]]
+name = "ImagePending"
+kind = "input"
+from = ["WaitingForImage"]
+to = "WaitingForImage"
+hint = "GHCR does not have image_tag yet."
+
+[[action]]
+name = "ImageReady"
+kind = "input"
+from = ["WaitingForImage"]
 to = "Swapping"
-params = ["effort_id", "image_tag", "expected_sha", "max_checks"]
 effect = [{ type = "trigger", name = "temper_deploy_swap" }]
-hint = "Capture the live IMAGE_TAG, set the new tag, redeploy."
+hint = "GHCR has the tag. Write IMAGE_TAG and redeploy."
 
 [[action.triggers]]
 name = "temper_deploy_swap"
@@ -90,6 +174,8 @@ version_path = "/paw/version"
 ready_path = "/healthz"
 version_field = "sha"
 temper_api_key = "{secret:temper_api_key}"
+github_token = "{secret:github_token}"
+ghcr_name = "nerdsane/temperpaw"
 
 [[state_timeout]]
 state = "Swapping"
@@ -160,7 +246,7 @@ kind = "input"
 from = ["Polling"]
 to = "Healthy"
 params = ["observed_sha"]
-hint = "Live sha matches expected_sha. Reports the Effort verified."
+hint = "Live sha matches expected_sha. Reports the Effort verified. Runs the contract probe."
 
 [[action.triggers]]
 name = "temper_healthy_marks_effort"
@@ -172,6 +258,17 @@ target_action = "MarkDeployVerified"
 [action.triggers.resolve_target]
 type = "field"
 field = "effort_id"
+
+[[action.triggers]]
+name = "temper_healthy_runs_probe"
+kind = "entity"
+principal = "patrol-release-service"
+target_entity = "ContractProbe"
+target_action = "RunScan"
+
+[action.triggers.resolve_target]
+type = "field"
+field = "probe_id"
 
 [[action]]
 name = "CheckUnhealthy"
@@ -228,7 +325,7 @@ field = "effort_id"
 [[action]]
 name = "Fail"
 kind = "input"
-from = ["Requested", "Swapping", "Polling", "Unhealthy"]
+from = ["Requested", "WaitingForImage", "Swapping", "Polling", "Unhealthy"]
 to = "Failed"
 params = ["error_message"]
 hint = "Step could not run. Effort Stalls."

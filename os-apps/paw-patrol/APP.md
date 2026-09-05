@@ -80,9 +80,17 @@ Deep Sci-Fi deploy tool. Merge the PR on the named computer, watch
 Reuses `release_run_lifecycle`. Live `ReleaseRun` rows are not renamed.
 
 ### TemperDeploy
-TemperPaw image deploy tool. Upsert Railway `IMAGE_TAG`, redeploy, poll
-`/paw/version` until the live sha matches, restore the previous tag on
-rollback. Railway project/service ids are pinned in the trigger config.
+TemperPaw image deploy tool. `Request` waits until GHCR has `image_tag`,
+then upserts Railway `IMAGE_TAG`, redeploys, polls `/paw/version` until
+the live sha matches, and restores the previous tag on rollback. Railway
+project/service ids are pinned in the trigger config. `CheckHealthy`
+fires `ContractProbe.RunScan` on `probe_id` (default `mcp-455-lists`).
+
+### ContractProbe
+LatencyDiag-class HTTP probe. `RunScan` takes no parameters. Path,
+filter, and `max_ms` are set at create. The default seeded row
+`mcp-455-lists` is empty-equality `GET /tdata/DesignLanguages` with
+`max_ms` 800. Ready and Failed re-run every 6h.
 
 ### WorkerRun
 One execution attempt by a registered worker. The first worker type is the Mac
