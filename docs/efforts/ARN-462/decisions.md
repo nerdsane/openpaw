@@ -45,3 +45,19 @@
 **Options:** (1) leave RunScan as Agent-only and tell the next session to fire it by hand; (2) permit the dispatchers on RunScan and elevate CheckHealthy to patrol-release-service; (3) put the curl inside TemperDeploy.
 **Chose (2) over (1) and (3) because:** (1) is the hole Rita named. (3) was already rejected. What we gave up: a wider RunScan permit than create.
 **Where:** `policies/patrol.cedar`; `temper_deploy.ioa.toml` `temper_healthy_runs_probe`.
+
+---
+
+**Decision:** GHCR wait exchanges a scoped pull token at `/token` before reading the manifest.
+**Came up because:** Review of 4cc6601ef: a GitHub PAT as the registry bearer returns 401 on private GHCR. Request would Fail instead of wait.
+**Options:** (1) keep PAT-as-bearer; (2) GET `ghcr.io/token?service=ghcr.io&scope=repository:name:pull` then use that token; (3) skip wait and stay in chat.
+**Chose (2) over (1) and (3) because:** (1) is the hole. (3) is the hole Rita named. What we gave up: one extra HTTP call per CheckImage.
+**Where:** `temper_deploy_lifecycle` `ghcr_pull_token`.
+
+---
+
+**Decision:** ContractProbe `http_call` and `access_secret` are permitted by module identity, same as the other patrol HTTP modules. A non-OData body is RunFailed, not passed=true with 0 rows.
+**Came up because:** The Agent-only http_call permit does not cover wasm-runtime / patrol-release-service. A 200 HTML body was counted as 0 rows and could pass the 800ms contract.
+**Options:** (1) leave it; (2) add the module to the principal-agnostic permits and fail closed on parse.
+**Chose (2) because:** (1) is a silent miss after Healthy.
+**Where:** `policies/patrol.cedar`; `contract_probe` `odata_row_count`.

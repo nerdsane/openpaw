@@ -520,6 +520,10 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
             && read(patrol.join("seed-data/contract_probes.toml")).contains("mcp-455-lists"),
         "ContractProbe spec, wasm, seed, and app.toml must travel together"
     );
+    assert!(
+        read(patrol.join("wasm/temper_deploy_lifecycle/src/lib.rs")).contains("ghcr.io/token"),
+        "TemperDeploy must exchange a GHCR pull token, not send the GitHub PAT as the registry bearer"
+    );
     let deploy = read(patrol.join("specs/temper_deploy.ioa.toml"));
     assert!(
         deploy.contains("ready_path = \"/healthz\""),

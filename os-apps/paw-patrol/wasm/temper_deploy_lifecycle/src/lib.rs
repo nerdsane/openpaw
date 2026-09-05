@@ -88,7 +88,7 @@ fn wait_image(ctx: &Context, run: &DeployFields) -> Result<(&'static str, Value)
 }
 
 fn ghcr_has_tag(ctx: &Context, image_tag: &str) -> Result<bool, String> {
-    let token = ctx
+    let github_token = ctx
         .config
         .get("github_token")
         .filter(|s| !s.is_empty() && !s.contains("{secret:"))
@@ -100,13 +100,14 @@ fn ghcr_has_tag(ctx: &Context, image_tag: &str) -> Result<bool, String> {
         .filter(|s| !s.is_empty())
         .cloned()
         .unwrap_or_else(|| "nerdsane/temperpaw".into());
+    let pull_token = ghcr_pull_token(ctx, &name, &github_token)?;
     let url = ghcr_manifest_url(&name, image_tag)?;
     let headers = vec![
         (
             "accept".into(),
             "application/vnd.oci.image.index.v1+json".into(),
         ),
-        ("authorization".into(), format!("Bearer {token}")),
+        ("authorization".into(), format!("Bearer {pull_token}")),
     ];
     let resp = ctx.http_call("GET", &url, &headers, "")?;
     match resp.status {
@@ -116,6 +117,44 @@ fn ghcr_has_tag(ctx: &Context, image_tag: &str) -> Result<bool, String> {
             "temper_deploy_lifecycle: GHCR manifest HTTP {other} for {image_tag}"
         )),
     }
+}
+
+fn ghcr_pull_token(ctx: &Context, name: &str, github_token: &str) -> Result<String, String> {
+    let url = ghcr_token_url(name)?;
+    let headers = vec![
+        ("accept".into(), "application/json".into()),
+        ("authorization".into(), format!("Bearer {github_token}")),
+    ];
+    let resp = ctx.http_call("GET", &url, &headers, "")?;
+    if resp.status != 200 {
+        return Err(format!(
+            "temper_deploy_lifecycle: GHCR token HTTP {} for {name}",
+            resp.status
+        ));
+    }
+    let v: Value = serde_json::from_str(&resp.body)
+        .map_err(|_| "temper_deploy_lifecycle: GHCR token body is not JSON".to_string())?;
+    v.get("token")
+        .or_else(|| v.get("access_token"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "temper_deploy_lifecycle: GHCR token body has no token".into())
+}
+
+fn ghcr_token_url(name: &str) -> Result<String, String> {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '-' || c == '_')
+        || !name.contains('/')
+    {
+        return Err(format!(
+            "temper_deploy_lifecycle: ghcr_name must be owner/name, got {name:?}"
+        ));
+    }
+    Ok(format!(
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:{name}:pull"
+    ))
 }
 
 fn ghcr_manifest_url(name: &str, image_tag: &str) -> Result<String, String> {
@@ -545,7 +584,12 @@ mod tests {
             ghcr_manifest_url("nerdsane/temperpaw", "sha-deadbeef").unwrap(),
             "https://ghcr.io/v2/nerdsane/temperpaw/manifests/sha-deadbeef"
         );
+        assert_eq!(
+            ghcr_token_url("nerdsane/temperpaw").unwrap(),
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:nerdsane/temperpaw:pull"
+        );
         assert!(ghcr_manifest_url("no-slash", "sha-ab").is_err());
+        assert!(ghcr_token_url("no-slash").is_err());
         assert!(ghcr_manifest_url("nerdsane/temperpaw", "v1").is_err());
     }
 

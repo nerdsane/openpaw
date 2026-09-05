@@ -563,7 +563,8 @@ permit(
   context.module == "chain_github_ready" ||
   context.module == "chain_review_ready" ||
   context.module == "chain_proof_ready" ||
-  context.module == "chain_merge_ready"
+  context.module == "chain_merge_ready" ||
+  context.module == "contract_probe"
 };
 
 permit(
@@ -577,7 +578,8 @@ permit(
   context.module == "chain_github_ready" ||
   context.module == "chain_review_ready" ||
   context.module == "chain_proof_ready" ||
-  context.module == "chain_merge_ready"
+  context.module == "chain_merge_ready" ||
+  context.module == "contract_probe"
 };
 
 // DsfDeploy / TemperDeploy: the implementer Agent creates and Request's the

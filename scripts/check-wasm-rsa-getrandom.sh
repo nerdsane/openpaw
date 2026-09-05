@@ -22,11 +22,17 @@ while IFS= read -r toml; do
             /^\[/ {
                 in_wasm = ($0 ~ /^\[target\.wasm32-unknown-unknown\.dependencies\]/)
             }
-            in_wasm && $0 ~ /^getrandom[[:space:]]*=/ { has_getrandom = 1 }
-            in_wasm && $0 ~ /features = \["custom"\]/ { has_custom = 1 }
-            END { exit (has_getrandom && has_custom) ? 0 : 1 }
+            in_wasm && $0 ~ /^getrandom[[:space:]]*=/ {
+                has_getrandom = 1
+                if ($0 ~ /features = \["custom"\]/) has_custom = 1
+                if ($0 ~ /"js"/) has_js = 1
+            }
+            END {
+                if (has_js) exit 1
+                exit (has_getrandom && has_custom) ? 0 : 1
+            }
         ' "$toml"; then
-            echo "FAIL: $toml depends on rsa but does not enable getrandom 0.2 custom under [target.wasm32-unknown-unknown.dependencies]" >&2
+            echo "FAIL: $toml depends on rsa but does not enable getrandom 0.2 custom (and only custom) under [target.wasm32-unknown-unknown.dependencies]" >&2
             fail=1
         fi
     fi

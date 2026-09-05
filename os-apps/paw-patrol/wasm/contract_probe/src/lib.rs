@@ -47,7 +47,7 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
                 resp.status
             ));
         }
-        let rows = row_count(&resp.body);
+        let rows = odata_row_count(&resp.body)?;
         let passed = latency_ms <= max_ms;
         ctx.log(
             "info",
@@ -126,14 +126,13 @@ fn odata_escape(filter: &str) -> String {
         .replace('"', "%22")
 }
 
-fn row_count(body: &str) -> u64 {
-    let Ok(v) = serde_json::from_str::<Value>(body) else {
-        return 0;
-    };
+fn odata_row_count(body: &str) -> Result<u64, String> {
+    let v: Value = serde_json::from_str(body)
+        .map_err(|_| "contract_probe: response is not JSON".to_string())?;
     v.get("value")
         .and_then(|x| x.as_array())
         .map(|a| a.len() as u64)
-        .unwrap_or(0)
+        .ok_or_else(|| "contract_probe: response is not an OData value array".into())
 }
 
 #[cfg(test)]
@@ -160,8 +159,9 @@ mod tests {
 
     #[test]
     fn counts_odata_value() {
-        assert_eq!(row_count(r#"{"value":[]}"#), 0);
-        assert_eq!(row_count(r#"{"value":[{},{}]}"#), 2);
-        assert_eq!(row_count("not-json"), 0);
+        assert_eq!(odata_row_count(r#"{"value":[]}"#).unwrap(), 0);
+        assert_eq!(odata_row_count(r#"{"value":[{},{}]}"#).unwrap(), 2);
+        assert!(odata_row_count("not-json").is_err());
+        assert!(odata_row_count(r#"{"ok":true}"#).is_err());
     }
 }
