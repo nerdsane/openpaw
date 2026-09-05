@@ -3,7 +3,8 @@
 //!
 //! Fired by Effort.Merge. GETs review_run_ids and proof_packet_id. Pins
 //! every commit to the Merge head_sha param. On any miss, set_error_result
-//! so on_failure returns Proving.
+//! so on_failure returns Proving. The ship child is an entity trigger on
+//! Merge (TemperDeploy.Request), not this module.
 //!
 //! Does not dispatch. Does not call GitHub.
 

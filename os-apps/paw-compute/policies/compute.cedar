@@ -74,7 +74,12 @@ permit(
         Action::"Computer.CopyFailed", Action::"CopyFailed",
         Action::"Computer.CopyExpired", Action::"CopyExpired",
         Action::"Computer.TerminateComplete", Action::"TerminateComplete",
-        Action::"Computer.Destroy", Action::"Destroy"
+        Action::"Computer.Destroy", Action::"Destroy",
+        Action::"Computer.Sleep", Action::"Sleep",
+        Action::"Computer.SleepFailed", Action::"SleepFailed",
+        Action::"Computer.Wake", Action::"Wake",
+        Action::"Computer.WakeFailed", Action::"WakeFailed",
+        Action::"Computer.Heartbeat", Action::"Heartbeat"
     ],
     resource is Computer
 ) when {
@@ -167,7 +172,8 @@ permit(
 
 // Allow the paw-compute WASM modules to make HTTP calls (Computer row loopback
 // read, sandbox provider control + data plane). computer_copy/computer_terminate
-// call the provider's copy/terminate APIs.
+// call the provider's copy/terminate APIs. computer_sleep/computer_wake call
+// suspend/resume.
 permit(
     principal is Agent,
     action == Action::"http_call",
@@ -178,7 +184,9 @@ permit(
     context.module == "computer_exec_poll" ||
     context.module == "computer_copy_start" ||
     context.module == "computer_copy_poll" ||
-    context.module == "computer_terminate"
+    context.module == "computer_terminate" ||
+    context.module == "computer_sleep" ||
+    context.module == "computer_wake"
 };
 
 // Allow the paw-compute WASM modules to access secrets (temper_api_url, sandbox
@@ -193,5 +201,7 @@ permit(
     context.module == "computer_exec_poll" ||
     context.module == "computer_copy_start" ||
     context.module == "computer_copy_poll" ||
-    context.module == "computer_terminate"
+    context.module == "computer_terminate" ||
+    context.module == "computer_sleep" ||
+    context.module == "computer_wake"
 };

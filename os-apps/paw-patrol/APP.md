@@ -66,13 +66,14 @@ pm_issue_id). Ask is the inbox (decide / do / fyi). `spec_ref` / `plan_ref` / `i
 `decisions_ref` are git paths (`docs/efforts/<issue>/*.md`). AttachSpec /
 AttachPlan / AttachDecisions / AttachIntentFile run `chain_github_ready`
 (the path must be a file on GitHub at repo@branch). Review and proof stay
-Temper Files. `Merge` is the Cedar door (L0/L1 permit; L2+ denies and surfaces as
-MCP elicitation). `Deploy` records the id of a project tool — create `DsfDeploy` or
-`TemperDeploy`, `Effort.Deploy` with that id, then `Request` the child.
-Those tools report back:
-Healthy → `MarkDeployVerified` → Verified; RolledBack → Merged; Failed →
-Stall only if rollback did not finish. Additive until the phase-3 flip —
-WorkCycle stays live until then.
+Temper Files. `ConfigureDeploy` names the GHCR `image_tag`, `computer_id` (default
+`arni-big`), and probe. `Merge` is the Cedar door (L0/L1 permit; L2+
+denies and surfaces as MCP elicitation) and then creates a `TemperDeploy`
+into `Deploying`. That child waits for the GHCR tag, swaps Railway
+`IMAGE_TAG`, polls `/paw/version`, and rolls back. Healthy →
+`MarkDeployVerified` → Verified; RolledBack → Merged; `Deploy` retries
+the same child. A kernel Effort pins TemperPaw and sets `image_tag` to
+that new image before Merge. WorkCycle is not this path.
 
 ### DsfDeploy
 Deep Sci-Fi deploy tool. Merge the PR on the named computer, watch

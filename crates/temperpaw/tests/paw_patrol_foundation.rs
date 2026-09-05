@@ -478,6 +478,36 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
             && effort.contains("to = \"Merged\""),
         "Effort callbacks: Healthy→Verified, RolledBack→Merged"
     );
+    // ARN-466: Merge ships. It must not stop at Merged (MarkDeployVerified
+    // is only from Deploying). WorkCycle/ReleaseRun is not this path.
+    for needle in [
+        "name = \"ConfigureDeploy\"",
+        "name = \"deploy_configured\"",
+        "target_entity = \"TemperDeploy\"",
+        "target_action = \"Request\"",
+        "name = \"effort_merged_requests_temper_deploy\"",
+        "to = \"Deploying\"",
+    ] {
+        assert!(
+            effort.contains(needle),
+            "Effort.Merge must ship via TemperDeploy (`{needle}`)"
+        );
+    }
+    let merge = effort
+        .split("name = \"Merge\"")
+        .nth(1)
+        .expect("Effort.Merge must exist")
+        .split("[[action]]")
+        .next()
+        .unwrap();
+    assert!(
+        merge.contains("to = \"Deploying\""),
+        "Effort.Merge must enter Deploying, not Merged"
+    );
+    assert!(
+        merge.contains("var = \"deploy_configured\""),
+        "Effort.Merge must require ConfigureDeploy"
+    );
     for needle in [
         "resource is DsfDeploy",
         "resource is TemperDeploy",

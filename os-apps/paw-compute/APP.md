@@ -7,8 +7,9 @@ Manages persistent cloud VMs for developer agents. VMs survive agent restarts â€
 ### Computer
 Long-lived Linux VM lifecycle.
 
-- **States**: Created -> Provisioning -> Ready <-> Sleeping -> Destroyed (+ Checkpointing from Ready)
-- **Key actions**: `Configure` (name, provider, cpu_cores, memory_gb, storage_gb, base_image, setup_script), `Provision`, `ProvisionComplete`, `Checkpoint`, `Sleep`, `Wake`, `Destroy`
+- **States**: Created -> Provisioning -> Ready <-> Sleeping -> Destroyed (+ Checkpointing from Ready; Leased copies)
+- **Key actions**: `Configure`, `Provision`, `ProvisionComplete`, `Checkpoint`, `Sleep` (Tensorlake suspend), `Wake` (resume), `Destroy`
+- **Idle**: Ready â†’ Sleep at 180s with no Heartbeat / Wake / Copy. Exec against Sleeping resumes, then Wake/Heartbeat reset the clock.
 - **Governance fields**: `tools_installed`, `credentials_scoped`, `network_allow`, `project_harness_id`
 
 Computer provisioning is handled by the session's `sandbox_provisioner` module in paw-agent.

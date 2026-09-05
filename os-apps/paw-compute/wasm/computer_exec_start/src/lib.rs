@@ -15,7 +15,9 @@
 //! Build: `cargo build --target wasm32-wasip1 --release`.
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::sandbox::{self, SandboxHandle, normalize_sandbox_provider};
+use wasm_helpers::sandbox::{
+    self, computer_is_runnable, ensure_sandbox_awake, normalize_sandbox_provider, SandboxHandle,
+};
 use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
 
 /// Hard wall-clock limit for an async command, enforced sandbox-side by `timeout`
@@ -37,14 +39,17 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let ctx = Context::from_host()?;
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
-        let computer_id = field(&fields, "computer_id")
-            .ok_or("computer_exec_start: missing computer_id")?;
+        let computer_id =
+            field(&fields, "computer_id").ok_or("computer_exec_start: missing computer_id")?;
         let command = field(&fields, "command").ok_or("computer_exec_start: missing command")?;
 
         let temper_api_url = resolve_temper_api_url(&ctx, &fields);
         let computer = fetch_computer(&ctx, &temper_api_url, &fields, &computer_id)?;
         let handle = handle_from_computer(&computer)
             .map_err(|e| format!("computer_exec_start: computer {computer_id}: {e}"))?;
+        let status = entity_field_str(&computer, &["Status", "status"]).unwrap_or("");
+        ensure_sandbox_awake(&ctx, &handle, status)
+            .map_err(|e| format!("computer_exec_start: resume {computer_id} from {status}: {e}"))?;
 
         let wrapped = format!(
             "timeout -k 5s {MAX_RUN_SECS}s bash -c {}",
@@ -107,17 +112,21 @@ fn fetch_computer(
     bounded_reads::get_json(ctx, temper_api_url, &path, &headers, "computer_exec_start")
 }
 
-/// Build a SandboxHandle from a Computer row. Fails CLOSED: only a live computer
-/// with a sandbox_url is exec-able. "Live" = Ready (a source) OR Leased (a
-/// governed copy) — the panel runs its review exec on the Leased copy, so Leased
-/// must be exec-able (ARN-443 D; this is the gate widening the C spec forward-
-/// pointed to). Every other state (Created/Provisioning/Checkpointing/Sleeping/
-/// Terminating/Destroyed) is refused.
+/// Build a SandboxHandle from a Computer row. Fails CLOSED: only a runnable
+/// computer with a sandbox_url is exec-able. Runnable = Ready (source),
+/// Leased (governed copy), or Sleeping (source that will be resumed before
+/// the command starts). Every other state is refused.
 fn handle_from_computer(computer: &Value) -> Result<SandboxHandle, String> {
     let status = entity_field_str(computer, &["Status", "status"]).unwrap_or("");
-    if status != "Ready" && status != "Leased" {
-        let shown = if status.is_empty() { "(no status)" } else { status };
-        return Err(format!("computer is {shown}, not Ready or Leased"));
+    if !computer_is_runnable(status) {
+        let shown = if status.is_empty() {
+            "(no status)"
+        } else {
+            status
+        };
+        return Err(format!(
+            "computer is {shown}, not Ready, Leased, or Sleeping"
+        ));
     }
     let sandbox_url = entity_field_str(computer, &["SandboxUrl", "sandbox_url"])
         .map(str::trim)
@@ -151,10 +160,16 @@ mod tests {
         assert!(handle_from_computer(&ready).is_ok());
         let leased = json!({"Status": "Leased", "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai", "machine_id": "x"}});
         assert!(handle_from_computer(&leased).is_ok());
-        // Any non-live state fails closed.
+        let sleeping = json!({"Status": "Sleeping", "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai", "machine_id": "x"}});
+        assert!(handle_from_computer(&sleeping).is_ok());
+        // Any non-runnable state fails closed.
         for st in ["Created", "Provisioning", "Terminating", "Destroyed"] {
-            let c = json!({"Status": st, "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai"}});
-            assert!(handle_from_computer(&c).is_err(), "{st} must not be exec-able");
+            let c =
+                json!({"Status": st, "fields": {"sandbox_url": "https://x.sandbox.tensorlake.ai"}});
+            assert!(
+                handle_from_computer(&c).is_err(),
+                "{st} must not be exec-able"
+            );
         }
     }
 

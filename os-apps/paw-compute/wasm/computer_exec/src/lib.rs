@@ -17,7 +17,10 @@
 //! wasm-bindgen via chrono and fails host instantiation).
 
 use temper_wasm_sdk::prelude::*;
-use wasm_helpers::sandbox::{self, ExecResult, SandboxHandle, normalize_sandbox_provider};
+use wasm_helpers::sandbox::{
+    self, computer_is_runnable, ensure_sandbox_awake, normalize_sandbox_provider, ExecResult,
+    SandboxHandle,
+};
 use wasm_helpers::{bounded_reads, entity_field_str, odata_headers, resolve_temper_api_url};
 
 /// Keep at most this many bytes of stdout/stderr on the row. The full output is
@@ -46,8 +49,8 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
 
         let computer_id = config_field_or_param(&ctx, &fields, "computer_id")
             .ok_or("computer_exec: missing computer_id")?;
-        let command =
-            config_field_or_param(&ctx, &fields, "command").ok_or("computer_exec: missing command")?;
+        let command = config_field_or_param(&ctx, &fields, "command")
+            .ok_or("computer_exec: missing command")?;
 
         ctx.log(
             "info",
@@ -62,6 +65,9 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let computer = fetch_computer(&ctx, &temper_api_url, &fields, &computer_id)?;
         let handle = sandbox_handle_from_computer(&computer)
             .map_err(|e| format!("computer_exec: computer {computer_id}: {e}"))?;
+        let status = entity_field_str(&computer, &["Status", "status"]).unwrap_or("");
+        ensure_sandbox_awake(&ctx, &handle, status)
+            .map_err(|e| format!("computer_exec: resume {computer_id} from {status}: {e}"))?;
 
         let wrapped = wrap_command(&command, &ctx.entity_id);
         let result = sandbox::sandbox_exec(&ctx, &handle, &wrapped, "/")?;
@@ -167,15 +173,19 @@ fn fetch_computer(
 
 /// Build a SandboxHandle from a Computer row's recorded fields.
 ///
-/// The Computer must be explicitly Ready with a sandbox_url. Fail CLOSED: any
-/// status other than exactly "Ready" — including missing/empty — is refused, so a
-/// half-provisioned or unknown-state computer never gets a command dispatched to
-/// it.
+/// The Computer must be runnable (Ready, Leased, or Sleeping) with a
+/// sandbox_url. Fail CLOSED: missing/empty or any other status is refused.
 fn sandbox_handle_from_computer(computer: &Value) -> Result<SandboxHandle, String> {
     let status = entity_field_str(computer, &["Status", "status"]).unwrap_or("");
-    if status != "Ready" {
-        let shown = if status.is_empty() { "(no status)" } else { status };
-        return Err(format!("computer is {shown}, not Ready"));
+    if !computer_is_runnable(status) {
+        let shown = if status.is_empty() {
+            "(no status)"
+        } else {
+            status
+        };
+        return Err(format!(
+            "computer is {shown}, not Ready, Leased, or Sleeping"
+        ));
     }
 
     let sandbox_url = entity_field_str(computer, &["SandboxUrl", "sandbox_url"])
@@ -268,7 +278,11 @@ fn exec_log_id(exec_id: &str) -> String {
         }
     }
     let head: String = enc.chars().take(32).collect();
-    let head = if head.is_empty() { "exec".to_string() } else { head };
+    let head = if head.is_empty() {
+        "exec".to_string()
+    } else {
+        head
+    };
     format!("{head}-{:08x}", fnv1a_32(exec_id.as_bytes()))
 }
 
@@ -368,7 +382,10 @@ mod tests {
     #[test]
     fn handle_from_ready_computer() {
         let handle = sandbox_handle_from_computer(&ready_computer()).unwrap();
-        assert_eq!(handle.sandbox_url, "https://sbx-abc123.sandbox.tensorlake.ai");
+        assert_eq!(
+            handle.sandbox_url,
+            "https://sbx-abc123.sandbox.tensorlake.ai"
+        );
         assert_eq!(handle.sandbox_id, "sbx-abc123");
         assert_eq!(handle.provider, "tensorlake");
     }
@@ -406,11 +423,21 @@ mod tests {
     }
 
     #[test]
-    fn handle_rejects_non_ready_computer() {
+    fn handle_accepts_sleeping_and_leased() {
+        let mut sleeping = ready_computer();
+        sleeping["Status"] = json!("Sleeping");
+        assert!(sandbox_handle_from_computer(&sleeping).is_ok());
+        let mut leased = ready_computer();
+        leased["Status"] = json!("Leased");
+        assert!(sandbox_handle_from_computer(&leased).is_ok());
+    }
+
+    #[test]
+    fn handle_rejects_non_runnable_computer() {
         let mut computer = ready_computer();
-        computer["Status"] = json!("Sleeping");
+        computer["Status"] = json!("Terminating");
         let err = sandbox_handle_from_computer(&computer).err().unwrap();
-        assert!(err.contains("Sleeping"), "unexpected error: {err}");
+        assert!(err.contains("Terminating"), "unexpected error: {err}");
     }
 
     #[test]
@@ -430,12 +457,18 @@ mod tests {
         assert_ne!(exec_log_id("a_b"), exec_log_id("a/b"));
         // No path/space/quote can escape ~/.exec-out.
         let id = exec_log_id("../../etc/passwd '; rm -rf ~");
-        assert!(!id.contains('/') && !id.contains(' ') && !id.contains('\''), "{id}");
+        assert!(
+            !id.contains('/') && !id.contains(' ') && !id.contains('\''),
+            "{id}"
+        );
         // Bounded: 32 encoded head + '-' + 8 hex = <= 41.
         let long = exec_log_id(&"x".repeat(500));
         assert!(long.len() <= 41, "{} {}", long.len(), long);
         // Two long ids sharing the first 32 encoded chars still differ via hash.
-        assert_ne!(exec_log_id(&("y".repeat(40) + "A")), exec_log_id(&("y".repeat(40) + "B")));
+        assert_ne!(
+            exec_log_id(&("y".repeat(40) + "A")),
+            exec_log_id(&("y".repeat(40) + "B"))
+        );
         assert!(exec_log_id("").starts_with("exec-"));
     }
 

@@ -124,6 +124,35 @@ name = "head_sha"
 type = "string"
 initial = ""
 
+# Ship target for Merge (ARN-466). ConfigureDeploy names the image and
+# the computer. Merge then goes to Deploying and creates a TemperDeploy.
+# A kernel Effort pins TemperPaw and sets image_tag to that new tag
+# before Merge. WorkCycle / ReleaseRun is not this path.
+[[state]]
+name = "computer_id"
+type = "string"
+initial = "arni-big"
+
+[[state]]
+name = "image_tag"
+type = "string"
+initial = ""
+
+[[state]]
+name = "deploy_max_checks"
+type = "string"
+initial = "60"
+
+[[state]]
+name = "probe_id"
+type = "string"
+initial = "mcp-455-lists"
+
+[[state]]
+name = "deploy_configured"
+type = "bool"
+initial = "false"
+
 # --- Execution attachments ----------------------------------------------------
 [[state]]
 name = "reviewer_run_id"
@@ -527,14 +556,25 @@ to = "Proving"
 effect = "set proof_attached false"
 hint = "Callback: the attached ProofPacket is missing, not Recorded, or fails validate.py."
 
-# Merge is the Cedar door (records present). It does not call GitHub.
-# Deploy records the project tool the implementer already started
-# (DsfDeploy or TemperDeploy). Those tools report back.
+# Merge authorizes (Cedar + chain_merge_ready), then ships. deploy_configured
+# is required so Merge cannot land in Merged with MarkDeployVerified stuck
+# (that action is only from Deploying). The child is TemperDeploy — wait
+# GHCR, swap IMAGE_TAG, poll /paw/version, rollback. WorkCycle is not this
+# path. A kernel Effort (nerdsane/temper) pins TemperPaw and sets image_tag
+# to the new TemperPaw tag before Merge.
+[[action]]
+name = "ConfigureDeploy"
+kind = "input"
+from = ["Building", "InReview", "Proving", "Merged"]
+params = ["computer_id", "image_tag", "deploy_max_checks", "probe_id"]
+effect = "set deploy_configured true"
+hint = "Name the GHCR tag, expected computer, and probe that Merge will ship through TemperDeploy. For a kernel pin, set image_tag to the TemperPaw image that carries the new kernel."
+
 [[action]]
 name = "Merge"
 kind = "input"
 from = ["Proving"]
-to = "Merged"
+to = "Deploying"
 params = ["pr_number", "head_sha"]
 guard = [
   { type = "is_true", var = "review_passed" },
@@ -542,9 +582,10 @@ guard = [
   { type = "is_true", var = "proof_attached" },
   { type = "is_true", var = "e2e_ok" },
   { type = "is_true", var = "decisions_file_ready" },
-  { type = "is_true", var = "merge_risk_clear" }
+  { type = "is_true", var = "merge_risk_clear" },
+  { type = "is_true", var = "deploy_configured" }
 ]
-hint = "Authorize merge. chain_merge_ready retracts to Proving unless Recorded rows pass validate.py and match head_sha."
+hint = "Authorize merge, enter Deploying, and create a TemperDeploy. chain_merge_ready retracts to Proving unless Recorded rows pass validate.py and match head_sha."
 
 [[action.triggers]]
 name = "merge_checks_records"
@@ -555,10 +596,34 @@ on_failure = "RetractMerge"
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
 
+# Same shape as WorkCycle.Complete → ReleaseRun.Request. to_state Deploying
+# so a retract does not spawn a ship.
+[[action.triggers]]
+name = "effort_merged_requests_temper_deploy"
+kind = "entity"
+principal = "patrol-release-service"
+to_state = "Deploying"
+target_entity = "TemperDeploy"
+target_action = "Request"
+
+[action.triggers.guard]
+type = "bool_true"
+field = "deploy_configured"
+
+[action.triggers.params_from]
+effort_id = "Id"
+image_tag = "image_tag"
+expected_sha = "head_sha"
+max_checks = "deploy_max_checks"
+probe_id = "probe_id"
+
+[action.triggers.resolve_target]
+type = "create"
+
 [[action]]
 name = "RetractMerge"
 kind = "input"
-from = ["Merged"]
+from = ["Deploying", "Merged"]
 to = "Proving"
 effect = [
   { type = "set_bool", var = "review_passed", value = false },
@@ -566,13 +631,36 @@ effect = [
 ]
 hint = "Callback: Merge head_sha does not match Recorded ReviewRuns and ProofPacket."
 
+# Retry after MarkDeployRolledBack (back to Merged). Same child as Merge.
 [[action]]
 name = "Deploy"
 kind = "input"
 from = ["Merged"]
 to = "Deploying"
-params = ["deployment_id"]
-hint = "Record a DsfDeploy or TemperDeploy id (create the child first). Then Request the child. The child reports Healthy / RolledBack / Failed."
+guard = "is_true deploy_configured"
+hint = "Retry ship after rollback. Creates another TemperDeploy from the configured tag."
+
+[[action.triggers]]
+name = "effort_deploy_requests_temper_deploy"
+kind = "entity"
+principal = "patrol-release-service"
+to_state = "Deploying"
+target_entity = "TemperDeploy"
+target_action = "Request"
+
+[action.triggers.guard]
+type = "bool_true"
+field = "deploy_configured"
+
+[action.triggers.params_from]
+effort_id = "Id"
+image_tag = "image_tag"
+expected_sha = "head_sha"
+max_checks = "deploy_max_checks"
+probe_id = "probe_id"
+
+[action.triggers.resolve_target]
+type = "create"
 
 [[action]]
 name = "MarkDeployVerified"
