@@ -101,6 +101,15 @@ startup_loading = "lazy"
 provenance = "bundled-artifact"
 import_class = "temper-host"
 
+# LatencyDiag-class HTTP probe. One GET, record latency_ms / row_count / passed.
+[[wasm_modules]]
+name = "contract_probe"
+target = "wasm32-unknown-unknown"
+criticality = "app-required"
+startup_loading = "lazy"
+provenance = "bundled-artifact"
+import_class = "temper-host"
+
 # GitHub door: GET contents API for docs/efforts/<id>/*.md. One concern.
 [[wasm_modules]]
 name = "chain_github_ready"

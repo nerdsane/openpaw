@@ -460,6 +460,11 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
         "target_action = \"MarkDeployRolledBack\"",
         "target_action = \"Stall\"",
         "field = \"effort_id\"",
+        "WaitingForImage",
+        "name = \"CheckImage\"",
+        "name = \"ImageReady\"",
+        "target_entity = \"ContractProbe\"",
+        "github_token = \"{secret:github_token}\"",
     ] {
         assert!(
             temper.contains(needle),
@@ -489,8 +494,10 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     for needle in [
         "<EntityType Name=\"DsfDeploy\">",
         "<EntityType Name=\"TemperDeploy\">",
+        "<EntityType Name=\"ContractProbe\">",
         "<EntitySet Name=\"DsfDeploys\"",
         "<EntitySet Name=\"TemperDeploys\"",
+        "<EntitySet Name=\"ContractProbes\"",
         "<Property Name=\"DecisionsFileReady\"",
         "<Property Name=\"ArtifactFileReady\"",
     ] {
@@ -503,6 +510,14 @@ fn paw_patrol_stage3_project_deploy_tools_report_back_to_effort() {
     assert!(
         read(patrol.join("wasm/build.sh")).contains("temper_deploy_lifecycle"),
         "build.sh should build temper_deploy_lifecycle"
+    );
+    assert!(
+        manifest.contains("name = \"contract_probe\"")
+            && read(patrol.join("wasm/build.sh")).contains("contract_probe")
+            && read(patrol.join("specs/contract_probe.ioa.toml")).contains("name = \"ContractProbe\"")
+            && read(patrol.join("specs/contract_probe.ioa.toml")).contains("state = \"Failed\"")
+            && read(patrol.join("seed-data/contract_probes.toml")).contains("mcp-455-lists"),
+        "ContractProbe spec, wasm, seed, and app.toml must travel together"
     );
     let deploy = read(patrol.join("specs/temper_deploy.ioa.toml"));
     assert!(
@@ -2239,8 +2254,8 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         .expect("paw-patrol should load as an OS app bundle");
     assert_eq!(
         bundle.specs.len(),
-        27,
-        "paw-patrol should expose all Patrol entity specs (incl. Ask, ReleaseRun, DsfDeploy, TemperDeploy, StandingDecision/ShadowVerdict, and the Intent/Effort loop)"
+        28,
+        "paw-patrol should expose all Patrol entity specs (incl. Ask, ReleaseRun, DsfDeploy, TemperDeploy, ContractProbe, StandingDecision/ShadowVerdict, and the Intent/Effort loop)"
     );
     for entity in [
         "Intent",
@@ -2248,6 +2263,7 @@ fn paw_patrol_is_discoverable_by_the_os_app_catalog() {
         "Ask",
         "DsfDeploy",
         "TemperDeploy",
+        "ContractProbe",
         "ReleaseRun",
     ] {
         assert!(

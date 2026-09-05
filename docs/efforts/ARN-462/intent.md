@@ -23,5 +23,8 @@ PR `checks` do not run os-app `build.sh` (ARN-429). That is why #500 and
   `js` feature.
 - A PR-path check fails if any os-app crate depends on `rsa` and does not
   enable getrandom `custom`.
-- No `TemperDeploy.Request` until GHCR has a tag for the fix SHA.
+- `TemperDeploy.Request` waits for the GHCR tag; it does not write
+  Railway until the manifest is 200.
+- A `ContractProbe` row (`mcp-455-lists`) records the 455 empty-equality
+  latency after Healthy and again every 6h.
 - Live `/paw/version` still reports `sha-63db71e7` until that deploy.

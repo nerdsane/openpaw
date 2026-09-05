@@ -9,6 +9,9 @@ until a TemperPaw image exists.
 
 `chain_github_ready` compiles for `wasm32-unknown-unknown`. CI `checks`
 refuse a new `rsa` crate that omits the getrandom `custom` stub.
+`TemperDeploy.Request` waits for the GHCR tag. After Healthy, a
+`ContractProbe` row records the 455 empty-equality latency and re-runs
+on a 6h schedule.
 
 ## Steps
 
@@ -19,4 +22,9 @@ refuse a new `rsa` crate that omits the getrandom `custom` stub.
    `register_custom_getrandom!` stub onto `chain_github_ready`.
 3. Add `scripts/check-wasm-rsa-getrandom.sh` and run it from CI `checks`
    plus `cargo check` of both rsa crates on `wasm32-unknown-unknown`.
-4. Do not Request `arn-462-temper-deploy` until GHCR has the new tag.
+4. Put tag-wait on TemperDeploy (`WaitingForImage` / `CheckImage` /
+   `ImageReady`). Do not write Railway until GHCR returns 200 for the tag.
+5. Add ContractProbe (`mcp-455-lists`): empty DesignLanguages, `max_ms`
+   800. `CheckHealthy` fires `RunScan`. Ready and Failed re-run every 6h.
+6. `TemperDeploy.Request` on `arn-462-temper-deploy` only after this
+   machine is live (new image or Genesis install) and GHCR has the tag.

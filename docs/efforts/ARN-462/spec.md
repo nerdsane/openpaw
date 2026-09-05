@@ -14,12 +14,30 @@ and registering a backend that returns `getrandom::Error::UNSUPPORTED`.
 JWT sign does not draw randomness. The backend exists so the crate
 compiles.
 
+## TemperDeploy tag-wait
+
+`Request` records `image_tag` / `expected_sha` and enters
+`WaitingForImage`. The swap writes Railway `IMAGE_TAG` only after GHCR
+returns 200 for `ghcr.io/v2/nerdsane/temperpaw/manifests/{image_tag}`.
+A missing tag is `ImagePending`, not a swap. `max_checks` bounds the
+wait.
+
+## ContractProbe (455 latency)
+
+A LatencyDiag-class row. `RunScan` takes no parameters. Path, filter,
+and `max_ms` are set at create. Default `mcp-455-lists`:
+`GET /tdata/DesignLanguages?$filter=id eq '__arn462_missing__'`,
+`max_ms = 800`. `TemperDeploy.CheckHealthy` fires `RunScan`. Ready and
+Failed re-run every 6 hours.
+
 ## Forbidden
 
 - getrandom feature `js` (wasm-bindgen; host instantiation fails).
 - Putting `getrandom` on `wasm-helpers` (ARN-443: every consumer then
   fails on unknown-unknown).
-- Firing `TemperDeploy.Request` before GHCR has the tag.
+- Firing `TemperDeploy.Request` on the old machine against a missing tag.
+  After this machine is live, `Request` itself waits; still do not invent
+  a tag GHCR will never have.
 
 ## Out of scope
 

@@ -21,3 +21,27 @@
 **Options:** (1) run patrol `build.sh` on every PR; (2) lint only; (3) lint plus `cargo check` of the rsa crates on `wasm32-unknown-unknown`.
 **Chose (3) over (1) and (2) because:** (1) blows the PR budget. (2) would miss a stub that is declared but does not link. What we gave up: a non-rsa crate that newly pulls getrandom 0.2 still only fails in Docker/`full`.
 **Where:** `scripts/check-wasm-rsa-getrandom.sh`; `.github/workflows/ci.yml`.
+
+---
+
+**Decision:** TemperDeploy waits for the GHCR tag before writing Railway IMAGE_TAG.
+**Came up because:** "Do not Request until Docker has pushed" lived in chat. Request assumed the image existed and would swap a missing tag, then sit in Polling until rollback.
+**Options:** (1) keep the wait in the agent; (2) Fail Request when GHCR 404s; (3) WaitingForImage self-loop, swap only on ImageReady.
+**Chose (3) over (1) and (2) because:** (1) is the hole. (2) fails a Request issued while Docker is still running. What we gave up: first Request after this lands still needs the new wasm in the image or a Genesis install; the old machine cannot wait.
+**Where:** `temper_deploy.ioa.toml`; `temper_deploy_lifecycle` `wait_image`.
+
+---
+
+**Decision:** 455 proof is a ContractProbe row, not a bench inside TemperDeploy. CheckHealthy fires RunScan. Ready re-runs every 6h.
+**Came up because:** Re-measuring DesignLanguages was parked as "not deploy." Rita named it a LatencyDiag-class tool that also watches for worsening.
+**Options:** (1) put curl into TemperDeploy.Check; (2) generalize LatencyDiag's hardcoded DSF Datadog command; (3) a patrol ContractProbe (same shape as LatencyDiag: RunScan, no caller params, pinned path/filter/max_ms).
+**Chose (3) over (1) and (2) because:** (1) mixes deploy with measurement. (2) is computer_exec + Datadog; the 455 signal is OData on this MCP. What we gave up: LatencyDiag stays the DSF prototype until someone parameterizes it.
+**Where:** `contract_probe.ioa.toml`; TemperDeploy CheckHealthy `temper_healthy_runs_probe`.
+
+---
+
+**Decision:** RunScan is permitted for timeout-scheduler, wasm-runtime, and patrol-release-service. Create stays Admin/Agent.
+**Came up because:** CheckHealthy inherits wasm-runtime unless elevated. Ready/Failed timeouts fire as timeout-scheduler. The first Cedar draft only allowed Admin/Agent for RunScan, so the schedule and the Healthy callback would deny.
+**Options:** (1) leave RunScan as Agent-only and tell the next session to fire it by hand; (2) permit the dispatchers on RunScan and elevate CheckHealthy to patrol-release-service; (3) put the curl inside TemperDeploy.
+**Chose (2) over (1) and (3) because:** (1) is the hole Rita named. (3) was already rejected. What we gave up: a wider RunScan permit than create.
+**Where:** `policies/patrol.cedar`; `temper_deploy.ioa.toml` `temper_healthy_runs_probe`.
