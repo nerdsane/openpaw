@@ -60,7 +60,7 @@ callback; it never dispatches transitions.
 | `Validate` / `dsf_operation_validate` | `ValidationSucceeded`, `ValidationBlocked` or `ValidationFailed`. Validate the resource operation permission, linked Effort, unresolved Asks, revision and required proof. |
 | `Execute` / `dsf_operation_execute` | `ExecutionSucceeded` or `ExecutionUncertain`. Reuse the accepted operation key at the provider. |
 | `Reconcile` / `dsf_operation_observe` | `ProviderFound`, `ProviderAbsent` or `ObservationFailed`. Read provider execution before deciding whether another write is permitted. |
-| `Verify` / `dsf_operation_verify` | `VerificationSucceeded` or `VerificationFailed`. Check the exact resource/revision, affected flow and required Datadog telemetry. |
+| `Verify` / `dsf_operation_verify` | `VerificationSucceeded`, `VerificationPending` or `VerificationFailed`. Check the exact resource/revision, affected flow and required Datadog telemetry. |
 
 Successful callbacks carry the accepted `operation_key`. Verification also
 matches `verified_resource_id` and `verified_revision` against the accepted target,
@@ -72,7 +72,7 @@ An uncertain provider result permits observation only. A definitive absence can
 permit another attempt, bounded to three attempts with the same key. Provider
 lookups are bounded to twenty attempts; exhausting them leaves the resource
 reserved and the uncertainty visible. Once a provider execution is known, the
-operation cannot execute again. Verified is terminal. Rollback is another
+operation cannot execute again. Verification allows 40 attempts; unavailable or delayed evidence returns to Observed with the resource lock held. Verified is terminal. Rollback is another
 operation with its own target and verification.
 
 ## Recurring observation
@@ -94,8 +94,7 @@ facts. Inaccessible collection also retains the prior last-success time. Success
 collection uses the declared `schedule_at` effect to request the next refresh.
 Three consecutive failures stop automatic retry. Pause stops scheduled collection;
 Resume allows another bounded read. The deployment budget accounts for existing
-service hosting. Paid computer work and experiments need a real reservation at
-operation validation; reading a cap does not reserve money.
+service hosting. New paid compute and experiments require bounded cost authority in their own path. These collectors do not create spending reservations.
 
 ## Experiments
 
@@ -122,7 +121,6 @@ missing evidence, isolation, inaccessible sources and deterministic scheduler
 faults. Cascade tests preregister target actors, so live proof must also establish
 durable create-if-missing behavior.
 
-The simulator substitutes the external environment and does not run provider
-integrations. Live provider reads/writes, persistent-store restart recovery,
+The actor simulator substitutes the external environment. The same suite also builds and invokes all four operation WASM modules through the real engine with controlled HTTP responses; see [operation adapter contract](wasm/dsf_operation_common/README.md). Live provider reads/writes, persistent-store restart recovery,
 callback authorization, Datadog checks and browser flows require the effort's
 separate end-to-end proof. These tests cannot establish those results.

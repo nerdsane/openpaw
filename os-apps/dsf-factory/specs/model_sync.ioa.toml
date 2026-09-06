@@ -133,7 +133,7 @@ kind = "input"
 from = ["Draft"]
 to = "Idle"
 params = [{ name = "source_kind", type = "string" }, { name = "source_id", type = "string" }, { name = "resource_id", type = "string" }, { name = "source_config_ref", type = "string" }, { name = "computer_id", type = "string" }]
-effect = [{ type = "decrement", var = "sync_sequence" }, { type = "decrement", var = "failure_count" }]
+effect = []
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -196,7 +196,7 @@ kind = "input"
 from = ["Collecting"]
 to = "Ready"
 params = [{ name = "expected_sequence", type = "counter" }, { name = "observation_id", type = "string" }, { name = "source_event_id", type = "string" }, { name = "query", type = "string" }, { name = "window_start", type = "string" }, { name = "window_end", type = "string" }, { name = "sample_kind", type = "string" }, { name = "outcome", type = "string" }, { name = "summary", type = "string" }, { name = "evidence_ref", type = "string" }, { name = "observed_at_ms", type = "counter" }, { name = "expected_resource_sequence", type = "counter" }, { name = "source_cursor", type = "string" }, { name = "last_success_at", type = "string" }, { name = "next_due_at", type = "string" }, { name = "observed_configuration", type = "string" }, { name = "observed_revision", type = "string" }]
-effect = [{ type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "schedule_at", action = "Refresh", field = "next_due_at" }]
+effect = [{ type = "set_counter_from_param", var = "observed_at_ms", param = "observed_at_ms" }, { type = "set_counter_from_param", var = "expected_resource_sequence", param = "expected_resource_sequence" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "schedule_at", action = "Refresh", field = "next_due_at" }]
 
 [[action.constraints]]
 kind = "param_equals_field"
@@ -266,7 +266,7 @@ kind = "input"
 from = ["Collecting"]
 to = "Ready"
 params = [{ name = "expected_sequence", type = "counter" }, { name = "observation_id", type = "string" }, { name = "source_event_id", type = "string" }, { name = "query", type = "string" }, { name = "window_start", type = "string" }, { name = "window_end", type = "string" }, { name = "sample_kind", type = "string" }, { name = "outcome", type = "string" }, { name = "summary", type = "string" }, { name = "evidence_ref", type = "string" }, { name = "observed_at_ms", type = "counter" }, { name = "expected_resource_sequence", type = "counter" }, { name = "source_cursor", type = "string" }, { name = "last_success_at", type = "string" }, { name = "next_due_at", type = "string" }]
-effect = [{ type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "schedule_at", action = "Refresh", field = "next_due_at" }]
+effect = [{ type = "set_counter_from_param", var = "observed_at_ms", param = "observed_at_ms" }, { type = "set_counter_from_param", var = "expected_resource_sequence", param = "expected_resource_sequence" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "schedule_at", action = "Refresh", field = "next_due_at" }]
 
 [[action.constraints]]
 kind = "param_equals_field"
@@ -334,7 +334,7 @@ kind = "input"
 from = ["Collecting"]
 to = "Failed"
 params = [{ name = "expected_sequence", type = "counter" }, { name = "observation_id", type = "string" }, { name = "source_event_id", type = "string" }, { name = "query", type = "string" }, { name = "window_start", type = "string" }, { name = "window_end", type = "string" }, { name = "sample_kind", type = "string" }, { name = "outcome", type = "string" }, { name = "summary", type = "string" }, { name = "evidence_ref", type = "string" }, { name = "observed_at_ms", type = "counter" }, { name = "expected_resource_sequence", type = "counter" }, { name = "error_message", type = "string" }]
-effect = [{ type = "increment", var = "failure_count" }]
+effect = [{ type = "set_counter_from_param", var = "observed_at_ms", param = "observed_at_ms" }, { type = "set_counter_from_param", var = "expected_resource_sequence", param = "expected_resource_sequence" }, { type = "increment", var = "failure_count" }]
 
 [[action.constraints]]
 kind = "param_equals_field"
@@ -398,7 +398,7 @@ kind = "input"
 from = ["Collecting"]
 to = "Ready"
 params = [{ name = "expected_sequence", type = "counter" }, { name = "observation_id", type = "string" }, { name = "source_event_id", type = "string" }, { name = "query", type = "string" }, { name = "window_start", type = "string" }, { name = "window_end", type = "string" }, { name = "sample_kind", type = "string" }, { name = "outcome", type = "string" }, { name = "summary", type = "string" }, { name = "evidence_ref", type = "string" }, { name = "observed_at_ms", type = "counter" }, { name = "expected_resource_sequence", type = "counter" }, { name = "source_cursor", type = "string" }, { name = "last_success_at", type = "string" }, { name = "next_due_at", type = "string" }]
-effect = [{ type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "schedule_at", action = "Refresh", field = "next_due_at" }]
+effect = [{ type = "set_counter_from_param", var = "observed_at_ms", param = "observed_at_ms" }, { type = "set_counter_from_param", var = "expected_resource_sequence", param = "expected_resource_sequence" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "decrement", var = "failure_count" }, { type = "schedule_at", action = "Refresh", field = "next_due_at" }]
 
 [[action.constraints]]
 kind = "param_equals_field"

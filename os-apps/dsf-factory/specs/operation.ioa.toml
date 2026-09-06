@@ -118,6 +118,11 @@ type = "counter"
 initial = "0"
 
 [[state]]
+name = "verification_attempts"
+type = "counter"
+initial = "0"
+
+[[state]]
 name = "cancellation_ref"
 type = "string"
 initial = ""
@@ -128,7 +133,7 @@ kind = "input"
 from = ["Draft"]
 to = "Requested"
 params = [{ name = "resource_id", type = "string" }, { name = "effort_id", type = "string" }, { name = "operation_kind", type = "string" }, { name = "operation_key", type = "string" }, { name = "intended_revision", type = "string" }, { name = "intended_configuration", type = "string" }, { name = "proof_ref", type = "string" }]
-effect = [{ type = "decrement", var = "execution_attempts" }, { type = "set_bool", var = "provider_known", value = false }, { type = "set_bool", var = "flow_verified", value = false }, { type = "set_bool", var = "telemetry_verified", value = false }, { type = "decrement", var = "observation_attempts" }]
+effect = [{ type = "set_bool", var = "provider_known", value = false }, { type = "set_bool", var = "flow_verified", value = false }, { type = "set_bool", var = "telemetry_verified", value = false }]
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -387,14 +392,14 @@ name = "Verify"
 kind = "input"
 from = ["Observed"]
 to = "Verifying"
-guard = [{ type = "is_true", var = "provider_known" }]
-effect = [{ type = "trigger", name = "dsf_operation_verify" }]
+guard = [{ type = "is_true", var = "provider_known" }, { type = "max_count", var = "verification_attempts", max = 40 }]
+effect = [{ type = "increment", var = "verification_attempts" }, { type = "trigger", name = "dsf_operation_verify" }]
 
 [[action.triggers]]
 name = "dsf_operation_verify"
 kind = "wasm"
 module = "dsf_operation_verify"
-on_failure = "VerificationFailed"
+on_failure = "VerificationPending"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
@@ -447,6 +452,13 @@ operation_key = "operation_key"
 [action.triggers.resolve_target]
 type = "field"
 field = "resource_id"
+
+[[action]]
+name = "VerificationPending"
+kind = "input"
+from = ["Verifying"]
+to = "Observed"
+params = [{ name = "error_message", type = "string" }]
 
 [[action]]
 name = "VerificationFailed"
@@ -511,7 +523,7 @@ on_timeout = "ObservationFailed"
 [[state_timeout]]
 state = "Verifying"
 after_seconds = 300
-on_timeout = "VerificationFailed"
+on_timeout = "VerificationPending"
 
 [[state_timeout]]
 state = "Unknown"
@@ -535,3 +547,12 @@ assert = "no_further_transitions"
 [[invariant]]
 name = "BoundedProviderObservations"
 assert = "observation_attempts <= 20"
+
+[[state_timeout]]
+state = "Observed"
+after_seconds = 30
+on_timeout = "Verify"
+
+[[invariant]]
+name = "BoundedVerificationReads"
+assert = "verification_attempts <= 40"

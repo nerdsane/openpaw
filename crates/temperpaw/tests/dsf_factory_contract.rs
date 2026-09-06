@@ -863,3 +863,182 @@ fn operation_key_must_equal_its_canonical_entity_identity() {
     sim.assert_status("subject", "Draft");
     sim.assert_event_count("subject", 0);
 }
+
+#[test]
+fn asynchronous_provider_verification_remains_pending_and_bounded() {
+    let mut sim = ready_operation(467);
+    step(&mut sim, "Execute", json!({}));
+    step(&mut sim, "ExecutionSucceeded", provider_result());
+    for attempt in 1..=40 {
+        let state = step(&mut sim, "Verify", json!({}));
+        assert_eq!(state["fields"]["verification_attempts"], attempt);
+        step(
+            &mut sim,
+            "VerificationPending",
+            json!({"error_message":"deployment building"}),
+        );
+        sim.assert_status("subject", "Observed");
+    }
+    assert!(sim.step("subject", "Verify", "{}").is_err());
+    sim.assert_status("subject", "Observed");
+}
+
+mod operation_wasm {
+    use super::*;
+    use sha2::{Digest, Sha256};
+    use std::{
+        collections::{BTreeMap, VecDeque},
+        sync::{Mutex, RwLock},
+    };
+    use temper_wasm::{
+        ProductionWasmHost, StreamRegistry, TextHttpInterceptorFn, WasmEngine,
+        WasmInvocationContext, WasmResourceLimits,
+    };
+
+    const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const KEY: &str = "01a074e0-61c3-7e51-bc70-2c0130bb73b8";
+
+    fn config() -> Value {
+        json!({"version":1,"resource_id":"resource-1","effort_id":"effort-1","operation_key":KEY,"revision":SHA,"max_cost_cents":0,"not_before_ms":1000,"provider":{"kind":"railway","project_id":"project-1","service_id":"service-1","environment_id":"env-1","secret_name":"railway_token","baseline_deployment_id":"before"},"flow":{"kind":"story","story_id":"story-1","world_id":"world-1"},"datadog":{"site":"datadoghq.com","service":"deep-sci-fi-backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})
+    }
+    fn resource() -> Value {
+        json!({"status":"Operating","active_operation_id":KEY,"provider":"railway","provider_id":"service-1","allowed_operations":"[\"railway_deploy\"]"})
+    }
+    fn proof() -> Value {
+        json!({"status":"Recorded","record_present":true,"effort_id":"effort-1","commit":SHA,"artifact_ref":"artifact-1","changed_surface":"[\"story\"]","blast_radius":"[]","features":"[{\"key\":\"story\",\"verification\":\"rerun\",\"verdict\":\"pass\"}]","tests":"{\"result\":\"pass\"}","independent_verifier":"{\"agrees\":true,\"reran\":[\"story\"]}"})
+    }
+    fn validation_reads() -> Vec<Value> {
+        vec![
+            config(),
+            resource(),
+            json!({"status":"Merged","head_sha":SHA,"proof_packet_id":"proof-1","ask_ids":"[]","e2e_ok":true,"proof_attached":true,"review_passed":true,"evaluation_passed":true}),
+            proof(),
+            json!({"Status":"Ready"}),
+            json!({"record":"proof artifact"}),
+        ]
+    }
+    fn found() -> Value {
+        json!({"data":{"deployments":{"edges":[{"node":{"id":"deployment-new","status":"SUCCESS","createdAt":"1970-01-01T00:00:02Z","meta":{"commitHash":SHA}}}]}}})
+    }
+
+    async fn invoke(verb: &str, responses: Vec<Value>) -> temper_wasm::WasmInvocationResult {
+        let module_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../os-apps/dsf-factory/wasm/dsf_operation_{verb}"
+        ));
+        // Compile from the checked-out source; an ignored stale .wasm is not proof.
+        let build = std::process::Command::new("bash")
+            .arg(module_dir.join("build.sh"))
+            .output()
+            .expect("run module build");
+        assert!(
+            build.status.success(),
+            "WASM build: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let pending = Arc::new(Mutex::new(VecDeque::from(responses)));
+        let queue = pending.clone();
+        let interceptor: TextHttpInterceptorFn = Arc::new(move |method, url, _headers, body| {
+            let queue = queue.clone();
+            Box::pin(async move {
+                let permitted = url.starts_with("https://temper.test/tdata/")
+                    || url == "https://backboard.railway.com/graphql/v2"
+                    || url == "https://api.deep-sci-fi.world/api/health"
+                    || url == "https://api.deep-sci-fi.world/api/stories/story-1"
+                    || url == "https://api.datadoghq.com/api/v2/spans/events/search";
+                assert!(permitted, "unexpected integration target");
+                assert!(method == "GET" || method == "POST");
+                if body.contains("mutation") {
+                    assert!(body.contains("serviceInstanceDeployV2"));
+                    assert!(body.contains(SHA));
+                }
+                Some(
+                    queue
+                        .lock()
+                        .unwrap()
+                        .pop_front()
+                        .map(|value| (200, value.to_string()))
+                        .ok_or_else(|| "unexpected extra provider request".into()),
+                )
+            })
+        });
+        let host = ProductionWasmHost::new(BTreeMap::from([
+            ("railway_token".into(), "secret".into()),
+            ("dd_api".into(), "secret".into()),
+            ("dd_app".into(), "secret".into()),
+        ]))
+        .with_text_http_interceptor(interceptor);
+        let config_bytes = config().to_string();
+        let binding=json!({"config_ref":"config-1","config_sha256":format!("{:x}",Sha256::digest(config_bytes.as_bytes()))}).to_string();
+        let context:WasmInvocationContext=serde_json::from_value(json!({"tenant":"default","entity_type":"DsfOperation","entity_id":KEY,"trigger_action":verb,"wasm_module":format!("dsf_operation_{verb}"),"trigger_params":{},"entity_state":{"fields":{"operation_key":KEY,"resource_id":"resource-1","effort_id":"effort-1","operation_kind":"railway_deploy","intended_revision":SHA,"intended_configuration":binding,"proof_ref":"proof-1","execution_attempts":1,"provider_execution_id":if verb=="verify"{"deployment-new"}else{""}}},"integration_config":{"temper_api_url":"https://temper.test","temper_api_key":"secret"}})).unwrap();
+        let engine = WasmEngine::new().unwrap();
+        let bytes = fs::read(module_dir.join(format!("dsf_operation_{verb}.wasm"))).unwrap();
+        let hash = engine.compile_and_cache(&bytes).unwrap();
+        let result = engine
+            .invoke(
+                &hash,
+                &context,
+                Arc::new(host),
+                &WasmResourceLimits::default(),
+                Arc::new(RwLock::new(StreamRegistry::default())),
+            )
+            .await
+            .unwrap();
+        assert!(
+            pending.lock().unwrap().is_empty(),
+            "module omitted a required evidence read"
+        );
+        result
+    }
+
+    #[tokio::test]
+    async fn four_operation_adapters_execute_in_the_real_wasm_engine() {
+        let validation = invoke("validate", validation_reads()).await;
+        assert!(validation.success, "{:?}", validation.error);
+        assert_eq!(validation.callback_action, "ValidationSucceeded");
+        let mut execute = validation_reads();
+        execute.extend([
+            json!({"data":{"deployments":{"edges":[]}}}),
+            json!({"data":{"serviceInstance":{"latestDeployment":{"id":"before"}}}}),
+            json!({"data":{"serviceInstanceDeployV2":"deployment-new"}}),
+        ]);
+        let execution = invoke("execute", execute).await;
+        assert!(execution.success, "{:?}", execution.error);
+        assert_eq!(execution.callback_action, "ExecutionSucceeded");
+        assert_eq!(
+            execution.callback_params["provider_execution_id"],
+            "deployment-new"
+        );
+        let observation = invoke("observe", vec![config(), found()]).await;
+        assert!(observation.success, "{:?}", observation.error);
+        assert_eq!(observation.callback_action, "ProviderFound");
+        let verification=invoke("verify",vec![config(),resource(),found(),json!({"status":"healthy","git_sha":SHA}),json!({"story":{"id":"story-1","world_id":"world-1","content":"proof fixture","status":"published"}}),json!({"data":[{"attributes":{"service":"deep-sci-fi-backend","env":"production","status":"ok","trace_id":"123","custom":{"git":{"commit":{"sha":SHA}},"dsf":{"request_id":KEY}}}}]})]).await;
+        assert!(verification.success, "{:?}", verification.error);
+        assert_eq!(verification.callback_action, "VerificationSucceeded");
+        assert_eq!(verification.callback_params["verified_revision"], SHA);
+    }
+}
+
+#[test]
+fn incoming_counter_values_have_explicit_assignment_effects() {
+    for (file, name) in ENTITIES {
+        let ioa = temper_spec::automaton::parse_automaton(&source(file)).unwrap();
+        for action in &ioa.actions {
+            for parameter in &action.params {
+                if ioa
+                    .state
+                    .iter()
+                    .any(|state| state.name == parameter.name() && state.var_type == "counter")
+                {
+                    assert!(
+                        action.effect.iter().any(|effect| matches!(effect,
+                        temper_spec::automaton::Effect::SetCounterFromParam { var, param }
+                            if var == parameter.name() && param == parameter.name())),
+                        "{name}.{} must explicitly assign counter {}",
+                        action.name,
+                        parameter.name()
+                    );
+                }
+            }
+        }
+    }
+}

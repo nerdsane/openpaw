@@ -63,7 +63,7 @@ kind = "input"
 from = ["Draft"]
 to = "Active"
 params = [{ name = "application_id", type = "string" }, { name = "product_participant_id", type = "string" }, { name = "identity_provenance_ref", type = "string" }]
-effect = [{ type = "decrement", var = "observed_sequence" }, { type = "decrement", var = "observed_at_ms" }]
+effect = []
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -83,7 +83,7 @@ kind = "input"
 from = ["Draft"]
 to = "Active"
 params = [{ name = "application_id", type = "string" }, { name = "cohort_definition", type = "string" }, { name = "identity_provenance_ref", type = "string" }]
-effect = [{ type = "decrement", var = "observed_sequence" }, { type = "decrement", var = "observed_at_ms" }]
+effect = []
 
 [[action.constraints]]
 kind = "param_nonempty"

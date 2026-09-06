@@ -330,6 +330,7 @@
         <Property Name="FlowVerified" Type="Edm.Boolean" />
         <Property Name="TelemetryVerified" Type="Edm.Boolean" />
         <Property Name="ObservationAttempts" Type="Edm.Int64" />
+        <Property Name="VerificationAttempts" Type="Edm.Int64" />
         <Property Name="CancellationRef" Type="Edm.String" />
         <Action Name="Request" IsBound="true">
           <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfOperation" />
@@ -401,6 +402,10 @@
           <Parameter Name="provider_evidence_ref" Type="Edm.String" />
           <Parameter Name="flow_evidence_ref" Type="Edm.String" />
           <Parameter Name="telemetry_evidence_ref" Type="Edm.String" />
+        </Action>
+        <Action Name="VerificationPending" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfOperation" />
+          <Parameter Name="error_message" Type="Edm.String" />
         </Action>
         <Action Name="VerificationFailed" IsBound="true">
           <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfOperation" />

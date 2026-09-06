@@ -29,3 +29,11 @@ The alternative was to validate fields in each integration after the transition.
 That would allow an invalid request to mutate the target before validation and
 would leave generic writes unprotected. The runtime change is required before
 this app can satisfy its contract; passing parser-only tests is insufficient.
+
+Declared defaults must exist before the first action. The runtime projects typed
+counter state into fields; accepting a counter parameter does not assign it.
+ModelSync and Observation therefore use explicit `set_counter_from_param`
+effects for timestamps and resource sequence values. The contract suite checks
+that every accepted counter value sharing a declared counter name has an
+assignment effect. Fresh records no longer use decrement operations to create
+zero-valued counters.

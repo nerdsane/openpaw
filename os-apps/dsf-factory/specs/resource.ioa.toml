@@ -133,7 +133,7 @@ kind = "input"
 from = ["Draft"]
 to = "Active"
 params = [{ name = "name", type = "string" }, { name = "kind", type = "string" }, { name = "parent_id", type = "string" }, { name = "provider", type = "string" }, { name = "provider_id", type = "string" }, { name = "source_repository", type = "string" }, { name = "intended_configuration", type = "string" }, { name = "allowed_operations", type = "string" }]
-effect = [{ type = "decrement", var = "observed_sequence" }, { type = "decrement", var = "observed_at_ms" }]
+effect = []
 
 [[action.constraints]]
 kind = "param_nonempty"
