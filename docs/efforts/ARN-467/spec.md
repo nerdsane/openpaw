@@ -60,7 +60,7 @@ Provider API failures, stale credentials, missing telemetry, abandoned runs and 
 
 ## Isolated exploration
 
-An experiment records exact branch/revision, computer identity, database identity, media namespace and permitted external calls. Validation refuses production database/media bindings. A local disposable Postgres with pgvector and a private experiment namespace are sufficient; no staging name is treated as isolation evidence.
+An experiment records exact branch/revision, computer identity, database identity, media namespace and permitted external calls. Validation refuses production database/media bindings. A local disposable Postgres with pgvector and a separate experiment bucket are sufficient; no staging name is treated as isolation evidence.
 
 An agent can create and compare at least two variants, run the required application checks, record results, choose a candidate through the existing decision mechanism and clean up unused resources. Promoting a candidate creates ordinary delivery work and respects its review/proof gates.
 
@@ -68,7 +68,7 @@ An agent can create and compare at least two variants, run the required applicat
 
 Preserve Foundry's existing authenticated membership and durable mailbox. Admit workspace members with the agreed full control. Configure our own public origins, repository installation and provider credentials. Remove upstream deployment targets before any fork deployment. Keep images and source private.
 
-An explicit machine-authenticated integration lets an outside agent start, steer and inspect runs in the configured factory organization. Do not copy a user's short-lived browser JWT or expose broad credentials to the browser. The resident harness receives a scoped Temper connection after Foundry writes its configuration. The default agent auth is the connected ChatGPT subscription; no API-key fallback.
+An explicit machine-authenticated integration lets an outside agent start, steer and inspect runs in the configured factory organization. Do not copy a user's short-lived browser JWT or expose broad credentials to the browser. The resident harness receives a scoped Temper connection after Foundry writes its configuration. The initial factory harness is Codex using the existing ChatGPT subscription; no API-key fallback.
 
 The workspace shows the live resource graph, observations, operations, linked work, run transcripts and outstanding Temper Asks. Answering invokes the existing Temper action. Synchronous MCP elicitation must reach the human and return the actual response; it cannot be unconditionally accepted, declined or answered with an empty object. Resume uses the existing mailbox and rechecks the authoritative Temper state.
 
@@ -79,13 +79,13 @@ The readable contract, formal state model and executable fault-injection tests e
 1. Observing state cannot change intended configuration or authorize an operation.
 2. Operation resource, kind, effort and idempotency key cannot change after acceptance.
 3. A retry or restart cannot cause a duplicate external write after its provider execution is known.
-4. Verified requires the intended revision/resource, successful affected-flow proof and explicit telemetry coverage.
+4. Verified requires the intended revision/resource, successful affected-flow proof and available, checked telemetry required for that flow. Unrelated coverage gaps remain documented.
 5. An unresolved blocking Ask prevents its dependent action; resolving an unrelated Ask cannot release it.
 6. Experiment bindings exclude production data and media; promotion uses delivery.
 7. Stale, missing or inaccessible evidence cannot become healthy by default.
 8. Run completion is distinct from verified Effort completion; interrupted work resumes or fails explicitly.
 9. Agent credentials, provider keys and private upstream source never enter public artifacts or browser responses.
-10. Metered agent fallback is disabled, and additional resource/product verification spend stays within the authorized cap.
+10. Metered agent fallback is disabled. Additional hosting, computer and product verification costs, including committed resource costs, stay within the $200 implementation cap. Before starting another bounded run, reserve its maximum cost; do not assume delayed billing is zero. Recurring runs use the same remaining cap until Rita changes it.
 
 ## Required proof
 

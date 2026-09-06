@@ -12,7 +12,7 @@ The interview and source/provider/Datadog investigation established these decisi
 - Agents judge ambiguous scope and causes. Mechanical checks enforce resource identity, release revision, isolation, proof and operation state. Do not add a scope classifier.
 - Use a private fork of tensorlakeai/foundry. Never modify upstream, publish its private source, or target its infrastructure. All admitted workspace users can act; no additional role hierarchy.
 - Agents edit and test natively inside Tensorlake computers and use Temper MCP for recorded actions. Direct Foundry chat and an outside agent both operate the same model.
-- Use existing model subscriptions for agent work. Rita authorized at most $100 total additional overnight hosting, computer usage and necessary DSF product API verification. Do not switch agents to API billing automatically.
+- Use existing model subscriptions for agent work. Rita authorized at most $200 total additional overnight hosting, computer usage and necessary DSF product API verification. Do not switch agents to API billing automatically.
 
 Rita authorized autonomous implementation, review, deployment and live verification on September 5, 2026 EDT. Concrete provider consent and Cedar decisions still come from the human; the implementer cannot impersonate that authority.
 
