@@ -14,21 +14,34 @@ The new application belongs in `os-apps/dsf-factory`, published to Genesis with 
 
 ## Operational records
 
-Use app-specific entity names to avoid existing tenant collisions. The concrete model includes:
+Resource types own their configuration, observations, dependencies and supported actions. The generic `DsfResource` and provider-switching `DsfOperation` design in the current branch must be replaced before installation. The following types define the target contract and are not yet installed.
 
 | Record | Meaning and required linkage |
 |---|---|
-| DsfResource | Application/environment containers and actual deployable or external resources. Kind, parent, provider identity, source repository, intended configuration, observed configuration, latest revision and observation references. |
+| DsfRailwayServiceInstance | A Railway service in one environment, identified by project, service and environment IDs. Owns deploy, configuration, rollback and observation sequences for that target. Production API, staging APIs and the Datadog collector are distinct instances. |
+| DsfVercelProject | A Vercel project identified within its provider account. Owns deployment, alias, configuration and rollback sequences with explicit production or preview targets. Aliases of the same project do not create duplicate project records. |
+| DsfSupabaseProject | A Supabase project and its managed Postgres database, identified by project reference. Records database version, schema revision, connection bindings and database-specific maintenance capabilities. |
+| DsfCloudflareR2Bucket | An R2 storage bucket identified by Cloudflare account and bucket name. Records configuration, public domains, application bindings and supported storage operations. |
+| DsfDatadogMonitor | A real Datadog monitor identified by site, organization and monitor ID. Owns monitor configuration and links its observations to affected resources and flows. Arbitrary telemetry queries remain observations on their subjects. |
 | DsfFlow | A real application flow, its source revision, entry points, dependent resource IDs and outcome definitions. |
 | DsfParticipant | An identified DSF API participant or an aggregate anonymous-reader cohort, with identity provenance and activity window. No API keys, content or invented individual browser identities. |
 | DsfObservation | Immutable evidence summary with subject, source, query/window, observed time, coverage, outcome and evidence reference. Measured, absent, inaccessible and stale data are distinct. |
-| DsfOperation | One requested operation owned by a resource and linked to an Effort. Immutable target and operation key, intended revision/configuration, provider execution ID, actual result and verification evidence. |
 | DsfModelSync | Bounded observation/reconciliation execution, source cursor/revision, last successful observation and next due time. Failure preserves prior facts and makes staleness visible. |
 | DsfExperiment | An isolated variant with its Effort, branch, computer, actual data/media bindings, results and cleanup record. Selection returns to delivery; it never directly replaces production. |
 
-The first resource graph represents the observed DSF deployment: Vercel production and staging frontends; Railway production API and Datadog collector; both distinct staging APIs; Supabase production and staging databases; R2 media storage; the discovered foresight database and sleeping Bun service with unconfirmed ownership. Flow records cover agent registration/participation, story submission and media completion, story reading, feed browsing, world exploration, action processing, notification delivery and video generation.
+The first resource graph includes the observed DSF deployment: Vercel production and staging frontends, Railway production API and Datadog collector, both distinct staging APIs, Supabase production and staging databases, and R2 media storage. The discovered foresight database and sleeping Bun service remain observed candidates with unconfirmed ownership. Their presence in the graph does not establish that DSF owns them or permit operations on them. Flow records cover agent registration/participation, story submission and media completion, story reading, feed browsing, world exploration, action processing, notification delivery and video generation.
 
-Application and environment containers are resource kinds, not separate lifecycle types. Flow and participant records describe operation, not copies of DSF business objects. Dependencies use actual IDs and explicit provenance. Observers do not turn unconfirmed relationships into facts.
+Application and environment membership are explicit relationships or fields. Resources with the same contract share a type across environments. Flow and participant records describe operational behavior and activity. Dependencies use actual IDs and explicit provenance. Observers preserve the uncertainty of unconfirmed relationships.
+
+### Names and identities
+
+Temper currently indexes entity types by short name within a tenant, and entity-set names share that tenant's registry. CSDL namespaces and app boundaries do not isolate those names. Prefix every type and entity set introduced by this app with `Dsf`, and name the actual modeled object. For example, `DsfRailwayServiceInstance` uses the entity set `DsfRailwayServiceInstances`. WASM module names use the `dsf_` prefix and identify the provider and concern, such as `dsf_railway_deploy`.
+
+Keep the existing `Intent`, `Effort`, `Ask`, `File` and `Computer` contracts as dependencies. Do not redeclare them. The production tenant inventory read on 2026-09-06 includes `DsfDeploy`; this app must not replace or reuse that name. Ownership checks are required even when a name has the expected prefix.
+
+Publication checks must reject duplicate short type names or entity-set names within the submitted app and against other installed apps. An update may reuse names only when the previous installed manifest establishes that the same app owns them. Check both the repository definitions and a fresh target-tenant inventory before installation. Repeat the check for every later model extension; do not add a namespace subsystem to the kernel for this effort.
+
+Resource instance identity derives from the complete provider scope, never its display label. For Railway that scope is project ID, service ID and environment ID. Production and staging therefore have distinct IDs even when they use the same service ID. Renaming a label preserves identity, and a recreated provider resource receives a new identity. UI labels include the application, environment, role and provider (for example, `DSF / production / API / Railway`). The UI also exposes the provider identity to distinguish resources with the same label.
 
 ## Observation and reconciliation
 
@@ -44,9 +57,11 @@ Repeated observation of the same source event is idempotent. Older data cannot o
 
 An Effort retains specification, plan, decisions, review, proof and completion. Its deployment configuration names a resource and operation, instead of assuming every project deploys a TemperPaw image. Existing release behavior must keep working while callers move to the resource operation contract.
 
-A resource operation proceeds through request, validation, execution, observation and verification. Each external concern is one integration. Declared state transitions sequence work. A WASM module never dispatches another transition itself.
+A resource's own spec declares its supported actions and sequences request, validation, execution, observation and verification. For example, `DsfRailwayServiceInstance.Deploy`, `ApplyConfiguration`, `Rollback` and `RefreshObservations` operate on the exact service/environment instance. Each external concern is one provider-specific integration. The same integration can serve multiple instances of its resource type. A WASM module never dispatches another transition itself.
 
-Before an external write, deterministic validation requires the exact resource, allowed operation, linked Effort and evidence for the intended revision. Retries reuse the operation key. On uncertain provider responses, observe the provider execution before issuing another write. An unrelated successful provider deployment cannot satisfy this operation.
+Do not route every resource through a generic operation entity whose executable switches on provider or operation kind. If an operation needs a separate durable history record, give it a precise, app-specific type and link it to its owning resource and Effort. Such a record preserves the request and result; it does not move the resource's behavior into a universal executor. Resource pages derive supported actions and current availability from the resource contract.
+
+Before an external write, deterministic validation requires the exact resource, allowed operation, linked Effort and evidence for the exact intended source revision or configuration. Retries reuse the operation key. On uncertain provider responses, observe the provider execution before issuing another write. An unrelated successful provider deployment cannot satisfy this operation.
 
 Verification requires provider state and application behavior. For the backend this includes exact revision, health body, schema and the changed flow; for the frontend it includes active alias/revision, compiled API target and browser behavior. Datadog verification checks the affected service/flow and distinguishes unavailable telemetry from a passing result. A rollback is a recorded operation that also needs observed verification.
 
@@ -86,6 +101,8 @@ The readable contract, formal state model and executable fault-injection tests e
 8. Run completion is distinct from verified Effort completion; interrupted work resumes or fails explicitly.
 9. Agent credentials, provider keys and private upstream source never enter public artifacts or browser responses.
 10. Metered agent fallback is disabled. Additional hosting, computer and product verification costs, including committed resource costs, stay within the $200 implementation cap. Before starting another bounded run, reserve its maximum cost; do not assume delayed billing is zero. Recurring runs use the same remaining cap until Rita changes it.
+11. Each introduced entity type and entity set has one owning app within the tenant. App installation and extension refuse collisions, including collisions hidden by different CSDL namespaces. Resource labels cannot determine provider identity.
+12. A resource contract declares and sequences every supported mutation on that resource. Shared integrations do not replace resource-specific action contracts with a provider switch.
 
 ## Required proof
 

@@ -71,3 +71,27 @@
 **Chose the shared boundary because:** It protects the same contract through MCP, HTTP, reactions and simulation. It adds a kernel dependency that must be reviewed and deployed before app installation.
 
 **Where:** nerdsane/temper branch codex/dsf-factory-boundaries, docs/efforts/ARN-467/spec.md.
+
+## D7: Put behavior on typed resources
+
+**Decision:** Replace the generic resource and operation dispatcher with resource-specific Temper contracts whose actions own configuration, deployment, observation and rollback sequences.
+
+**Came up because:** The user clarified that the production Railway API must be a resource with its own configuration, telemetry and deploy/rollback behavior. The current branch's generic provider switch did not express that model.
+
+**Options:** Keep `DsfResource` and `DsfOperation` with a shared executor. Split only the executor WASMs. Define resource-specific contracts and attach narrow provider integrations to their actions.
+
+**Chose resource-specific contracts because:** The graph exposes what each resource can do and how it changes. Production and staging can reuse a type and its integrations without sharing identity. This requires replacing the uninstalled generic contracts and updating their callers and tests.
+
+**Where:** docs/efforts/ARN-467/spec.md, Operational records and Resource operations and delivery; docs/efforts/ARN-467/plan.md, steps 2 and 4.
+
+## D8: Use unique app-specific names and provider-scoped identities
+
+**Decision:** Prefix new DSF entity types and sets with `Dsf`, validate their ownership before publication, and derive resource instance IDs from full provider scope.
+
+**Came up because:** The user reminded us that Temper cannot distinguish different entity types with the same name. The registry strips CSDL namespaces, and the live default tenant already contains `DsfDeploy`.
+
+**Options:** Rely on app or CSDL namespace separation. Add kernel namespace support. Use accurate app-specific names with collision checks against existing definitions and installed ownership.
+
+**Chose explicit names and checks because:** They work with the current registry without a kernel namespace change. Names become longer, but the modeled object and owning app remain clear. A matching prefix alone never authorizes replacing an installed type.
+
+**Where:** docs/efforts/ARN-467/spec.md, Names and identities and invariants 11–12; docs/efforts/ARN-467/plan.md, step 2. Evidence: Temper registry entity-set mapping and relation target lookup, plus production `temper.specs('default')` on 2026-09-06.
