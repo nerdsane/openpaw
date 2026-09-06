@@ -26,6 +26,14 @@ impl Host for Mock {
                 .clone();
             reply.body = reply.body.replace("__PROBE__", &id);
         }
+        if reply.body.contains("__HEALTH_URL__") {
+            let health = self
+                .requests
+                .iter()
+                .find(|r| r.url.ends_with("/api/health"))
+                .unwrap();
+            reply.body = reply.body.replace("__HEALTH_URL__", &health.url);
+        }
         Ok(reply)
     }
     fn secret(&mut self, _: &str) -> Result<String, Error> {
@@ -124,7 +132,11 @@ fn rollback_accepts_empty_201_and_observes_actual_production_pointer() {
         "https://api.vercel.com/v1/projects/prj-1/rollback/dpl-old?teamId=team-1"
     );
     assert!(h.requests[2].body.is_empty());
-    let mut h = mock(vec![project("dpl-old"), deployment("dpl-old")]);
+    let mut h = mock(vec![
+        project("dpl-old"),
+        deployment("dpl-old"),
+        json!({"alias":"deep-sci-fi.world","deploymentId":"dpl-old","projectId":"prj-1"}),
+    ]);
     Rollback::observe(&mut rt(&mut h), &target(), &c, &i).unwrap();
     assert!(h.requests.iter().all(|r| r.method == "GET"));
     let mut h = mock(vec![project("dpl-new")]);
@@ -157,12 +169,12 @@ fn configuration_patch_has_only_declared_project_fields() {
 }
 
 fn verification() -> Verification {
-    serde_json::from_value(json!({"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"frontend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})).unwrap()
+    serde_json::from_value(json!({"application":{"kind":"vercel","resource_id":"resource-1","origin":"https://deep-sci-fi.world"},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"frontend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})).unwrap()
 }
 fn proof_replies(probe: &str) -> Vec<Value> {
     vec![
         json!({"status":"healthy","git_sha":"a".repeat(40)}),
-        json!({"data":[{"attributes":{"service":"frontend","env":"production","status":"ok","trace_id":"trace-123","custom":{"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":probe},"http":{"status_code":200,"route":"/api/health"}}}}]}),
+        json!({"data":[{"attributes":{"service":"frontend","env":"production","status":"ok","trace_id":"trace-123","custom":{"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":probe},"http":{"status_code":200,"route":"/api/health","url":"__HEALTH_URL__"}}}}]}),
     ]
 }
 #[test]
@@ -283,16 +295,24 @@ fn rollback_and_configuration_require_live_health_and_correlated_datadog() {
     )
     .unwrap();
     let i = op(serde_json::to_value(&c).unwrap());
-    let mut replies = vec![project("dpl-old"), deployment("dpl-old")];
+    let mut replies = vec![
+        project("dpl-old"),
+        deployment("dpl-old"),
+        json!({"alias":"deep-sci-fi.world","deploymentId":"dpl-old","projectId":"prj-1"}),
+    ];
     replies.extend(proof_replies("__PROBE__"));
     let mut h = mock(replies);
     Rollback::verify(&mut rt(&mut h), &target(), &c, &i, &verification()).unwrap();
-    assert_eq!(h.requests[2].url, "https://deep-sci-fi.world/api/health");
+    assert_eq!(h.requests[3].url, "https://deep-sci-fi.world/api/health");
     let c: ConfigurationChange =
         serde_json::from_value(json!({"target":"production","build_command":"npm run build"}))
             .unwrap();
     let i = op(serde_json::to_value(&c).unwrap());
-    let mut replies = vec![project("dpl-old"), deployment("dpl-old")];
+    let mut replies = vec![
+        project("dpl-old"),
+        deployment("dpl-old"),
+        json!({"alias":"deep-sci-fi.world","deploymentId":"dpl-old","projectId":"prj-1"}),
+    ];
     replies.extend(proof_replies("__PROBE__"));
     let mut h = mock(replies);
     let evidence =
@@ -312,4 +332,27 @@ fn rollback_and_configuration_require_live_health_and_correlated_datadog() {
         ApplyConfiguration::observe(&mut rt(&mut h), &target(), &c, &i),
         Err(Error::Absent(_))
     ));
+}
+
+#[test]
+fn production_alias_from_another_project_cannot_verify_a_matching_deployment_revision() {
+    let c = deploy_change();
+    let mut i = op(serde_json::to_value(&c).unwrap());
+    i.execution_id = Some("dpl-new".into());
+    let mut replies = vec![
+        project("dpl-new"),
+        deployment("dpl-new"),
+        json!({"alias":"deep-sci-fi.world","projectId":"other-project","deploymentId":"dpl-new"}),
+    ];
+    replies.extend(proof_replies("__PROBE__"));
+    let mut h = mock(replies);
+    assert!(matches!(
+        Deploy::verify(&mut rt(&mut h), &target(), &c, &i, &verification()),
+        Err(Error::Binding(_))
+    ));
+    assert_eq!(
+        h.requests.len(),
+        3,
+        "unrelated production health cannot verify this project"
+    );
 }

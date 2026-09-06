@@ -53,8 +53,8 @@ For success, every selected job must have completed under this attempt. The
 adapter reads the cost, checks the artifact's generation/attempt path on an
 allowed HTTPS media host, and sends an unauthenticated HEAD request. It then
 checks current API health at the exact revision and the matching Datadog probe
-span. Verification uses at most 43 HTTP calls for 20 jobs: one receipt, 20 status
-reads, 20 artifact reads, one health probe, and one Datadog query.
+span. Verification uses at most 46 HTTP calls for 20 jobs: one receipt, 20 status
+reads, 20 artifact reads, three application resource/config/domain reads, one health probe, and one Datadog query.
 
 Tests use the shared runtime and recorded HTTP requests. They cover ambiguous
 receipts, replay identity, partial work, price and authority boundaries, and the

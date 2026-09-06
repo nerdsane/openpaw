@@ -1,7 +1,6 @@
 //! Resolve registered resource links before a production media write.
 use super::*;
 use dsf_r2_actions::ApplyConfiguration as Bucket;
-use dsf_railway_actions::Deploy as Api;
 
 fn target<A: ResourceAction>(
     runtime: &mut Runtime<impl Host>,
@@ -17,7 +16,7 @@ fn target<A: ResourceAction>(
     }
     let config: ResourceConfig<A::Target> = serde_json::from_str(&raw.body)
         .map_err(|_| Error::Binding("invalid linked resource configuration"))?;
-    if config.version != 2 || config.resource_id != id {
+    if config.version != 3 || config.resource_id != id {
         return Err(Error::Binding(
             "linked resource configuration identity differs",
         ));
@@ -32,48 +31,15 @@ pub(super) fn verify(runtime: &mut Runtime<impl Host>, pipeline: &Target) -> Res
             "media API supports only the production environment",
         ));
     }
-    let api = target::<Api>(runtime, &pipeline.api_resource_id)?;
+    railway_application_origin(
+        runtime,
+        &ApplicationBinding::Railway {
+            resource_id: pipeline.api_resource_id.clone(),
+            origin: DSF_API.into(),
+        },
+        Some(&pipeline.api_resource_id),
+    )?;
     let bucket = target::<Bucket>(runtime, &pipeline.bucket_resource_id)?;
-    let result = runtime.bearer_json(&api.token_secret, "POST",
-        "https://backboard.railway.com/graphql/v2".into(),
-        json!({"query":"query DsfMediaApiDomain($serviceId:String!,$environmentId:String!){service(id:$serviceId){id projectId} serviceInstance(serviceId:$serviceId,environmentId:$environmentId){serviceId environmentId domains{customDomains{id domain projectId serviceId environmentId deletedAt}}}}",
-            "variables":{"serviceId":api.service_id,"environmentId":api.environment_id}}))?;
-    if result
-        .get("errors")
-        .is_some_and(|errors| !errors.as_array().is_some_and(Vec::is_empty))
-    {
-        return Err(Error::Response("Railway domain query"));
-    }
-    let service = result
-        .pointer("/data/service")
-        .ok_or(Error::Response("Railway service"))?;
-    let instance = result
-        .pointer("/data/serviceInstance")
-        .ok_or(Error::Response("Railway service instance"))?;
-    if required(service, "id")? != api.service_id
-        || required(service, "projectId")? != api.project_id
-        || required(instance, "serviceId")? != api.service_id
-        || required(instance, "environmentId")? != api.environment_id
-    {
-        return Err(Error::Binding("linked API provider identity differs"));
-    }
-    let domains = instance
-        .pointer("/domains/customDomains")
-        .and_then(Value::as_array)
-        .filter(|domains| domains.len() <= 100)
-        .ok_or(Error::Response("Railway custom domains"))?;
-    if !domains.iter().any(|domain| {
-        domain.get("domain").and_then(Value::as_str) == Some("api.deep-sci-fi.world")
-            && domain.get("projectId").and_then(Value::as_str) == Some(api.project_id.as_str())
-            && domain.get("serviceId").and_then(Value::as_str) == Some(api.service_id.as_str())
-            && domain.get("environmentId").and_then(Value::as_str)
-                == Some(api.environment_id.as_str())
-            && domain.get("deletedAt").is_some_and(Value::is_null)
-    }) {
-        return Err(Error::Binding(
-            "linked API does not own the production domain",
-        ));
-    }
     let bucket_url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets/{}",
         encoded(&bucket.account_id),

@@ -140,7 +140,7 @@ fn partial_receipt_keeps_ownership_until_every_claimed_job_is_terminal() {
     }
 }
 fn verification() -> Verification {
-    serde_json::from_value(json!({"flow":{"kind":"media"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})).unwrap()
+    serde_json::from_value(json!({"application":{"kind":"railway","resource_id":"railway-1","origin":"https://api.deep-sci-fi.world"},"flow":{"kind":"media"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})).unwrap()
 }
 
 #[test]
@@ -228,11 +228,12 @@ fn verification_reads_attempt_artifact_price_health_and_matching_datadog() {
             status(JOB1, &attempt, "completed"),
             json!({}),
             json!({"status":"healthy","git_sha":"a".repeat(40)}),
-            json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-123","custom":{"http":{"status_code":200,"route":"/api/health"},"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":if matched{"__PROBE__"}else{"other-operation"}}}}}]}),
+            json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-123","custom":{"http":{"status_code":200,"route":"/api/health","url":"https://api.deep-sci-fi.world/api/health"},"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":if matched{"__PROBE__"}else{"other-operation"}}}}}]}),
         ]);
+        insert_application_reads(&mut h, 3);
         let result = RetrySelected::verify(&mut rt(&mut h), &target(), &c, &i, &verification());
         assert_eq!(result.is_ok(), matched);
-        assert_eq!(h.requests.len(), 5);
+        assert_eq!(h.requests.len(), 8);
         assert_eq!(h.requests[2].method, "HEAD");
         assert!(h.requests[2].headers.is_empty());
     }
@@ -375,10 +376,11 @@ fn matching_preview_row_and_config_cannot_use_production_media_api() {
 fn link_replies() -> Vec<Value> {
     let railway = json!({"project_id":"project-1","service_id":"service-1","environment_id":"env-uuid","token_secret":"railway_token"});
     let bucket = json!({"account_id":"0123456789abcdef0123456789abcdef","bucket_name":"dsf-media","token_secret":"cf_token"});
-    let config = |id: &str, target: Value| json!({"version":2,"resource_id":id,"target":target,"verification":json!({"flow":{"kind":"media"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})});
+    let config = |id: &str, target: Value| json!({"version":3,"resource_id":id,"target":target,"verification":json!({"application":{"kind":"unbound"},"flow":{"kind":"media"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})});
     let api_config = config("railway-1", railway.clone());
     let bucket_config = config("r2-1", bucket.clone());
     let mut api_row = railway;
+    api_row["status"] = json!("Active");
     api_row["config_ref"] = json!("api-config");
     api_row["config_sha256"] = json!(format!(
         "{:x}",
@@ -390,7 +392,7 @@ fn link_replies() -> Vec<Value> {
         "{:x}",
         Sha256::digest(bucket_config.to_string().as_bytes())
     ));
-    vec![
+    let mut replies = vec![
         api_row,
         api_config,
         bucket_row,
@@ -398,7 +400,11 @@ fn link_replies() -> Vec<Value> {
         json!({"data":{"service":{"id":"service-1","projectId":"project-1"},"serviceInstance":{"serviceId":"service-1","environmentId":"env-uuid","domains":{"customDomains":[{"id":"domain-1","domain":"api.deep-sci-fi.world","projectId":"project-1","serviceId":"service-1","environmentId":"env-uuid","deletedAt":null}]}}}}),
         json!({"success":true,"result":{"name":"dsf-media"}}),
         json!({"success":true,"result":{"domains":[{"domain":"media.deep-sci-fi.world","enabled":true,"status":{"ownership":"active","ssl":"active"}}]}}),
-    ]
+    ];
+    let mut domain = replies.remove(4);
+    domain["data"]["serviceInstance"]["domains"]["serviceDomains"] = json!([]);
+    replies.insert(2, domain);
+    replies
 }
 
 #[test]
@@ -413,13 +419,13 @@ fn production_media_links_require_exact_provider_domains_and_config_hashes() {
         let mut values = link_replies();
         match case {
             0 => values[0]["config_sha256"] = json!("wrong"),
-            1 => values[4]["data"]["service"]["projectId"] = json!("other-project"),
+            1 => values[2]["data"]["service"]["projectId"] = json!("other-project"),
             2 => {
-                values[4]["data"]["serviceInstance"]["domains"]["customDomains"][0]["domain"] =
+                values[2]["data"]["serviceInstance"]["domains"]["customDomains"][0]["domain"] =
                     json!("preview.example.com")
             }
             3 => {
-                values[4]["data"]["serviceInstance"]["domains"]["customDomains"][0]["deletedAt"] =
+                values[2]["data"]["serviceInstance"]["domains"]["customDomains"][0]["deletedAt"] =
                     json!("2026-09-01T00:00:00Z")
             }
             4 => values[5]["result"]["name"] = json!("other-bucket"),
@@ -459,7 +465,7 @@ fn wrong_production_resource_link_prevents_the_repair_post() {
         body: "{}".into(),
     }));
     let mut links = link_replies();
-    links[4]["data"]["serviceInstance"]["domains"]["customDomains"] = json!([]);
+    links[2]["data"]["serviceInstance"]["domains"]["customDomains"] = json!([]);
     for body in links {
         host.replies.push_back(Ok(Response {
             status: 200,
@@ -496,10 +502,11 @@ fn maximum_selected_batch_verifies_twenty_artifacts_in_bounded_reads() {
     replies.extend(ids.iter().map(|id| status(id, &attempt, "completed")));
     replies.extend((0..20).map(|_| json!({})));
     replies.push(json!({"status":"healthy","git_sha":"a".repeat(40)}));
-    replies.push(json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-123","custom":{"http":{"status_code":200,"route":"/api/health"},"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":"__PROBE__"}}}}]}));
+    replies.push(json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-123","custom":{"http":{"status_code":200,"route":"/api/health","url":"https://api.deep-sci-fi.world/api/health"},"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":"__PROBE__"}}}}]}));
     let mut host = mock(replies);
+    insert_application_reads(&mut host, 41);
     RetrySelected::verify(&mut rt(&mut host), &target(), &c, &i, &verification()).unwrap();
-    assert_eq!(host.requests.len(), 43);
+    assert_eq!(host.requests.len(), 46);
     assert_eq!(
         host.requests
             .iter()
@@ -507,4 +514,26 @@ fn maximum_selected_batch_verifies_twenty_artifacts_in_bounded_reads() {
             .count(),
         20
     );
+}
+
+fn insert_application_reads(h: &mut Mock, index: usize) {
+    let mut application: Value = serde_json::from_str(include_str!(
+        "../../dsf_resource_common/tests/fixtures/railway_application.json"
+    ))
+    .unwrap();
+    application["row"]["id"] = json!("railway-1");
+    let mut config: Value =
+        serde_json::from_str(application["configuration"].as_str().unwrap()).unwrap();
+    config["resource_id"] = json!("railway-1");
+    let raw = config.to_string();
+    application["configuration"] = json!(raw);
+    application["row"]["config_sha256"] = json!(format!("{:x}", Sha256::digest(raw.as_bytes())));
+    for (offset, key) in ["row", "configuration", "domains"].into_iter().enumerate() {
+        let body = application[key]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| application[key].to_string());
+        h.replies
+            .insert(index + offset, Ok(Response { status: 200, body }));
+    }
 }

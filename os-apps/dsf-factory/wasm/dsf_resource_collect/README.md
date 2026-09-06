@@ -6,7 +6,7 @@ provider identity and named credentials. There is no provider selector or write
 API in this crate.
 
 `collect::<C>` checks the captured refresh sequence, rereads the exact resource
-row, loads its ResourceConfig v2 File, verifies the File hash, and validates the
+row, loads its ResourceConfig v3 File, verifies the File hash, and validates the
 provider target. Provider reads then produce one of the declared
 `CollectionMeasured`, `CollectionAbsent`, `CollectionInaccessible`, or
 `CollectionStale` callbacks. Every callback carries the original refresh sequence

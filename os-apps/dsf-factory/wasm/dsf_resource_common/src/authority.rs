@@ -17,9 +17,13 @@ impl<H: Host> Runtime<'_, H> {
         }
         let config: ResourceConfig<A::Target> = serde_json::from_str(&raw.body)
             .map_err(|_| Error::Binding("invalid resource configuration"))?;
-        if config.version != 2 || config.resource_id != invocation.resource_id {
+        if config.version != 3 || config.resource_id != invocation.resource_id {
             return Err(Error::Binding("configuration belongs to another resource"));
         }
+        config
+            .verification
+            .application
+            .validate_for::<A>(invocation)?;
         A::validate_target(&config.target, &current)?;
         let change: A::Change = serde_json::from_str(&invocation.configuration)
             .map_err(|_| Error::Binding("invalid typed change"))?;

@@ -122,7 +122,7 @@ pub fn collect<C: Collector>(
     let config: ResourceConfig<<C::Binding as ResourceAction>::Target> =
         serde_json::from_str(&raw.body)
             .map_err(|_| Error::Binding("invalid typed resource configuration"))?;
-    if config.version != 2 || config.resource_id != resource_id {
+    if config.version != 3 || config.resource_id != resource_id {
         return Err(Error::Binding("configuration belongs to another resource"));
     }
     C::Binding::validate_target(&config.target, &current)?;

@@ -6,7 +6,6 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-dsf-railway-actions = { path = "../dsf_railway_actions" }
 dsf-r2-actions = { path = "../dsf_r2_actions" }
 dsf-resource-common = { path = "../dsf_resource_common" }
 serde = { version = "1", features = ["derive"] }

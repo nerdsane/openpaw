@@ -263,3 +263,27 @@
 **Chose the named action because:** It allows agents to maintain labels, source repository, dependencies, pinned configuration and available operations without changing provider identity, environment, observed facts or desired delivery state. A sequence check refuses stale edits. Revision clears current operation verification flags so earlier completion evidence cannot satisfy delivery against a changed binding. Only Active resources can be rebound; no provider integration runs during this action.
 
 **Where:** `os-apps/dsf-factory/specs/generate.py`; generated resource contracts and policy; `crates/temperpaw/tests/dsf_resource_model_revision.rs`.
+
+## D23: Verify the application owned by the resource
+
+**Decision:** Require ResourceConfig version 3 to name the registered application and provider-owned origin used for verification; observation-only discoveries may be explicitly unbound.
+
+**Came up because:** Railway staging could verify a matching production revision, infrastructure configuration always probed production, and Vercel verification did not prove that the apex belonged to the target deployment.
+
+**Options:** Retain global production probes; retain version 2 as a fallback; or bind verification to the actual application and environment.
+
+**Chose the explicit binding because:** A matching revision does not identify the environment. Railway deploy and rollback verify their own resource; related infrastructure may verify its consuming Railway application. The verifier rereads the application row, pinned configuration bytes and provider identity before proving domain ownership. Vercel proves project, alias and deployment identity. Datadog must match the successful probe URL as well as revision, request ID, service and environment. Production administrative credentials are refused outside the production API. The uninstalled version 2 contract is removed, and unbound configurations cannot authorize provider operations.
+
+**Where:** `os-apps/dsf-factory/wasm/dsf_resource_common/`; Railway and Vercel adapters; `crates/temperpaw/tests/dsf_resource_wasm.rs`.
+
+## D24: Resolve generated Railway domains through their owning service
+
+**Decision:** Allow a generated Railway domain's projectId to be null only when its queried parent service belongs to the exact registered project and the domain matches the exact service and environment.
+
+**Came up because:** Real production and staging GraphQL responses returned null projectId for generated domains. Requiring that field unconditionally refused the actual staging application.
+
+**Options:** Ignore project identity for every domain; refuse legitimate generated domains; or verify their owning service and retain stricter custom-domain checks.
+
+**Chose the owning-service check because:** It matches the provider's actual representation without accepting foreign ownership. Custom domains still require an explicit matching projectId, and any explicit foreign projectId is refused. The media adapter reuses the same domain reader. A regression reproduced the refusal before correction, and the compiled helper then proved both actual production and staging domains through the real provider API.
+
+**Where:** `os-apps/dsf-factory/wasm/dsf_resource_common/src/application.rs`; its domain regressions; `os-apps/dsf-factory/wasm/dsf_media_actions/src/links.rs`.

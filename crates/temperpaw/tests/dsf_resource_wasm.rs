@@ -106,8 +106,8 @@ async fn every_packaged_action_stage_emits_its_declared_correlated_failure() {
                 .unwrap();
             let actual = result.callback_params.as_object().unwrap();
             assert_eq!(
-                actual.keys().collect::<Vec<_>>(),
-                expected.keys().collect::<Vec<_>>(),
+                actual.keys().collect::<std::collections::BTreeSet<_>>(),
+                expected.keys().collect::<std::collections::BTreeSet<_>>(),
                 "{module}"
             );
             assert_eq!(actual["operation_key"], "change-2", "{module}");
@@ -121,9 +121,9 @@ async fn every_packaged_action_stage_emits_its_declared_correlated_failure() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn packaged_railway_validation_checks_actual_files_and_exact_proof_binding() {
-    let config = json!({"version":2,"resource_id":"railway-p-s-e",
+    let config = json!({"version":3,"resource_id":"railway-p-s-e",
         "target":{"project_id":"project-1","service_id":"service-1","environment_id":"env-1","token_secret":"railway-test"},
-        "verification":{"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"deep-sci-fi-backend","environment":"production","api_key_secret":"dd-api","app_key_secret":"dd-app"}}});
+        "verification":{"application":{"kind":"railway","resource_id":"railway-p-s-e","origin":"https://api.deep-sci-fi.world"},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"deep-sci-fi-backend","environment":"production","api_key_secret":"dd-api","app_key_secret":"dd-app"}}});
     let config = config.to_string();
     let digest = format!("{:x}", Sha256::digest(config.as_bytes()));
     let state = row("ApplyConfigurationValidating", &digest);
@@ -197,4 +197,123 @@ async fn packaged_railway_validation_checks_actual_files_and_exact_proof_binding
             );
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn packaged_configuration_verification_cannot_borrow_production_domain_or_trace_for_staging()
+{
+    let engine = WasmEngine::new().unwrap();
+    let module = "dsf_railway_configuration_verify";
+    let hash = engine.compile_and_cache(&bytes(module)).unwrap();
+    let stage = "https://staging.deep-sci-fi.world";
+    let config=json!({"version":3,"resource_id":"railway-p-s-e","target":{"project_id":"project-1","service_id":"service-1","environment_id":"env-1","token_secret":"railway-test"},"verification":{"application":{"kind":"railway","resource_id":"railway-p-s-e","origin":stage},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd-api","app_key_secret":"dd-app"}}}).to_string();
+    let mut state = row(
+        "ApplyConfigurationVerifying",
+        &format!("{:x}", Sha256::digest(config.as_bytes())),
+    );
+    state["provider_execution_id"] = json!("instance-1");
+    let request_id = format!("dsf-{:x}", Sha256::digest(b"railway-p-s-e:change-2:2"));
+    for (domain, trace_origin, expected) in [
+        (
+            "api.deep-sci-fi.world",
+            "https://api.deep-sci-fi.world",
+            "ApplyConfigurationVerificationPending",
+        ),
+        (
+            "staging.deep-sci-fi.world",
+            "https://api.deep-sci-fi.world",
+            "ApplyConfigurationVerificationPending",
+        ),
+        (
+            "staging.deep-sci-fi.world",
+            stage,
+            "ApplyConfigurationVerificationSucceeded",
+        ),
+    ] {
+        let provider = json!({"data":{"service":{"id":"service-1","projectId":"project-1"},"serviceInstance":{"id":"instance-1","serviceId":"service-1","environmentId":"env-1","numReplicas":2,"domains":{"customDomains":[{"id":"domain-1","domain":domain,"projectId":"project-1","serviceId":"service-1","environmentId":"env-1","deletedAt":null}],"serviceDomains":[]}}}});
+        let trace = json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-1","custom":{"git":{"commit":{"sha":"a".repeat(40)}},"dsf":{"request_id":request_id},"http":{"status_code":200,"url":format!("{trace_origin}/api/health")}}}}]});
+        let host = SimWasmHost::new()
+            .with_default_response(500, "unexpected request")
+            .with_secret("railway-test", "fixture")
+            .with_secret("dd-api", "fixture")
+            .with_secret("dd-app", "fixture")
+            .with_response(
+                "https://temper.test/tdata/DsfRailwayServiceInstances('railway-p-s-e')",
+                200,
+                &state.to_string(),
+            )
+            .with_response(
+                "https://temper.test/tdata/Files('config-1')/$value",
+                200,
+                &config,
+            )
+            .with_response(
+                "https://backboard.railway.com/graphql/v2",
+                200,
+                &provider.to_string(),
+            )
+            .with_response(
+                &format!("{stage}/api/health"),
+                200,
+                &json!({"status":"healthy","git_sha":"a".repeat(40)}).to_string(),
+            )
+            .with_response(
+                "https://api.datadoghq.com/api/v2/spans/events/search",
+                200,
+                &trace.to_string(),
+            );
+        let result = engine
+            .invoke(
+                &hash,
+                &context("DsfRailwayServiceInstance", module, state.clone()),
+                Arc::new(host),
+                &WasmResourceLimits::default(),
+                Arc::new(RwLock::new(StreamRegistry::default())),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.callback_action, expected, "{result:?}");
+        assert_eq!(result.callback_params["expected_operation_sequence"], 2);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn packaged_validation_refuses_unbound_discovery_before_any_provider_or_proof_request() {
+    let config=json!({"version":3,"resource_id":"railway-p-s-e","target":{"project_id":"project-1","service_id":"service-1","environment_id":"env-1","token_secret":"railway-test"},"verification":{"application":{"kind":"unbound"},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd-api","app_key_secret":"dd-app"}}}).to_string();
+    let state = row(
+        "ApplyConfigurationValidating",
+        &format!("{:x}", Sha256::digest(config.as_bytes())),
+    );
+    let host = SimWasmHost::new()
+        .with_default_response(500, "unexpected request")
+        .with_response(
+            "https://temper.test/tdata/DsfRailwayServiceInstances('railway-p-s-e')",
+            200,
+            &state.to_string(),
+        )
+        .with_response(
+            "https://temper.test/tdata/Files('config-1')/$value",
+            200,
+            &config,
+        );
+    let engine = WasmEngine::new().unwrap();
+    let module = "dsf_railway_configuration_validate";
+    let hash = engine.compile_and_cache(&bytes(module)).unwrap();
+    let result = engine
+        .invoke(
+            &hash,
+            &context("DsfRailwayServiceInstance", module, state),
+            Arc::new(host),
+            &WasmResourceLimits::default(),
+            Arc::new(RwLock::new(StreamRegistry::default())),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.callback_action, "ApplyConfigurationValidationFailed");
+    assert!(
+        result.callback_params["error_message"]
+            .as_str()
+            .unwrap()
+            .contains("verification requires a Railway application resource")
+    );
 }

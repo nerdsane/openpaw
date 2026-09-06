@@ -150,15 +150,26 @@ fn malformed_provider_read_is_not_proof_of_absence() {
 
 #[test]
 fn verification_requires_provider_read_live_health_and_the_matching_datadog_span() {
-    let verification=serde_json::from_value(json!({"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})).unwrap();
+    let verification=serde_json::from_value(json!({"application":{"kind":"railway","resource_id":"api-1","origin":"https://api.deep-sci-fi.world"},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}})).unwrap();
     for matched in [false, true] {
         let mut h = host(json!({"statement_timeout":"5000","log_connections":true}));
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../dsf_resource_common/tests/fixtures/railway_application.json"
+        ))
+        .unwrap();
+        for key in ["row", "configuration", "domains"] {
+            let body = fixture[key]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| fixture[key].to_string());
+            h.replies.push_back(Ok(Response { status: 200, body }));
+        }
         let sha = "a".repeat(40);
         h.replies.push_back(Ok(Response {
             status: 200,
             body: json!({"status":"healthy","git_sha":sha}).to_string(),
         }));
-        h.replies.push_back(Ok(Response{status:200,body:json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-123","custom":{"git":{"commit":{"sha":sha}},"dsf":{"request_id":if matched {"__PROBE__"} else {"other-probe"}},"http":{"status_code":200,"route":"/api/health"}}}}]}).to_string()}));
+        h.replies.push_back(Ok(Response{status:200,body:json!({"data":[{"attributes":{"service":"backend","env":"production","status":"ok","trace_id":"trace-123","custom":{"git":{"commit":{"sha":sha}},"dsf":{"request_id":if matched {"__PROBE__"} else {"other-probe"}},"http":{"status_code":200,"route":"/api/health","url":"https://api.deep-sci-fi.world/api/health"}}}}]}).to_string()}));
         let result = ApplyConfiguration::verify(
             &mut runtime(&mut h),
             &target(),
@@ -166,14 +177,14 @@ fn verification_requires_provider_read_live_health_and_the_matching_datadog_span
             &operation(),
             &verification,
         );
-        assert_eq!(h.requests.len(), 3);
+        assert_eq!(h.requests.len(), 6);
         assert_eq!(h.requests[0].method, "GET");
         assert_eq!(
-            h.requests[1].url,
+            h.requests[4].url,
             "https://api.deep-sci-fi.world/api/health"
         );
         assert_eq!(
-            h.requests[2].url,
+            h.requests[5].url,
             "https://api.datadoghq.com/api/v2/spans/events/search"
         );
         if matched {

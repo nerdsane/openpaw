@@ -11,8 +11,9 @@ pub fn verify_configuration(
     invocation: &Invocation,
     provider_ref: String,
 ) -> Result<Evidence, Error> {
+    let origin = railway_application_origin(runtime, &verification.application, None)?;
     let (flow_ref, telemetry_ref, revision) =
-        verify_product(runtime, verification, invocation, DSF_API, None)?;
+        verify_product_at(runtime, verification, invocation, &origin, None)?;
     Ok(Evidence {
         provider_ref,
         flow_ref,
@@ -30,10 +31,13 @@ pub fn verify_product(
     origin: &str,
     expected_revision: Option<&str>,
 ) -> Result<(String, String, String), Error> {
-    if ![DSF_API, DSF_WEB].contains(&origin) {
-        return Err(Error::Binding("unknown DSF origin"));
+    let bound = railway_application_origin(runtime, &verification.application, None)?;
+    if bound != origin.trim_end_matches('/') {
+        return Err(Error::Binding(
+            "requested probe origin differs from application binding",
+        ));
     }
-    verify_product_at(runtime, verification, invocation, origin, expected_revision)
+    verify_product_at(runtime, verification, invocation, &bound, expected_revision)
 }
 
 /// The caller must first bind this URL to the exact provider project and revision.
@@ -44,6 +48,7 @@ pub fn verify_vercel_preview(
     origin: &str,
     expected_revision: &str,
 ) -> Result<(String, String, String), Error> {
+    verification.application.vercel(&invocation.resource_id)?;
     let parsed =
         url::Url::parse(origin).map_err(|_| Error::Binding("invalid Vercel preview URL"))?;
     if parsed.scheme() != "https"
@@ -87,6 +92,7 @@ pub fn verify_vercel_alias(
     allowed_aliases: &[String],
     expected_revision: &str,
 ) -> Result<(String, String, String), Error> {
+    verification.application.vercel(&invocation.resource_id)?;
     let parsed = url::Url::parse(origin).map_err(|_| Error::Binding("invalid Vercel alias URL"))?;
     if parsed.scheme() != "https"
         || !parsed.username().is_empty()
@@ -189,7 +195,7 @@ fn verify_product_at(
         Flow::Story { story_id, world_id } => {
             identifier(story_id)?;
             identifier(world_id)?;
-            let url = format!("{DSF_API}/api/stories/{}", encoded(story_id));
+            let url = format!("{origin}/api/stories/{}", encoded(story_id));
             let value = probe(runtime, &url, &request_id, None)?;
             let story = value.get("story").ok_or(Error::Response("story read"))?;
             if required(story, "id")? != story_id
@@ -205,7 +211,12 @@ fn verify_product_at(
             schema_version,
             secret_name,
         } => {
-            let url = format!("{DSF_API}/api/operations/snapshot?participant_limit=1&job_limit=1");
+            if origin != DSF_API {
+                return Err(Error::Binding(
+                    "operational snapshot admin credential is production-only",
+                ));
+            }
+            let url = format!("{origin}/api/operations/snapshot?participant_limit=1&job_limit=1");
             let value = probe(runtime, &url, &request_id, Some(secret_name))?;
             if value.get("snapshot_version") != Some(&json!(1))
                 || value.get("revision").and_then(Value::as_str) != Some(&revision)
@@ -221,7 +232,13 @@ fn verify_product_at(
         }
         Flow::Media {} => health_url,
     };
-    let telemetry_ref = verify_datadog(runtime, &verification.datadog, &request_id, &revision)?;
+    let telemetry_ref = verify_datadog(
+        runtime,
+        &verification.datadog,
+        &request_id,
+        &revision,
+        &format!("{origin}/api/health"),
+    )?;
     Ok((flow_ref, telemetry_ref, revision))
 }
 
@@ -276,6 +293,7 @@ pub fn verify_datadog(
     dd: &Datadog,
     request_id: &str,
     revision: &str,
+    health_url: &str,
 ) -> Result<String, Error> {
     datadog_site(&dd.site)?;
     identifier(&dd.service)?;
@@ -313,7 +331,7 @@ pub fn verify_datadog(
     let span = spans
         .iter()
         .take(20)
-        .find(|span| matching_span(span, dd, request_id, revision))
+        .find(|span| matching_span(span, dd, request_id, revision, health_url))
         .ok_or(Error::Pending(
             "Datadog has not indexed the exact successful probe",
         ))?;
@@ -329,11 +347,18 @@ pub fn verify_datadog(
     ))
 }
 
-fn matching_span(span: &Value, dd: &Datadog, request_id: &str, revision: &str) -> bool {
+fn matching_span(
+    span: &Value,
+    dd: &Datadog,
+    request_id: &str,
+    revision: &str,
+    health_url: &str,
+) -> bool {
     let Some(attrs) = span.get("attributes") else {
         return false;
     };
-    attrs.get("service").and_then(Value::as_str) == Some(&dd.service)
+    attrs.pointer("/custom/http/url").and_then(Value::as_str) == Some(health_url)
+        && attrs.get("service").and_then(Value::as_str) == Some(&dd.service)
         && attrs.get("env").and_then(Value::as_str) == Some(&dd.environment)
         && attrs.get("status").and_then(Value::as_str) == Some("ok")
         && attrs
@@ -363,8 +388,21 @@ mod tests {
         };
         let sha = "a".repeat(40);
         let span = json!({"attributes":{"service":"backend","env":"production","status":"ok",
-            "custom":{"git":{"commit":{"sha":sha}},"dsf":{"request_id":"probe-1"},"http":{"status_code":"200"}}}});
-        assert!(matching_span(&span, &dd, "probe-1", &sha));
+            "custom":{"git":{"commit":{"sha":sha}},"dsf":{"request_id":"probe-1"},"http":{"status_code":"200","url":"https://api.deep-sci-fi.world/api/health"}}}});
+        assert!(matching_span(
+            &span,
+            &dd,
+            "probe-1",
+            &sha,
+            "https://api.deep-sci-fi.world/api/health"
+        ));
+        assert!(!matching_span(
+            &span,
+            &dd,
+            "probe-1",
+            &sha,
+            "https://staging.deep-sci-fi.world/api/health"
+        ));
         for pointer in [
             "/attributes/service",
             "/attributes/env",
@@ -373,11 +411,23 @@ mod tests {
         ] {
             let mut changed = span.clone();
             *changed.pointer_mut(pointer).unwrap() = "other".into();
-            assert!(!matching_span(&changed, &dd, "probe-1", &sha));
+            assert!(!matching_span(
+                &changed,
+                &dd,
+                "probe-1",
+                &sha,
+                "https://api.deep-sci-fi.world/api/health"
+            ));
         }
         let mut failed = span;
         failed["attributes"]["status"] = "error".into();
-        assert!(!matching_span(&failed, &dd, "probe-1", &sha));
+        assert!(!matching_span(
+            &failed,
+            &dd,
+            "probe-1",
+            &sha,
+            "https://api.deep-sci-fi.world/api/health"
+        ));
     }
 
     #[test]
@@ -391,16 +441,28 @@ mod tests {
         };
         let sha = "a".repeat(40);
         let base = json!({"attributes":{"service":"backend","env":"production","status":"ok",
-            "custom":{"git":{"commit":{"sha":sha}},"dsf":{"request_id":"probe-1"},"http":{"status_code":"200"}}}});
+            "custom":{"git":{"commit":{"sha":sha}},"dsf":{"request_id":"probe-1"},"http":{"status_code":"200","url":"https://api.deep-sci-fi.world/api/health"}}}});
         for status in [Value::Null, json!("unknown"), json!("error")] {
             let mut span = base.clone();
             span["attributes"]["status"] = status;
-            assert!(!matching_span(&span, &dd, "probe-1", &sha));
+            assert!(!matching_span(
+                &span,
+                &dd,
+                "probe-1",
+                &sha,
+                "https://api.deep-sci-fi.world/api/health"
+            ));
         }
         for status in [Value::Null, json!(500), json!("500")] {
             let mut span = base.clone();
             span["attributes"]["custom"]["http"]["status_code"] = status;
-            assert!(!matching_span(&span, &dd, "probe-1", &sha));
+            assert!(!matching_span(
+                &span,
+                &dd,
+                "probe-1",
+                &sha,
+                "https://api.deep-sci-fi.world/api/health"
+            ));
         }
     }
 }

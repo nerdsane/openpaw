@@ -112,6 +112,7 @@ pub struct ResourceConfig<T> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Verification {
+    pub application: ApplicationBinding,
     pub flow: Flow,
     pub datadog: Datadog,
 }
@@ -143,4 +144,12 @@ pub struct Datadog {
     pub environment: String,
     pub api_key_secret: String,
     pub app_key_secret: String,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ApplicationBinding {
+    Unbound,
+    Railway { resource_id: String, origin: String },
+    Vercel { resource_id: String, origin: String },
 }

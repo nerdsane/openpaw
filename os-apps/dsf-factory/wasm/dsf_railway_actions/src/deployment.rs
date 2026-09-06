@@ -212,11 +212,14 @@ impl ResourceAction for Deploy {
         if !active_ids(&instance)?.iter().any(|id| *id == found.id) {
             return Err(Error::Pending("Railway deployment is not active"));
         }
+        let (_, origin) = verification
+            .application
+            .railway(Some(&invocation.resource_id))?;
         let (flow_ref, telemetry_ref, revision) = verify_product(
             runtime,
             verification,
             invocation,
-            DSF_API,
+            origin,
             Some(&invocation.revision),
         )?;
         Ok(Evidence {
@@ -367,11 +370,14 @@ impl ResourceAction for Rollback {
                 "Railway rollback execution identity differs",
             ));
         }
+        let (_, origin) = verification
+            .application
+            .railway(Some(&invocation.resource_id))?;
         let (flow_ref, telemetry_ref, revision) = verify_product(
             runtime,
             verification,
             invocation,
-            DSF_API,
+            origin,
             Some(&invocation.revision),
         )?;
         Ok(Evidence {

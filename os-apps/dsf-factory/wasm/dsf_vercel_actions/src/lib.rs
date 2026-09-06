@@ -334,7 +334,35 @@ fn verify_deployment(
     ready(row)?;
     let (flow_ref, telemetry_ref, observed_revision) = match scope {
         DeploymentTarget::Production => {
-            verify_product(runtime, verification, invocation, DSF_WEB, Some(revision))?
+            let origin = verification.application.vercel(&invocation.resource_id)?;
+            let parsed = application_origin(origin)?;
+            let alias = parsed
+                .host_str()
+                .ok_or(Error::Binding("Vercel application alias missing"))?;
+            let exact = AliasChange {
+                alias: alias.into(),
+                deployment_id: required(row, "id")?.into(),
+                revision: revision.into(),
+                target: scope,
+            };
+            if !target
+                .allowed_aliases
+                .iter()
+                .any(|allowed| allowed == alias)
+                || !alias_matches(runtime, target, &exact)?
+            {
+                return Err(Error::Binding(
+                    "Vercel application alias does not route to this deployment",
+                ));
+            }
+            verify_vercel_alias(
+                runtime,
+                verification,
+                invocation,
+                origin,
+                &target.allowed_aliases,
+                revision,
+            )?
         }
         DeploymentTarget::Preview => {
             let domain = required(row, "url")?;

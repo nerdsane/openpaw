@@ -1,10 +1,12 @@
 //! Proof, identity and transport boundaries for resource-owned actions.
 //! Provider selection happens in each WASM's concrete Rust type.
+mod application;
 mod authority;
 mod invocation;
 mod transport;
 mod verification;
 
+pub use application::*;
 pub use invocation::*;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -210,3 +212,6 @@ pub mod guest;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod application_tests;

@@ -29,7 +29,7 @@ fn rt(host: &mut Mock) -> Runtime<'_, Mock> {
     }
 }
 fn config() -> Value {
-    json!({"version":2,"resource_id":"resource-1","target":{"project_id":"prj-1","account_id":"team-1","project_name":"dsf","git_repository_id":12,"token_secret":"vercel_token"},"verification":{"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"web","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}}})
+    json!({"version":3,"resource_id":"resource-1","target":{"project_id":"prj-1","account_id":"team-1","project_name":"dsf","git_repository_id":12,"token_secret":"vercel_token"},"verification":{"application":{"kind":"unbound"},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"web","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}}})
 }
 fn row() -> Value {
     json!({"status":"Refreshing","refresh_sequence":1,"observed_sequence":7,"config_ref":"file-1","config_sha256":format!("{:x}",Sha256::digest(config().to_string().as_bytes())),"project_id":"prj-1","account_id":"team-1"})

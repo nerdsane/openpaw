@@ -36,10 +36,16 @@ or an operation entity between a resource and its own actions.
 ## A resource operation
 
 An agent registers the target with a configuration File ID and the SHA-256 of its
-exact bytes. ResourceConfig version 2 contains the concrete provider target,
+exact bytes. ResourceConfig version 3 contains the concrete provider target,
 verification expectations and required Ask IDs. Credential fields name tenant
 secrets; the File never contains credential values. The target File is reread and
 hashed at every stage.
+
+The [configuration contract](wasm/dsf_resource_common/README.md) binds verification
+to a registered application and its provider-owned origin. An observation-only
+discovery can be explicitly unbound. Agents maintain configuration bindings and
+dependencies through ReviseModel with the current model sequence and provenance;
+provider identity remains fixed and earlier operation verification is invalidated.
 
 For example, ApplyConfiguration on the production Railway API can request
 `{"numReplicas":2}`. That resource's action records the Effort, operation key,

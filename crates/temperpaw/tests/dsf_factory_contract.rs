@@ -993,7 +993,7 @@ fn real_collector_callback_commits_evidence_before_resource_cas() {
             Ok("test-token".into())
         }
     }
-    let config = json!({"version":2,"resource_id":"subject","target":{"project_id":"project-1","service_id":"service-1","environment_id":"production","token_secret":"railway_token"},"verification":{"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}}});
+    let config = json!({"version":3,"resource_id":"subject","target":{"project_id":"project-1","service_id":"service-1","environment_id":"production","token_secret":"railway_token"},"verification":{"application":{"kind":"unbound"},"flow":{"kind":"provider_configuration"},"datadog":{"site":"datadoghq.com","service":"backend","environment":"production","api_key_secret":"dd_api","app_key_secret":"dd_app"}}});
     let hash = format!("{:x}", Sha256::digest(config.to_string().as_bytes()));
     for stale in [false, true] {
         let mut sim = reaction_simulator_with_registration(
