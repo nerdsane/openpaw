@@ -1042,3 +1042,25 @@ fn incoming_counter_values_have_explicit_assignment_effects() {
         }
     }
 }
+
+#[test]
+fn operation_retry_timers_allow_the_declared_attempt_budgets() {
+    let ioa = temper_spec::automaton::parse_automaton(&source("operation")).unwrap();
+    for (state, attempts) in [
+        ("Observed", 40),
+        ("Verifying", 40),
+        ("Unknown", 20),
+        ("Reconciling", 20),
+        ("Executing", 3),
+    ] {
+        let timer = ioa
+            .state_timeouts
+            .iter()
+            .find(|timer| timer.state == state)
+            .unwrap();
+        assert_eq!(
+            timer.max_occurrences, attempts,
+            "{state} timer must survive repeated entries until its action budget is exhausted"
+        );
+    }
+}

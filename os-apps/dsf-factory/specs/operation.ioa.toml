@@ -512,21 +512,25 @@ on_timeout = "ValidationFailed"
 
 [[state_timeout]]
 state = "Executing"
+max_occurrences = 3
 after_seconds = 300
 on_timeout = "ExecutionUncertain"
 
 [[state_timeout]]
 state = "Reconciling"
+max_occurrences = 20
 after_seconds = 300
 on_timeout = "ObservationFailed"
 
 [[state_timeout]]
 state = "Verifying"
+max_occurrences = 40
 after_seconds = 300
 on_timeout = "VerificationPending"
 
 [[state_timeout]]
 state = "Unknown"
+max_occurrences = 20
 after_seconds = 30
 on_timeout = "Reconcile"
 
@@ -550,6 +554,7 @@ assert = "observation_attempts <= 20"
 
 [[state_timeout]]
 state = "Observed"
+max_occurrences = 40
 after_seconds = 30
 on_timeout = "Verify"
 

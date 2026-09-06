@@ -30,3 +30,9 @@ use existing allocations. Media configuration pins selected-job ceilings and
 checks estimates before submission and recorded costs afterward. This does not
 create a global reservation system or a provider-enforced financial cap. New paid
 provisioning belongs to the experiment path with its own cost authority.
+
+State-timeout occurrence budgets match their action counters: three execution
+attempts, twenty observation attempts and forty verification attempts. The
+runtime defaults each timer to one firing, so omitting this declaration would
+stop unattended retries before the action budget was used. The contract suite
+checks these timer budgets alongside the actual actor retry guards.
