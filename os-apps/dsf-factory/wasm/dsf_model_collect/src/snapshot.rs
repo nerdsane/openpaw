@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 #[derive(Deserialize, Serialize)]
 struct Snapshot {
     snapshot_version: u64,
+    participant_limit: u64,
+    job_limit: u64,
     observed_at: String,
     revision: Option<String>,
     service: String,
@@ -81,13 +83,31 @@ pub(super) fn parse(
 ) -> Result<Facts, String> {
     let snapshot: Snapshot =
         serde_json::from_value(value.clone()).map_err(|_| "invalid DSF snapshot response")?;
+    if snapshot.revision.as_ref().is_some_and(|sha| {
+        ![40, 64].contains(&sha.len())
+            || !sha
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }) {
+        return Err("invalid DSF deployment revision".into());
+    }
+    if snapshot
+        .participants
+        .next_cursor
+        .as_ref()
+        .is_some_and(|cursor| uuid::Uuid::parse_str(cursor).is_err())
+    {
+        return Err("invalid DSF participant continuation cursor".into());
+    }
     if snapshot.snapshot_version != 1 {
         return Err("unsupported DSF snapshot version".into());
     }
     if snapshot.service != service || snapshot.environment != environment {
         return Err("DSF snapshot identity mismatch".into());
     }
-    if snapshot.participants.items.len() > 200
+    if snapshot.participant_limit != 200
+        || snapshot.job_limit != 20
+        || snapshot.participants.items.len() > 200
         || [
             &snapshot.action_queue,
             &snapshot.media,

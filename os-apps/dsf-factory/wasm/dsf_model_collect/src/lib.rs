@@ -9,6 +9,8 @@ const MAX_CONFIG: usize = 16_384;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub subject_type: String,
+    pub subject_id: String,
     pub provider_id: String,
     pub secret_name: String,
     pub interval_seconds: u64,
@@ -18,17 +20,6 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "provider", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Source {
-    Railway {
-        environment_id: String,
-    },
-    Vercel {
-        team_id: String,
-        target: String,
-    },
-    Supabase {},
-    CloudflareR2 {
-        account_id: String,
-    },
     Datadog {
         site: String,
         app_key_secret: String,
@@ -36,7 +27,8 @@ pub enum Source {
         window_seconds: u64,
         max_age_seconds: u64,
     },
-    DsfOperations {
+    #[serde(rename = "dsf_operations")]
+    OperationalSnapshot {
         service: String,
         environment: String,
         max_age_seconds: u64,
@@ -51,13 +43,9 @@ pub enum Source {
 impl Source {
     fn name(&self) -> &'static str {
         match self {
-            Self::Railway { .. } => "railway",
-            Self::Vercel { .. } => "vercel",
-            Self::Supabase {} => "supabase",
-            Self::CloudflareR2 { .. } => "cloudflare_r2",
             Self::Datadog { .. } => "datadog",
             Self::Github { .. } => "github",
-            Self::DsfOperations { .. } => "dsf_operations",
+            Self::OperationalSnapshot { .. } => "dsf_operations",
         }
     }
 }
@@ -150,35 +138,6 @@ fn provider_request(config: &Config, now_ms: i64) -> Result<Request, String> {
         body: String::new(),
     };
     request.url = match &config.source {
-        Source::Railway { environment_id } => {
-            identifier(environment_id)?;
-            request.method = "POST";
-            request.body = json!({"query":"query DsfCollect($serviceId: String!) { service(id: $serviceId) { id serviceInstances { edges { node { environmentId latestDeployment { id status createdAt meta } } } } } }", "variables":{"serviceId":config.provider_id}}).to_string();
-            request
-                .headers
-                .push(("content-type".into(), "application/json".into()));
-            "https://backboard.railway.com/graphql/v2".into()
-        }
-        Source::Vercel { team_id, target } => {
-            identifier(team_id)?;
-            if target != "production" {
-                return Err("Vercel collector requires production target".into());
-            }
-            format!(
-                "https://api.vercel.com/v9/projects/{}?teamId={}",
-                encoded(&config.provider_id),
-                encoded(team_id)
-            )
-        }
-        Source::Supabase {} => "https://api.supabase.com/v1/projects".into(),
-        Source::CloudflareR2 { account_id } => {
-            identifier(account_id)?;
-            format!(
-                "https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets/{}",
-                encoded(account_id),
-                encoded(&config.provider_id)
-            )
-        }
         Source::Datadog {
             site,
             query,
@@ -186,7 +145,7 @@ fn provider_request(config: &Config, now_ms: i64) -> Result<Request, String> {
             max_age_seconds,
             ..
         } => datadog_url(site, query, window_seconds, max_age_seconds, now_ms)?,
-        Source::DsfOperations {
+        Source::OperationalSnapshot {
             service,
             environment,
             max_age_seconds,
@@ -301,19 +260,6 @@ fn text_at<'a>(value: &'a Value, pointer: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("provider response missing {pointer}"))
 }
 
-fn picked(value: &Value, keys: &[&str]) -> Value {
-    let mut out = serde_json::Map::new();
-    for key in keys {
-        if let Some(item) = value
-            .get(*key)
-            .filter(|v| v.is_string() || v.is_number() || v.is_boolean() || v.is_null())
-        {
-            out.insert((*key).into(), item.clone());
-        }
-    }
-    Value::Object(out)
-}
-
 fn facts(coverage: Coverage, outcome: &str, revision: &str, facts: Value) -> Facts {
     Facts {
         coverage,
@@ -326,17 +272,13 @@ fn facts(coverage: Coverage, outcome: &str, revision: &str, facts: Value) -> Fac
 
 fn parse_source(config: &Config, response: &Value, now_ms: i64) -> Result<Facts, String> {
     match &config.source {
-        Source::Railway { environment_id } => providers::railway(config, response, environment_id),
-        Source::Vercel { .. } => providers::vercel(config, response),
-        Source::Supabase {} => providers::supabase(config, response),
-        Source::CloudflareR2 { .. } => providers::cloudflare_r2(config, response),
         Source::Github { .. } => providers::github(response),
         Source::Datadog {
             window_seconds,
             max_age_seconds,
             ..
         } => providers::datadog(response, now_ms, window_seconds, max_age_seconds),
-        Source::DsfOperations {
+        Source::OperationalSnapshot {
             service,
             environment,
             max_age_seconds,
@@ -405,18 +347,37 @@ pub fn collect(
         return Err("invalid host time".into());
     }
     let sequence = counter(fields, "sync_sequence")?;
-    let (config, resource_sequence) = read_binding(host, base, api_key, tenant, fields)?;
+    let config = read_binding(host, base, api_key, tenant, fields)?;
     let mut request = provider_request(&config, now_ms)?;
-    let observed = read_provider(host, &config, &mut request, now_ms);
-    callback(
-        &config,
-        &request,
-        now_ms,
-        sync_id,
-        sequence,
-        resource_sequence,
-        observed,
-    )
+    if matches!(config.source, Source::OperationalSnapshot { .. })
+        && let Some(cursor) = field(fields, "source_cursor")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+    {
+        let parsed =
+            uuid::Uuid::parse_str(cursor).map_err(|_| "invalid participant continuation cursor")?;
+        request
+            .url
+            .push_str(&format!("&participant_cursor={parsed}"));
+    }
+    let mut observed = read_provider(host, &config, &mut request, now_ms);
+    if matches!(config.source, Source::OperationalSnapshot { .. }) {
+        observed.facts["participant_page_start_cursor"] = json!(
+            field(fields, "source_cursor")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+        );
+        observed.facts["participant_inventory_complete"] = json!(
+            field(fields, "source_cursor")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty)
+                && observed
+                    .facts
+                    .pointer("/participants/next_cursor")
+                    .is_some_and(Value::is_null)
+        );
+    }
+    callback(&config, &request, now_ms, sync_id, sequence, observed)
 }
 
 fn read_binding(
@@ -425,7 +386,7 @@ fn read_binding(
     api_key: &str,
     tenant: &str,
     fields: &Value,
-) -> Result<(Config, u64), String> {
+) -> Result<Config, String> {
     // Base is trusted integration configuration, never supplied by the source File.
     if !(base.starts_with("https://")
         || base.starts_with("http://127.0.0.1:")
@@ -453,18 +414,27 @@ fn read_binding(
     )?;
     let config: Config = serde_json::from_value(config_value)
         .map_err(|_| "invalid source configuration".to_string())?;
-    let resource = parse_json(
-        host.request(&read(format!("/tdata/DsfResources('{resource_id}')")))?,
-        MAX_BODY,
-    )?;
-    let resource = resource.get("fields").unwrap_or(&resource);
-    if string_field(resource, "provider")? != config.source.name()
-        || string_field(resource, "provider_id")? != config.provider_id
+    let subject_type = string_field(fields, "subject_type")?;
+    if config.subject_type != subject_type
+        || config.subject_id != resource_id
         || string_field(fields, "source_kind")? != config.source.name()
     {
-        return Err("source and resource binding mismatch".into());
+        return Err("source and subject binding mismatch".into());
     }
-    Ok((config, counter(resource, "observed_sequence")?))
+    let set = match subject_type {
+        "DsfFlow" => "DsfFlows",
+        "DsfParticipant" if matches!(config.source, Source::OperationalSnapshot { .. }) => {
+            "DsfParticipants"
+        }
+        _ => return Err("unsupported ModelSync subject type".into()),
+    };
+    let subject = parse_json(
+        host.request(&read(format!("/tdata/{set}('{resource_id}')")))?,
+        MAX_BODY,
+    )?;
+    let subject = subject.get("fields").unwrap_or(&subject);
+    string_field(subject, "status")?;
+    Ok(config)
 }
 
 fn read_provider(
@@ -529,7 +499,6 @@ fn callback(
     now_ms: i64,
     sync_id: &str,
     sequence: u64,
-    resource_sequence: u64,
     observed: Facts,
 ) -> Result<Callback, String> {
     let now = timestamp(now_ms)?;
@@ -547,7 +516,7 @@ fn callback(
         "expected_sequence":sequence,"observation_id":observation_id,"source_event_id":observation_id,
         "query":query,"window_start":timestamp(start_ms)?,"window_end":now,"sample_kind":observed.sample_kind,
         "outcome":observed.outcome,"summary":observed.facts.to_string(),"evidence_ref":request.url,
-        "observed_at_ms":now_ms,"expected_resource_sequence":resource_sequence,
+        "observed_at_ms":now_ms,
     });
     let action = match observed.coverage {
         Coverage::Inaccessible => {
@@ -555,7 +524,16 @@ fn callback(
             "CollectionInaccessible"
         }
         coverage => {
-            params["source_cursor"] = json!(observation_id);
+            params["source_cursor"] = match config.source {
+                Source::OperationalSnapshot { .. } => json!(
+                    observed
+                        .facts
+                        .pointer("/participants/next_cursor")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                ),
+                _ => json!(""),
+            };
             params["last_success_at"] = json!(now);
             params["next_due_at"] =
                 json!(timestamp(now_ms + config.interval_seconds as i64 * 1000)?);
@@ -601,8 +579,13 @@ mod guest {
 
     #[unsafe(no_mangle)]
     pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
+        let mut captured_sequence = None;
         let result = (|| {
             let ctx = Context::from_host()?;
+            captured_sequence = ctx
+                .entity_state
+                .get("fields")
+                .and_then(|fields| counter(fields, "sync_sequence").ok());
             let base = ctx
                 .config
                 .get("temper_api_url")
@@ -632,7 +615,13 @@ mod guest {
         })();
         match result {
             Ok(callback) => set_success_result(callback.action, &callback.params),
-            Err(error) => set_error_result(&error),
+            Err(error) => match captured_sequence {
+                Some(sequence) => set_success_result(
+                    "CollectionFailed",
+                    &json!({"expected_sequence":sequence,"error_message":"model source binding or collection failed"}),
+                ),
+                None => set_error_result(&error),
+            },
         }
         0
     }

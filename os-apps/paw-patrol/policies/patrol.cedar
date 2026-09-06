@@ -781,6 +781,8 @@ permit(
     Action::"RetractDecisionsFile",
     Action::"LinkPmIssue",
     Action::"ConfigureDeploy",
+    Action::"ConfigureResourceDelivery",
+    Action::"VerifyResourceDelivery",
     Action::"Deploy",
     Action::"Stall",
     Action::"Resume",
@@ -808,7 +810,7 @@ permit(
 // Effort.Merge: L0/L1 permit; L2+ denies and surfaces as MCP elicitation.
 permit(
   principal is Agent,
-  action in [Action::"Merge", Action::"Effort.Merge"],
+  action in [Action::"Merge", Action::"Effort.Merge", Action::"MergeResourceDelivery", Action::"Effort.MergeResourceDelivery"],
   resource is Effort
 ) when {
   (resource has risk_lane && (resource.risk_lane == "L0" || resource.risk_lane == "L1")) ||
@@ -843,4 +845,45 @@ forbid(
   resource is Effort
 ) unless {
   principal has agent_type && principal.agent_type == "patrol-intake-service"
+};
+
+// Only the WASM runtime and timers report resource-delivery gate results.
+permit(
+  principal,
+  action in [Action::"ResourceDeliveryConfigured", Action::"ResourceDeliveryRejected",
+    Action::"ResourceDeliveryMerged", Action::"ResourceDeliveryMergeRejected",
+    Action::"ResourceDeliveryVerified", Action::"ResourceDeliveryPending",
+    Action::"ResourceMergeTimedOut", Action::"ResourceVerificationTimedOut"],
+  resource is Effort
+) when {
+  principal is System || (principal has role && principal.role == "service" && principal has agent_type && ["wasm-runtime", "timeout-scheduler"].contains(principal.agent_type))
+};
+
+forbid(
+  principal,
+  action in [Action::"ResourceDeliveryConfigured", Action::"ResourceDeliveryRejected",
+    Action::"ResourceDeliveryMerged", Action::"ResourceDeliveryMergeRejected",
+    Action::"ResourceDeliveryVerified", Action::"ResourceDeliveryPending",
+    Action::"ResourceMergeTimedOut", Action::"ResourceVerificationTimedOut"],
+  resource is Effort
+) unless {
+  principal is System || (principal has role && principal.role == "service" && principal has agent_type && ["wasm-runtime", "timeout-scheduler"].contains(principal.agent_type))
+};
+
+// These gates only read linked Temper records; they never call providers.
+permit(
+  principal,
+  action == Action::"http_call",
+  resource is HttpEndpoint
+) when {
+  ["effort_resource_delivery_validate", "effort_resource_delivery_merge", "effort_resource_delivery_verify"].contains(context.module)
+  && context has method && context.method == "GET"
+};
+permit(
+  principal,
+  action == Action::"access_secret",
+  resource is Secret
+) when {
+  ["effort_resource_delivery_validate", "effort_resource_delivery_merge", "effort_resource_delivery_verify"].contains(context.module)
+  && resource has id && ["temper_api_url", "temper_api_key"].contains(resource.id)
 };

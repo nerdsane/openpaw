@@ -1,11 +1,10 @@
-# ARN-467. Executable IOA contract; simulator tests run these declarations unchanged.
+# ARN-467. Native Exec owns commands; WASMs only prepare or read its durable result.
 [automaton]
 name = "DsfExperiment"
-states = ["Draft","Configured","Validating","Ready","Running","Compared","Selected","Cleaning","Cleaned","Failed"]
+states = ["Draft", "Configured", "Ready", "Compared", "Selecting", "Selected", "SelectionUnknown", "Cleaned", "Failed", "ValidationPreparing", "Validating", "ValidationUnknown", "RunPreparing", "Running", "RunUnknown", "CleanupPreparing", "Cleaning", "CleanupUnknown"]
 initial = "Draft"
 strict_action_params = true
-# Durable records may wait indefinitely; work in progress has explicit timeouts.
-allow_indefinite_states = ["Draft","Configured","Ready","Compared","Selected","Failed"]
+allow_indefinite_states = ["Draft", "Configured", "Ready", "Compared", "Selected", "SelectionUnknown", "Failed", "ValidationUnknown", "RunUnknown", "CleanupUnknown"]
 
 [[state]]
 name = "effort_id"
@@ -48,6 +47,16 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "manifest_ref"
+type = "string"
+initial = ""
+
+[[state]]
+name = "manifest_sha256"
+type = "string"
+initial = ""
+
+[[state]]
 name = "production_database_id"
 type = "string"
 initial = ""
@@ -83,6 +92,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "selection_evidence_ref"
+type = "string"
+initial = ""
+
+[[state]]
 name = "cleanup_evidence_ref"
 type = "string"
 initial = ""
@@ -93,17 +107,36 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "exec_id"
+type = "string"
+initial = ""
+
+[[state]]
+name = "command"
+type = "string"
+initial = ""
+
+[[state]]
+name = "phase_deadline_ms"
+type = "string"
+initial = ""
+
+[[state]]
 name = "isolated"
 type = "bool"
 initial = "false"
+
+[[state]]
+name = "operation_sequence"
+type = "counter"
+initial = "0"
 
 [[action]]
 name = "Configure"
 kind = "input"
 from = ["Draft"]
 to = "Configured"
-params = [{ name = "effort_id", type = "string" }, { name = "branch", type = "string" }, { name = "source_revision", type = "string" }, { name = "computer_id", type = "string" }, { name = "database_id", type = "string" }, { name = "media_bucket", type = "string" }, { name = "media_namespace", type = "string" }, { name = "permitted_external_calls", type = "string" }]
-effect = [{ type = "set_bool", var = "isolated", value = false }]
+params = [{ name = "effort_id", type = "string" }, { name = "branch", type = "string" }, { name = "source_revision", type = "string" }, { name = "computer_id", type = "string" }, { name = "database_id", type = "string" }, { name = "media_bucket", type = "string" }, { name = "media_namespace", type = "string" }, { name = "permitted_external_calls", type = "string" }, { name = "manifest_ref", type = "string" }, { name = "manifest_sha256", type = "string" }]
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -133,10 +166,117 @@ param = "media_bucket"
 kind = "param_nonempty"
 param = "media_namespace"
 
+[[action.constraints]]
+kind = "param_nonempty"
+param = "permitted_external_calls"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "manifest_ref"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "manifest_sha256"
+
 [[action]]
 name = "Validate"
 kind = "input"
 from = ["Configured"]
+to = "ValidationPreparing"
+effect = [{ type = "increment", var = "operation_sequence" }, { type = "trigger", name = "dsf_experiment_validate" }]
+
+[[action.triggers]]
+name = "dsf_experiment_validate"
+kind = "wasm"
+module = "dsf_experiment_validate"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "ResumeValidation"
+kind = "input"
+from = ["ValidationUnknown"]
+to = "ValidationPreparing"
+effect = [{ type = "trigger", name = "dsf_experiment_validate" }]
+
+[[action.triggers]]
+name = "dsf_experiment_validate"
+kind = "wasm"
+module = "dsf_experiment_validate"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "ValidationPrepared"
+kind = "input"
+from = ["ValidationPreparing"]
+to = "Validating"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "exec_id", type = "string" }, { name = "command", type = "string" }, { name = "phase_deadline_ms", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "exec_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "command"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "phase_deadline_ms"
+
+[[action.triggers]]
+name = "start_validate_exec"
+kind = "entity"
+principal = "dsf-factory-runtime"
+target_entity = "Exec"
+target_action = "Run"
+
+[action.triggers.resolve_target]
+type = "create_if_missing"
+id_field = "exec_id"
+
+[action.triggers.params_from]
+computer_id = "computer_id"
+command = "command"
+
+[[action]]
+name = "ValidationReconciled"
+kind = "input"
+from = ["ValidationPreparing"]
+to = "Validating"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "exec_id", type = "string" }, { name = "command", type = "string" }, { name = "phase_deadline_ms", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "exec_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "command"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "phase_deadline_ms"
+
+[[action]]
+name = "PollValidation"
+kind = "input"
+from = ["Validating"]
 to = "Validating"
 effect = [{ type = "trigger", name = "dsf_experiment_validate" }]
 
@@ -144,7 +284,6 @@ effect = [{ type = "trigger", name = "dsf_experiment_validate" }]
 name = "dsf_experiment_validate"
 kind = "wasm"
 module = "dsf_experiment_validate"
-on_failure = "ValidationFailed"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
@@ -155,8 +294,13 @@ name = "IsolationSucceeded"
 kind = "input"
 from = ["Validating"]
 to = "Ready"
-params = [{ name = "production_database_id", type = "string" }, { name = "production_media_bucket", type = "string" }, { name = "isolation_evidence_ref", type = "string" }]
+params = [{ name = "expected_sequence", type = "counter" }, { name = "production_database_id", type = "string" }, { name = "production_media_bucket", type = "string" }, { name = "isolation_evidence_ref", type = "string" }]
 effect = [{ type = "set_bool", var = "isolated", value = true }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -183,23 +327,157 @@ field = "media_bucket"
 [[action]]
 name = "ValidationFailed"
 kind = "input"
-from = ["Validating"]
+from = ["ValidationPreparing", "Validating"]
 to = "Failed"
-params = [{ name = "error_message", type = "string" }]
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action]]
+name = "ValidationUncertain"
+kind = "input"
+from = ["ValidationPreparing", "Validating"]
+to = "ValidationUnknown"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action]]
+name = "ValidationPreparationTimedOut"
+kind = "input"
+from = ["ValidationPreparing"]
+to = "ValidationUnknown"
+
+[[action]]
+name = "ValidationTimedOut"
+kind = "input"
+from = ["Validating"]
+to = "ValidationUnknown"
+
+[[state_timeout]]
+state = "ValidationPreparing"
+after_seconds = 120
+on_timeout = "ValidationPreparationTimedOut"
+
+[[state_timeout]]
+state = "Validating"
+after_seconds = 10
+on_timeout = "PollValidation"
+reset_on = ["PollValidation"]
 
 [[action]]
 name = "Run"
 kind = "input"
 from = ["Ready"]
-to = "Running"
+to = "RunPreparing"
 guard = [{ type = "is_true", var = "isolated" }]
+effect = [{ type = "increment", var = "operation_sequence" }, { type = "trigger", name = "dsf_experiment_run" }]
+
+[[action.triggers]]
+name = "dsf_experiment_run"
+kind = "wasm"
+module = "dsf_experiment_run"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "ResumeRun"
+kind = "input"
+from = ["RunUnknown"]
+to = "RunPreparing"
 effect = [{ type = "trigger", name = "dsf_experiment_run" }]
 
 [[action.triggers]]
 name = "dsf_experiment_run"
 kind = "wasm"
 module = "dsf_experiment_run"
-on_failure = "RunFailed"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "RunPrepared"
+kind = "input"
+from = ["RunPreparing"]
+to = "Running"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "exec_id", type = "string" }, { name = "command", type = "string" }, { name = "phase_deadline_ms", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "exec_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "command"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "phase_deadline_ms"
+
+[[action.triggers]]
+name = "start_run_exec"
+kind = "entity"
+principal = "dsf-factory-runtime"
+target_entity = "Exec"
+target_action = "Run"
+
+[action.triggers.resolve_target]
+type = "create_if_missing"
+id_field = "exec_id"
+
+[action.triggers.params_from]
+computer_id = "computer_id"
+command = "command"
+
+[[action]]
+name = "RunReconciled"
+kind = "input"
+from = ["RunPreparing"]
+to = "Running"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "exec_id", type = "string" }, { name = "command", type = "string" }, { name = "phase_deadline_ms", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "exec_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "command"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "phase_deadline_ms"
+
+[[action]]
+name = "PollRun"
+kind = "input"
+from = ["Running"]
+to = "Running"
+effect = [{ type = "trigger", name = "dsf_experiment_run" }]
+
+[[action.triggers]]
+name = "dsf_experiment_run"
+kind = "wasm"
+module = "dsf_experiment_run"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
@@ -210,7 +488,12 @@ name = "RunSucceeded"
 kind = "input"
 from = ["Running"]
 to = "Compared"
-params = [{ name = "result_ref", type = "string" }, { name = "test_evidence_ref", type = "string" }]
+params = [{ name = "expected_sequence", type = "counter" }, { name = "result_ref", type = "string" }, { name = "test_evidence_ref", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -223,29 +506,149 @@ param = "test_evidence_ref"
 [[action]]
 name = "RunFailed"
 kind = "input"
-from = ["Running"]
+from = ["RunPreparing", "Running"]
 to = "Failed"
-params = [{ name = "error_message", type = "string" }]
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
 
 [[action]]
-name = "Select"
+name = "RunUncertain"
 kind = "input"
-from = ["Compared"]
-to = "Selected"
-params = [{ name = "selection_ask_id", type = "string" }, { name = "delivery_effort_id", type = "string" }]
+from = ["RunPreparing", "Running"]
+to = "RunUnknown"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
 
 [[action.constraints]]
-kind = "param_nonempty"
-param = "selection_ask_id"
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
 
-[[action.constraints]]
-kind = "param_nonempty"
-param = "delivery_effort_id"
+[[action]]
+name = "RunPreparationTimedOut"
+kind = "input"
+from = ["RunPreparing"]
+to = "RunUnknown"
+
+[[action]]
+name = "RunTimedOut"
+kind = "input"
+from = ["Running"]
+to = "RunUnknown"
+
+[[state_timeout]]
+state = "RunPreparing"
+after_seconds = 120
+on_timeout = "RunPreparationTimedOut"
+
+[[state_timeout]]
+state = "Running"
+after_seconds = 10
+on_timeout = "PollRun"
+reset_on = ["PollRun"]
 
 [[action]]
 name = "Cleanup"
 kind = "input"
-from = ["Configured","Ready","Compared","Selected","Failed"]
+from = ["Configured", "Ready", "Compared", "Selected", "Failed"]
+to = "CleanupPreparing"
+effect = [{ type = "increment", var = "operation_sequence" }, { type = "trigger", name = "dsf_experiment_cleanup" }]
+
+[[action.triggers]]
+name = "dsf_experiment_cleanup"
+kind = "wasm"
+module = "dsf_experiment_cleanup"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "ResumeCleanup"
+kind = "input"
+from = ["CleanupUnknown"]
+to = "CleanupPreparing"
+effect = [{ type = "trigger", name = "dsf_experiment_cleanup" }]
+
+[[action.triggers]]
+name = "dsf_experiment_cleanup"
+kind = "wasm"
+module = "dsf_experiment_cleanup"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "CleanupPrepared"
+kind = "input"
+from = ["CleanupPreparing"]
+to = "Cleaning"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "exec_id", type = "string" }, { name = "command", type = "string" }, { name = "phase_deadline_ms", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "exec_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "command"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "phase_deadline_ms"
+
+[[action.triggers]]
+name = "start_cleanup_exec"
+kind = "entity"
+principal = "dsf-factory-runtime"
+target_entity = "Exec"
+target_action = "Run"
+
+[action.triggers.resolve_target]
+type = "create_if_missing"
+id_field = "exec_id"
+
+[action.triggers.params_from]
+computer_id = "computer_id"
+command = "command"
+
+[[action]]
+name = "CleanupReconciled"
+kind = "input"
+from = ["CleanupPreparing"]
+to = "Cleaning"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "exec_id", type = "string" }, { name = "command", type = "string" }, { name = "phase_deadline_ms", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "exec_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "command"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "phase_deadline_ms"
+
+[[action]]
+name = "PollCleanup"
+kind = "input"
+from = ["Cleaning"]
 to = "Cleaning"
 effect = [{ type = "trigger", name = "dsf_experiment_cleanup" }]
 
@@ -253,7 +656,6 @@ effect = [{ type = "trigger", name = "dsf_experiment_cleanup" }]
 name = "dsf_experiment_cleanup"
 kind = "wasm"
 module = "dsf_experiment_cleanup"
-on_failure = "CleanupFailed"
 
 [action.triggers.config]
 temper_api_url = "{secret:temper_api_url}"
@@ -264,7 +666,12 @@ name = "CleanupSucceeded"
 kind = "input"
 from = ["Cleaning"]
 to = "Cleaned"
-params = [{ name = "cleanup_evidence_ref", type = "string" }]
+params = [{ name = "expected_sequence", type = "counter" }, { name = "cleanup_evidence_ref", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
 
 [[action.constraints]]
 kind = "param_nonempty"
@@ -273,28 +680,145 @@ param = "cleanup_evidence_ref"
 [[action]]
 name = "CleanupFailed"
 kind = "input"
-from = ["Cleaning"]
+from = ["CleanupPreparing", "Cleaning"]
 to = "Failed"
-params = [{ name = "error_message", type = "string" }]
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action]]
+name = "CleanupUncertain"
+kind = "input"
+from = ["CleanupPreparing", "Cleaning"]
+to = "CleanupUnknown"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action]]
+name = "CleanupPreparationTimedOut"
+kind = "input"
+from = ["CleanupPreparing"]
+to = "CleanupUnknown"
+
+[[action]]
+name = "CleanupTimedOut"
+kind = "input"
+from = ["Cleaning"]
+to = "CleanupUnknown"
 
 [[state_timeout]]
-state = "Validating"
-after_seconds = 300
-on_timeout = "ValidationFailed"
-
-[[state_timeout]]
-state = "Running"
-after_seconds = 3600
-on_timeout = "RunFailed"
+state = "CleanupPreparing"
+after_seconds = 120
+on_timeout = "CleanupPreparationTimedOut"
 
 [[state_timeout]]
 state = "Cleaning"
-after_seconds = 300
-on_timeout = "CleanupFailed"
+after_seconds = 10
+on_timeout = "PollCleanup"
+reset_on = ["PollCleanup"]
+
+[[action]]
+name = "Select"
+kind = "input"
+from = ["Compared"]
+to = "Selecting"
+params = [{ name = "selection_ask_id", type = "string" }, { name = "delivery_effort_id", type = "string" }]
+effect = [{ type = "increment", var = "operation_sequence" }, { type = "trigger", name = "dsf_experiment_select" }]
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "selection_ask_id"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "delivery_effort_id"
+
+[[action.triggers]]
+name = "dsf_experiment_select"
+kind = "wasm"
+module = "dsf_experiment_select"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "ResumeSelection"
+kind = "input"
+from = ["SelectionUnknown"]
+to = "Selecting"
+effect = [{ type = "trigger", name = "dsf_experiment_select" }]
+
+[[action.triggers]]
+name = "dsf_experiment_select"
+kind = "wasm"
+module = "dsf_experiment_select"
+
+[action.triggers.config]
+temper_api_url = "{secret:temper_api_url}"
+temper_api_key = "{secret:temper_api_key}"
+
+[[action]]
+name = "SelectionSucceeded"
+kind = "input"
+from = ["Selecting"]
+to = "Selected"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "selection_evidence_ref", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "selection_evidence_ref"
+
+[[action]]
+name = "SelectionFailed"
+kind = "input"
+from = ["Selecting"]
+to = "Compared"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action]]
+name = "SelectionUncertain"
+kind = "input"
+from = ["Selecting"]
+to = "SelectionUnknown"
+params = [{ name = "expected_sequence", type = "counter" }, { name = "error_message", type = "string" }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_sequence"
+field = "operation_sequence"
+
+[[action]]
+name = "SelectionTimedOut"
+kind = "input"
+from = ["Selecting"]
+to = "SelectionUnknown"
+
+[[state_timeout]]
+state = "Selecting"
+after_seconds = 120
+on_timeout = "SelectionTimedOut"
 
 [[invariant]]
 name = "RunningExperimentIsIsolated"
-when = ["Ready","Running","Compared","Selected"]
+when = ["Ready", "RunPreparing", "Running", "RunUnknown", "Compared", "Selecting", "Selected", "SelectionUnknown"]
 assert = "isolated"
 
 [[invariant]]

@@ -39,35 +39,18 @@ fn config(source: Value, id: &str) -> Config {
     serde_json::from_value(config_json(source, id)).unwrap()
 }
 fn config_json(source: Value, id: &str) -> Value {
-    json!({"provider_id":id,"secret_name":"provider_token","interval_seconds":300,"source":source})
+    json!({"subject_type":"DsfFlow","subject_id":"subject-1","provider_id":id,"secret_name":"provider_token","interval_seconds":300,"source":source})
 }
 fn dd() -> Value {
     json!({"provider":"datadog","site":"datadoghq.com","app_key_secret":"dd_app_key","query":"sum:trace.http.request.hits{service:dsf}.as_count()","window_seconds":300,"max_age_seconds":120})
 }
 fn sync() -> Value {
-    json!({"source_config_ref":"config-1","resource_id":"resource-1","sync_sequence":7,"source_kind":"vercel"})
+    json!({"source_config_ref":"config-1","resource_id":"subject-1","subject_type":"DsfFlow","sync_sequence":7,"source_kind":"datadog"})
 }
-fn resource(provider: &str, id: &str) -> Value {
-    json!({"Provider":provider,"ProviderId":id,"ObservedSequence":4})
-}
-fn vercel() -> Value {
-    json!({"id":"prj_1","targets":{"production":{"id":"dpl_1","readyState":"READY","url":"dsf.vercel.app","meta":{"githubCommitSha":"abc123","password":"DO_NOT_RECORD"},"env":{"TOKEN":"DO_NOT_RECORD"}}}})
+fn resource(_provider: &str, _id: &str) -> Value {
+    json!({"status":"Active"})
 }
 
-#[test]
-fn vercel_uses_provider_commit_and_discards_secrets() {
-    let result = parse_source(
-        &config(
-            json!({"provider":"vercel","team_id":"team-1","target":"production"}),
-            "prj_1",
-        ),
-        &vercel(),
-        1_000_000,
-    )
-    .unwrap();
-    assert_eq!(result.revision, "abc123");
-    assert!(!result.facts.to_string().contains("DO_NOT_RECORD"));
-}
 #[test]
 fn datadog_empty_series_is_absent_not_zero() {
     let result = parse_source(
@@ -80,11 +63,7 @@ fn datadog_empty_series_is_absent_not_zero() {
     assert_eq!(result.revision, "");
     assert_eq!(result.outcome, "no_numeric_points");
 }
-#[test]
-fn railway_scopes_latest_deployment_to_environment() {
-    let result = parse_source(&config(json!({"provider":"railway","environment_id":"prod"}),"svc"),&json!({"data":{"service":{"id":"svc","serviceInstances":{"edges":[{"node":{"environmentId":"preview","latestDeployment":{"id":"wrong","status":"SUCCESS","meta":{"commitHash":"wrong"}}}},{"node":{"environmentId":"prod","latestDeployment":{"id":"right","status":"SUCCESS","meta":{"commitHash":"right"}}}}]}}}}),1_000_000).unwrap();
-    assert_eq!(result.revision, "right");
-}
+
 #[test]
 fn measured_zero_is_distinct_from_null_or_old_data() {
     let cfg = config(dd(), "api");
@@ -114,84 +93,7 @@ fn measured_zero_is_distinct_from_null_or_old_data() {
         Coverage::Absent
     );
 }
-#[test]
-fn http_failure_records_status_but_not_response_body() {
-    let cfg = config_json(
-        json!({"provider":"vercel","team_id":"team-1","target":"production"}),
-        "prj_1",
-    );
-    let mut host = FakeHost::new(vec![cfg, resource("vercel", "prj_1")]);
-    host.responses.push_back(Response {
-        status: 403,
-        body: "DO_NOT_RECORD_PRIVATE_BODY".into(),
-    });
-    let out = collect(
-        &mut host,
-        "https://temper.example",
-        "secret",
-        "default",
-        "sync-1",
-        &sync(),
-        1_000_000,
-    )
-    .unwrap();
-    assert_eq!(out.action, "CollectionInaccessible");
-    assert!(out.params["summary"].as_str().unwrap().contains("403"));
-    assert!(!out.params.to_string().contains("DO_NOT_RECORD"));
-    assert!(out.params.get("last_success_at").is_none());
-    assert!(out.params.get("observed_configuration").is_none());
-}
-#[test]
-fn binding_mismatch_cannot_read_provider_or_retarget_resource() {
-    let mut host = FakeHost::new(vec![config_json(dd(), "api"), resource("railway", "api")]);
-    assert!(
-        collect(
-            &mut host,
-            "https://temper.example",
-            "secret",
-            "default",
-            "sync-1",
-            &sync(),
-            1_000_000
-        )
-        .unwrap_err()
-        .contains("binding mismatch")
-    );
-    assert_eq!(host.requests.len(), 2);
-}
-#[test]
-fn callback_has_numeric_cas_and_real_inspectable_evidence() {
-    let mut host = FakeHost::new(vec![
-        config_json(
-            json!({"provider":"vercel","team_id":"team-1","target":"production"}),
-            "prj_1",
-        ),
-        resource("vercel", "prj_1"),
-        vercel(),
-    ]);
-    let out = collect(
-        &mut host,
-        "https://temper.example",
-        "secret",
-        "default",
-        "sync-1",
-        &sync(),
-        1_000_000,
-    )
-    .unwrap();
-    assert_eq!(out.action, "CollectionSucceeded");
-    assert_eq!(out.params["expected_sequence"], 7);
-    assert_eq!(out.params["expected_resource_sequence"], 4);
-    assert_eq!(out.params["observed_at_ms"], 1_000_000);
-    assert_eq!(out.params["observation_id"], "sync-1-7");
-    assert_eq!(out.params["evidence_ref"], host.requests[2].url);
-    assert_eq!(out.params["observed_revision"], "abc123");
-    assert_eq!(out.params["next_due_at"], "1970-01-01T00:21:40.000Z");
-    assert!(!out.params.to_string().contains("DO_NOT_RECORD"));
-    assert!(out.params.get("resource_id").is_none());
-    assert_eq!(host.requests.len(), 3);
-    assert!(host.requests.iter().all(|r| r.method == "GET"));
-}
+
 #[test]
 fn configuration_cannot_inject_endpoints_or_secret_headers() {
     let mut json = config_json(dd(), "api");
@@ -200,9 +102,13 @@ fn configuration_cannot_inject_endpoints_or_secret_headers() {
     let mut json = dd();
     json["site"] = json!("datadoghq.com@attacker.example");
     assert!(provider_request(&config(json, "api"), 1_000_000).is_err());
-    let json =
-        json!({"provider":"vercel","team_id":"team-1&endpoint=attacker","target":"production"});
-    assert!(provider_request(&config(json, "prj_1"), 1_000_000).is_err());
+    assert!(
+        serde_json::from_value::<Config>(config_json(
+            json!({"provider":"vercel","team_id":"team-1","target":"production"}),
+            "prj-1"
+        ))
+        .is_err()
+    );
 }
 #[test]
 fn datadog_request_is_bounded_and_url_encoded() {
@@ -222,58 +128,16 @@ fn datadog_request_is_bounded_and_url_encoded() {
         2
     );
 }
-#[test]
-fn railway_transport_contains_only_a_query_and_bound_variables() {
-    let req = provider_request(
-        &config(json!({"provider":"railway","environment_id":"env"}), "svc"),
-        1_000_000,
-    )
-    .unwrap();
-    assert_eq!(req.url, "https://backboard.railway.com/graphql/v2");
-    let body: Value = serde_json::from_str(&req.body).unwrap();
-    assert!(body["query"].as_str().unwrap().starts_with("query "));
-    assert_eq!(body["variables"]["serviceId"], "svc");
-    assert!(!req.body.contains("mutation"));
-}
-#[test]
-fn supabase_and_r2_pick_only_pinned_metadata() {
-    let supa = parse_source(&config(json!({"provider":"supabase"}),"project"),&json!([{"id":"other","status":"INACTIVE"},{"id":"project","status":"ACTIVE_HEALTHY","region":"us-east-1","database":{"password":"DO_NOT_RECORD"}}]),1_000_000).unwrap();
-    assert_eq!(supa.outcome, "ACTIVE_HEALTHY");
-    assert!(!supa.facts.to_string().contains("DO_NOT_RECORD"));
-    let r2 = parse_source(&config(json!({"provider":"cloudflare_r2","account_id":"acct"}),"media"),&json!({"success":true,"result":{"name":"media","location":"enam","private":"DO_NOT_RECORD"}}),1_000_000).unwrap();
-    assert_eq!(r2.outcome, "exists");
-    assert!(!r2.facts.to_string().contains("DO_NOT_RECORD"));
-}
-#[test]
-fn wrong_provider_identity_is_never_success() {
-    let cfg = config(
-        json!({"provider":"vercel","team_id":"team","target":"production"}),
-        "different",
-    );
-    assert!(parse_source(&cfg, &vercel(), 1_000_000).is_err());
-    let cfg = config(
-        json!({"provider":"cloudflare_r2","account_id":"acct"}),
-        "bucket",
-    );
-    assert!(
-        parse_source(
-            &cfg,
-            &json!({"success":true,"result":{"name":"other"}}),
-            1_000_000
-        )
-        .is_err()
-    );
-}
 
 fn operational_snapshot() -> Value {
     let jobs =
         json!({"counts":{"pending":2},"oldest_unfinished_at":null,"jobs":[],"has_more":false});
     json!({
-        "snapshot_version":1,"observed_at":"1970-01-01T00:16:30Z","revision":"abc123",
+        "snapshot_version":1,"participant_limit":200,"job_limit":20,"observed_at":"1970-01-01T00:16:30Z","revision":"a".repeat(40),
         "service":"deep-sci-fi-backend","environment":"production",
         "schema":{"current_version":"old","expected_version":"new","is_current":false},
         "participant_summary":{"total":201,"agents":200,"humans":1,"active_last_24h":2,"heartbeat_last_24h":1},
-        "participants":{"items":[],"next_cursor":"participant-200"},
+        "participants":{"items":[],"next_cursor":"10000000-0000-4000-8000-000000000200"},
         "action_queue":jobs,"media":jobs,"notifications":jobs,
         "private_product_content":"DO_NOT_RECORD"
     })
@@ -290,7 +154,7 @@ fn dsf_snapshot_is_paginated_and_does_not_infer_outages() {
     assert_eq!(parsed.facts["participant_inventory_complete"], false);
     assert_eq!(
         parsed.facts["participants"]["next_cursor"],
-        "participant-200"
+        "10000000-0000-4000-8000-000000000200"
     );
     assert_eq!(parsed.facts["schema"]["is_current"], false);
     assert_eq!(parsed.facts["notifications"]["counts"]["pending"], 2);
@@ -377,8 +241,8 @@ fn github_git_ref_is_one_path_segment_and_commit_metadata_is_redacted() {
         req.url,
         "https://api.github.com/repos/org/repo/commits/feature%2Ftopic%3Fbad%3D1"
     );
-    let parsed = parse_source(&cfg,&json!({"sha":"abc","commit":{"message":"DO_NOT_RECORD","committer":{"email":"DO_NOT_RECORD","date":"2026-09-06T00:00:00Z"},"tree":{"sha":"tree"}}}),1_000_000).unwrap();
-    assert_eq!(parsed.revision, "abc");
+    let parsed = parse_source(&cfg,&json!({"sha":"a".repeat(40),"commit":{"message":"DO_NOT_RECORD","committer":{"email":"DO_NOT_RECORD","date":"2026-09-06T00:00:00Z"},"tree":{"sha":"tree"}}}),1_000_000).unwrap();
+    assert_eq!(parsed.revision, "a".repeat(40));
     assert!(!parsed.facts.to_string().contains("DO_NOT_RECORD"));
 }
 
@@ -389,4 +253,123 @@ fn dsf_service_selector_must_match_bound_provider_identity() {
         "deep-sci-fi-backend",
     );
     assert!(provider_request(&cfg, 1_000_000).is_err());
+}
+
+#[test]
+fn model_sync_binds_real_flow_subjects_and_records_safe_access_failures() {
+    let mut host = FakeHost::new(vec![config_json(dd(), "api"), json!({"status":"Active"})]);
+    host.responses.push_back(Response {
+        status: 403,
+        body: "DO_NOT_RECORD_PRIVATE_BODY".into(),
+    });
+    let result = collect(
+        &mut host,
+        "https://temper.example",
+        "secret",
+        "default",
+        "sync-1",
+        &sync(),
+        1_000_000,
+    )
+    .unwrap();
+    assert_eq!(result.action, "CollectionInaccessible");
+    assert_eq!(
+        host.requests[1].url,
+        "https://temper.example/tdata/DsfFlows('subject-1')"
+    );
+    assert!(!result.params.to_string().contains("DO_NOT_RECORD"));
+    let mut config = config_json(dd(), "api");
+    config["subject_id"] = json!("other");
+    let mut host = FakeHost::new(vec![config]);
+    assert!(
+        collect(
+            &mut host,
+            "https://temper.example",
+            "secret",
+            "default",
+            "sync-1",
+            &sync(),
+            1_000_000
+        )
+        .is_err()
+    );
+    assert_eq!(host.requests.len(), 1);
+}
+#[test]
+fn participant_continuation_keeps_page_evidence_and_uses_the_returned_cursor() {
+    let config = config_json(
+        json!({"provider":"dsf_operations","service":"deep-sci-fi-backend","environment":"production","max_age_seconds":120}),
+        "deep-sci-fi-backend",
+    );
+    let mut fields = sync();
+    fields["source_kind"] = json!("dsf_operations");
+    let mut host = FakeHost::new(vec![
+        config.clone(),
+        json!({"status":"Active"}),
+        operational_snapshot(),
+    ]);
+    let first = collect(
+        &mut host,
+        "https://temper.example",
+        "secret",
+        "default",
+        "sync-1",
+        &fields,
+        1_000_000,
+    )
+    .unwrap();
+    assert_eq!(
+        first.params["source_cursor"],
+        "10000000-0000-4000-8000-000000000200"
+    );
+    fields["source_cursor"] = first.params["source_cursor"].clone();
+    fields["sync_sequence"] = json!(8);
+    let mut page = operational_snapshot();
+    page["participants"]["next_cursor"] = Value::Null;
+    let mut host = FakeHost::new(vec![config, json!({"status":"Active"}), page]);
+    let second = collect(
+        &mut host,
+        "https://temper.example",
+        "secret",
+        "default",
+        "sync-1",
+        &fields,
+        1_000_000,
+    )
+    .unwrap();
+    assert!(
+        host.requests[2]
+            .url
+            .ends_with("&participant_cursor=10000000-0000-4000-8000-000000000200")
+    );
+    assert_eq!(second.params["source_cursor"], "");
+    assert_ne!(
+        first.params["observation_id"],
+        second.params["observation_id"]
+    );
+    let facts: Value = serde_json::from_str(second.params["summary"].as_str().unwrap()).unwrap();
+    assert_eq!(facts["participant_inventory_complete"], false);
+    assert!(
+        facts["participant_page_start_cursor"]
+            .as_str()
+            .unwrap()
+            .ends_with("0200")
+    );
+}
+
+#[test]
+fn snapshot_rejects_invalid_revision_cursor_or_page_limits() {
+    let cfg = config(
+        json!({"provider":"dsf_operations","service":"deep-sci-fi-backend","environment":"production","max_age_seconds":120}),
+        "deep-sci-fi-backend",
+    );
+    for (path, value) in [
+        ("/revision", json!("not-a-commit")),
+        ("/participants/next_cursor", json!("not-a-uuid")),
+        ("/participant_limit", json!(1)),
+    ] {
+        let mut row = operational_snapshot();
+        *row.pointer_mut(path).unwrap() = value;
+        assert!(parse_source(&cfg, &row, 1_000_000).is_err());
+    }
 }

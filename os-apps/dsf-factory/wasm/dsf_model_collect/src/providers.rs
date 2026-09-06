@@ -1,136 +1,16 @@
 //! Provider response parsing retains only operational evidence.
-use super::{Config, Coverage, Facts, facts, picked, text_at};
+use super::{Coverage, Facts, facts, text_at};
 use serde_json::{Value, json};
-
-pub(super) fn railway(
-    config: &Config,
-    response: &Value,
-    environment_id: &str,
-) -> Result<Facts, String> {
-    if response
-        .get("errors")
-        .and_then(Value::as_array)
-        .is_some_and(|v| !v.is_empty())
-    {
-        return Err("Railway GraphQL query failed".into());
-    }
-    if text_at(response, "/data/service/id")? != config.provider_id {
-        return Err("Railway service identity mismatch".into());
-    }
-    let edges = response
-        .pointer("/data/service/serviceInstances/edges")
-        .and_then(Value::as_array)
-        .ok_or("Railway instances missing")?;
-    let instance = edges
-        .iter()
-        .filter_map(|e| e.get("node"))
-        .find(|n| n.get("environmentId").and_then(Value::as_str) == Some(environment_id));
-    let Some(deployment) = instance
-        .and_then(|v| v.get("latestDeployment"))
-        .filter(|v| !v.is_null())
-    else {
-        return Ok(facts(
-            Coverage::Absent,
-            "no_deployment",
-            "",
-            json!({"service_id":config.provider_id,"environment_id":environment_id,"latest_deployment":null}),
-        ));
-    };
-    let status = text_at(deployment, "/status")?;
-    let id = text_at(deployment, "/id")?;
-    // Railway's deployment metadata is the deployment provider's commit record.
-    let revision = deployment
-        .pointer("/meta/commitHash")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    Ok(facts(
-        Coverage::Measured,
-        status,
-        revision,
-        json!({"service_id":config.provider_id,"environment_id":environment_id,"deployment_id":id,"status":status,"created_at":deployment.get("createdAt"),"commit_hash":revision}),
-    ))
-}
-
-pub(super) fn vercel(config: &Config, response: &Value) -> Result<Facts, String> {
-    if text_at(response, "/id")? != config.provider_id {
-        return Err("Vercel project identity mismatch".into());
-    }
-    let Some(deployment) = response
-        .pointer("/targets/production")
-        .filter(|v| !v.is_null())
-    else {
-        return Ok(facts(
-            Coverage::Absent,
-            "no_production_target",
-            "",
-            json!({"project_id":config.provider_id,"production_target":null}),
-        ));
-    };
-    let status = text_at(deployment, "/readyState")?;
-    let id = text_at(deployment, "/id")?;
-    let revision = deployment
-        .pointer("/meta/githubCommitSha")
-        .and_then(Value::as_str)
-        .or_else(|| deployment.pointer("/gitSource/sha").and_then(Value::as_str))
-        .unwrap_or("");
-    Ok(facts(
-        Coverage::Measured,
-        status,
-        revision,
-        json!({"project_id":config.provider_id,"deployment_id":id,"ready_state":status,"commit_sha":revision,"url":deployment.get("url")}),
-    ))
-}
-
-pub(super) fn supabase(config: &Config, response: &Value) -> Result<Facts, String> {
-    let projects = response.as_array().ok_or("Supabase project list missing")?;
-    let project = projects.iter().find(|p| {
-        p.get("ref").or_else(|| p.get("id")).and_then(Value::as_str)
-            == Some(config.provider_id.as_str())
-    });
-    let Some(project) = project else {
-        return Ok(facts(
-            Coverage::Absent,
-            "project_not_visible",
-            "",
-            json!({"project_ref":config.provider_id,"visible":false}),
-        ));
-    };
-    let status = text_at(project, "/status")?;
-    Ok(facts(
-        Coverage::Measured,
-        status,
-        "",
-        picked(project, &["id", "ref", "region", "status", "created_at"]),
-    ))
-}
-
-pub(super) fn cloudflare_r2(config: &Config, response: &Value) -> Result<Facts, String> {
-    if response.get("success") != Some(&Value::Bool(true)) {
-        return Err("Cloudflare bucket read failed".into());
-    }
-    let bucket = response.get("result").ok_or("Cloudflare bucket missing")?;
-    if text_at(bucket, "/name")? != config.provider_id {
-        return Err("Cloudflare bucket identity mismatch".into());
-    }
-    Ok(facts(
-        Coverage::Measured,
-        "exists",
-        "",
-        picked(
-            bucket,
-            &[
-                "name",
-                "creation_date",
-                "jurisdiction",
-                "location",
-                "storage_class",
-            ],
-        ),
-    ))
-}
 
 pub(super) fn github(response: &Value) -> Result<Facts, String> {
     let sha = text_at(response, "/sha")?;
+    if ![40, 64].contains(&sha.len())
+        || !sha
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("invalid GitHub commit revision".into());
+    }
     Ok(facts(
         Coverage::Measured,
         "commit_resolved",

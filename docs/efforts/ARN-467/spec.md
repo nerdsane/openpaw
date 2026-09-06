@@ -55,7 +55,7 @@ Repeated observation of the same source event is idempotent. Older data cannot o
 
 ## Resource operations and delivery
 
-An Effort retains specification, plan, decisions, review, proof and completion. Its deployment configuration names a resource and operation, instead of assuming every project deploys a TemperPaw image. Existing release behavior must keep working while callers move to the resource operation contract.
+An Effort retains specification, plan, decisions, review, proof and completion. `ConfigureResourceDelivery` records up to eight exact final resource operations, each with its type, resource ID, action, operation key and sequence, revision, configuration digest and proof packet. The plan bytes, tested head and delivery sequence fence every asynchronous result. `MergeResourceDelivery` runs the existing review, proof and merge gates. The agent then invokes the declared resource actions. `VerifyResourceDelivery` only reads their durable results: every expected operation must match, carry its verification flag, and provide provider, affected-flow and Datadog evidence before the Effort becomes Verified. The existing `ConfigureDeploy` → `Merge` → `TemperDeploy` path remains available for TemperPaw releases. Neither path can use the other path’s completion callback.
 
 A resource's own spec declares its supported actions and sequences request, validation, execution, observation and verification. For example, `DsfRailwayServiceInstance.Deploy`, `ApplyConfiguration`, `Rollback` and `RefreshObservations` operate on the exact service/environment instance. Each external concern is one provider-specific integration. The same integration can serve multiple instances of its resource type. A WASM module never dispatches another transition itself.
 
