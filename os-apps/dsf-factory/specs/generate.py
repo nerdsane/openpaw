@@ -234,6 +234,7 @@ EVIDENCE = [
 ]
 OBSERVED = ["observed_configuration", "observed_revision"]
 COUNTERS = [
+    "model_sequence",
     "observed_sequence",
     "observed_at_ms",
     "operation_sequence",
@@ -280,6 +281,7 @@ def resource_document(entity, provider, identity, operations):
             "config_sha256",
             "allowed_operations",
             "dependency_ids",
+            "model_provenance_ref",
             "intended_configuration",
             "intended_revision",
             "operation_key",
@@ -361,6 +363,7 @@ def resource_document(entity, provider, identity, operations):
             nonempty(*identity, "config_ref", "config_sha256"),
         )
     )
+    actions.append(model_revision(operations))
     live = [state for state in states if state not in ("Draft", "Retired")]
     observation_inputs = [
         "observation_id",
@@ -496,6 +499,35 @@ def resource_document(entity, provider, identity, operations):
         {"name": "BoundedVerification", "assert": "verification_attempts <= 40"},
     ]
     return doc
+
+
+def model_revision(operations: dict[str, str]) -> dict:
+    """Declare graph maintenance without a provider write or identity change."""
+    return action(
+        "ReviseModel",
+        ["Active"],
+        inputs=[
+            "expected_model_sequence",
+            "name",
+            "source_repository",
+            "dependency_ids",
+            "config_ref",
+            "config_sha256",
+            "allowed_operations",
+            "model_provenance_ref",
+        ],
+        constraints=[equals("expected_model_sequence", "model_sequence")]
+        + nonempty("config_ref", "config_sha256", "model_provenance_ref"),
+        effects=[
+            increment("model_sequence"),
+            {"type": "set_bool", "var": "operation_verified", "value": False},
+        ]
+        + [
+            {"type": "set_bool", "var": verification_flag(operation), "value": False}
+            for operation in operations
+        ],
+        counters=["expected_model_sequence"],
+    )
 
 
 def make_operation(doc, entity, provider, operation, concern):
@@ -951,6 +983,7 @@ def module_manifest(documents):
         )
         for name, entry in actions.items():
             if name in {
+                "ReviseModel",
                 "RefreshObservations",
                 "Deploy",
                 "ApplyConfiguration",

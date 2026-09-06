@@ -157,6 +157,20 @@ fn compiled_modules_receive_only_their_named_secrets_and_callers_receive_none() 
         .insert("module".into(), json!("dsf_model_collect"));
     assert!(secret(&ctx, "dsf_github_token"));
     assert!(!secret(&ctx, "dsf_railway_token"));
+    for provider in ["supabase", "r2", "datadog"] {
+        ctx.context_attrs.insert(
+            "module".into(),
+            json!(format!("dsf_{provider}_configuration_verify")),
+        );
+        assert!(secret(&ctx, "dsf_railway_token"));
+        for phase in ["validate", "execute", "reconcile"] {
+            ctx.context_attrs.insert(
+                "module".into(),
+                json!(format!("dsf_{provider}_configuration_{phase}")),
+            );
+            assert!(!secret(&ctx, "dsf_railway_token"));
+        }
+    }
 }
 
 #[test]

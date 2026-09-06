@@ -58,6 +58,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "model_provenance_ref"
+type = "string"
+initial = ""
+
+[[state]]
 name = "intended_configuration"
 type = "string"
 initial = ""
@@ -218,6 +223,11 @@ type = "string"
 initial = ""
 
 [[state]]
+name = "model_sequence"
+type = "counter"
+initial = "0"
+
+[[state]]
 name = "observed_sequence"
 type = "counter"
 initial = "0"
@@ -329,6 +339,30 @@ param = "config_ref"
 [[action.constraints]]
 kind = "param_nonempty"
 param = "config_sha256"
+
+[[action]]
+name = "ReviseModel"
+kind = "input"
+from = ["Active"]
+params = [{ name = "expected_model_sequence", type = "counter" }, { name = "name", type = "string" }, { name = "source_repository", type = "string" }, { name = "dependency_ids", type = "string" }, { name = "config_ref", type = "string" }, { name = "config_sha256", type = "string" }, { name = "allowed_operations", type = "string" }, { name = "model_provenance_ref", type = "string" }]
+effect = [{ type = "increment", var = "model_sequence" }, { type = "set_bool", var = "operation_verified", value = false }, { type = "set_bool", var = "deploy_verified", value = false }, { type = "set_bool", var = "apply_configuration_verified", value = false }, { type = "set_bool", var = "rollback_verified", value = false }, { type = "set_bool", var = "set_alias_verified", value = false }]
+
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_model_sequence"
+field = "model_sequence"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "config_ref"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "config_sha256"
+
+[[action.constraints]]
+kind = "param_nonempty"
+param = "model_provenance_ref"
 
 [[action]]
 name = "Observe"

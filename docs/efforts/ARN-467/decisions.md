@@ -215,3 +215,51 @@
 **Chose separate permissions because:** Registered factory agents and humans can operate resources and maintain Flow/Participant models, while only kernel service principals can publish observations or operation results. Explicit callback forbids survive unrelated permits. Each compiled module receives only its required Temper/provider credentials; dynamic source config cannot request unrelated tenant secrets.
 
 **Where:** `os-apps/dsf-factory/policies/`; `crates/temperpaw/tests/dsf_factory_policy.rs`.
+
+## D19: Investigate material model changes through existing workers
+
+**Decision:** Queue material model changes through the existing PatrolRun and WorkerRun types, using native reactions and a subscription agent in paw-codex-worker.
+
+**Came up because:** Resource and ModelSync refreshes preserved observations but did not wake an agent to maintain the application/user model or investigate drift. The old PatrolRun WASM dispatches WorkCycle transitions imperatively.
+
+**Options:** Reuse the WorkCycle dispatcher; keep the setup Effort open indefinitely; add an operations entity; or use native PatrolRun/WorkerRun actions with ordinary Intent/Effort/Ask for resulting repairs.
+
+**Chose native PatrolRun/WorkerRun actions because:** They preserve worker ownership without another entity or a perpetual setup Effort. A material fingerprint includes the subject, desired configuration/revision and observed source facts. It excludes collection timestamps and derived age noise but retains participant activity, job identities and eligibility. Startup reconciliation reuses deterministic run IDs and restores interrupted child assignment or terminal evidence. Completed investigations do not rerun; failures remain visible for recovery.
+
+**Where:** `os-apps/paw-patrol/specs/{patrol_run,worker_run}.ioa.toml`; their CSDL declarations; `crates/paw-codex-worker/src/dsf_model_{patrol,investigation}.rs`; `crates/temperpaw/tests/dsf_model_patrol.rs`.
+
+## D20: Separate resident worker and reasoning-agent credentials
+
+**Decision:** Give the daemon and reasoning agent separate registered Temper credentials, and launch Temper through its actual stdio MCP transport.
+
+**Came up because:** The existing worker invocation ignores user configuration and exposes only Datadog MCP. An OData base URL is not an HTTP MCP endpoint. The current standalone temper-mcp binary reads TEMPER_API_KEY and resolves the registered identity.
+
+**Options:** Assume an HTTP MCP route; inherit all user configuration; or configure the existing stdio binary explicitly.
+
+**Chose explicit stdio configuration because:** It makes the resident binding inspectable. The child uses ChatGPT subscription authentication and the OpenAI provider. API billing keys and the daemon WORKER_TOKEN are removed; DSF_FACTORY_AGENT_TOKEN becomes the MCP child's TEMPER_API_KEY. The daemon rereads returned model/work references before recording completion. Cedar reserves runtime reactions and assigned-worker results even when another policy permits them. This requires a separately provisioned agent credential and current binary.
+
+**Where:** `crates/paw-codex-worker/src/{dsf_model_investigation,execution}.rs`; `os-apps/dsf-factory/policies/model_investigation.cedar`.
+
+## D21: Exercise the actual application catalog contract
+
+**Decision:** Add APP.md so the platform's app catalog can load dsf-factory.
+
+**Came up because:** A real bundle-loading test returned no dsf-factory bundle: the loader skips directories without APP.md. README.md does not satisfy that contract.
+
+**Options:** Change the shared catalog's loading rules; provide the app guide it already requires.
+
+**Chose the existing catalog contract because:** It fixes this app without changing other applications. The loader already enumerates every top-level policies/*.cedar file. A catalog test proves the generated provider policy and investigation policy are both loaded.
+
+**Where:** `os-apps/dsf-factory/APP.md`; `crates/temperpaw/tests/dsf_model_patrol.rs`.
+
+## D22: Revise resource models without changing provider identity
+
+**Decision:** Add an Active-only ReviseModel action with a model sequence check and provenance reference, while retaining immutable provider identity and delivery history.
+
+**Came up because:** Register was the only way to set configuration bindings, dependencies and operation availability. Strict generic writes correctly refused subsequent changes, so agents could not keep the resource graph current or bind an observation-only discovery later.
+
+**Options:** Permit generic updates; replace the row and lose its history; or declare the exact model-edit action on each typed resource.
+
+**Chose the named action because:** It allows agents to maintain labels, source repository, dependencies, pinned configuration and available operations without changing provider identity, environment, observed facts or desired delivery state. A sequence check refuses stale edits. Revision clears current operation verification flags so earlier completion evidence cannot satisfy delivery against a changed binding. Only Active resources can be rebound; no provider integration runs during this action.
+
+**Where:** `os-apps/dsf-factory/specs/generate.py`; generated resource contracts and policy; `crates/temperpaw/tests/dsf_resource_model_revision.rs`.

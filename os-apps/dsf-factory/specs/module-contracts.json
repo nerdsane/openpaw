@@ -154,6 +154,7 @@
         "ConfigSha256": "Edm.String",
         "AllowedOperations": "Edm.String",
         "DependencyIds": "Edm.String",
+        "ModelProvenanceRef": "Edm.String",
         "IntendedConfiguration": "Edm.String",
         "IntendedRevision": "Edm.String",
         "OperationKey": "Edm.String",
@@ -184,6 +185,7 @@
         "ObservedRevision": "Edm.String",
         "ObservationId": "Edm.String",
         "RollbackExecutionId": "Edm.String",
+        "ModelSequence": "Edm.Int64",
         "ObservedSequence": "Edm.Int64",
         "ObservedAtMs": "Edm.Int64",
         "OperationSequence": "Edm.Int64",
@@ -203,6 +205,50 @@
         "ProvenanceRef": "Edm.String"
       },
       "human_actions": {
+        "ReviseModel": {
+          "params": [
+            {
+              "name": "expected_model_sequence",
+              "type": "counter"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "source_repository",
+              "type": "string"
+            },
+            {
+              "name": "dependency_ids",
+              "type": "string"
+            },
+            {
+              "name": "config_ref",
+              "type": "string"
+            },
+            {
+              "name": "config_sha256",
+              "type": "string"
+            },
+            {
+              "name": "allowed_operations",
+              "type": "string"
+            },
+            {
+              "name": "model_provenance_ref",
+              "type": "string"
+            }
+          ],
+          "from": [
+            "Active"
+          ],
+          "param_nonempty": [
+            "config_ref",
+            "config_sha256",
+            "model_provenance_ref"
+          ]
+        },
         "RefreshObservations": {
           "params": [],
           "from": [
@@ -677,6 +723,7 @@
         "ConfigSha256": "Edm.String",
         "AllowedOperations": "Edm.String",
         "DependencyIds": "Edm.String",
+        "ModelProvenanceRef": "Edm.String",
         "IntendedConfiguration": "Edm.String",
         "IntendedRevision": "Edm.String",
         "OperationKey": "Edm.String",
@@ -709,6 +756,7 @@
         "DeploymentTarget": "Edm.String",
         "Alias": "Edm.String",
         "RollbackExecutionId": "Edm.String",
+        "ModelSequence": "Edm.Int64",
         "ObservedSequence": "Edm.Int64",
         "ObservedAtMs": "Edm.Int64",
         "OperationSequence": "Edm.Int64",
@@ -729,6 +777,50 @@
         "ProvenanceRef": "Edm.String"
       },
       "human_actions": {
+        "ReviseModel": {
+          "params": [
+            {
+              "name": "expected_model_sequence",
+              "type": "counter"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "source_repository",
+              "type": "string"
+            },
+            {
+              "name": "dependency_ids",
+              "type": "string"
+            },
+            {
+              "name": "config_ref",
+              "type": "string"
+            },
+            {
+              "name": "config_sha256",
+              "type": "string"
+            },
+            {
+              "name": "allowed_operations",
+              "type": "string"
+            },
+            {
+              "name": "model_provenance_ref",
+              "type": "string"
+            }
+          ],
+          "from": [
+            "Active"
+          ],
+          "param_nonempty": [
+            "config_ref",
+            "config_sha256",
+            "model_provenance_ref"
+          ]
+        },
         "RefreshObservations": {
           "params": [],
           "from": [
@@ -1356,6 +1448,7 @@
         "ConfigSha256": "Edm.String",
         "AllowedOperations": "Edm.String",
         "DependencyIds": "Edm.String",
+        "ModelProvenanceRef": "Edm.String",
         "IntendedConfiguration": "Edm.String",
         "IntendedRevision": "Edm.String",
         "OperationKey": "Edm.String",
@@ -1385,6 +1478,7 @@
         "ObservedConfiguration": "Edm.String",
         "ObservedRevision": "Edm.String",
         "ObservationId": "Edm.String",
+        "ModelSequence": "Edm.Int64",
         "ObservedSequence": "Edm.Int64",
         "ObservedAtMs": "Edm.Int64",
         "OperationSequence": "Edm.Int64",
@@ -1402,6 +1496,50 @@
         "ProvenanceRef": "Edm.String"
       },
       "human_actions": {
+        "ReviseModel": {
+          "params": [
+            {
+              "name": "expected_model_sequence",
+              "type": "counter"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "source_repository",
+              "type": "string"
+            },
+            {
+              "name": "dependency_ids",
+              "type": "string"
+            },
+            {
+              "name": "config_ref",
+              "type": "string"
+            },
+            {
+              "name": "config_sha256",
+              "type": "string"
+            },
+            {
+              "name": "allowed_operations",
+              "type": "string"
+            },
+            {
+              "name": "model_provenance_ref",
+              "type": "string"
+            }
+          ],
+          "from": [
+            "Active"
+          ],
+          "param_nonempty": [
+            "config_ref",
+            "config_sha256",
+            "model_provenance_ref"
+          ]
+        },
         "RefreshObservations": {
           "params": [],
           "from": [
@@ -1615,6 +1753,7 @@
         "ConfigSha256": "Edm.String",
         "AllowedOperations": "Edm.String",
         "DependencyIds": "Edm.String",
+        "ModelProvenanceRef": "Edm.String",
         "IntendedConfiguration": "Edm.String",
         "IntendedRevision": "Edm.String",
         "OperationKey": "Edm.String",
@@ -1644,6 +1783,7 @@
         "ObservedConfiguration": "Edm.String",
         "ObservedRevision": "Edm.String",
         "ObservationId": "Edm.String",
+        "ModelSequence": "Edm.Int64",
         "ObservedSequence": "Edm.Int64",
         "ObservedAtMs": "Edm.Int64",
         "OperationSequence": "Edm.Int64",
@@ -1661,6 +1801,50 @@
         "ProvenanceRef": "Edm.String"
       },
       "human_actions": {
+        "ReviseModel": {
+          "params": [
+            {
+              "name": "expected_model_sequence",
+              "type": "counter"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "source_repository",
+              "type": "string"
+            },
+            {
+              "name": "dependency_ids",
+              "type": "string"
+            },
+            {
+              "name": "config_ref",
+              "type": "string"
+            },
+            {
+              "name": "config_sha256",
+              "type": "string"
+            },
+            {
+              "name": "allowed_operations",
+              "type": "string"
+            },
+            {
+              "name": "model_provenance_ref",
+              "type": "string"
+            }
+          ],
+          "from": [
+            "Active"
+          ],
+          "param_nonempty": [
+            "config_ref",
+            "config_sha256",
+            "model_provenance_ref"
+          ]
+        },
         "RefreshObservations": {
           "params": [],
           "from": [
@@ -1879,6 +2063,7 @@
         "ConfigSha256": "Edm.String",
         "AllowedOperations": "Edm.String",
         "DependencyIds": "Edm.String",
+        "ModelProvenanceRef": "Edm.String",
         "IntendedConfiguration": "Edm.String",
         "IntendedRevision": "Edm.String",
         "OperationKey": "Edm.String",
@@ -1908,6 +2093,7 @@
         "ObservedConfiguration": "Edm.String",
         "ObservedRevision": "Edm.String",
         "ObservationId": "Edm.String",
+        "ModelSequence": "Edm.Int64",
         "ObservedSequence": "Edm.Int64",
         "ObservedAtMs": "Edm.Int64",
         "OperationSequence": "Edm.Int64",
@@ -1925,6 +2111,50 @@
         "ProvenanceRef": "Edm.String"
       },
       "human_actions": {
+        "ReviseModel": {
+          "params": [
+            {
+              "name": "expected_model_sequence",
+              "type": "counter"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "source_repository",
+              "type": "string"
+            },
+            {
+              "name": "dependency_ids",
+              "type": "string"
+            },
+            {
+              "name": "config_ref",
+              "type": "string"
+            },
+            {
+              "name": "config_sha256",
+              "type": "string"
+            },
+            {
+              "name": "allowed_operations",
+              "type": "string"
+            },
+            {
+              "name": "model_provenance_ref",
+              "type": "string"
+            }
+          ],
+          "from": [
+            "Active"
+          ],
+          "param_nonempty": [
+            "config_ref",
+            "config_sha256",
+            "model_provenance_ref"
+          ]
+        },
         "RefreshObservations": {
           "params": [],
           "from": [
@@ -2143,6 +2373,7 @@
         "ConfigSha256": "Edm.String",
         "AllowedOperations": "Edm.String",
         "DependencyIds": "Edm.String",
+        "ModelProvenanceRef": "Edm.String",
         "IntendedConfiguration": "Edm.String",
         "IntendedRevision": "Edm.String",
         "OperationKey": "Edm.String",
@@ -2174,6 +2405,7 @@
         "ObservationId": "Edm.String",
         "SelectedGenerationIds": "Edm.String",
         "CostAuthorityRef": "Edm.String",
+        "ModelSequence": "Edm.Int64",
         "ObservedSequence": "Edm.Int64",
         "ObservedAtMs": "Edm.Int64",
         "OperationSequence": "Edm.Int64",
@@ -2191,6 +2423,50 @@
         "ProvenanceRef": "Edm.String"
       },
       "human_actions": {
+        "ReviseModel": {
+          "params": [
+            {
+              "name": "expected_model_sequence",
+              "type": "counter"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "source_repository",
+              "type": "string"
+            },
+            {
+              "name": "dependency_ids",
+              "type": "string"
+            },
+            {
+              "name": "config_ref",
+              "type": "string"
+            },
+            {
+              "name": "config_sha256",
+              "type": "string"
+            },
+            {
+              "name": "allowed_operations",
+              "type": "string"
+            },
+            {
+              "name": "model_provenance_ref",
+              "type": "string"
+            }
+          ],
+          "from": [
+            "Active"
+          ],
+          "param_nonempty": [
+            "config_ref",
+            "config_sha256",
+            "model_provenance_ref"
+          ]
+        },
         "RefreshObservations": {
           "params": [],
           "from": [

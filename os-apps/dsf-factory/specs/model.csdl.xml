@@ -19,6 +19,7 @@
         <Property Name="ConfigSha256" Type="Edm.String" />
         <Property Name="AllowedOperations" Type="Edm.String" />
         <Property Name="DependencyIds" Type="Edm.String" />
+        <Property Name="ModelProvenanceRef" Type="Edm.String" />
         <Property Name="IntendedConfiguration" Type="Edm.String" />
         <Property Name="IntendedRevision" Type="Edm.String" />
         <Property Name="OperationKey" Type="Edm.String" />
@@ -49,6 +50,7 @@
         <Property Name="ObservedRevision" Type="Edm.String" />
         <Property Name="ObservationId" Type="Edm.String" />
         <Property Name="RollbackExecutionId" Type="Edm.String" />
+        <Property Name="ModelSequence" Type="Edm.Int64" />
         <Property Name="ObservedSequence" Type="Edm.Int64" />
         <Property Name="ObservedAtMs" Type="Edm.Int64" />
         <Property Name="OperationSequence" Type="Edm.Int64" />
@@ -81,6 +83,17 @@
         <Parameter Name="allowed_operations" Type="Edm.String" />
         <Parameter Name="dependency_ids" Type="Edm.String" />
         <Parameter Name="intended_configuration" Type="Edm.String" />
+      </Action>
+      <Action Name="ReviseModel" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfRailwayServiceInstance" />
+        <Parameter Name="expected_model_sequence" Type="Edm.Int64" />
+        <Parameter Name="name" Type="Edm.String" />
+        <Parameter Name="source_repository" Type="Edm.String" />
+        <Parameter Name="dependency_ids" Type="Edm.String" />
+        <Parameter Name="config_ref" Type="Edm.String" />
+        <Parameter Name="config_sha256" Type="Edm.String" />
+        <Parameter Name="allowed_operations" Type="Edm.String" />
+        <Parameter Name="model_provenance_ref" Type="Edm.String" />
       </Action>
       <Action Name="Observe" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfRailwayServiceInstance" />
@@ -565,6 +578,7 @@
         <Property Name="ConfigSha256" Type="Edm.String" />
         <Property Name="AllowedOperations" Type="Edm.String" />
         <Property Name="DependencyIds" Type="Edm.String" />
+        <Property Name="ModelProvenanceRef" Type="Edm.String" />
         <Property Name="IntendedConfiguration" Type="Edm.String" />
         <Property Name="IntendedRevision" Type="Edm.String" />
         <Property Name="OperationKey" Type="Edm.String" />
@@ -597,6 +611,7 @@
         <Property Name="DeploymentTarget" Type="Edm.String" />
         <Property Name="Alias" Type="Edm.String" />
         <Property Name="RollbackExecutionId" Type="Edm.String" />
+        <Property Name="ModelSequence" Type="Edm.Int64" />
         <Property Name="ObservedSequence" Type="Edm.Int64" />
         <Property Name="ObservedAtMs" Type="Edm.Int64" />
         <Property Name="OperationSequence" Type="Edm.Int64" />
@@ -629,6 +644,17 @@
         <Parameter Name="allowed_operations" Type="Edm.String" />
         <Parameter Name="dependency_ids" Type="Edm.String" />
         <Parameter Name="intended_configuration" Type="Edm.String" />
+      </Action>
+      <Action Name="ReviseModel" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfVercelProject" />
+        <Parameter Name="expected_model_sequence" Type="Edm.Int64" />
+        <Parameter Name="name" Type="Edm.String" />
+        <Parameter Name="source_repository" Type="Edm.String" />
+        <Parameter Name="dependency_ids" Type="Edm.String" />
+        <Parameter Name="config_ref" Type="Edm.String" />
+        <Parameter Name="config_sha256" Type="Edm.String" />
+        <Parameter Name="allowed_operations" Type="Edm.String" />
+        <Parameter Name="model_provenance_ref" Type="Edm.String" />
       </Action>
       <Action Name="Observe" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfVercelProject" />
@@ -1241,6 +1267,7 @@
         <Property Name="ConfigSha256" Type="Edm.String" />
         <Property Name="AllowedOperations" Type="Edm.String" />
         <Property Name="DependencyIds" Type="Edm.String" />
+        <Property Name="ModelProvenanceRef" Type="Edm.String" />
         <Property Name="IntendedConfiguration" Type="Edm.String" />
         <Property Name="IntendedRevision" Type="Edm.String" />
         <Property Name="OperationKey" Type="Edm.String" />
@@ -1270,6 +1297,7 @@
         <Property Name="ObservedConfiguration" Type="Edm.String" />
         <Property Name="ObservedRevision" Type="Edm.String" />
         <Property Name="ObservationId" Type="Edm.String" />
+        <Property Name="ModelSequence" Type="Edm.Int64" />
         <Property Name="ObservedSequence" Type="Edm.Int64" />
         <Property Name="ObservedAtMs" Type="Edm.Int64" />
         <Property Name="OperationSequence" Type="Edm.Int64" />
@@ -1298,6 +1326,17 @@
         <Parameter Name="allowed_operations" Type="Edm.String" />
         <Parameter Name="dependency_ids" Type="Edm.String" />
         <Parameter Name="intended_configuration" Type="Edm.String" />
+      </Action>
+      <Action Name="ReviseModel" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfSupabaseProject" />
+        <Parameter Name="expected_model_sequence" Type="Edm.Int64" />
+        <Parameter Name="name" Type="Edm.String" />
+        <Parameter Name="source_repository" Type="Edm.String" />
+        <Parameter Name="dependency_ids" Type="Edm.String" />
+        <Parameter Name="config_ref" Type="Edm.String" />
+        <Parameter Name="config_sha256" Type="Edm.String" />
+        <Parameter Name="allowed_operations" Type="Edm.String" />
+        <Parameter Name="model_provenance_ref" Type="Edm.String" />
       </Action>
       <Action Name="Observe" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfSupabaseProject" />
@@ -1535,6 +1574,7 @@
         <Property Name="ConfigSha256" Type="Edm.String" />
         <Property Name="AllowedOperations" Type="Edm.String" />
         <Property Name="DependencyIds" Type="Edm.String" />
+        <Property Name="ModelProvenanceRef" Type="Edm.String" />
         <Property Name="IntendedConfiguration" Type="Edm.String" />
         <Property Name="IntendedRevision" Type="Edm.String" />
         <Property Name="OperationKey" Type="Edm.String" />
@@ -1564,6 +1604,7 @@
         <Property Name="ObservedConfiguration" Type="Edm.String" />
         <Property Name="ObservedRevision" Type="Edm.String" />
         <Property Name="ObservationId" Type="Edm.String" />
+        <Property Name="ModelSequence" Type="Edm.Int64" />
         <Property Name="ObservedSequence" Type="Edm.Int64" />
         <Property Name="ObservedAtMs" Type="Edm.Int64" />
         <Property Name="OperationSequence" Type="Edm.Int64" />
@@ -1593,6 +1634,17 @@
         <Parameter Name="allowed_operations" Type="Edm.String" />
         <Parameter Name="dependency_ids" Type="Edm.String" />
         <Parameter Name="intended_configuration" Type="Edm.String" />
+      </Action>
+      <Action Name="ReviseModel" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfCloudflareR2Bucket" />
+        <Parameter Name="expected_model_sequence" Type="Edm.Int64" />
+        <Parameter Name="name" Type="Edm.String" />
+        <Parameter Name="source_repository" Type="Edm.String" />
+        <Parameter Name="dependency_ids" Type="Edm.String" />
+        <Parameter Name="config_ref" Type="Edm.String" />
+        <Parameter Name="config_sha256" Type="Edm.String" />
+        <Parameter Name="allowed_operations" Type="Edm.String" />
+        <Parameter Name="model_provenance_ref" Type="Edm.String" />
       </Action>
       <Action Name="Observe" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfCloudflareR2Bucket" />
@@ -1831,6 +1883,7 @@
         <Property Name="ConfigSha256" Type="Edm.String" />
         <Property Name="AllowedOperations" Type="Edm.String" />
         <Property Name="DependencyIds" Type="Edm.String" />
+        <Property Name="ModelProvenanceRef" Type="Edm.String" />
         <Property Name="IntendedConfiguration" Type="Edm.String" />
         <Property Name="IntendedRevision" Type="Edm.String" />
         <Property Name="OperationKey" Type="Edm.String" />
@@ -1860,6 +1913,7 @@
         <Property Name="ObservedConfiguration" Type="Edm.String" />
         <Property Name="ObservedRevision" Type="Edm.String" />
         <Property Name="ObservationId" Type="Edm.String" />
+        <Property Name="ModelSequence" Type="Edm.Int64" />
         <Property Name="ObservedSequence" Type="Edm.Int64" />
         <Property Name="ObservedAtMs" Type="Edm.Int64" />
         <Property Name="OperationSequence" Type="Edm.Int64" />
@@ -1890,6 +1944,17 @@
         <Parameter Name="allowed_operations" Type="Edm.String" />
         <Parameter Name="dependency_ids" Type="Edm.String" />
         <Parameter Name="intended_configuration" Type="Edm.String" />
+      </Action>
+      <Action Name="ReviseModel" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfDatadogMonitor" />
+        <Parameter Name="expected_model_sequence" Type="Edm.Int64" />
+        <Parameter Name="name" Type="Edm.String" />
+        <Parameter Name="source_repository" Type="Edm.String" />
+        <Parameter Name="dependency_ids" Type="Edm.String" />
+        <Parameter Name="config_ref" Type="Edm.String" />
+        <Parameter Name="config_sha256" Type="Edm.String" />
+        <Parameter Name="allowed_operations" Type="Edm.String" />
+        <Parameter Name="model_provenance_ref" Type="Edm.String" />
       </Action>
       <Action Name="Observe" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfDatadogMonitor" />
@@ -2128,6 +2193,7 @@
         <Property Name="ConfigSha256" Type="Edm.String" />
         <Property Name="AllowedOperations" Type="Edm.String" />
         <Property Name="DependencyIds" Type="Edm.String" />
+        <Property Name="ModelProvenanceRef" Type="Edm.String" />
         <Property Name="IntendedConfiguration" Type="Edm.String" />
         <Property Name="IntendedRevision" Type="Edm.String" />
         <Property Name="OperationKey" Type="Edm.String" />
@@ -2159,6 +2225,7 @@
         <Property Name="ObservationId" Type="Edm.String" />
         <Property Name="SelectedGenerationIds" Type="Edm.String" />
         <Property Name="CostAuthorityRef" Type="Edm.String" />
+        <Property Name="ModelSequence" Type="Edm.Int64" />
         <Property Name="ObservedSequence" Type="Edm.Int64" />
         <Property Name="ObservedAtMs" Type="Edm.Int64" />
         <Property Name="OperationSequence" Type="Edm.Int64" />
@@ -2189,6 +2256,17 @@
         <Parameter Name="allowed_operations" Type="Edm.String" />
         <Parameter Name="dependency_ids" Type="Edm.String" />
         <Parameter Name="intended_configuration" Type="Edm.String" />
+      </Action>
+      <Action Name="ReviseModel" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfMediaPipeline" />
+        <Parameter Name="expected_model_sequence" Type="Edm.Int64" />
+        <Parameter Name="name" Type="Edm.String" />
+        <Parameter Name="source_repository" Type="Edm.String" />
+        <Parameter Name="dependency_ids" Type="Edm.String" />
+        <Parameter Name="config_ref" Type="Edm.String" />
+        <Parameter Name="config_sha256" Type="Edm.String" />
+        <Parameter Name="allowed_operations" Type="Edm.String" />
+        <Parameter Name="model_provenance_ref" Type="Edm.String" />
       </Action>
       <Action Name="Observe" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfMediaPipeline" />

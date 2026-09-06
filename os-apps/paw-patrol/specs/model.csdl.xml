@@ -220,6 +220,9 @@
         <Property Name="Claimed" Type="Edm.Boolean"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="One local Codex or manually approved cloud execution attempt."/>
+              <Property Name="PatrolRunId" Type="Edm.String"/>
+        <Property Name="EvidenceJson" Type="Edm.String" />
+        <Property Name="ModelInvestigation" Type="Edm.Boolean"/>
       </EntityType>
 
       <EntityType Name="ReviewRun">
@@ -411,6 +414,15 @@
         <Property Name="Integration" Type="Edm.String"/>
         <Annotation Term="Paw.Vocab.AuthZ.CedarPolicy" String="policies/patrol.cedar"/>
         <Annotation Term="Paw.Vocab.Agent.Hint" String="One active Risk Patrol investigation run."/>
+              <Property Name="InvestigationKey" Type="Edm.String"/>
+        <Property Name="ObservationId" Type="Edm.String"/>
+        <Property Name="SourceEvidence" Type="Edm.String"/>
+        <Property Name="Task" Type="Edm.String"/>
+        <Property Name="BranchName" Type="Edm.String"/>
+        <Property Name="WorktreePath" Type="Edm.String"/>
+        <Property Name="AllowedWorkerId" Type="Edm.String"/>
+        <Property Name="ProviderId" Type="Edm.String"/>
+        <Property Name="RunnerKind" Type="Edm.String"/>
       </EntityType>
 
       <EntityType Name="WorkerProvider">
