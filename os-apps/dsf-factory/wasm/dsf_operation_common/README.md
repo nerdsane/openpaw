@@ -63,7 +63,7 @@ Routine deployment needs no new Ask. The linked Effort must be Merged, Deploying
 
 Open blocking Asks stop validation. `required_ask_ids` defaults to empty. When configured, each required Ask must be linked to the same Effort and answered without an explicit denial. This check establishes that a recorded choice is resolved; it does not interpret arbitrary prose as a new grant of authority. Cedar and the Effort's recorded authorization remain the governing boundaries.
 
-Deployment modules use existing service allocations and require `max_cost_cents: 0`. Media repairs check exact selected jobs, per-job ceilings and the existing image/video cost estimates before submission, then require recorded actual costs within those ceilings before verification. This is not a global spending ledger or a provider-enforced monetary cap. New paid provisioning belongs to the separately governed experiment path.
+Deployment modules use existing service allocations and require `max_cost_cents: 0`. Media repairs check exact selected jobs, per-job ceilings and the image cost estimate and the video cost at its exact configured duration before submission, then require recorded actual costs within those ceilings before verification. This is not a global spending ledger or a provider-enforced monetary cap. New paid provisioning belongs to the separately governed experiment path.
 
 ## Provider correlation and uncertainty
 

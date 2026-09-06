@@ -538,3 +538,65 @@ fn failed_media_job_does_not_release_other_running_selected_jobs() {
         Err(Error::Pending(_))
     ));
 }
+
+#[test]
+fn video_repair_uses_exact_duration_and_rejects_missing_duration() {
+    for duration in [json!(15), Value::Null] {
+        let mut cfg = media_config();
+        cfg["max_cost_cents"] = json!(50);
+        cfg["provider"]["generations"][0]["media_type"] = json!("video");
+        cfg["provider"]["generations"][0]["max_cost_cents"] = json!(50);
+        let op = configured_operation(&cfg);
+        let mut fake = Fake::new(reads_for(&cfg));
+        fake.responses.push_back(Response {
+            status: 404,
+            body: "{}".into(),
+        });
+        let mut status = media_status("pending");
+        status["media_type"] = json!("video");
+        status["duration_seconds"] = duration;
+        fake.responses.push_back(Response {
+            status: 200,
+            body: status.to_string(),
+        });
+        fake.responses.push_back(Response {
+            status: 200,
+            body: media_receipt()["response"].to_string(),
+        });
+        assert!(matches!(
+            execute(&mut runtime(&mut fake), &op),
+            Err(Error::Binding(_))
+        ));
+        assert!(fake.requests.iter().all(|request| request.method == "GET"));
+    }
+}
+
+#[test]
+fn video_repair_accepts_the_exact_fifteen_second_cost_ceiling() {
+    let mut cfg = media_config();
+    cfg["max_cost_cents"] = json!(75);
+    cfg["provider"]["generations"][0]["media_type"] = json!("video");
+    cfg["provider"]["generations"][0]["max_cost_cents"] = json!(75);
+    let op = configured_operation(&cfg);
+    let mut fake = Fake::new(reads_for(&cfg));
+    fake.responses.push_back(Response {
+        status: 404,
+        body: "{}".into(),
+    });
+    let mut status = media_status("pending");
+    status["media_type"] = json!("video");
+    status["duration_seconds"] = json!(15.0);
+    fake.responses.push_back(Response {
+        status: 200,
+        body: status.to_string(),
+    });
+    fake.responses.push_back(Response {
+        status: 200,
+        body: media_receipt()["response"].to_string(),
+    });
+    assert_eq!(
+        execute(&mut runtime(&mut fake), &op).unwrap().action,
+        "ExecutionSucceeded"
+    );
+    assert_eq!(fake.requests.last().unwrap().method, "POST");
+}

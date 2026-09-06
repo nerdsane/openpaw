@@ -421,7 +421,18 @@ fn validate_media_selection(
         }
         let estimated = match generation.media_type.as_str() {
             "cover_image" => 2,
-            "video" => 50,
+            "video" => {
+                let duration = value
+                    .get("duration_seconds")
+                    .and_then(Value::as_f64)
+                    .filter(|value| {
+                        value.is_finite() && (5.0..=15.0).contains(value) && value.fract() == 0.0
+                    })
+                    .ok_or(Error::Binding(
+                        "video cost requires a valid configured duration",
+                    ))?;
+                duration as u64 * 5
+            }
             _ => return Err(Error::Binding("unsupported media type")),
         };
         if estimated > generation.max_cost_cents {
