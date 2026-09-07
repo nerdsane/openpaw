@@ -312,3 +312,17 @@
 **Chose native authority because:** It preserves the initiating identity's Cedar permissions without a second credential. Provider requests retain their own module-scoped credentials. The host supplies the internal API origin; it is no longer a secret template. All DSF and new resource-delivery callers drop the Runtime key field and shared-secret grants. Unrelated existing chain gates remain unchanged.
 
 **Where:** os-apps/dsf-factory/wasm/dsf_resource_common/src/transport.rs; collector, model, experiment and resource-delivery guests; DSF specification/policy generators; os-apps/paw-patrol/specs/effort.ioa.toml.
+
+## D27: Reconcile uncertain copies by their complete recorded request
+
+**Decision:** Preserve uncertain copies in CopyUnknown and reconcile the exact provider name derived from the full child and source IDs, without repeating the copy request.
+
+**Came up because:** The old helper put unsupported timeout and count fields in a JSON body and never sent the intended name. Tensorlake used the source's default copy name, leaving an uncertain 502 followed by a name collision. CopyFailed marked the child Destroyed even though a provider copy might exist and its machine_id still identified the source.
+
+**Options:** Retry the POST, truncate identifiers into a shorter name, adopt a loose name match, or retain one recorded request and reconcile it through GETs.
+
+**Chose the recorded request because:** The full child and source IDs give an exact correlation key within Tensorlake's 63-character name limit; unsupported identifiers fail before any provider request. Recovery requires the exact name, a destination different from the source, and matching provider project namespaces. A received partial copy response must also report the exact source_sandbox_id and the same destination found by name. After a completely lost response, the name proves correlation with the recorded request; it does not independently prove provider-reported source lineage, which GET does not expose. ReconcileCopy only runs on an existing CopyUnknown child and never sends another POST. Destroy remains unavailable while the child still holds the source machine ID. This retains uncertain resources for investigation instead of claiming cleanup occurred.
+
+The Docker and full CI build lists now both include paw-compute and dsf-factory before their native tests. Their WASMs are generated and ignored by Git, so omitting these builds would leave the new recovery module and its dependent runtime unavailable in a clean image.
+
+**Where:** os-apps/paw-compute/specs/computer.ioa.toml; os-apps/paw-compute/wasm/computer_copy_start/src/lib.rs; os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs; crates/temperpaw/tests/computer_copy_reconciliation.rs; Dockerfile; .github/workflows/ci.yml.
