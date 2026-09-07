@@ -30,6 +30,8 @@ end state above; these checkpoints do not defer any part of it.
 4. Open the deployed private Foundry workspace and exercise direct agent chat,
    outstanding decisions and the continuously maintained production model.
 
-A checkpoint handover includes its working link, the interaction actually
-verified, and the remaining limitation. An empty page, a passing unit test or a
+A checkpoint handover includes a phone-accessible HTTPS link, the interaction
+actually verified, and the remaining limitation. Localhost alone is not a handover.
+A hosted snapshot must identify its capture time and cannot stand in for live
+operation or chat verification. An empty page, a passing unit test or a
 prepared registration file is not a completed checkpoint.

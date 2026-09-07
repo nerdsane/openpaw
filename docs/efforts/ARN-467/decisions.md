@@ -326,3 +326,27 @@
 The Docker and full CI build lists now both include paw-compute and dsf-factory before their native tests. Their WASMs are generated and ignored by Git, so omitting these builds would leave the new recovery module and its dependent runtime unavailable in a clean image.
 
 **Where:** os-apps/paw-compute/specs/computer.ioa.toml; os-apps/paw-compute/wasm/computer_copy_start/src/lib.rs; os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs; crates/temperpaw/tests/computer_copy_reconciliation.rs; Dockerfile; .github/workflows/ci.yml.
+
+## D28: Build the application against the verified kernel revision
+
+**Decision:** Pin every Temper dependency in TemperPaw and its Codex worker to the same published kernel commit, fd5a1f31e31c8f006fb4ebe24283eb922b8f26f0.
+
+**Came up because:** Local contract proofs used the updated kernel while the application manifests still referenced an older revision without the required resource constraints, native identity handling and persistence fixes.
+
+**Options:** Keep the older application dependency while relying on a separate test harness, or update all kernel pins and verify the actual application build.
+
+**Chose the application build because:** The shipped program must execute the kernel behavior that the resource specifications require. The kernel workspace tests, Clippy, formatting and readability checks passed before its commit was pushed. The dependency uses the published Git revision, with no local path override.
+
+**Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock.
+
+## D29: Provide a protected mobile checkpoint before the hosted factory is ready
+
+**Decision:** Publish a read-only snapshot of the verified local model to the existing protected Vercel report project, with explicit capture time and incomplete capabilities.
+
+**Came up because:** The user was on a phone and could not open the local Foundry link.
+
+**Options:** Keep handing over localhost, expose the local operator interface through a tunnel, or publish the verified model projection using the report project's existing team authentication.
+
+**Chose the protected projection because:** The user can inspect the actual resource records, dependencies and configuration hashes now. The upload contains three static files, no credentials and no private application source. The snapshot cannot execute actions and does not satisfy the live factory checkpoint. The complete implementation and production verification remain required.
+
+**Where:** docs/efforts/ARN-467/plan.md; the protected ARN-467 Vercel checkpoint linked from Linear.
