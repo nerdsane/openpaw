@@ -287,3 +287,28 @@
 **Chose the owning-service check because:** It matches the provider's actual representation without accepting foreign ownership. Custom domains still require an explicit matching projectId, and any explicit foreign projectId is refused. The media adapter reuses the same domain reader. A regression reproduced the refusal before correction, and the compiled helper then proved both actual production and staging domains through the real provider API.
 
 **Where:** `os-apps/dsf-factory/wasm/dsf_resource_common/src/application.rs`; its domain regressions; `os-apps/dsf-factory/wasm/dsf_media_actions/src/links.rs`.
+
+
+## D25: Scope model reads and configuration File access
+
+**Decision:** Express Paw reads as individual resource scopes and give verified DSF factory agents a capability limited to canonical resource configuration Files.
+
+**Came up because:** The long read-policy expression exhausted Cedar's remaining stack in the actual OData path. Separately, a new File's native content PUT has no workspace attribute, so the ordinary workspace rule cannot authorize configuration creation.
+
+**Options:** Add overlapping role-wide grants; keep the long expression and enlarge only the fixture stack; or preserve the same read scopes and add an explicit configuration File capability.
+
+**Chose explicit scopes because:** They preserve existing read/list authority and permit candidate filtering. The configuration rule permits create, update and read only for verified dsf-factory agents and nonempty dsf-resource-config- IDs. It grants no deletion or arbitrary File access. Provider operations still verify the exact pinned configuration hash. The kernel separately handles the general Cedar evaluation-stack failure.
+
+**Where:** os-apps/paw-patrol/policies/patrol.cedar; os-apps/dsf-factory/policies/model_investigation.cedar; crates/temperpaw/tests/dsf_model_file_policy.rs.
+
+## D26: Use native invocation authority for internal reads
+
+**Decision:** DSF and resource-delivery WASMs read Temper records through the initiating invocation's native HTTP authority without a shared tenant bearer credential.
+
+**Came up because:** The collector guests required temper_api_key, which the host reserves and refuses to expose. Their generated declarations also retained the older shared-key substitution path.
+
+**Options:** Supply a shared key, preserve an empty-key fallback, or remove the key contract and migrate all callers to existing internal HTTP authority.
+
+**Chose native authority because:** It preserves the initiating identity's Cedar permissions without a second credential. Provider requests retain their own module-scoped credentials. The host supplies the internal API origin; it is no longer a secret template. All DSF and new resource-delivery callers drop the Runtime key field and shared-secret grants. Unrelated existing chain gates remain unchanged.
+
+**Where:** os-apps/dsf-factory/wasm/dsf_resource_common/src/transport.rs; collector, model, experiment and resource-delivery guests; DSF specification/policy generators; os-apps/paw-patrol/specs/effort.ioa.toml.

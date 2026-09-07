@@ -64,7 +64,6 @@ fn runtime(host: &mut MockHost) -> Runtime<'_, MockHost> {
         host,
         base: "https://temper.invalid",
         tenant: "default",
-        key: "test",
         now_ms: 1000,
     }
 }

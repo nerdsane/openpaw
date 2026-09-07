@@ -436,8 +436,6 @@ kind = "wasm"
 module = "dsf_vercel_collect"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -748,8 +746,6 @@ kind = "wasm"
 module = "dsf_vercel_deploy_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -844,8 +840,6 @@ kind = "wasm"
 module = "dsf_vercel_deploy_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -863,8 +857,6 @@ kind = "wasm"
 module = "dsf_vercel_deploy_execute"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -935,8 +927,6 @@ kind = "wasm"
 module = "dsf_vercel_deploy_observe"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1039,8 +1029,6 @@ kind = "wasm"
 module = "dsf_vercel_deploy_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1269,8 +1257,6 @@ kind = "wasm"
 module = "dsf_vercel_configuration_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1365,8 +1351,6 @@ kind = "wasm"
 module = "dsf_vercel_configuration_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1384,8 +1368,6 @@ kind = "wasm"
 module = "dsf_vercel_configuration_execute"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1456,8 +1438,6 @@ kind = "wasm"
 module = "dsf_vercel_configuration_observe"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1560,8 +1540,6 @@ kind = "wasm"
 module = "dsf_vercel_configuration_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1794,8 +1772,6 @@ kind = "wasm"
 module = "dsf_vercel_rollback_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1890,8 +1866,6 @@ kind = "wasm"
 module = "dsf_vercel_rollback_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1909,8 +1883,6 @@ kind = "wasm"
 module = "dsf_vercel_rollback_execute"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1981,8 +1953,6 @@ kind = "wasm"
 module = "dsf_vercel_rollback_observe"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -2085,8 +2055,6 @@ kind = "wasm"
 module = "dsf_vercel_rollback_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -2323,8 +2291,6 @@ kind = "wasm"
 module = "dsf_vercel_alias_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -2419,8 +2385,6 @@ kind = "wasm"
 module = "dsf_vercel_alias_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -2438,8 +2402,6 @@ kind = "wasm"
 module = "dsf_vercel_alias_execute"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -2510,8 +2472,6 @@ kind = "wasm"
 module = "dsf_vercel_alias_observe"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -2614,8 +2574,6 @@ kind = "wasm"
 module = "dsf_vercel_alias_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]

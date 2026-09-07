@@ -1017,7 +1017,6 @@ fn real_collector_callback_commits_evidence_before_resource_cas() {
                 host: &mut host,
                 base: "https://temper.invalid",
                 tenant: "default",
-                key: "test",
                 now_ms: 2000,
             },
             "subject",

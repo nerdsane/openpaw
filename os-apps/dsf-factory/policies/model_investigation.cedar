@@ -45,3 +45,11 @@ forbid(principal, action == Action::"Configure", resource is WorkerRun) when {
   (resource has model_investigation && resource.model_investigation == true) ||
   (resource has ModelInvestigation && resource.ModelInvestigation == true)
 };
+
+// Resource configuration is model data. The registered factory agent can write
+// only its canonical config Files; provider actions recheck their pinned digest.
+permit(principal is Agent, action in [Action::"create", Action::"update", Action::"read"], resource is File) when {
+  principal has agentTypeVerified && principal.agentTypeVerified == true &&
+  principal has agent_type && principal.agent_type == "dsf-factory" &&
+  resource.id like "dsf-resource-config-*" && resource.id != "dsf-resource-config-"
+};

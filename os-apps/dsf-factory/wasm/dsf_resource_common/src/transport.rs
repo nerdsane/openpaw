@@ -19,7 +19,6 @@ pub struct Runtime<'a, H> {
     pub host: &'a mut H,
     pub base: &'a str,
     pub tenant: &'a str,
-    pub key: &'a str,
     pub now_ms: i64,
 }
 
@@ -102,10 +101,7 @@ impl<H: Host> Runtime<'_, H> {
                 self.base.trim_end_matches('/'),
                 if file { "/$value" } else { "" }
             ),
-            headers: vec![
-                ("authorization".into(), format!("Bearer {}", self.key)),
-                ("x-tenant-id".into(), self.tenant.into()),
-            ],
+            headers: vec![("x-tenant-id".into(), self.tenant.into())],
             body: String::new(),
         })
     }
@@ -153,5 +149,61 @@ impl<H: Host> Runtime<'_, H> {
             return Err(Error::Response("provider errors"));
         }
         Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct RecordingHost(Vec<Request>);
+    impl Host for RecordingHost {
+        fn request(&mut self, request: &Request) -> Result<Response, Error> {
+            self.0.push(Request {
+                method: request.method,
+                url: request.url.clone(),
+                headers: request.headers.clone(),
+                body: request.body.clone(),
+            });
+            Ok(Response {
+                status: 200,
+                body: "{}".into(),
+            })
+        }
+        fn secret(&mut self, name: &str) -> Result<String, Error> {
+            assert_eq!(name, "dsf_railway_token");
+            Ok("provider-only-test-credential".into())
+        }
+    }
+    #[test]
+    fn local_record_reads_delegate_authority_while_provider_requests_keep_their_credential() {
+        let mut host = RecordingHost(vec![]);
+        let mut runtime = Runtime {
+            host: &mut host,
+            base: "http://127.0.0.1:3571",
+            tenant: "default",
+            now_ms: 1,
+        };
+        runtime.read("DsfFlows", "flow", false).unwrap();
+        runtime
+            .bearer_json(
+                "dsf_railway_token",
+                "POST",
+                "https://backboard.railway.com/graphql/v2".into(),
+                serde_json::json!({"query":"query ReadOnlyFixture { __typename }"}),
+            )
+            .unwrap();
+        assert!(
+            !host.0[0]
+                .headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+        );
+        assert!(
+            host.0[1]
+                .headers
+                .iter()
+                .any(|(name, value)| name == "authorization"
+                    && value == "Bearer provider-only-test-credential")
+        );
     }
 }

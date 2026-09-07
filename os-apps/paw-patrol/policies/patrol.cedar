@@ -32,39 +32,35 @@ permit(
   resource is ContractProbe
 };
 
-permit(
-  principal,
-  action in [Action::"read", Action::"list"],
-  resource
-) when {
-  resource is PatrolRequest ||
-  resource is WorkRequest ||
-  resource is Intent ||
-  resource is Signal ||
-  resource is FactoryCase ||
-  resource is WorkCycle ||
-  resource is Effort ||
-  resource is WorkerRun ||
-  resource is WorkerProvider ||
-  resource is WorkerAgent ||
-  resource is ReviewRun ||
-  resource is EvaluationRun ||
-  resource is ProofPacket ||
-  resource is RiskRule ||
-  resource is PatrolRun ||
-  resource is RepoGraphSnapshot ||
-  resource is QualityFinding ||
-  resource is SecurityFinding ||
-  resource is ObservabilityFinding ||
-  resource is DailyBrief ||
-  resource is PatrolSchedule ||
-  resource is Ask ||
-  resource is StandingDecision ||
-  resource is ShadowVerdict ||
-  resource is DsfDeploy ||
-  resource is TemperDeploy ||
-  resource is ContractProbe
-};
+// Keep type checks in Cedar scopes so read authorization stays shallow on
+// worker threads and the policy index can select the exact resource type.
+permit(principal, action in [Action::"read", Action::"list"], resource is PatrolRequest);
+permit(principal, action in [Action::"read", Action::"list"], resource is WorkRequest);
+permit(principal, action in [Action::"read", Action::"list"], resource is Intent);
+permit(principal, action in [Action::"read", Action::"list"], resource is Signal);
+permit(principal, action in [Action::"read", Action::"list"], resource is FactoryCase);
+permit(principal, action in [Action::"read", Action::"list"], resource is WorkCycle);
+permit(principal, action in [Action::"read", Action::"list"], resource is Effort);
+permit(principal, action in [Action::"read", Action::"list"], resource is WorkerRun);
+permit(principal, action in [Action::"read", Action::"list"], resource is WorkerProvider);
+permit(principal, action in [Action::"read", Action::"list"], resource is WorkerAgent);
+permit(principal, action in [Action::"read", Action::"list"], resource is ReviewRun);
+permit(principal, action in [Action::"read", Action::"list"], resource is EvaluationRun);
+permit(principal, action in [Action::"read", Action::"list"], resource is ProofPacket);
+permit(principal, action in [Action::"read", Action::"list"], resource is RiskRule);
+permit(principal, action in [Action::"read", Action::"list"], resource is PatrolRun);
+permit(principal, action in [Action::"read", Action::"list"], resource is RepoGraphSnapshot);
+permit(principal, action in [Action::"read", Action::"list"], resource is QualityFinding);
+permit(principal, action in [Action::"read", Action::"list"], resource is SecurityFinding);
+permit(principal, action in [Action::"read", Action::"list"], resource is ObservabilityFinding);
+permit(principal, action in [Action::"read", Action::"list"], resource is DailyBrief);
+permit(principal, action in [Action::"read", Action::"list"], resource is PatrolSchedule);
+permit(principal, action in [Action::"read", Action::"list"], resource is Ask);
+permit(principal, action in [Action::"read", Action::"list"], resource is StandingDecision);
+permit(principal, action in [Action::"read", Action::"list"], resource is ShadowVerdict);
+permit(principal, action in [Action::"read", Action::"list"], resource is DsfDeploy);
+permit(principal, action in [Action::"read", Action::"list"], resource is TemperDeploy);
+permit(principal, action in [Action::"read", Action::"list"], resource is ContractProbe);
 
 permit(
   principal is Agent,
@@ -878,12 +874,4 @@ permit(
 ) when {
   ["effort_resource_delivery_validate", "effort_resource_delivery_merge", "effort_resource_delivery_verify"].contains(context.module)
   && context has method && context.method == "GET"
-};
-permit(
-  principal,
-  action == Action::"access_secret",
-  resource is Secret
-) when {
-  ["effort_resource_delivery_validate", "effort_resource_delivery_merge", "effort_resource_delivery_verify"].contains(context.module)
-  && resource has id && ["temper_api_url", "temper_api_key"].contains(resource.id)
 };

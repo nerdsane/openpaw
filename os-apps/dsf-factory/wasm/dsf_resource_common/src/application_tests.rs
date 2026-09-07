@@ -68,7 +68,6 @@ fn runtime(host: &mut Fixture) -> Runtime<'_, Fixture> {
         host,
         base: "https://temper.invalid",
         tenant: "default",
-        key: "fixture",
         now_ms: 2000,
     }
 }

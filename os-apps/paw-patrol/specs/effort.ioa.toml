@@ -487,7 +487,6 @@ module = "chain_review_ready"
 on_failure = "RetractReviewPassed"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
 
 [[action]]
 name = "RetractReviewPassed"
@@ -547,7 +546,6 @@ module = "chain_proof_ready"
 on_failure = "RetractProofAttached"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
 
 [[action]]
 name = "RetractProofAttached"
@@ -595,7 +593,6 @@ module = "chain_merge_ready"
 on_failure = "RetractMerge"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
 
 # Same shape as WorkCycle.Complete → ReleaseRun.Request. to_state Deploying
 # so a retract does not spawn a ship.
@@ -776,8 +773,6 @@ kind = "wasm"
 module = "effort_resource_delivery_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -856,8 +851,6 @@ kind = "wasm"
 module = "effort_resource_delivery_merge"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -925,8 +918,6 @@ kind = "wasm"
 module = "effort_resource_delivery_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]

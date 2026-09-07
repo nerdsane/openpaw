@@ -429,8 +429,6 @@ kind = "wasm"
 module = "dsf_media_collect"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -741,8 +739,6 @@ kind = "wasm"
 module = "dsf_media_retry_selected_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "240"
 
 [[action]]
@@ -837,8 +833,6 @@ kind = "wasm"
 module = "dsf_media_retry_selected_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "240"
 
 [[action]]
@@ -856,8 +850,6 @@ kind = "wasm"
 module = "dsf_media_retry_selected_execute"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "240"
 
 [[action]]
@@ -928,8 +920,6 @@ kind = "wasm"
 module = "dsf_media_retry_selected_observe"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "240"
 
 [[action]]
@@ -1032,8 +1022,6 @@ kind = "wasm"
 module = "dsf_media_retry_selected_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "240"
 
 [[action]]

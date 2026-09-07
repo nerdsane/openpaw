@@ -191,8 +191,6 @@ kind = "wasm"
 module = "dsf_experiment_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "ResumeValidation"
@@ -207,8 +205,6 @@ kind = "wasm"
 module = "dsf_experiment_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "ValidationPrepared"
@@ -286,8 +282,6 @@ kind = "wasm"
 module = "dsf_experiment_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "IsolationSucceeded"
@@ -385,8 +379,6 @@ kind = "wasm"
 module = "dsf_experiment_run"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "ResumeRun"
@@ -401,8 +393,6 @@ kind = "wasm"
 module = "dsf_experiment_run"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "RunPrepared"
@@ -480,8 +470,6 @@ kind = "wasm"
 module = "dsf_experiment_run"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "RunSucceeded"
@@ -563,8 +551,6 @@ kind = "wasm"
 module = "dsf_experiment_cleanup"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "ResumeCleanup"
@@ -579,8 +565,6 @@ kind = "wasm"
 module = "dsf_experiment_cleanup"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "CleanupPrepared"
@@ -658,8 +642,6 @@ kind = "wasm"
 module = "dsf_experiment_cleanup"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "CleanupSucceeded"
@@ -746,8 +728,6 @@ kind = "wasm"
 module = "dsf_experiment_select"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "ResumeSelection"
@@ -762,8 +742,6 @@ kind = "wasm"
 module = "dsf_experiment_select"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "SelectionSucceeded"

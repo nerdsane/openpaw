@@ -12,3 +12,24 @@ The expected end state is the complete DSF software factory defined in spec.md. 
 8. Run independent reviews and required checks for every changed repository. Fix every finding, merge in dependency order, publish app deltas to Genesis, install pinned revisions, deploy private services and perform browser/provider/Datadog verification. Attach final evidence and costs to ARN-467 and close the verified Effort.
 
 Keep operational notes current while working. Stop dependent production actions on a real denied authorization or provider consent requirement; continue independent implementation and tests. Never weaken gates to meet the morning target.
+
+## Visible delivery checkpoints
+
+Show each working result as soon as it is verified. Keep the complete expected
+end state above; these checkpoints do not defer any part of it.
+
+1. Open Foundry's resource graph backed by an actual Temper server. Show real DSF
+   provider identities, dependencies, configuration Files and available actions.
+   Label the environment and distinguish imported inventory from live collector
+   observations and exercised operations.
+2. Show a subscription agent reading a source observation and updating a model
+   record through Temper, with the before/after record and recorded provenance.
+   Demonstrate the resident worker triggering the same path separately.
+3. Open one resource operation's execution and verification evidence, including
+   a real isolated deployment/configuration change and recovery or rollback.
+4. Open the deployed private Foundry workspace and exercise direct agent chat,
+   outstanding decisions and the continuously maintained production model.
+
+A checkpoint handover includes its working link, the interaction actually
+verified, and the remaining limitation. An empty page, a passing unit test or a
+prepared registration file is not a completed checkpoint.

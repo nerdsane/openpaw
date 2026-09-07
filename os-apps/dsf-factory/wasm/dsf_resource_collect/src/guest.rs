@@ -35,11 +35,6 @@ pub fn run<C: Collector>() -> i32 {
             .get("temper_api_url")
             .cloned()
             .ok_or(Error::Binding("missing Temper URL"))?;
-        let key = context
-            .config
-            .get("temper_api_key")
-            .cloned()
-            .ok_or(Error::Binding("missing Temper credential"))?;
         let tenant = context.tenant.clone();
         let id = context.entity_id.clone();
         let captured = context.entity_state.clone();
@@ -48,7 +43,6 @@ pub fn run<C: Collector>() -> i32 {
                 host: &mut Guest(context),
                 base: &base,
                 tenant: &tenant,
-                key: &key,
                 now_ms: Context::get_time_millis(),
             },
             &id,

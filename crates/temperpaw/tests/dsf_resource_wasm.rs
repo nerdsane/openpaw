@@ -26,7 +26,6 @@ fn context(entity: &str, module: &str, state: Value) -> WasmInvocationContext {
         session_id: None,
         integration_config: BTreeMap::from([
             ("temper_api_url".into(), "https://temper.test".into()),
-            ("temper_api_key".into(), "test-only".into()),
         ]),
         trace_id: String::new(),
         workflow_root_entity_type: None,

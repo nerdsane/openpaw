@@ -1696,7 +1696,6 @@ name = "dsf-media-actions"
 version = "0.1.0"
 dependencies = [
  "dsf-r2-actions",
- "dsf-railway-actions",
  "dsf-resource-common",
  "serde",
  "serde_json",

@@ -69,332 +69,332 @@ permit(principal, action in [Action::"create", Action::"Run"], resource is Exec)
   context has triggerSourceEntityType && context.triggerSourceEntityType == "DsfExperiment"
 };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_collect" && ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_collect" && ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_collect" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_collect" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_execute" && ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_execute" && ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_execute" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_execute" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_observe" && ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_observe" && ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_observe" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_observe" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_validate" && ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_validate" && ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_validate" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_validate" } unless { ["dsf_datadog_api_key", "dsf_datadog_app_key"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_datadog_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_datadog_configuration_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_cleanup" && ["temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_cleanup" && [].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_cleanup" } unless { ["temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_cleanup" } unless { [].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_cleanup" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_run" && ["temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_run" && [].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_run" } unless { ["temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_run" } unless { [].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_run" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_select" && ["temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_select" && [].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_select" } unless { ["temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_select" } unless { [].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_select" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_validate" && ["temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_validate" && [].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_validate" } unless { ["temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_experiment_validate" } unless { [].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_experiment_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_collect" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_collect" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_collect" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_collect" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_execute" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_execute" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_execute" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_execute" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_observe" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_observe" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_observe" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_observe" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_validate" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_validate" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_validate" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_validate" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_verify" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_verify" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_verify" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_media_retry_selected_verify" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_media_retry_selected_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_model_collect" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_github_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_model_collect" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_github_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_model_collect" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_github_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_model_collect" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_github_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_model_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_collect" && ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_collect" && ["dsf_cloudflare_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_collect" } unless { ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_collect" } unless { ["dsf_cloudflare_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_execute" && ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_execute" && ["dsf_cloudflare_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_execute" } unless { ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_execute" } unless { ["dsf_cloudflare_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_observe" && ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_observe" && ["dsf_cloudflare_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_observe" } unless { ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_observe" } unless { ["dsf_cloudflare_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_validate" && ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_validate" && ["dsf_cloudflare_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_validate" } unless { ["dsf_cloudflare_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_validate" } unless { ["dsf_cloudflare_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_verify" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_verify" && ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_r2_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_cloudflare_token", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_r2_configuration_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_collect" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_collect" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_collect" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_collect" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_execute" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_execute" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_execute" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_execute" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_observe" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_observe" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_observe" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_observe" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_validate" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_validate" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_validate" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_validate" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_configuration_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_execute" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_execute" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_execute" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_execute" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_observe" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_observe" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_observe" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_observe" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_validate" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_validate" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_validate" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_validate" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_deploy_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_deploy_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_execute" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_execute" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_execute" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_execute" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_observe" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_observe" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_observe" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_observe" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_validate" && ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_validate" && ["dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_validate" } unless { ["dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_validate" } unless { ["dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_railway_rollback_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_railway_rollback_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_collect" && ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_collect" && ["dsf_supabase_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_collect" } unless { ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_collect" } unless { ["dsf_supabase_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_execute" && ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_execute" && ["dsf_supabase_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_execute" } unless { ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_execute" } unless { ["dsf_supabase_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_observe" && ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_observe" && ["dsf_supabase_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_observe" } unless { ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_observe" } unless { ["dsf_supabase_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_validate" && ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_validate" && ["dsf_supabase_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_validate" } unless { ["dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_validate" } unless { ["dsf_supabase_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "dsf_supabase_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "dsf_supabase_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_supabase_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_railway_token", "dsf_supabase_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_supabase_configuration_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_execute" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_execute" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_execute" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_execute" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_observe" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_observe" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_observe" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_observe" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_validate" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_validate" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_validate" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_validate" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_alias_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_alias_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_collect" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_collect" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_collect" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_collect" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_collect" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_execute" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_execute" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_execute" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_execute" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_observe" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_observe" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_observe" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_observe" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_validate" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_validate" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_validate" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_validate" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_configuration_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_configuration_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_execute" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_execute" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_execute" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_execute" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_observe" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_observe" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_observe" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_observe" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_validate" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_validate" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_validate" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_validate" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_deploy_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_deploy_verify" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_execute" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_execute" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_execute" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_execute" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_execute" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_observe" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_observe" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_observe" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_observe" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_observe" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_validate" && ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_validate" && ["dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_validate" } unless { ["dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_validate" } unless { ["dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_validate" };
 
-permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+permit(principal, action == Action::"access_secret", resource is Secret) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_verify" && ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
-forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token", "temper_api_key", "temper_api_url"].contains(resource.id) };
+forbid(principal, action == Action::"access_secret", resource is Secret) when { context has module && context.module == "dsf_vercel_rollback_verify" } unless { ["dsf_admin_api_key", "dsf_datadog_api_key", "dsf_datadog_app_key", "dsf_vercel_token"].contains(resource.id) };
 
 permit(principal, action == Action::"http_call", resource is HttpEndpoint) when { principal has role && principal.role == "wasm_module" && context has module && context.module == "dsf_vercel_rollback_verify" };

@@ -336,7 +336,6 @@ fn parse_json(response: Response, limit: usize) -> Result<Value, String> {
 pub fn collect(
     host: &mut impl Host,
     base: &str,
-    api_key: &str,
     tenant: &str,
     sync_id: &str,
     fields: &Value,
@@ -347,7 +346,7 @@ pub fn collect(
         return Err("invalid host time".into());
     }
     let sequence = counter(fields, "sync_sequence")?;
-    let config = read_binding(host, base, api_key, tenant, fields)?;
+    let config = read_binding(host, base, tenant, fields)?;
     let mut request = provider_request(&config, now_ms)?;
     if matches!(config.source, Source::OperationalSnapshot { .. })
         && let Some(cursor) = field(fields, "source_cursor")
@@ -383,7 +382,6 @@ pub fn collect(
 fn read_binding(
     host: &mut impl Host,
     base: &str,
-    api_key: &str,
     tenant: &str,
     fields: &Value,
 ) -> Result<Config, String> {
@@ -398,7 +396,6 @@ fn read_binding(
     let config_id = identifier(string_field(fields, "source_config_ref")?)?;
     let resource_id = identifier(string_field(fields, "resource_id")?)?;
     let headers = vec![
-        ("authorization".into(), format!("Bearer {api_key}")),
         ("x-tenant-id".into(), tenant.into()),
         ("accept".into(), "application/json".into()),
     ];
@@ -591,11 +588,6 @@ mod guest {
                 .get("temper_api_url")
                 .cloned()
                 .ok_or("missing temper_api_url")?;
-            let api_key = ctx
-                .config
-                .get("temper_api_key")
-                .cloned()
-                .ok_or("missing temper_api_key")?;
             let fields = ctx
                 .entity_state
                 .get("fields")
@@ -606,7 +598,6 @@ mod guest {
             collect(
                 &mut Guest(ctx),
                 &base,
-                &api_key,
                 &tenant,
                 &id,
                 &fields,

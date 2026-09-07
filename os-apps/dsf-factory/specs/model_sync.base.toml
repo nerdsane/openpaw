@@ -161,8 +161,6 @@ module = "dsf_model_collect"
 
 [action.triggers.config]
 timeout_secs = "120"
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 
 [[action]]
 name = "CollectionFailed"

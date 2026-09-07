@@ -125,6 +125,52 @@ fn policy_generator_matches_the_current_declared_actions() {
             .success()
     );
 }
+
+#[test]
+fn internal_record_authority_is_not_a_guest_secret_or_spec_template() {
+    let engine = policy("permit(principal, action, resource);");
+    let mut ctx = SecurityContext::from_resolved_identity("member", "dsf-factory", None);
+    ctx.principal.role = Some("wasm_module".into());
+    let manifest = fs::read_to_string(app().join("app.toml")).unwrap();
+    let mut modules = 0;
+    for line in manifest.lines() {
+        let Some(module) = line.trim().strip_prefix("name = \"dsf_") else {
+            continue;
+        };
+        modules += 1;
+        let module = format!("dsf_{}", module.trim_end_matches('"'));
+        ctx.context_attrs.insert("module".into(), json!(module));
+        for key in ["temper_api_key", "temper_api_url"] {
+            assert!(
+                matches!(
+                    engine.authorize(
+                        &ctx,
+                        "access_secret",
+                        "Secret",
+                        &HashMap::from([("id".into(), json!(key))])
+                    ),
+                    AuthzDecision::Deny(_)
+                ),
+                "{module}: {key}"
+            );
+        }
+    }
+    assert!(modules >= 55, "all packaged DSF modules must be checked");
+    for entry in fs::read_dir(app().join("specs")).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "toml")
+        {
+            let source = fs::read_to_string(&path).unwrap();
+            assert!(
+                !source.contains("{secret:temper_api_"),
+                "{}",
+                path.display()
+            );
+        }
+    }
+}
 #[test]
 fn compiled_modules_receive_only_their_named_secrets_and_callers_receive_none() {
     let engine = policy("");
@@ -146,7 +192,7 @@ fn compiled_modules_receive_only_their_named_secrets_and_callers_receive_none() 
         .insert("module".into(), json!("dsf_railway_deploy_verify"));
     assert!(secret(&ctx, "dsf_railway_token"));
     assert!(secret(&ctx, "dsf_datadog_api_key"));
-    assert!(secret(&ctx, "temper_api_key"));
+    assert!(!secret(&ctx, "temper_api_key"));
     assert!(!secret(&ctx, "github_token"));
     assert!(!secret(&ctx, "dsf_vercel_token"));
     assert!(!secret(&ctx, "unrelated_production_password"));
@@ -217,7 +263,7 @@ fn actual_wasm_authorization_adapter_uses_method_context_and_secret_id() {
     };
     assert!(matches!(
         gate.authorize_secret_access("temper_api_key", &ctx),
-        WasmAuthzDecision::Allow
+        WasmAuthzDecision::Deny(_)
     ));
     assert!(matches!(
         gate.authorize_secret_access("github_token", &ctx),
@@ -247,7 +293,6 @@ fn actual_wasm_authorization_adapter_uses_method_context_and_secret_id() {
         "dsf_railway_token",
         "dsf_cloudflare_token",
         "dsf_datadog_api_key",
-        "temper_api_key",
     ] {
         assert!(
             matches!(

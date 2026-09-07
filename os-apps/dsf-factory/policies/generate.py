@@ -95,7 +95,7 @@ def render() -> str:
     modules = tomllib.loads((APP / "app.toml").read_text())["wasm_modules"]
     for item in modules:
         module = item["name"]
-        secrets = {"temper_api_url", "temper_api_key"}
+        secrets = set()
         if module == "dsf_model_collect":
             secrets |= telemetry | {"dsf_github_token"}
         elif module.startswith("dsf_experiment_"):

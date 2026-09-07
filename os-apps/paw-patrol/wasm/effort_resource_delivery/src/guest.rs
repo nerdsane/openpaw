@@ -40,18 +40,12 @@ pub fn run(
             .get("temper_api_url")
             .cloned()
             .ok_or(Error::Binding("missing Temper URL"))?;
-        let key = ctx
-            .config
-            .get("temper_api_key")
-            .cloned()
-            .ok_or(Error::Binding("missing Temper credential"))?;
         let tenant = ctx.tenant.clone();
         adapter(
             &mut Runtime {
                 host: &mut Guest(ctx),
                 base: &base,
                 tenant: &tenant,
-                key: &key,
                 now_ms: Context::get_time_millis(),
             },
             &binding,

@@ -198,8 +198,6 @@ def wasm(module, failure):
         "kind": "wasm",
         "module": module,
         "config": {
-            "temper_api_url": "{secret:temper_api_url}",
-            "temper_api_key": "{secret:temper_api_key}",
             "timeout_secs": "240"
             if module.startswith("dsf_media_retry_selected_")
             else "120",

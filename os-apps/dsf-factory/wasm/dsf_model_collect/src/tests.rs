@@ -212,7 +212,6 @@ fn absent_provider_credentials_still_materialize_access_evidence() {
     let out = collect(
         &mut host,
         "https://temper.example",
-        "secret",
         "default",
         "sync-1",
         &fields,
@@ -265,7 +264,6 @@ fn model_sync_binds_real_flow_subjects_and_records_safe_access_failures() {
     let result = collect(
         &mut host,
         "https://temper.example",
-        "secret",
         "default",
         "sync-1",
         &sync(),
@@ -285,7 +283,6 @@ fn model_sync_binds_real_flow_subjects_and_records_safe_access_failures() {
         collect(
             &mut host,
             "https://temper.example",
-            "secret",
             "default",
             "sync-1",
             &sync(),
@@ -311,7 +308,6 @@ fn participant_continuation_keeps_page_evidence_and_uses_the_returned_cursor() {
     let first = collect(
         &mut host,
         "https://temper.example",
-        "secret",
         "default",
         "sync-1",
         &fields,
@@ -330,7 +326,6 @@ fn participant_continuation_keeps_page_evidence_and_uses_the_returned_cursor() {
     let second = collect(
         &mut host,
         "https://temper.example",
-        "secret",
         "default",
         "sync-1",
         &fields,

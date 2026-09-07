@@ -24,7 +24,6 @@ fn rt(host: &mut Mock) -> Runtime<'_, Mock> {
         host,
         base: "https://temper.invalid",
         tenant: "default",
-        key: "test",
         now_ms: 2000,
     }
 }

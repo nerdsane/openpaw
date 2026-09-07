@@ -415,8 +415,6 @@ kind = "wasm"
 module = "dsf_datadog_collect"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -723,8 +721,6 @@ kind = "wasm"
 module = "dsf_datadog_configuration_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -819,8 +815,6 @@ kind = "wasm"
 module = "dsf_datadog_configuration_validate"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -838,8 +832,6 @@ kind = "wasm"
 module = "dsf_datadog_configuration_execute"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -910,8 +902,6 @@ kind = "wasm"
 module = "dsf_datadog_configuration_observe"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]
@@ -1014,8 +1004,6 @@ kind = "wasm"
 module = "dsf_datadog_configuration_verify"
 
 [action.triggers.config]
-temper_api_url = "{secret:temper_api_url}"
-temper_api_key = "{secret:temper_api_key}"
 timeout_secs = "120"
 
 [[action]]

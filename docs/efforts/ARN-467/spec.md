@@ -49,6 +49,8 @@ Provider adapters collect deployed revisions, aliases, resource configuration an
 
 Each adapter has a narrow typed result and redacts secrets at its boundary. It retains observation windows and coverage. Sampled spans are labeled sampled; metric counts, jobs, users and span counts are never conflated. An empty query result does not imply health. Missing permissions are reported as inaccessible rather than silently ignored.
 
+DSF and resource-delivery guests read Temper records through the invocation's native HTTP authority. The host supplies the internal API origin and preserves the initiating identity's Cedar permissions. Their integration declarations contain no shared tenant bearer key or shared-key secret template. Provider requests use only their module's named provider credentials.
+
 Provider and monitor events request reconciliation where available. A bounded recurring reconciliation recovers missed events and marks stale observations. The state machine owns scheduling, retries and failure transitions. Agents interpret changed code and ambiguous operational findings using the same recorded work/Ask flow. Adapter code performs one collection or provider operation, not a hidden SDLC loop.
 
 Repeated observation of the same source event is idempotent. Older data cannot overwrite a newer observation or intended configuration. Reconciliation never changes intended configuration. Drift creates or updates a single outstanding Ask for the same resource and drift fingerprint.

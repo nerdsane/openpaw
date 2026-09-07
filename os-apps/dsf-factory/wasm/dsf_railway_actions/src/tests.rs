@@ -41,7 +41,6 @@ fn run<R>(host: &mut TestHost, f: impl FnOnce(&mut Runtime<TestHost>) -> R) -> R
         host,
         base: "https://temper.example",
         tenant: "default",
-        key: "test",
         now_ms: 100_000,
     })
 }
