@@ -400,3 +400,15 @@ Successful collection also carries an empty declared error_message, so a recover
 **Chose the published pin because:** All normal kernel push gates passed. Real native HTTP restart persistence and inline/background provider observation proofs passed. The dependency now carries the same implementation into the application build. Kernel D31 records Rita's native-runtime DST exception; ARN-179 remains open and PostgreSQL effect parity is not claimed.
 
 **Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock; kernel PR456.
+
+## D34: Carry the final callback and concurrent creation fixes
+
+**Decision:** Advance the application and worker together to published kernel commit 820c89a33accbf36c0275db7d0d801b1b86d1b5a.
+
+**Came up because:** The final kernel panel reproduced six remaining authorization, callback and persistence defects on the previous pin.
+
+**Options:** Deploy the earlier pin or use the revision that passed all normal kernel push gates and the new HTTP, PostgreSQL and callback regressions.
+
+**Chose the verified revision because:** Inline adapters now dispatch their callback reactions, concurrent PostgreSQL creation retains the committed winner, and refused writes do not materialize entities or check stream state before authorization. Constrained asynchronous PostgreSQL actions return enqueue receipts. This preserves the full persistence scope already approved in Temper Ask arn467-kernel-review-scope; the subsequent assessment does not reopen that answered decision. The D31 native-runtime DST exception and ARN-179 remain unchanged.
+
+**Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock; kernel PR456 D32-D33.
