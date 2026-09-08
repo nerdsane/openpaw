@@ -388,3 +388,15 @@ The Docker and full CI build lists now both include paw-compute and dsf-factory 
 Successful collection also carries an empty declared error_message, so a recovered resource no longer displays its previous collection failure. The same generated callback contract applies to every typed resource.
 
 **Where:** os-apps/dsf-factory/wasm/dsf_resource_collect/src/{lib,tests}.rs; specs/generate.py; crates/temper-server/src/state/dispatch/effects.rs schedules query projection maintenance after integration dispatch.
+
+## D33: Include verified native persistence and callback fixes in the application
+
+**Decision:** Advance all application and worker kernel pins together to published commit 1eaeae43351bd9ae1ce729658436487328c4ff8f.
+
+**Came up because:** The previous pin predates the embedded libSQL lifetime correction, complete inline callback reactions, and authorization-before-materialization fixes required by the live resource flow.
+
+**Options:** Keep a locally tested path dependency or pin the application to the published revision after its normal release checks.
+
+**Chose the published pin because:** All normal kernel push gates passed. Real native HTTP restart persistence and inline/background provider observation proofs passed. The dependency now carries the same implementation into the application build. Kernel D31 records Rita's native-runtime DST exception; ARN-179 remains open and PostgreSQL effect parity is not claimed.
+
+**Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock; kernel PR456.
