@@ -2,6 +2,7 @@
   "callback_shapes": {
     "shape_1": {
       "expected_refresh_sequence": "counter",
+      "error_message": "string",
       "collected_observation_id": "string",
       "collected_source_event_id": "string",
       "collected_query": "string",
@@ -18,6 +19,7 @@
     },
     "shape_2": {
       "expected_refresh_sequence": "counter",
+      "error_message": "string",
       "collected_observation_id": "string",
       "collected_source_event_id": "string",
       "collected_query": "string",

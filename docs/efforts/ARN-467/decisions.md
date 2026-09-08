@@ -350,3 +350,41 @@ The Docker and full CI build lists now both include paw-compute and dsf-factory 
 **Chose the protected projection because:** The user can inspect the actual resource records, dependencies and configuration hashes now. The upload contains three static files, no credentials and no private application source. The snapshot cannot execute actions and does not satisfy the live factory checkpoint. The complete implementation and production verification remain required.
 
 **Where:** docs/efforts/ARN-467/plan.md; the protected ARN-467 Vercel checkpoint linked from Linear.
+
+## D30: Let the registered factory identity raise questions
+
+**Decision:** Include explicit Ask creation, raising and withdrawal permissions for the registered `dsf-factory` identity in the DSF app, while forbidding that identity from answering Asks.
+
+**Came up because:** A real Tensorlake resident agent reached Temper and edited a scratch file, but Ask creation returned HTTP 403. The existing patrol policy only recognizes older agent types for those actions.
+
+**Options:** Reuse another agent's identity, broaden the patrol policy, or declare the new identity's required Ask actions in its own app.
+
+**Chose the app policy because:** The dedicated identity remains distinct and the installed app defines its required capability. Browser answers still use the separate server-held human credential. A proposed operator answer permission was rejected by automatic approval review and was not added; approval for a single local verification Ask was initially pending. Rita authorized the exact local rule on 2026-09-08; it was installed only in the local proof instance and is excluded from the app policy.
+
+**Where:** os-apps/dsf-factory/policies/resident_asks.cedar and crates/temperpaw/tests/dsf_factory_policy.rs.
+
+## D31: Report the failed observation check
+
+**Decision:** Keep static contract failures and HTTP status/source details in observation errors while omitting dynamic provider bodies and field values.
+
+**Came up because:** The real local Railway refresh returned only a generic binding-or-evidence failure, even after the configuration File and its hash were independently verified. The missing detail prevented diagnosis from the operation record.
+
+**Options:** Retain the generic message, copy every error payload, or expose only fixed contract descriptions and status codes.
+
+**Chose fixed descriptions because:** Operators can identify the failed check without leaking provider credentials or returned content. A regression verifies that dynamic error payloads remain absent.
+
+**Where:** os-apps/dsf-factory/wasm/dsf_resource_collect/src/{lib,guest,tests}.rs.
+
+## D32: Collect against the committed invocation state
+
+**Decision:** Bind observation reads to the state captured by the successful RefreshObservations transition, without rereading the same resource's query projection.
+
+**Came up because:** A real Railway refresh failed before its provider read: the collector expected Refreshing, but the HTTP resource projection still held Active. The kernel enqueues that projection after inline integrations return, so rereading it inside the integration cannot establish newer authoritative state.
+
+**Options:** Wait for the projection, move projection writes into the kernel's transition path, or use the committed invocation and existing callback sequence guards.
+
+**Chose the committed invocation because:** The kernel already supplies the accepted transition's configuration reference, digest and counters. The collector verifies the immutable configuration File against that digest, performs only provider reads, and carries the captured refresh and observation sequences into the guarded callback. A later refresh or observation cannot be overwritten. The resource action modules already use this pattern; polling would add latency without authority.
+
+Successful collection also carries an empty declared error_message, so a recovered resource no longer displays its previous collection failure. The same generated callback contract applies to every typed resource.
+
+**Where:** os-apps/dsf-factory/wasm/dsf_resource_collect/src/{lib,tests}.rs; specs/generate.py; crates/temper-server/src/state/dispatch/effects.rs schedules query projection maintenance after integration dispatch.

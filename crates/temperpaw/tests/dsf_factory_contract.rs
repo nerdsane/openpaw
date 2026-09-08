@@ -595,6 +595,19 @@ fn collection_commits_immutable_evidence_before_projecting_typed_resource_facts(
 }
 
 #[test]
+fn successful_collection_clears_the_previous_failure() {
+    let mut sim = reaction_simulator();
+    sim.step("resource", "RefreshObservations", "{}").unwrap();
+    sim.step("resource", "CollectionFailed", &json!({"expected_refresh_sequence":1,"error_message":"previous read failed"}).to_string()).unwrap();
+    sim.step("resource", "RefreshObservations", "{}").unwrap();
+    let mut params = collection();
+    params["expected_refresh_sequence"] = json!(2);
+    params["error_message"] = json!("");
+    let result = sim.step("resource", "CollectionMeasured", &params.to_string()).unwrap();
+    assert_eq!(result["fields"]["error_message"], "");
+}
+
+#[test]
 fn stale_projection_retains_immutable_evidence_and_the_newer_resource_facts() {
     let mut sim = reaction_simulator();
     sim.step("resource", "Observe", &observation(0, 2500).to_string())
@@ -1004,7 +1017,7 @@ fn real_collector_callback_commits_evidence_before_resource_cas() {
         let deployment = json!({"id":"actual-deployment","status":"SUCCESS","createdAt":"2026-09-06T00:00:00Z","meta":{"commitHash":"a".repeat(40)}});
         let provider = json!({"data":{"service":{"id":"service-1","projectId":"project-1"},"serviceInstance":{"id":"instance-1","serviceId":"service-1","environmentId":"production","latestDeployment":deployment,"activeDeployments":[deployment]}}});
         let mut host = RecordedHost(
-            [captured.clone(), config.clone(), provider]
+            [config.clone(), provider]
                 .into_iter()
                 .map(|value| Response {
                     status: 200,

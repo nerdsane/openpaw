@@ -6,6 +6,20 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 mod providers;
 pub use providers::{Datadog, Media, R2, Railway, Supabase, Vercel};
+/// Explain fixed contract checks without copying provider bodies or field values.
+pub fn failure_message(error: &Error) -> String {
+    match error {
+        Error::Binding(reason) => format!("resource observation binding failed: {reason}"),
+        Error::Response(source) => {
+            format!("resource observation received an invalid {source} response")
+        }
+        Error::Http(status, source) => {
+            format!("resource observation received HTTP {status} from {source}")
+        }
+        Error::Transport => "resource observation transport failed".into(),
+        _ => "resource observation required field or evidence failed".into(),
+    }
+}
 #[cfg(target_arch = "wasm32")]
 pub mod guest;
 
@@ -104,12 +118,9 @@ pub fn collect<C: Collector>(
     if required(captured, "status")? != "Refreshing" || sequence == 0 || runtime.now_ms <= 0 {
         return Err(Error::Binding("resource is not refreshing"));
     }
-    let current = runtime.row(C::Binding::ENTITY_SET, resource_id)?;
-    for name in ["status", "refresh_sequence", "config_ref", "config_sha256"] {
-        if field(&current, name) != field(captured, name) {
-            return Err(Error::Binding("resource refresh or configuration changed"));
-        }
-    }
+    // The HTTP projection is updated after this integration returns. The
+    // committed invocation owns this read; callback guards fence later changes.
+    let current = captured;
     let config_ref = required(&current, "config_ref")?;
     let raw = runtime.read("Files", config_ref, true)?;
     if raw.status != 200 || raw.body.len() > 32768 {
@@ -143,7 +154,7 @@ pub fn collect<C: Collector>(
                 .expect("serializable observation identity")
         )
     );
-    let mut params = json!({"expected_refresh_sequence":sequence,"collected_observation_id":observation_id,"collected_source_event_id":observation_id,"collected_query":query,"collected_window_start":timestamp(observed.source_at_ms.unwrap_or(runtime.now_ms).min(runtime.now_ms))?,"collected_window_end":timestamp(runtime.now_ms)?,"collected_sample_kind":observed.sample_kind,"collected_outcome":observed.outcome,"collected_summary":observed.values.to_string(),"collected_evidence_ref":source,"collected_observed_at_ms":runtime.now_ms,"collected_expected_resource_sequence":counter(&current,"observed_sequence")?});
+    let mut params = json!({"expected_refresh_sequence":sequence,"error_message":"","collected_observation_id":observation_id,"collected_source_event_id":observation_id,"collected_query":query,"collected_window_start":timestamp(observed.source_at_ms.unwrap_or(runtime.now_ms).min(runtime.now_ms))?,"collected_window_end":timestamp(runtime.now_ms)?,"collected_sample_kind":observed.sample_kind,"collected_outcome":observed.outcome,"collected_summary":observed.values.to_string(),"collected_evidence_ref":source,"collected_observed_at_ms":runtime.now_ms,"collected_expected_resource_sequence":counter(&current,"observed_sequence")?});
     let action = match observed.coverage {
         Coverage::Measured => {
             params["collected_observed_configuration"] = json!(observed.values.to_string());

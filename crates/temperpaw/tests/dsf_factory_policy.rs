@@ -28,6 +28,20 @@ fn service(name: &str) -> SecurityContext {
     AgentContext::for_service(name).security_ctx.unwrap()
 }
 #[test]
+fn resident_agents_can_raise_questions_but_cannot_answer_them() {
+    let text = fs::read_to_string(app().join("policies/resident_asks.cedar")).unwrap();
+    let engine = AuthzEngine::new(&text).unwrap();
+    let agent = SecurityContext::from_resolved_identity("factory", "dsf-factory", None);
+    for action in ["create", "Raise", "RaiseBlocking", "RecordFyi", "Withdraw"] {
+        assert!(allowed(&engine, &agent, "Ask", action), "{action}");
+    }
+    assert!(!allowed(&engine, &agent, "Ask", "Answer"));
+    let ambient = AuthzEngine::new(&format!("{text}\npermit(principal, action, resource);")).unwrap();
+    assert!(!allowed(&ambient, &agent, "Ask", "Answer"));
+    let spoof = SecurityContext::anonymous().with_agent_context(Some("spoof"), None, Some("dsf-factory"));
+    assert!(!allowed(&engine, &spoof, "Ask", "create"));
+}
+#[test]
 fn registered_members_can_request_every_declared_command_but_not_forge_callbacks() {
     let engine = policy("");
     let manifest: Value = serde_json::from_str(

@@ -51,10 +51,10 @@ pub fn run<C: Collector>() -> i32 {
     })();
     match result {
         Ok(callback) => set_success_result(&callback.action, &callback.params),
-        Err(_) => match sequence {
+        Err(error) => match sequence {
             Some(sequence) => set_success_result(
                 "CollectionFailed",
-                &json!({"expected_refresh_sequence":sequence,"error_message":"typed resource observation binding or evidence failed"}),
+                &json!({"expected_refresh_sequence":sequence,"error_message":failure_message(&error)}),
             ),
             None => set_error_result("resource observation context could not be decoded"),
         },

@@ -129,6 +129,7 @@
       <Action Name="CollectionMeasured" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfRailwayServiceInstance" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -146,6 +147,7 @@
       <Action Name="CollectionAbsent" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfRailwayServiceInstance" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -161,6 +163,7 @@
       <Action Name="CollectionInaccessible" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfRailwayServiceInstance" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -176,6 +179,7 @@
       <Action Name="CollectionStale" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfRailwayServiceInstance" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -690,6 +694,7 @@
       <Action Name="CollectionMeasured" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfVercelProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -707,6 +712,7 @@
       <Action Name="CollectionAbsent" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfVercelProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -722,6 +728,7 @@
       <Action Name="CollectionInaccessible" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfVercelProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -737,6 +744,7 @@
       <Action Name="CollectionStale" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfVercelProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1372,6 +1380,7 @@
       <Action Name="CollectionMeasured" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfSupabaseProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1389,6 +1398,7 @@
       <Action Name="CollectionAbsent" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfSupabaseProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1404,6 +1414,7 @@
       <Action Name="CollectionInaccessible" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfSupabaseProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1419,6 +1430,7 @@
       <Action Name="CollectionStale" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfSupabaseProject" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1680,6 +1692,7 @@
       <Action Name="CollectionMeasured" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfCloudflareR2Bucket" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1697,6 +1710,7 @@
       <Action Name="CollectionAbsent" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfCloudflareR2Bucket" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1712,6 +1726,7 @@
       <Action Name="CollectionInaccessible" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfCloudflareR2Bucket" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1727,6 +1742,7 @@
       <Action Name="CollectionStale" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfCloudflareR2Bucket" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -1990,6 +2006,7 @@
       <Action Name="CollectionMeasured" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfDatadogMonitor" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2007,6 +2024,7 @@
       <Action Name="CollectionAbsent" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfDatadogMonitor" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2022,6 +2040,7 @@
       <Action Name="CollectionInaccessible" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfDatadogMonitor" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2037,6 +2056,7 @@
       <Action Name="CollectionStale" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfDatadogMonitor" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2302,6 +2322,7 @@
       <Action Name="CollectionMeasured" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfMediaPipeline" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2319,6 +2340,7 @@
       <Action Name="CollectionAbsent" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfMediaPipeline" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2334,6 +2356,7 @@
       <Action Name="CollectionInaccessible" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfMediaPipeline" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />
@@ -2349,6 +2372,7 @@
       <Action Name="CollectionStale" IsBound="true">
         <Parameter Name="bindingParameter" Type="Dsf.Factory.DsfMediaPipeline" />
         <Parameter Name="expected_refresh_sequence" Type="Edm.Int64" />
+        <Parameter Name="error_message" Type="Edm.String" />
         <Parameter Name="collected_observation_id" Type="Edm.String" />
         <Parameter Name="collected_source_event_id" Type="Edm.String" />
         <Parameter Name="collected_query" Type="Edm.String" />

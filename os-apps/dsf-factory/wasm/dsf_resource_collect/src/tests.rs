@@ -38,10 +38,6 @@ fn mock(response: Response) -> Mock {
         replies: VecDeque::from([
             Response {
                 status: 200,
-                body: row().to_string(),
-            },
-            Response {
-                status: 200,
                 body: config().to_string(),
             },
             response,
@@ -54,15 +50,16 @@ fn typed_collection_reads_registered_project_and_emits_correlated_evidence() {
     let mut h=mock(Response{status:200,body:json!({"id":"prj-1","accountId":"team-1","name":"dsf","targets":{"production":{"id":"dpl-1","readyState":"READY","meta":{"githubCommitSha":"a".repeat(40)}}},"buildCommand":"npm run build","env":[{"value":"PRIVATE"}]}).to_string()});
     let callback = collect::<Vercel>(&mut rt(&mut h), "resource-1", &row()).unwrap();
     assert_eq!(callback.action, "CollectionMeasured");
+    assert_eq!(callback.params["error_message"], "");
     assert_eq!(callback.params["expected_refresh_sequence"], 1);
     assert_eq!(callback.params["collected_expected_resource_sequence"], 7);
     assert!(!callback.params.to_string().contains("PRIVATE"));
     assert_eq!(
         h.requests[0].url,
-        "https://temper.invalid/tdata/DsfVercelProjects('resource-1')"
+        "https://temper.invalid/tdata/Files('file-1')/$value"
     );
     assert_eq!(
-        h.requests[2].url,
+        h.requests[1].url,
         "https://api.vercel.com/v9/projects/prj-1?teamId=team-1"
     );
 }
@@ -95,22 +92,35 @@ fn denied_or_malformed_provider_read_is_not_absence() {
     );
 }
 #[test]
-fn changed_config_or_refresh_sequence_refuses_before_provider_read() {
-    for key in ["config_sha256", "refresh_sequence"] {
-        let mut changed = row();
-        changed[key] = if key == "refresh_sequence" {
-            json!(2)
-        } else {
-            json!("wrong")
-        };
-        let mut h = mock(Response {
-            status: 200,
-            body: "{}".into(),
-        });
-        h.replies[0].body = changed.to_string();
-        assert!(collect::<Vercel>(&mut rt(&mut h), "resource-1", &row()).is_err());
-        assert_eq!(h.requests.len(), 1);
-    }
+fn collection_uses_committed_invocation_without_rereading_lagging_projection() {
+    let mut captured = row();
+    captured["refresh_sequence"] = json!(9);
+    captured["observed_sequence"] = json!(12);
+    let mut host = mock(Response {
+        status: 404,
+        body: "{}".into(),
+    });
+    let callback = collect::<Vercel>(&mut rt(&mut host), "resource-1", &captured).unwrap();
+    assert_eq!(callback.params["expected_refresh_sequence"], 9);
+    assert_eq!(callback.params["collected_expected_resource_sequence"], 12);
+    assert_eq!(host.requests.len(), 2);
+    assert!(
+        host.requests
+            .iter()
+            .all(|request| !request.url.contains("DsfVercelProjects"))
+    );
+}
+
+#[test]
+fn captured_configuration_hash_mismatch_refuses_before_provider_read() {
+    let mut captured = row();
+    captured["config_sha256"] = json!("wrong");
+    let mut host = mock(Response {
+        status: 200,
+        body: "{}".into(),
+    });
+    assert!(collect::<Vercel>(&mut rt(&mut host), "resource-1", &captured).is_err());
+    assert_eq!(host.requests.len(), 1);
 }
 
 fn raw(values: Vec<Value>) -> Mock {
@@ -241,4 +251,19 @@ fn railway_running_revision_does_not_adopt_the_latest_queued_deployment() {
         facts.values["latest_deployment"]["revision"],
         "b".repeat(40)
     );
+}
+
+#[test]
+fn collection_failures_explain_static_bindings_without_exposing_payloads() {
+    assert!(
+        failure_message(&Error::Binding("configuration hash differs"))
+            .contains("configuration hash differs")
+    );
+    assert!(failure_message(&Error::Http(403, "Temper")).contains("403"));
+    for error in [
+        Error::Field("PRIVATE".into()),
+        Error::Proof("PRIVATE".into()),
+    ] {
+        assert!(!failure_message(&error).contains("PRIVATE"));
+    }
 }

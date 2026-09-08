@@ -432,7 +432,7 @@ def resource_document(entity, provider, identity, operations):
         }
     )
     for coverage in ["Measured", "Absent", "Inaccessible", "Stale"]:
-        inputs = ["expected_refresh_sequence"] + [
+        inputs = ["expected_refresh_sequence", "error_message"] + [
             "collected_" + name
             for name in EVIDENCE + (OBSERVED if coverage == "Measured" else [])
         ]
