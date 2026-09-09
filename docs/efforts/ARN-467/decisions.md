@@ -412,3 +412,16 @@ Successful collection also carries an empty declared error_message, so a recover
 **Chose the verified revision because:** Inline adapters now dispatch their callback reactions, concurrent PostgreSQL creation retains the committed winner, and refused writes do not materialize entities or check stream state before authorization. Constrained asynchronous PostgreSQL actions return enqueue receipts. This preserves the full persistence scope already approved in Temper Ask arn467-kernel-review-scope; the subsequent assessment does not reopen that answered decision. The D31 native-runtime DST exception and ARN-179 remain unchanged.
 
 **Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock; kernel PR456 D32-D33.
+
+
+## D34: Pin the factory to the reviewed kernel input and recovery fixes
+
+**Decision:** Update the daemon and Codex worker to kernel revision a82410bd51915204406955d46d0f2bc5d09db8fa.
+
+**Came up because:** Kernel reviews after the previous 820c pin corrected absent creation, static specification lookup, typed parameter validation, callback accounting, authorization recovery and failed-action telemetry.
+
+**Options:** Keep the older dependency, patch the app around kernel failures, or build both consumers from the corrected kernel commit.
+
+**Chose the shared pin because:** The factory and its worker use the same runtime contracts. Input validation and persistence remain kernel responsibilities. This dependency update does not change the accepted scope, the D31 native-runtime DST exception, its five findings, or ARN-179.
+
+**Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock; kernel PR456 D34-D43. The final correction rejects malformed typed declarations and unsupported uint64 state comparisons, and native actors compile initialization and transitions from the same parsed specification.
