@@ -1169,7 +1169,7 @@ fn tensorlake_copy_request(
         let lookup_url = format!("https://api.tensorlake.ai/sandboxes/{name}");
         let lookup = request("GET", &lookup_url, "")?;
         if lookup.status != 404 || mode == CopyMode::Reconcile {
-            destination_may_exist = true;
+            destination_may_exist |= lookup.status == 200;
             let metadata = copy_metadata_response(lookup)?;
             return copied_handle(&metadata, source_id, name, namespace, None);
         }
@@ -1180,7 +1180,7 @@ fn tensorlake_copy_request(
             format!("https://api.tensorlake.ai/sandboxes/{source_id}/copy?times=1&name={name}");
         destination_may_exist = true;
         let response = request("POST", &copy_url, "")?;
-        if !matches!(response.status, 200 | 422 | 504) {
+        if !(200..300).contains(&response.status) && !matches!(response.status, 422 | 504) {
             return Err(format!(
                 "Tensorlake copy result is uncertain (HTTP {}); reconcile the recorded name",
                 response.status
@@ -2211,6 +2211,51 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn tensorlake_initial_lookup_failure_closes_but_recovery_retains_uncertainty() {
+        for mode in [CopyMode::Start, CopyMode::Reconcile] {
+            for status in [403, 500, 503] {
+                let result = tensorlake_copy_request(
+                    "source",
+                    "copy-child-source",
+                    mode,
+                    |method, url, _| {
+                        assert_eq!(method, "GET");
+                        Ok(if url.ends_with("/source") {
+                            copy_source_response()
+                        } else {
+                            copy_response(status, json!({}))
+                        })
+                    },
+                );
+                assert!(match (mode, result) {
+                    (CopyMode::Start, Err(CopyFailure::NotStarted(_))) => true,
+                    (CopyMode::Reconcile, Err(CopyFailure::Unknown(_))) => true,
+                    _ => false,
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn tensorlake_copy_accepts_success_statuses_only_after_identity_validation() {
+        for status in [200, 201, 202, 299] {
+            let mut calls = 0;
+            let handle = tensorlake_copy_request("source", "copy-child-source", CopyMode::Start, |_, _, _| {
+                calls += 1;
+                Ok(match calls {
+                    1 => copy_source_response(),
+                    2 => copy_response(404, json!({})),
+                    3 => copy_response(status, json!({"source_sandbox_id":"source","sandboxes":[{"sandbox_id":"child"}]})),
+                    4 => copy_response(200, copy_metadata()),
+                    _ => panic!("unexpected request"),
+                })
+            }).unwrap();
+            assert_eq!(handle.sandbox_id, "child");
+            assert_eq!(calls, 4);
+        }
+    }
+
     #[test]
     fn tensorlake_copy_uses_query_parameters_and_verifies_the_destination() {
         let mut calls = Vec::new();
