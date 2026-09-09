@@ -634,9 +634,10 @@ async fn packaged_resource_delivery_gates_return_fenced_callbacks_and_verify_bot
             entity_state: json!({"fields":row}),
             agent_id: None,
             session_id: None,
-            integration_config: BTreeMap::from([
-                ("temper_api_url".into(), "https://temper.test".into()),
-            ]),
+            integration_config: BTreeMap::from([(
+                "temper_api_url".into(),
+                "https://temper.test".into(),
+            )]),
             trace_id: String::new(),
             workflow_root_entity_type: None,
             workflow_root_entity_id: None,

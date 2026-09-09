@@ -89,7 +89,11 @@ fn configured_experiment(database: &str, bucket: &str) -> SimActorSystem {
         }),
     );
     step(&mut sim, "Validate", json!({}));
-    step(&mut sim,"ValidationPrepared",json!({"expected_sequence":1,"exec_id":"exec-validation","command":"runner validate","phase_deadline_ms":"300000"}));
+    step(
+        &mut sim,
+        "ValidationPrepared",
+        json!({"expected_sequence":1,"exec_id":"exec-validation","command":"runner validate","phase_deadline_ms":"300000"}),
+    );
     sim
 }
 
@@ -123,7 +127,11 @@ fn experiment_cannot_use_production_database_or_media_bucket() {
             .is_err()
     );
     step(&mut sim, "Run", json!({}));
-    step(&mut sim,"RunPrepared",json!({"expected_sequence":2,"exec_id":"exec-run","command":"runner run","phase_deadline_ms":"1800000"}));
+    step(
+        &mut sim,
+        "RunPrepared",
+        json!({"expected_sequence":2,"exec_id":"exec-run","command":"runner run","phase_deadline_ms":"1800000"}),
+    );
     step(
         &mut sim,
         "RunSucceeded",
@@ -134,11 +142,19 @@ fn experiment_cannot_use_production_database_or_media_bucket() {
         "Select",
         json!({"selection_ask_id":"ask-1", "delivery_effort_id":"delivery-1"}),
     );
-    sim.assert_status("subject","Selecting");
-    step(&mut sim,"SelectionSucceeded",json!({"expected_sequence":3,"selection_evidence_ref":"ask-1-accepted-delivery"}));
+    sim.assert_status("subject", "Selecting");
+    step(
+        &mut sim,
+        "SelectionSucceeded",
+        json!({"expected_sequence":3,"selection_evidence_ref":"ask-1-accepted-delivery"}),
+    );
     assert!(sim.step("subject", "Deploy", "{}").is_err());
     step(&mut sim, "Cleanup", json!({}));
-    step(&mut sim,"CleanupPrepared",json!({"expected_sequence":4,"exec_id":"exec-cleanup","command":"runner cleanup","phase_deadline_ms":"300000"}));
+    step(
+        &mut sim,
+        "CleanupPrepared",
+        json!({"expected_sequence":4,"exec_id":"exec-cleanup","command":"runner cleanup","phase_deadline_ms":"300000"}),
+    );
     step(
         &mut sim,
         "CleanupSucceeded",
@@ -598,12 +614,19 @@ fn collection_commits_immutable_evidence_before_projecting_typed_resource_facts(
 fn successful_collection_clears_the_previous_failure() {
     let mut sim = reaction_simulator();
     sim.step("resource", "RefreshObservations", "{}").unwrap();
-    sim.step("resource", "CollectionFailed", &json!({"expected_refresh_sequence":1,"error_message":"previous read failed"}).to_string()).unwrap();
+    sim.step(
+        "resource",
+        "CollectionFailed",
+        &json!({"expected_refresh_sequence":1,"error_message":"previous read failed"}).to_string(),
+    )
+    .unwrap();
     sim.step("resource", "RefreshObservations", "{}").unwrap();
     let mut params = collection();
     params["expected_refresh_sequence"] = json!(2);
     params["error_message"] = json!("");
-    let result = sim.step("resource", "CollectionMeasured", &params.to_string()).unwrap();
+    let result = sim
+        .step("resource", "CollectionMeasured", &params.to_string())
+        .unwrap();
     assert_eq!(result["fields"]["error_message"], "");
 }
 
@@ -631,9 +654,10 @@ fn stale_projection_retains_immutable_evidence_and_the_newer_resource_facts() {
 fn model_sync_does_not_duplicate_resource_scheduling() {
     let ioa = temper_spec::automaton::parse_automaton(&source("model_sync")).unwrap();
     assert!(ioa.actions.iter().all(|action| {
-        !action.triggers.iter().any(|trigger| {
-            trigger.target_action.as_deref() == Some("RefreshObservations")
-        })
+        !action
+            .triggers
+            .iter()
+            .any(|trigger| trigger.target_action.as_deref() == Some("RefreshObservations"))
     }));
 }
 

@@ -21,8 +21,14 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         let headers = odata_headers(&ctx);
         let packet = get_entity(&ctx, &base_url, &headers, "ProofPackets", &id)?;
         proof_packet_holds(&packet, None)?;
-        ctx.log("info", &format!("chain_proof_ready: ProofPacket {id} holds"));
-        set_success_result("", &json!({ "status": "proof_ready", "proof_packet_id": id }));
+        ctx.log(
+            "info",
+            &format!("chain_proof_ready: ProofPacket {id} holds"),
+        );
+        set_success_result(
+            "",
+            &json!({ "status": "proof_ready", "proof_packet_id": id }),
+        );
         Ok(())
     })();
     if let Err(error) = result {
@@ -122,7 +128,10 @@ fn validate_proof(r: &Value) -> Result<(), String> {
 }
 
 fn is_full_sha(commit: &str) -> bool {
-    commit.len() == 40 && commit.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    commit.len() == 40
+        && commit
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn json_field(fields: &Value, name: &str) -> Result<Value, String> {

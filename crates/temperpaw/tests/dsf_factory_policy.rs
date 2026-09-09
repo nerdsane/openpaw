@@ -36,9 +36,11 @@ fn resident_agents_can_raise_questions_but_cannot_answer_them() {
         assert!(allowed(&engine, &agent, "Ask", action), "{action}");
     }
     assert!(!allowed(&engine, &agent, "Ask", "Answer"));
-    let ambient = AuthzEngine::new(&format!("{text}\npermit(principal, action, resource);")).unwrap();
+    let ambient =
+        AuthzEngine::new(&format!("{text}\npermit(principal, action, resource);")).unwrap();
     assert!(!allowed(&ambient, &agent, "Ask", "Answer"));
-    let spoof = SecurityContext::anonymous().with_agent_context(Some("spoof"), None, Some("dsf-factory"));
+    let spoof =
+        SecurityContext::anonymous().with_agent_context(Some("spoof"), None, Some("dsf-factory"));
     assert!(!allowed(&engine, &spoof, "Ask", "create"));
 }
 #[test]
