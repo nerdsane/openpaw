@@ -8,11 +8,11 @@
 
 **Chose the recorded request because:** The full child and source IDs give an exact correlation key within Tensorlake's 63-character name limit; unsupported identifiers fail before any provider request. Recovery requires the exact name, a destination different from the source, and matching provider project namespaces. A received partial copy response must also report the exact source_sandbox_id and the same destination found by name. After a completely lost response, the name proves correlation with the recorded request; it does not independently prove provider-reported source lineage, which GET does not expose. ReconcileCopy only runs on an existing CopyUnknown child and never sends another POST. Destroy remains unavailable while the child still holds the source machine ID. This retains uncertain resources for investigation instead of claiming cleanup occurred.
 
-The Docker and full CI build lists now both include paw-compute before its native tests. Their WASMs are generated and ignored by Git, so omitting these builds would leave the new recovery module and its dependent runtime unavailable in a clean image.
+The CI build list includes paw-compute before native tests because its generated WASMs are ignored by Git. D31 removes the Docker change: this release installs the Genesis compute app without replacing the runtime image.
 
 **Where:** os-apps/paw-compute/specs/computer.ioa.toml; os-apps/paw-compute/wasm/computer_copy_start/src/lib.rs; os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs; crates/temperpaw/tests/computer_copy_reconciliation.rs; Dockerfile; .github/workflows/ci.yml.
 
-## D28: Use the verified kernel for the isolated application release
+## D28: Use the verified kernel for the isolated application release (superseded by D31)
 
 **Decision:** Pin all application and worker Temper dependencies to the already merged a82410bd51915204406955d46d0f2bc5d09db8fa used by the successful native and live Copy proof.
 
@@ -48,3 +48,15 @@ The Docker and full CI build lists now both include paw-compute before its nativ
 **Chose the third option because:** The native ProvisionFromCopy action can run only from Created and its integration is dispatched once; no background WASM retry is scheduled by the pinned kernel. An error before that first request can safely close the child. ReconcileCopy is always GET-only and never closes the record on failure, even if its credentials or source lookup fail. An already-found named destination also preserves uncertainty if validation fails. This adds one callback, no retry loop, and never terminates the stored source machine.
 
 **Where:** os-apps/paw-compute/specs/computer.ioa.toml; os-apps/paw-compute/wasm/computer_copy_start/src/lib.rs; os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs; https://github.com/nerdsane/temperpaw/pull/507.
+
+## D31: Keep the Copy repair on the deployed kernel
+
+**Decision:** Restore the existing d7a48b92 kernel dependencies and ship the repair as a Genesis compute app, without a TemperPaw image deployment.
+
+**Came up because:** Rita challenged the unnecessary kernel upgrade, vendored libSQL source and legacy temper-agents work. D28 reused a newer tested runtime without first demonstrating that Copy required it. The old parser loads the spec but ignores the new CopyStarted constraints; claiming it could not load the app was incorrect.
+
+**Options:** Upgrade the kernel, install unenforced constraints, or keep identity validation at the existing provider/WASM boundary with Cedar restricting callbacks and qualify the old runtime.
+
+**Chose the old runtime because:** Its WASM implementation is identical to the newer revision. Native transition and Cedar compatibility tests pass against d7a48b92 with the added constraints removed. The real provider proof is recorded separately. This retains source/destination validation in the Copy helper and removes the unsupported native-constraint assertions; trusted callback code remains responsible for valid callback values. No legacy agent migration or database dependency project is a prerequisite for Foundry.
+
+**Where:** crates/temperpaw/Cargo.toml; crates/paw-codex-worker/Cargo.toml; Cargo.lock; os-apps/paw-compute/specs/computer.ioa.toml; crates/temperpaw/tests/computer_copy_reconciliation.rs; https://github.com/nerdsane/temperpaw/pull/507.

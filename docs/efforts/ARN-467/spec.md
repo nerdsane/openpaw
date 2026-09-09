@@ -8,7 +8,7 @@ Copy starts at most one provider request for a child Computer. Its exact name in
 
 The executable contract is os-apps/paw-compute/specs/computer.ioa.toml. Its model and invariants are exercised by computer_copy_reconciliation.rs. The explicitly invoked live test drives the actual compiled WASMs against Tensorlake, verifies a file copied from the source, and verifies asynchronous cleanup. Ordinary CI never provisions provider resources.
 
-The kernel dependency is the already merged and independently verified a82410bd51915204406955d46d0f2bc5d09db8fa used by the application proof. There is no new kernel implementation in this release.
+This is a Genesis compute-app release on the deployed kernel d7a48b92f7caf724067972640c0cfc302f6a350e. Provider identity validation belongs to the existing Copy WASM boundary, and Cedar restricts callbacks to trusted integrations. The app does not use the newer kernel parameter constraints. No kernel upgrade, vendored dependency change, legacy temper-agents change or runtime image deployment belongs to this slice.
 
 
 ### First-attempt rejection and uncertain recovery

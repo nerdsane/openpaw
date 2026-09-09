@@ -369,12 +369,6 @@ kind = "input"
 from = ["Provisioning", "CopyUnknown"]
 to = "Copying"
 params = ["machine_id", "sandbox_url", "source_machine_id", "name", "copy_deadline_at_ms"]
-constraints = [
-  { kind = "param_nonempty", param = "machine_id" },
-  { kind = "param_nonempty", param = "source_machine_id" },
-  { kind = "param_equals_field", param = "source_machine_id", field = "machine_id" },
-  { kind = "param_not_equals_field", param = "machine_id", field = "machine_id" },
-]
 hint = "Callback from computer_copy_start — the copy sandbox was created; poll it to readiness from Copying."
 
 # The copy poll loop: while Copying, fire CopyPoll every 10s until the copy is

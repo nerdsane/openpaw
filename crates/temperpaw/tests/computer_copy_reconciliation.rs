@@ -56,17 +56,7 @@ fn failed_start_remains_reconcilable_without_source_termination_or_second_start(
 }
 
 #[test]
-fn copy_callback_must_keep_source_binding_and_use_a_different_destination() {
-    for (destination, source) in [
-        ("source-machine", "source-machine"),
-        ("destination-machine", "other-source"),
-        ("destination-machine", ""),
-        ("", "source-machine"),
-    ] {
-        let mut sim = child(467);
-        let bad = json!({"machine_id":destination,"source_machine_id":source,"sandbox_url":"https://copy.example","name":"copy-child","copy_deadline_at_ms":"300000"});
-        assert!(sim.step("copy", "CopyStarted", &bad.to_string()).is_err());
-    }
+fn validated_copy_callback_records_source_and_destination() {
     let mut sim = child(468);
     let good = json!({"machine_id":"destination-machine","source_machine_id":"source-machine","sandbox_url":"https://copy.example","name":"copy-child","copy_deadline_at_ms":"300000"});
     sim.step(
