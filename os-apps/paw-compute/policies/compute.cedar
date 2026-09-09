@@ -52,6 +52,7 @@ permit(
         Action::"Computer.Wake", Action::"Wake",
         Action::"Computer.Destroy", Action::"Destroy",
         Action::"Computer.Copy", Action::"Copy",
+        Action::"Computer.ReconcileCopy", Action::"ReconcileCopy",
         Action::"Computer.Heartbeat", Action::"Heartbeat"
     ],
     resource is Computer
@@ -72,6 +73,7 @@ permit(
         Action::"Computer.CopyPoll", Action::"CopyPoll",
         Action::"Computer.CopyComplete", Action::"CopyComplete",
         Action::"Computer.CopyFailed", Action::"CopyFailed",
+        Action::"Computer.CopyRejected", Action::"CopyRejected",
         Action::"Computer.CopyExpired", Action::"CopyExpired",
         Action::"Computer.TerminateComplete", Action::"TerminateComplete",
         Action::"Computer.Destroy", Action::"Destroy",
