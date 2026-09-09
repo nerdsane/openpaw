@@ -30,6 +30,23 @@ pub enum CopyMode {
     Reconcile,
 }
 
+/// Whether a failed copy may already own a provider destination.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CopyFailure {
+    NotStarted(String),
+    Unknown(String),
+}
+
+impl CopyFailure {
+    /// Only the first native start can prove that no request was sent.
+    pub fn before_request(mode: CopyMode, error: String) -> Self {
+        match mode {
+            CopyMode::Start => Self::NotStarted(error),
+            CopyMode::Reconcile => Self::Unknown(error),
+        }
+    }
+}
+
 /// Preserve both native identifiers. Unsupported names fail before provider I/O.
 pub fn sandbox_copy_name(child_id: &str, source_id: &str) -> Result<String, String> {
     let name = format!("copy-{child_id}-{source_id}");
@@ -382,16 +399,21 @@ pub fn sandbox_copy(
     source_sandbox_id: &str,
     child_id: &str,
     mode: CopyMode,
-) -> Result<SandboxHandle, String> {
-    let name = sandbox_copy_name(child_id, source_sandbox_id)?;
-    let api_key = resolve_sandbox_api_key(ctx, provider)?;
+) -> Result<SandboxHandle, CopyFailure> {
+    let name = sandbox_copy_name(child_id, source_sandbox_id)
+        .map_err(|error| CopyFailure::before_request(mode, error))?;
+    let api_key = resolve_sandbox_api_key(ctx, provider)
+        .map_err(|error| CopyFailure::before_request(mode, error))?;
     let result = match provider {
         "tensorlake" => {
             tensorlake_copy_request(source_sandbox_id, &name, mode, |method, url, body| {
                 ctx.http_call(method, url, &bearer_headers(&api_key), body)
             })
         }
-        other => Err(format!("sandbox_copy unsupported for provider: {other}")),
+        other => Err(CopyFailure::before_request(
+            mode,
+            format!("sandbox_copy unsupported for provider: {other}"),
+        )),
     };
     let operation = match mode {
         CopyMode::Start => "copy",
@@ -1128,55 +1150,69 @@ fn tensorlake_copy_request(
     name: &str,
     mode: CopyMode,
     mut request: impl FnMut(&str, &str, &str) -> Result<HttpResponse, String>,
-) -> Result<SandboxHandle, String> {
-    if !valid_copy_identifier(source_id) || !valid_copy_identifier(name) {
-        return Err("invalid Tensorlake copy identifiers".into());
-    }
-    let source_url = format!("https://api.tensorlake.ai/sandboxes/{source_id}");
-    let source = copy_metadata_response(request("GET", &source_url, "")?)?;
-    if copy_metadata_id(&source) != Some(source_id) {
-        return Err("Tensorlake copy source ID did not match its recorded binding".into());
-    }
-    let namespace = source
-        .get("namespace")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or("Tensorlake copy source has no project namespace")?;
-    let lookup_url = format!("https://api.tensorlake.ai/sandboxes/{name}");
-    let lookup = request("GET", &lookup_url, "")?;
-    if lookup.status != 404 || mode == CopyMode::Reconcile {
-        let metadata = copy_metadata_response(lookup)?;
-        return copied_handle(&metadata, source_id, name, namespace, None);
-    }
+) -> Result<SandboxHandle, CopyFailure> {
+    let mut destination_may_exist = mode == CopyMode::Reconcile;
+    let result = (|| -> Result<SandboxHandle, String> {
+        if !valid_copy_identifier(source_id) || !valid_copy_identifier(name) {
+            return Err("invalid Tensorlake copy identifiers".into());
+        }
+        let source_url = format!("https://api.tensorlake.ai/sandboxes/{source_id}");
+        let source = copy_metadata_response(request("GET", &source_url, "")?)?;
+        if copy_metadata_id(&source) != Some(source_id) {
+            return Err("Tensorlake copy source ID did not match its recorded binding".into());
+        }
+        let namespace = source
+            .get("namespace")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or("Tensorlake copy source has no project namespace")?;
+        let lookup_url = format!("https://api.tensorlake.ai/sandboxes/{name}");
+        let lookup = request("GET", &lookup_url, "")?;
+        if lookup.status != 404 || mode == CopyMode::Reconcile {
+            destination_may_exist = true;
+            let metadata = copy_metadata_response(lookup)?;
+            return copied_handle(&metadata, source_id, name, namespace, None);
+        }
 
-    // Copy accepts query parameters, not JSON. The provider may return after the
-    // host deadline; an error preserves CopyUnknown and never resubmits this POST.
-    let copy_url =
-        format!("https://api.tensorlake.ai/sandboxes/{source_id}/copy?times=1&name={name}");
-    let response = request("POST", &copy_url, "")?;
-    if !matches!(response.status, 200 | 422 | 504) {
-        return Err(format!(
-            "Tensorlake copy result is uncertain (HTTP {}); reconcile the recorded name",
-            response.status
-        ));
-    }
-    let result: Value = serde_json::from_str(&response.body)
-        .map_err(|error| format!("invalid Tensorlake copy response: {error}"))?;
-    if result.get("source_sandbox_id").and_then(Value::as_str) != Some(source_id) {
-        return Err("Tensorlake copy response source does not match the recorded source".into());
-    }
-    let destinations = result
-        .get("sandboxes")
-        .and_then(Value::as_array)
-        .filter(|items| items.len() == 1)
-        .ok_or("Tensorlake copy response must identify exactly one destination")?;
-    let destination_id = destinations[0]
-        .get("sandbox_id")
-        .and_then(Value::as_str)
-        .filter(|id| valid_copy_identifier(id) && *id != source_id)
-        .ok_or("Tensorlake copy response has no distinct destination ID")?;
-    let metadata = copy_metadata_response(request("GET", &lookup_url, "")?)?;
-    copied_handle(&metadata, source_id, name, namespace, Some(destination_id))
+        // Copy accepts query parameters, not JSON. The provider may return after the
+        // host deadline; an error preserves CopyUnknown and never resubmits this POST.
+        let copy_url =
+            format!("https://api.tensorlake.ai/sandboxes/{source_id}/copy?times=1&name={name}");
+        destination_may_exist = true;
+        let response = request("POST", &copy_url, "")?;
+        if !matches!(response.status, 200 | 422 | 504) {
+            return Err(format!(
+                "Tensorlake copy result is uncertain (HTTP {}); reconcile the recorded name",
+                response.status
+            ));
+        }
+        let result: Value = serde_json::from_str(&response.body)
+            .map_err(|error| format!("invalid Tensorlake copy response: {error}"))?;
+        if result.get("source_sandbox_id").and_then(Value::as_str) != Some(source_id) {
+            return Err(
+                "Tensorlake copy response source does not match the recorded source".into(),
+            );
+        }
+        let destinations = result
+            .get("sandboxes")
+            .and_then(Value::as_array)
+            .filter(|items| items.len() == 1)
+            .ok_or("Tensorlake copy response must identify exactly one destination")?;
+        let destination_id = destinations[0]
+            .get("sandbox_id")
+            .and_then(Value::as_str)
+            .filter(|id| valid_copy_identifier(id) && *id != source_id)
+            .ok_or("Tensorlake copy response has no distinct destination ID")?;
+        let metadata = copy_metadata_response(request("GET", &lookup_url, "")?)?;
+        copied_handle(&metadata, source_id, name, namespace, Some(destination_id))
+    })();
+    result.map_err(|error| {
+        if destination_may_exist {
+            CopyFailure::Unknown(error)
+        } else {
+            CopyFailure::NotStarted(error)
+        }
+    })
 }
 
 fn copy_metadata_response(response: HttpResponse) -> Result<Value, String> {

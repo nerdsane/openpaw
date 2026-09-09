@@ -45,7 +45,7 @@ and not a flag.
 
 Each module is one concern on its own entity; no WASM dispatches transitions on
 another machine. The choice of Option A (spawn + child's own copy) over a WASM
-that materializes the child inline, and of a state over a flag/second-entity, is
+that materializes the child inline, and of a state over a flag/second-entity,
 keeps the copy's lifecycle in one governed record.
 
 ## Consequences
@@ -53,6 +53,9 @@ keeps the copy's lifecycle in one governed record.
 - The panel's copies become auditable Computer rows; teardown and reaping are
   declared transitions, not CLI side effects.
 - Exec accepts a `Leased` copy through the existing computer gate.
+- A first attempt that fails before submitting a copy or finding a named destination
+  closes via CopyRejected without teardown. Reconciliation failures always retain
+  uncertainty; a missing credential during recovery cannot erase a prior request.
 - An unresolved copy remains visible in `CopyUnknown`; it is not reported as
   destroyed or safe to reap. Investigating and cleaning an uncertain provider
   resource requires verified ownership, never the row's stored source ID.

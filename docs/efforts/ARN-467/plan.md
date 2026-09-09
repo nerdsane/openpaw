@@ -9,3 +9,5 @@ Full objective: deliver the software factory through Foundry and Temper, preserv
 5. Preserve the larger factory implementation and its unresolved review findings in PR504. Do not declare the full objective done when this dependency release lands.
 
 Rita explicitly approved a separate Copy release PR on 2026-09-09, preserving PR504. This exception covers the dependency release; it does not mark the full objective complete.
+
+Build Copy release WASMs with env -u CARGO_TARGET_DIR bash os-apps/paw-compute/wasm/build.sh. The script copies artifacts from per-module target directories; a shared root target can leave those copied artifacts stale. Run the packaged-WASM regression tests after the build to verify the bytes being shipped.

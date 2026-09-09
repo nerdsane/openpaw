@@ -111,6 +111,8 @@ fn ordinary_computer_agents_can_reconcile_but_cannot_manufacture_copy_callbacks(
         "CopyStarted",
         "Computer.CopyFailed",
         "CopyFailed",
+        "Computer.CopyRejected",
+        "CopyRejected",
     ] {
         assert!(!matches!(
             engine.authorize(&context, action, "Computer", &attributes),
@@ -193,4 +195,84 @@ async fn packaged_reconciliation_reads_the_recorded_name_and_emits_a_valid_nativ
     )
     .unwrap();
     sim.assert_status("copy", "Copying");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn packaged_copy_closes_only_first_attempts_that_did_not_submit() {
+    use std::collections::BTreeMap;
+    use std::sync::RwLock;
+    use temper_wasm::{
+        SimWasmHost, StreamRegistry, WasmEngine, WasmInvocationContext, WasmResourceLimits,
+    };
+    let engine = WasmEngine::new().unwrap();
+    let bytes = fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../os-apps/paw-compute/wasm/computer_copy_start/computer_copy_start.wasm"),
+    )
+    .unwrap();
+    let hash = engine.compile_and_cache(&bytes).unwrap();
+    for action in ["ProvisionFromCopy", "ReconcileCopy"] {
+        for (source, key, source_status) in [
+            ("source-machine", "", 200),
+            ("source-machine", "local-test-only", 503),
+            ("invalid/source", "local-test-only", 200),
+        ] {
+            let context = WasmInvocationContext {
+                tenant: "default".into(),
+                entity_type: "Computer".into(),
+                entity_id: "copy-child".into(),
+                trigger_action: action.into(),
+                wasm_module: Some("computer_copy_start".into()),
+                trigger_params: json!({}),
+                entity_state: json!({"status":if action == "ProvisionFromCopy" {"Provisioning"} else {"CopyUnknown"},
+                    "fields":{"machine_id":source,"provider":"tensorlake"}}),
+                agent_id: None,
+                session_id: None,
+                integration_config: BTreeMap::from([("tensorlake_api_key".into(), key.into())]),
+                trace_id: String::new(),
+                workflow_root_entity_type: None,
+                workflow_root_entity_id: None,
+                workflow_run_id: None,
+                http_request: None,
+            };
+            let host = SimWasmHost::new()
+                .with_default_response(500, "unexpected request")
+                .with_response(
+                    &format!("https://api.tensorlake.ai/sandboxes/{source}"),
+                    source_status,
+                    &json!({"id":source,"namespace":"local-project"}).to_string(),
+                );
+            let result = engine
+                .invoke(
+                    &hash,
+                    &context,
+                    Arc::new(host),
+                    &WasmResourceLimits::default(),
+                    Arc::new(RwLock::new(StreamRegistry::default())),
+                )
+                .await
+                .unwrap();
+            if action == "ProvisionFromCopy" {
+                assert!(result.success, "{source} {source_status}: {result:?}");
+                assert_eq!(result.callback_action, "CopyRejected");
+                let mut sim = child(467);
+                let state = sim
+                    .step(
+                        "copy",
+                        &result.callback_action,
+                        &result.callback_params.to_string(),
+                    )
+                    .unwrap();
+                sim.assert_status("copy", "Destroyed");
+                assert_eq!(state["fields"]["machine_id"], "source-machine");
+                assert!(sim.step("copy", "Destroy", "{}").is_err());
+                assert!(!sim.has_violations());
+            } else {
+                assert!(
+                    !result.success,
+                    "a reconciliation failure must retain uncertainty"
+                );
+            }
+        }
+    }
 }

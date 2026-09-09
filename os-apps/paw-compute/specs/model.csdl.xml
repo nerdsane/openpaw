@@ -128,6 +128,11 @@
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
         </Action>
 
+        <Action Name="CopyRejected" IsBound="true">
+          <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
+          <Parameter Name="error_message" Type="Edm.String" />
+        </Action>
+
         <Action Name="CopyFailed" IsBound="true">
           <Parameter Name="bindingParameter" Type="Paw.Compute.Computer" />
           <Parameter Name="error_message" Type="Edm.String" />

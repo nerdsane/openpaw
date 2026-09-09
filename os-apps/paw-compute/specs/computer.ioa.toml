@@ -414,6 +414,16 @@ from = ["Copying"]
 to = "Leased"
 hint = "Callback from computer_copy_poll — the copy is ready; the child is live and leased."
 
+# The initial module proved it failed before submitting or finding a copy.
+# Close the child without invoking teardown: machine_id still names the source.
+[[action]]
+name = "CopyRejected"
+kind = "input"
+from = ["Provisioning"]
+to = "Destroyed"
+params = ["error_message"]
+hint = "Callback: no copy was submitted or found. Close the child without terminating its source."
+
 # A failed/unknown provider response does not prove that no copy was created.
 # Keep the source untouched and require explicit read-only reconciliation.
 [[action]]

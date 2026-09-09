@@ -35,3 +35,16 @@ The Docker and full CI build lists now both include paw-compute before its nativ
 **Chose isolated preparation because:** It keeps the original objective and implementation intact while making the required Copy fix independently reviewable. Rita explicitly approved the separate Copy release PR on 2026-09-09. The original factory effort remains open; this release removes its sandbox-copy dependency.
 
 **Where:** docs/efforts/ARN-467/spec.md; docs/efforts/ARN-467/plan.md; branch codex/arn467-copy-release.
+
+
+## D30 — Distinguish a rejected first copy from an uncertain provider result
+
+**Decision:** Close a first copy attempt without teardown only when it fails before submitting a provider copy or finding an existing destination; keep every reconciliation failure uncertain.
+
+**Came up because:** The first release panel found that missing credentials, invalid identifiers and a failed source lookup could leave a child permanently waiting for a copy that was never submitted.
+
+**Options:** Preserve all failures as CopyUnknown; classify every pre-POST error as terminal; distinguish initial preflight from submission and reconciliation.
+
+**Chose the third option because:** The native ProvisionFromCopy action can run only from Created and its integration is dispatched once; no background WASM retry is scheduled by the pinned kernel. An error before that first request can safely close the child. ReconcileCopy is always GET-only and never closes the record on failure, even if its credentials or source lookup fail. An already-found named destination also preserves uncertainty if validation fails. This adds one callback, no retry loop, and never terminates the stored source machine.
+
+**Where:** os-apps/paw-compute/specs/computer.ioa.toml; os-apps/paw-compute/wasm/computer_copy_start/src/lib.rs; os-apps/paw-agent/wasm/wasm-helpers/src/sandbox.rs; https://github.com/nerdsane/temperpaw/pull/507.

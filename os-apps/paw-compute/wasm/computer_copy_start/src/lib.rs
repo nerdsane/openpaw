@@ -9,7 +9,7 @@
 
 use temper_wasm_sdk::prelude::*;
 use wasm_helpers::entity_field_str;
-use wasm_helpers::sandbox::{self, normalize_sandbox_provider};
+use wasm_helpers::sandbox::{self, CopyFailure, normalize_sandbox_provider};
 
 /// Wall-clock budget (ms) for the copy to become ready, stamped on the row so the
 /// poll reads a single deadline. A live-copy of a real box takes minutes.
@@ -17,18 +17,19 @@ const COPY_READY_BUDGET_MS: i64 = 300_000;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
-    let result = (|| -> Result<(), String> {
-        let ctx = Context::from_host()?;
+    let result = (|| -> Result<(), CopyFailure> {
+        let ctx = Context::from_host().map_err(CopyFailure::Unknown)?;
+        let mode = copy_mode(&ctx.trigger_action).map_err(CopyFailure::Unknown)?;
         let fields = ctx.entity_state.get("fields").cloned().unwrap_or(json!({}));
 
         let provider = provider_from_fields(&fields);
         let source_machine_id = entity_field_str(&fields, &["machine_id", "MachineId"])
             .filter(|s| !s.is_empty())
-            .ok_or("computer_copy_start: no source machine_id to copy from")?
+            .unwrap_or_default()
             .to_string();
 
-        let name = sandbox::sandbox_copy_name(&ctx.entity_id, &source_machine_id)?;
-        let mode = copy_mode(&ctx.trigger_action)?;
+        let name = sandbox::sandbox_copy_name(&ctx.entity_id, &source_machine_id)
+            .map_err(|error| CopyFailure::before_request(mode, error))?;
         ctx.log(
             "info",
             &format!("computer_copy_start: {mode:?} for child {}", ctx.entity_id),
@@ -50,8 +51,12 @@ pub extern "C" fn run(_ctx_ptr: i32, _ctx_len: i32) -> i32 {
         Ok(())
     })();
 
-    if let Err(e) = result {
-        set_error_result(&e);
+    match result {
+        Ok(()) => {}
+        Err(CopyFailure::NotStarted(error)) => {
+            set_success_result("CopyRejected", &json!({"error_message": error}));
+        }
+        Err(CopyFailure::Unknown(error)) => set_error_result(&error),
     }
     0
 }
